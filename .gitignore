@@ -1,0 +1,33 @@
+# Prerequisites
+build/
+bin/
+lib/
+.docker/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project Specific
+data/
+docker-backups/
+BaslerDocuments/
+*.o
+*.a
+*.so
+.agent/
+
+# Temp files
+check.cpp
+size_check.cpp
