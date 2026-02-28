@@ -1,0 +1,16 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file>assets/icons/arrow_down.svg</file>
+    <file>assets/icons/arrow_down_disabled.svg</file>
+    <file>assets/icons/arrow_up.svg</file>
+    <file>assets/icons/arrow_up_disabled.svg</file>
+    <file>assets/icons/Go to Start.svg</file>
+    <file>assets/icons/Step Back.svg</file>
+    <file>assets/icons/Jump to Trigger.svg</file>
+    <file>assets/icons/Play.svg</file>
+    <file>assets/icons/Pause.svg</file>
+    <file>assets/icons/Step Forward.svg</file>
+    <file>assets/icons/Go to End.svg</file>
+    <file>assets/icons/Zero Marker.svg</file>
+</qresource>
+</RCC>

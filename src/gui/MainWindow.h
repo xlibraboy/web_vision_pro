@@ -2,6 +2,8 @@
 
 #include <QMainWindow>
 #include <QStackedWidget>
+#include <QTabWidget>
+#include <QPushButton>
 #include <QTimer>
 #include <QMutex>
 #include <atomic>
@@ -9,11 +11,14 @@
 #include "LiveDashboard.h"
 #include "AnalysisView.h"
 #include "DetailView.h"
+#include "widgets/ToggleSwitch.h"
 #include "../core/CameraManager.h"
 #include "../processing/ImageBuffer.h"
 #include "../processing/DefectDetector.h"
 #include "../processing/VideoEncoder.h"
 #include "../communication/WebsocketServer.h" // Added dependency
+
+class ConfigDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -39,21 +44,26 @@ signals:
 private:
     void setupUi();
     void setupCore();
+    void applyGlobalTheme();
 
     // GUI
+    QTabWidget* mainTabWidget_;
     QStackedWidget* stackedWidget_;
-    LiveDashboard* liveDashboard_;
-    AnalysisView* analysisView_; // Existing view, maybe we keep it for playback?
-    DetailView* detailView_;     // New view
+    LiveDashboard* liveDashboard_ = nullptr;
+    AnalysisView* analysisView_ = nullptr;
+    DetailView* detailView_ = nullptr;
     
     // Actions & Menus
-    QAction* switchViewAction_;
-    QAction* triggerAction_;
+    QPushButton* triggerBtn_;
+    QPushButton* snapshotBtn_;
+    ToggleSwitch* defectDetectionCheck_;
     QAction* adminLoginAction_; // Login toggle
-    QAction* defectDetectionAction_; // Defect detection toggle
-    QAction* deleteEnabledAction_; // Checkable action for Secure Delete
     QAction* customLayoutAction_;
+    QAction* configAction_;
     QAction* aboutAction_;
+    
+    // Windows
+    ConfigDialog* configWindow_ = nullptr;
 
     // State
     std::atomic<bool> framePending_[16]; // Throttle flags per camera for GUI updates

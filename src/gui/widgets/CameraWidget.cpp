@@ -1,4 +1,5 @@
 #include "CameraWidget.h"
+#include "../../config/CameraConfig.h"
 #include <QPainter>
 #include <QDebug>
 
@@ -62,8 +63,9 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     QMutexLocker locker(&mutex_);
     
-    // Draw border first (1px gray border)
-    painter.setPen(QPen(QColor(100, 100, 100), 1));
+    // Draw border first using theme color
+    ThemeColors tc = CameraConfig::getThemeColors();
+    painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawRect(0, 0, width() - 1, height() - 1);
     
     // Content area (inside border)
@@ -85,10 +87,9 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
     painter.drawImage(x, y, scaled);
     // Draw overlay text if set
     if (!overlayText_.isEmpty()) {
-        painter.setPen(QColor(0, 255, 0)); // Green
+        painter.setPen(QColor(tc.primary));  // Use theme primary/accent color
         QFont font = painter.font();
         font.setPixelSize(14); // Reduced size
-        // font.setBold(true);  // Removed bold
         painter.setFont(font);
         
         // Draw at top-left with some padding

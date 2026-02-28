@@ -13,7 +13,8 @@ int main(int argc, char *argv[]) {
     app.setStyle("Fusion");
 
     MainWindow window;
-    window.show();
+    window.setWindowState(window.windowState() | Qt::WindowMaximized);
+    window.showMaximized();
 
     return app.exec();
     } catch (const Pylon::GenericException& e) {

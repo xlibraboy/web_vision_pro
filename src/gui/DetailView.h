@@ -7,6 +7,7 @@
 #include <QSlider>
 #include <QPushButton>
 #include <QFormLayout>
+#include <QGroupBox>
 #include "widgets/CameraWidget.h"
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
@@ -53,6 +54,7 @@ private:
     QLabel* lblTemp_;
 
     // Parameter Controls
+    QGroupBox* controlGroup_;
     QDoubleSpinBox* spinGain_;
     QSlider* sliderGain_;
     

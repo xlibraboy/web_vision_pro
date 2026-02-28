@@ -8,6 +8,8 @@
 #include <QSlider>
 #include <QToolBar>
 #include <QLabel>
+#include <QCheckBox>
+#include "widgets/ToggleSwitch.h"
 #include <QLineEdit>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -46,7 +48,6 @@ signals:
     void adminLoginRequested();
     void recordAllToggled(bool recording);
     void manualTriggerRequested(); // Signal to request a manual trigger from MainWindow
-    void configApplied(int preSeconds, int postSeconds, int fps, int binning); // New signal for config changes
     void eventAdded(); // Signal emitted when a new event is added to the log
 
 public slots:
@@ -63,14 +64,17 @@ public slots:
     void setLiveMode();
     void clearData(); // Explicitly clear memory
     void setDeleteEnabled(bool enabled); // Toggle delete mode
-
+    void setAdminMode(bool isAdmin); // Expose to MainWindow
+    void updateTheme(); // Dynamically update widget theme colors
+    
 private slots:
     void onServerButtonClicked();
     void onAdminButtonClicked();
-    void onLogSelected(int row, int col); // New slot for log selection
-    void onApplyConfigClicked();
-    void onTiffLoadingFinished();  // Async TIFF loading completion handler
-
+    void onLinkCamerasToggled(bool linked);
+    void onDeleteClicked();
+    
+    void onLogSelected(int row, int col);
+    void onTiffLoadingFinished();
     
     void onCameraClicked(int cameraId);
     void onTabChanged(int index);
@@ -87,16 +91,11 @@ private slots:
     void onFrameInputChanged();
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
-    
-    // Export and Settings
-    // Export and Settings
-    void onExportMp4Clicked();
-    void onLinkCamerasToggled(bool linked);
-    void onDeleteClicked();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     void setupUI();
@@ -108,10 +107,6 @@ private:
     void updatePlaybackControlsState(); // Enable/disable controls based on data availability
     void updateSliderZeroMarker();  // Position the zero marker on the slider
     
-    // Export helper
-    // Export helper
-    void exportToMp4(const QString& sourcePath);
-    
     // Main layout
     
     // Main layout
@@ -121,6 +116,7 @@ private:
     QWidget* leftSidebar_;
     QPushButton* serverButton_;
     QPushButton* adminButton_;
+    ToggleSwitch* enableDeleteCheck_;
     // recordButton_ removed
     QTableWidget* paperBreakTable_;
     
@@ -130,12 +126,7 @@ private:
     QWidget* allCameraTab_;
     QWidget* singleCameraTab_;
     QWidget* diagnosticTab_;
-    QWidget* configTab_;
-    QComboBox* resolutionComboBox_; // For global resolution setting
-    QSpinBox* fpsSpinBox_;          // For global FPS setting
-    QSpinBox* preTriggerSpinBox_;
-    QSpinBox* postTriggerSpinBox_;
-    QPushButton* applyConfigButton_;
+
 
     
     // Camera widgets
@@ -172,6 +163,10 @@ private:
     // State
     bool serverRunning_;
     bool isRecording_;
+    
+    // Theme State
+    QString activeThemePrimaryColor_;
+    QString activeThemeHoverColor_;
     bool isPlaying_;
     bool isReviewMode_;  // True when reviewing a triggered event
     double currentFrame_;

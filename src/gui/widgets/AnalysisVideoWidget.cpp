@@ -1,4 +1,5 @@
 #include "AnalysisVideoWidget.h"
+#include "../../config/CameraConfig.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <iostream>
@@ -8,11 +9,8 @@ AnalysisVideoWidget::AnalysisVideoWidget(int cameraId, const QString& title, QWi
     
     setMinimumSize(160, 120);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    
-    // Set dark background (Tooltip style now uses system default)
-    setStyleSheet(
-        "QWidget { background-color: #1a1a1a; border: 1px solid #333; }"
-    );
+    // Background is handled by QPainter in paintEvent; let the global theme set
+    // the widget background via QSS inheritance.
 }
 
 void AnalysisVideoWidget::setFrame(const QImage& frame) {
@@ -57,8 +55,9 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         painter.drawImage(x, y, scaled);
     } 
     
-    // Draw border
-    painter.setPen(QColor(60, 60, 60));
+    // Draw border using current theme color
+    ThemeColors tc = CameraConfig::getThemeColors();
+    painter.setPen(QColor(tc.border));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
     
     // Draw title bar at top (ALWAYS)

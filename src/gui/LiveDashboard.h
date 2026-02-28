@@ -26,6 +26,9 @@ public:
     // Get current grid dimensions
     int getCurrentRows() const { return currentRows_; }
     int getCurrentCols() const { return currentCols_; }
+    
+    // Dynamically update theme colors
+    void updateTheme();
 
 signals:
     void cameraSelected(int cameraId);

@@ -2,6 +2,7 @@
 #include "../config/CameraConfig.h"
 #include <iostream>
 #include <chrono>
+#include <pylon/gige/GigETransportLayer.h>
 
 // Use Pylon namespace
 using namespace Pylon;
@@ -9,8 +10,17 @@ using namespace Pylon;
 CameraManager::CameraManager(int numCameras) 
     : numCameras_(numCameras), acquiring_(false), width_(782), height_(582), fps_(10.0), 
       defectDetectionEnabled_(false) {
-    
     // Pylon requires initialization
+    
+    // Check Config for Source
+    if (CameraConfig::getCameraSource() == CameraConfig::CameraSource::RealCamera) {
+        std::cout << "[CameraManager] Configured for REAL CAMERA. Disabling Emulation." << std::endl;
+        unsetenv("PYLON_CAMEMU");
+    } else {
+        std::cout << "[CameraManager] Configured for EMULATION." << std::endl;
+        setenv("PYLON_CAMEMU", std::to_string(numCameras).c_str(), 1); 
+    }
+
     try {
         PylonInitialize();
     } catch (const GenericException& e) {
@@ -230,10 +240,20 @@ void CameraManager::stopAcquisition() {
         if (cameras_.IsOpen()) {
             cameras_.Close();
         }
+        // Detach all devices so they can be re-enumerated
+        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+            if (cameras_[i].IsPylonDeviceAttached()) {
+                cameras_[i].DestroyDevice();
+            }
+        }
+        cameras_.Initialize(0); // Reset camera array
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] Pylon exception during stop: " 
                   << e.GetDescription() << std::endl;
     }
+    
+    // Clear buffer pools
+    bufferPools_.clear();
 }
 
 void CameraManager::registerCallback(FrameCallback callback) {
@@ -535,4 +555,73 @@ void CameraManager::setGlobalResolution(int binningFactor) {
     }
     
     if (restart) startAcquisition();
+}
+
+std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
+    std::vector<GigEDeviceInfo> devices;
+    try {
+        Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
+        Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
+        if (pTl == nullptr) {
+            std::cerr << "[CameraManager] Error: No GigE transport layer installed." << std::endl;
+            return devices;
+        }
+
+        Pylon::DeviceInfoList_t lstDevices;
+        pTl->EnumerateAllDevices(lstDevices);
+
+        for (const auto& dev : lstDevices) {
+            GigEDeviceInfo info;
+            info.friendlyName = dev.GetFriendlyName().c_str();
+            info.macAddress = dev.GetMacAddress().c_str();
+            info.ipAddress = dev.GetIpAddress().c_str();
+            info.subnetMask = dev.GetSubnetMask().c_str();
+            info.defaultGateway = dev.GetDefaultGateway().c_str();
+            info.userDefinedName = dev.GetUserDefinedName().c_str();
+            devices.push_back(info);
+        }
+        
+        TlFactory.ReleaseTl(pTl);
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Error enumerating GigE devices: " << e.GetDescription() << std::endl;
+    }
+    return devices;
+}
+
+bool CameraManager::applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway) {
+    try {
+        Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
+        Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
+        if (pTl == nullptr) {
+            std::cerr << "[CameraManager] Error: No GigE transport layer installed." << std::endl;
+            return false;
+        }
+
+        // Find user defined name
+        Pylon::DeviceInfoList_t lstDevices;
+        pTl->EnumerateAllDevices(lstDevices);
+        std::string userDefinedName = "";
+        for (const auto& dev : lstDevices) {
+            if (dev.GetMacAddress().c_str() == mac) {
+                userDefinedName = dev.GetUserDefinedName().c_str();
+                break;
+            }
+        }
+
+        // isStatic = true, isDhcp = false for fixed IP broadcast
+        bool setOk = pTl->BroadcastIpConfiguration(mac.c_str(), true, false, ip.c_str(), mask.c_str(), gateway.c_str(), userDefinedName.c_str());
+        
+        if (setOk) {
+            pTl->RestartIpConfiguration(mac.c_str());
+            std::cout << "[CameraManager] Successfully changed IP for MAC " << mac << " to " << ip << std::endl;
+        } else {
+            std::cerr << "[CameraManager] Failed to change IP for MAC " << mac << std::endl;
+        }
+        
+        TlFactory.ReleaseTl(pTl);
+        return setOk;
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Error applying IP config: " << e.GetDescription() << std::endl;
+        return false;
+    }
 }

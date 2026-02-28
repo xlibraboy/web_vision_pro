@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CameraInfo.h"
 #include "../config/CameraConfig.h"
+#include "ConfigDialog.h"
 #include <QToolBar>
 #include <QStatusBar>
 #include <QDateTime>
@@ -10,6 +11,8 @@
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QMessageBox>
+#include <QDesktopWidget>
+#include <QApplication>
 
 // Register cv::Mat for signal/slot
 Q_DECLARE_METATYPE(cv::Mat)
@@ -40,6 +43,11 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
+    // Enable clean UI shutdown for child dialogs not parented correctly
+    if (configWindow_) {
+        configWindow_->close();
+    }
+    
     // Stop camera before destruction
     if (cameraManager_) {
         cameraManager_->stopAcquisition();
@@ -47,52 +55,105 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::setupUi() {
-    resize(1280, 800);
+    QRect screenGeometry = QApplication::desktop()->availableGeometry(this);
+    setGeometry(screenGeometry);
+    setWindowState(Qt::WindowMaximized);
     setWindowTitle("PaperVision System - Industrial Monitor");
     qInfo() << "Setting up UI...";
+    
+    // Apply theme globally right at startup
+    applyGlobalTheme();
 
     // --- Central Widget (Create FIRST) ---
-    stackedWidget_ = new QStackedWidget(this);
-    setCentralWidget(stackedWidget_);
+    mainTabWidget_ = new QTabWidget(this);
+    mainTabWidget_->setTabBarAutoHide(false);
+    mainTabWidget_->setDocumentMode(true); // Optional: cleaner look
+    setCentralWidget(mainTabWidget_);
 
+    // --- Tab 1: Live Area ---
+    QWidget* liveTab = new QWidget();
+    QVBoxLayout* liveLayout = new QVBoxLayout(liveTab);
+    liveLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Live Controls (Trigger, Snapshot) at the top of Live View Tab
+    QHBoxLayout* liveControlsLayout = new QHBoxLayout();
+    liveControlsLayout->setContentsMargins(8, 8, 8, 8);
+    
+    triggerBtn_ = new QPushButton("Trigger Record (S)");
+    connect(triggerBtn_, &QPushButton::clicked, this, &MainWindow::manualTrigger);
+    
+    snapshotBtn_ = new QPushButton("Take Snapshot");
+    connect(snapshotBtn_, &QPushButton::clicked, this, [this]() {
+        if (stackedWidget_->currentWidget() == detailView_) {
+            if (cameraManager_) {
+                cameraManager_->triggerSnapshot(detailView_->videoWidget()->cameraId());
+                statusBar()->showMessage("Snapshot triggered.", 2000);
+            }
+        } else {
+            QMessageBox::information(this, "Snapshot", "Snapshots can only be taken from the Detail View.");
+        }
+    });
+
+    liveControlsLayout->addWidget(triggerBtn_);
+    liveControlsLayout->addWidget(snapshotBtn_);
+    
+    // Add spacer before check
+    liveControlsLayout->addStretch();
+    
+    QLabel* defectLabel = new QLabel("Enable Defect Detection:");
+    liveControlsLayout->addWidget(defectLabel);
+    
+    defectDetectionCheck_ = new ToggleSwitch(this);
+    defectDetectionCheck_->setEnabled(isAdmin_); // Linked to Admin
+    connect(defectDetectionCheck_, &ToggleSwitch::toggled, [this](bool checked) {
+        if (cameraManager_) {
+            cameraManager_->setDefectDetectionEnabled(checked);
+        }
+    });
+    liveControlsLayout->addWidget(defectDetectionCheck_);
+    
+    liveLayout->addLayout(liveControlsLayout);
+
+    stackedWidget_ = new QStackedWidget(this);
+    
     // Views
     liveDashboard_ = new LiveDashboard(2, this);
     connect(liveDashboard_, &LiveDashboard::cameraSelected, this, &MainWindow::showDetail);
 
-    analysisView_ = new AnalysisView(CameraConfig::getCameraCount(), this);
-    
-    // Create Detail View
     detailView_ = new DetailView(this);
-    connect(analysisView_, &AnalysisView::recordAllToggled, this, &MainWindow::toggleRecording);
-    connect(analysisView_, &AnalysisView::manualTriggerRequested, this, &MainWindow::manualTrigger);
     connect(detailView_, &DetailView::backRequested, this, &MainWindow::showGrid);
     connect(detailView_, &DetailView::analysisRequested, [this]() {
          switchView(ViewMode::Analysis);
     });
-    
-    // Connect Configuration Update
-    connect(analysisView_, &AnalysisView::configApplied, [this](int preSeconds, int postSeconds, int fps, int binning) {
-        double fpsD = static_cast<double>(fps);
-        int preFrames = static_cast<int>(preSeconds * fpsD);
-        int postFrames = static_cast<int>(postSeconds * fpsD);
-        
-        // 1. Reconfigure Buffer
-        EventController::instance().initialize(preFrames, fpsD, postFrames);
-        
-        // 2. Reconfigure Cameras
-        if (cameraManager_) {
-            cameraManager_->setGlobalFrameRate(fpsD);
-            cameraManager_->setGlobalResolution(binning);
-        }
+    connect(detailView_, &DetailView::snapshotRequested, [this](int cameraId) {
+        if (cameraManager_) cameraManager_->triggerSnapshot(cameraId);
     });
 
-    // Connect Snapshot Request
-    connect(detailView_, &DetailView::snapshotRequested, [this](int cameraId) {
-        cameraManager_->triggerSnapshot(cameraId);
-    });
     stackedWidget_->addWidget(liveDashboard_); // Index 0
     stackedWidget_->addWidget(detailView_);    // Index 1
-    stackedWidget_->addWidget(analysisView_);  // Index 2
+    
+    liveLayout->addWidget(stackedWidget_);
+    mainTabWidget_->addTab(liveTab, "Live View");
+
+    // --- Tab 2: Analysis Area ---
+    analysisView_ = new AnalysisView(CameraConfig::getCameraCount(), this);
+    connect(analysisView_, &AnalysisView::recordAllToggled, this, &MainWindow::toggleRecording);
+    connect(analysisView_, &AnalysisView::manualTriggerRequested, this, &MainWindow::manualTrigger);
+    
+    mainTabWidget_->addTab(analysisView_, "Analysis View");
+    
+    // Connect tab change logic
+    connect(mainTabWidget_, &QTabWidget::currentChanged, [this](int index) {
+        if (index == 0) {
+            analysisView_->clearData(); // Memory optimization
+            
+            statusBar()->showMessage(QString("Live View - Grid %1x%2")
+                .arg(liveDashboard_->getCurrentRows())
+                .arg(liveDashboard_->getCurrentCols()));
+        } else {
+            statusBar()->showMessage("Analysis View");
+        }
+    });
 
     // --- Menu Bar (Create AFTER central widget) ---
     QMenuBar* menu = menuBar();
@@ -126,51 +187,48 @@ void MainWindow::setupUi() {
     
     settingsMenu->addSeparator();
     
-    // Defect Detection Toggle
-    defectDetectionAction_ = settingsMenu->addAction("Enable Defect Detection");
-    defectDetectionAction_->setCheckable(true);
-    defectDetectionAction_->setChecked(false); // Default: disabled
-    connect(defectDetectionAction_, &QAction::triggered, [this](bool checked) {
-        if (cameraManager_) {
-            cameraManager_->setDefectDetectionEnabled(checked);
+    // Configuration Window
+    configAction_ = settingsMenu->addAction("Configuration...");
+    configAction_->setEnabled(isAdmin_); // Grayed out until Admin login
+    connect(configAction_, &QAction::triggered, [this]() {
+        if (!configWindow_) {
+            configWindow_ = new ConfigDialog();
+            connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
+                // Reload live settings that don't require restart
+                if (cameraManager_) {
+                    cameraManager_->setGlobalFrameRate(CameraConfig::getFps());
+                    cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
+                }
+                EventController::instance().initialize(
+                    CameraConfig::getPreTriggerSeconds() * CameraConfig::getFps(), 
+                    CameraConfig::getFps(), 
+                    CameraConfig::getPostTriggerSeconds() * CameraConfig::getFps()
+                );
+                
+                // Reload UI Theme Globally
+                this->applyGlobalTheme();
+            });
+            // Handle cleanup if window is destroyed
+            connect(configWindow_, &QObject::destroyed, [this]() {
+                configWindow_ = nullptr;
+            });
         }
-    });
-
-    // Secure Delete Toggle (Admin Only)
-    deleteEnabledAction_ = settingsMenu->addAction("Enable Delete (Analysis)");
-    deleteEnabledAction_->setCheckable(true);
-    deleteEnabledAction_->setChecked(false);
-    deleteEnabledAction_->setEnabled(false); // Default: Disabled until Admin login
-    connect(deleteEnabledAction_, &QAction::triggered, [this](bool checked) {
-        if (analysisView_) {
-            analysisView_->setDeleteEnabled(checked);
+        
+        // Push admin state to config window before showing
+        configWindow_->setAdminMode(isAdmin_);
+        
+        // Show and bring to front
+        if (configWindow_->isHidden()) {
+            configWindow_->show();
         }
+        configWindow_->raise();
+        configWindow_->activateWindow();
     });
 
     // Help Menu
     QMenu* helpMenu = menu->addMenu("Help");
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
-
-    // --- Toolbar ---
-    QToolBar* toolbar = addToolBar("Main");
-    switchViewAction_ = toolbar->addAction("Analysis View");  // Initial text when on Live View
-    connect(switchViewAction_, &QAction::triggered, this, &MainWindow::toggleView);
-
-    toolbar->addSeparator(); // Divider between View switch and Trigger
-
-    triggerAction_ = toolbar->addAction("Trigger Record (S)");
-    connect(triggerAction_, &QAction::triggered, this, &MainWindow::manualTrigger);
-    
-    // Add spacer to push title to far right
-    QWidget* spacer = new QWidget(this);
-    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    toolbar->addWidget(spacer);
-    
-    // Add title label to far right of toolbar
-    QLabel* titleLabel = new QLabel("PaperVision System - Multi-Camera Live Monitor  ", this);
-    titleLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #333;");
-    toolbar->addWidget(titleLabel);
 
     // Initial Status
     statusBar()->showMessage("System Initialized");
@@ -252,38 +310,20 @@ void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
 }
 
 void MainWindow::toggleView() {
-    // Toggle between Live/Detail View and Analysis View
-    // Index 0: Live, 1: Detail, 2: Analysis
-    int currentIndex = stackedWidget_->currentIndex();
-    
-    // If currently on Analysis View (2), go to Live (0)
-    if (currentIndex == 2) {
-        // MEMORY OPTIMIZATION: Clear Analysis data when leaving the view
-        analysisView_->clearData();
-        
-        stackedWidget_->setCurrentWidget(liveDashboard_);
-        switchViewAction_->setText("Analysis View");
-        statusBar()->showMessage(QString("Live View - Grid %1x%2")
-            .arg(liveDashboard_->getCurrentRows())
-            .arg(liveDashboard_->getCurrentCols()));
+    int currentIndex = mainTabWidget_->currentIndex();
+    if (currentIndex == 1) {
+        mainTabWidget_->setCurrentIndex(0);
     } else {
-        // If on Live (0) or Detail (1), go to Analysis (2)
-        stackedWidget_->setCurrentWidget(analysisView_);
-        switchViewAction_->setText("Live View");
-        statusBar()->showMessage("Analysis View");
-        
-        // Also ensure Analysis View is in a good state (e.g. Live mode if not reviewing)
-        // analysisView_->setLiveMode(); // Optional, but good UX
+        mainTabWidget_->setCurrentIndex(1);
     }
 }
 
 void MainWindow::showDetail(int cameraId) {
     qDebug() << "Showing detail for camera" << cameraId;
     
-    // MEMORY OPTIMIZATION: If coming from Analysis View, clear its data
-    if (stackedWidget_->currentWidget() == analysisView_) {
-        analysisView_->clearData();
-        switchViewAction_->setText("Analysis View"); // Create consistency
+    // MEMORY OPTIMIZATION: Switch tab to ensure live stack logic
+    if (mainTabWidget_->currentIndex() == 1) {
+        mainTabWidget_->setCurrentIndex(0); 
     }
     
     // Get camera info from centralized config
@@ -319,13 +359,15 @@ void MainWindow::toggleAdmin() {
         adminLoginAction_->setText("Administrator Login");
         statusBar()->showMessage("Administrator Logged Out");
         
-        // Disable Secure Delete
-        if (deleteEnabledAction_) {
-            deleteEnabledAction_->setChecked(false);
-            deleteEnabledAction_->setEnabled(false);
+        if (defectDetectionCheck_) {
+            defectDetectionCheck_->setChecked(false);
+            defectDetectionCheck_->setEnabled(false);
         }
         if (analysisView_) {
-            analysisView_->setDeleteEnabled(false);
+            analysisView_->setAdminMode(false);
+        }
+        if (configAction_) {
+            configAction_->setEnabled(false);
         }
     } else {
         // Login
@@ -338,9 +380,15 @@ void MainWindow::toggleAdmin() {
             adminLoginAction_->setText("Logout Administrator");
             statusBar()->showMessage("Administrator Logged In");
             
-            // Enable Secure Delete Option
-            if (deleteEnabledAction_) {
-                deleteEnabledAction_->setEnabled(true);
+            if (defectDetectionCheck_) {
+                defectDetectionCheck_->setEnabled(true);
+            }
+            if (analysisView_) {
+                analysisView_->setAdminMode(true);
+            }
+            // Enable Configuration
+            if (configAction_) {
+                configAction_->setEnabled(true);
             }
         } else if (ok) {
             QMessageBox::warning(this, "Login Failed", "Incorrect Password");
@@ -419,14 +467,15 @@ void MainWindow::showAbout() {
 void MainWindow::switchView(ViewMode mode) {
     switch (mode) {
         case ViewMode::Live:
+            mainTabWidget_->setCurrentIndex(0);
             stackedWidget_->setCurrentIndex(0);
-            // liveDashboard_->resume(); // Not implemented yet
             break;
         case ViewMode::Detail:
+            mainTabWidget_->setCurrentIndex(0);
             stackedWidget_->setCurrentIndex(1);
             break;
         case ViewMode::Analysis:
-            stackedWidget_->setCurrentIndex(2);
+            mainTabWidget_->setCurrentIndex(1);
             break;
     }
 }
@@ -450,3 +499,70 @@ void MainWindow::keyPressEvent(QKeyEvent *event) {
     }
     QMainWindow::keyPressEvent(event);
 }
+
+void MainWindow::applyGlobalTheme() {
+    ThemeColors tc = CameraConfig::getThemeColors();
+    const QString& bgColor    = tc.bg;
+    const QString& borderColor = tc.border;
+    const QString& btnBg      = tc.btnBg;
+    const QString& btnHover   = tc.btnHover;
+    const QString& primaryColor = tc.primary;
+    const QString& sliderBg   = tc.sliderBg;
+    const QString& handleColor = tc.handle;
+    const QString& textColor  = tc.text;
+
+
+    QString globalStyle = QString(
+        // Base Window & Widget backgrounds
+        "QMainWindow, QDialog, QWidget { background-color: %1; color: %8; }"
+        "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: #888888; }"
+        // Toolbars and Borders
+        "QToolBar, QMenuBar { background-color: %3; border-bottom: 1px solid %2; color: %8; }"
+        "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"
+        "QMenu::item:selected { background-color: %4; color: %5; }"
+        "QMenu::item:disabled { color: #888888; }"
+        // Buttons
+        "QPushButton { background-color: %3; color: %8; border: 1px solid %2; border-radius: 4px; padding: 4px 12px; font-weight: bold; }"
+        "QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %5; color: %1; }"
+        "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        // Tables / Grids
+        "QTableWidget, QTableView { background-color: %1; alternate-background-color: %3; color: %8; gridline-color: %2; border: 1px solid %2; }"
+        "QHeaderView::section { background-color: %3; color: %8; padding: 4px; border: 1px solid %2; }"
+        "QTableWidget::item:selected { background-color: %4; color: %5; }"
+        // Sliders (For Analysis View)
+        "QSlider::groove:horizontal { height: 4px; background: %2; border-radius: 2px; }"
+        "QSlider::groove:horizontal:disabled { background: %1; border: 1px solid %2; }"
+        "QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; background: %7; border-radius: 6px; }"
+        "QSlider::handle:horizontal:hover { transform: scale(1.2); background: %5; }"
+        "QSlider::handle:horizontal:disabled { background: %2; }"
+        "QSlider::sub-page:horizontal { background: %6; border-radius: 2px; }"
+        "QSlider::sub-page:horizontal:disabled { background: #888888; border-radius: 2px; }"
+        "QSlider::add-page:horizontal { background: %2; border-radius: 2px; }"
+        // Inputs
+        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: %3; color: %8; border: 1px solid %2; border-radius: 2px; padding: 2px 4px; }"
+        "QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        "QComboBox::drop-down { border-left: 1px solid %2; }"
+        // SpinBox buttons — must be styled explicitly when background-color is set
+        "QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 16px; border-left: 1px solid %2; background-color: %3; }"
+        "QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 16px; border-left: 1px solid %2; border-top: 1px solid %2; background-color: %3; }"
+        "QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover { background-color: %4; }"
+        "QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background-color: %4; }"
+        "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url(:/assets/icons/arrow_up.svg); width: 8px; height: 8px; }"
+        "QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled { image: url(:/assets/icons/arrow_up_disabled.svg); }"
+        "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url(:/assets/icons/arrow_down.svg); width: 8px; height: 8px; }"
+        "QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled { image: url(:/assets/icons/arrow_down_disabled.svg); }"
+        // Specific Overrides for Playback Panel to match theme instead of staying transparent
+        "QWidget#playbackPanel QPushButton { background-color: %3; border: 1px solid %2; padding: 4px; border-radius: 4px; }"
+        "QWidget#playbackPanel QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QWidget#playbackPanel QPushButton[active=\"true\"] { background-color: %5; color: %1; }"
+        "QWidget#playbackPanel { border-top: 1px solid %2; }"
+    ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor);
+
+    qApp->setStyleSheet(globalStyle);
+    
+    // Sub-components that manage their own local stylesheets using theme variables
+    if (liveDashboard_) liveDashboard_->updateTheme();
+    if (analysisView_) analysisView_->updateTheme();
+}
+

@@ -19,6 +19,16 @@
 // Define callback type for new frames (cameraId, frame)
 using FrameCallback = std::function<void(int, const cv::Mat&)>;
 
+// Struct to hold GigE Device Information for Network Config
+struct GigEDeviceInfo {
+    std::string friendlyName;
+    std::string macAddress;
+    std::string ipAddress;
+    std::string subnetMask;
+    std::string defaultGateway;
+    std::string userDefinedName;
+};
+
 class CameraManager {
 public:
     CameraManager(int numCameras = 8);
@@ -55,6 +65,10 @@ public:
     // Global Configuration
     void setGlobalFrameRate(double fps);
     void setGlobalResolution(int binningFactor); // 1 = Full, 2 = 2x2, etc.
+
+    // GigE Network Configuration
+    static std::vector<GigEDeviceInfo> enumerateGigEDevices();
+    static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:
     // Helper to configure camera parameters (PTP, Packet Size)

@@ -33,7 +33,9 @@ set(SOURCES
     src/gui/DetailView.cpp
     src/gui/widgets/CameraWidget.cpp
     src/gui/widgets/AnalysisVideoWidget.cpp
+    src/gui/ConfigDialog.cpp
     src/config/CameraConfig.cpp
+    src/gui/widgets/ToggleSwitch.cpp
 )
 
 # Header files for Qt MOC
@@ -42,8 +44,10 @@ set(HEADERS
     src/gui/LiveDashboard.h
     src/gui/AnalysisView.h
     src/gui/DetailView.h
+    src/gui/ConfigDialog.h
     src/gui/widgets/CameraWidget.h
     src/gui/widgets/AnalysisVideoWidget.h
+    src/gui/widgets/ToggleSwitch.h
 )
 
 # Include Directories
@@ -54,9 +58,10 @@ include_directories(
 
 # Qt Mocking
 qt5_wrap_cpp(MOC_SOURCES ${HEADERS})
+qt5_add_resources(RESOURCES resources.qrc)
 
 # Executable
-add_executable(PaperVision_App ${SOURCES} ${MOC_SOURCES})
+add_executable(PaperVision_App ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
 
 # Link Libraries
 target_link_libraries(PaperVision_App

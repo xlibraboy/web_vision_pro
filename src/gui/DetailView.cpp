@@ -41,8 +41,8 @@ void DetailView::setupUi() {
     infoLayout->addRow("Temperature °C:", lblTemp_);
 
     // Parameters Group (Below Camera Info)
-    QGroupBox* controlGroup = new QGroupBox("Camera Parameters", this);
-    QGridLayout* controlLayout = new QGridLayout(controlGroup);
+    controlGroup_ = new QGroupBox("Camera Parameters", this);
+    QGridLayout* controlLayout = new QGridLayout(controlGroup_);
 
     // Gain (row 0)
     QLabel* lblGain = new QLabel("Gain:", this);
@@ -136,21 +136,9 @@ void DetailView::setupUi() {
     
     // Apply button (row 8)
     controlLayout->addWidget(btnSave_, 8, 0, 1, 2);  // Span both columns
-    
-    // "Go to Analysis View" button (row 9)
-    btnAnalysis_ = new QPushButton("Go to Analysis View", this);
-    btnAnalysis_->setStyleSheet("background-color: #007ACC; color: white; font-weight: bold; padding: 5px;");
-    connect(btnAnalysis_, &QPushButton::clicked, this, &DetailView::onAnalysisClicked);
-    controlLayout->addWidget(btnAnalysis_, 9, 0, 1, 2);
-
-    // Snapshot Button (row 10)
-    btnSnapshot_ = new QPushButton("Take Snapshot", this);
-    btnSnapshot_->setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold; padding: 5px;");
-    connect(btnSnapshot_, &QPushButton::clicked, this, &DetailView::onSnapshotClicked);
-    controlLayout->addWidget(btnSnapshot_, 10, 0, 1, 2);
 
     leftPanelLayout->addWidget(infoGroup);
-    leftPanelLayout->addWidget(controlGroup);
+    leftPanelLayout->addWidget(controlGroup_);
     leftPanelLayout->addStretch(); // Push content to top
 
     // --- Center Panel: Video ---
@@ -198,6 +186,10 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
 
 void DetailView::setAdminMode(bool isAdmin) {
     isAdmin_ = isAdmin;
+    
+    if (controlGroup_) {
+        controlGroup_->setEnabled(isAdmin);
+    }
     
     // Enable/disable spinboxes
     spinGain_->setEnabled(isAdmin);

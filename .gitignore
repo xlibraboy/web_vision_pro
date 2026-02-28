@@ -31,3 +31,6 @@ BaslerDocuments/
 # Temp files
 check.cpp
 size_check.cpp
+
+# Logs
+*.log

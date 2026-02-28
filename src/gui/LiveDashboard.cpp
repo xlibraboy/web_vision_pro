@@ -95,10 +95,11 @@ void LiveDashboard::setupGrid(int rows, int cols) {
         } else {
             // Create empty placeholder with border
             QWidget* emptyCell = new QWidget(gridContainer_);
-            emptyCell->setStyleSheet(
-                "background-color: #1e1e1e; "
-                "border: 1px solid #444;"
-            );
+            ThemeColors tc = CameraConfig::getThemeColors();
+            emptyCell->setStyleSheet(QString(
+                "background-color: %1; "
+                "border: 1px solid %2;"
+            ).arg(tc.bg, tc.border));
             emptyCell->setMinimumSize(50, 50); // Ensure minimum size
             gridLayout_->addWidget(emptyCell, row, col);
             emptyCells_.push_back(emptyCell);
@@ -122,4 +123,16 @@ void LiveDashboard::updateStatus(double fps, bool recording) {
     QString status = QString("Status: %1 | FPS: %2").arg(
         recording ? "<font color='red'>RECORDING</font>" : "Monitoring").arg(fps, 0, 'f', 1);
     statusLabel_->setText(status);
+}
+
+void LiveDashboard::updateTheme() {
+    ThemeColors tc = CameraConfig::getThemeColors();
+    QString emptyStyle = QString(
+        "background-color: %1; "
+        "border: 1px solid %2;"
+    ).arg(tc.bg, tc.border);
+    
+    for (QWidget* cell : emptyCells_) {
+        cell->setStyleSheet(emptyStyle);
+    }
 }
