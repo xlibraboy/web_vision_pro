@@ -97,6 +97,10 @@ void MainWindow::setupUi() {
     liveControlsLayout->addWidget(triggerBtn_);
     liveControlsLayout->addWidget(snapshotBtn_);
     
+    pauseBtn_ = new QPushButton("Pause Grab");
+    connect(pauseBtn_, &QPushButton::clicked, this, &MainWindow::togglePauseGrab);
+    liveControlsLayout->addWidget(pauseBtn_);
+    
     // Add spacer before check
     liveControlsLayout->addStretch();
     
@@ -117,7 +121,7 @@ void MainWindow::setupUi() {
     stackedWidget_ = new QStackedWidget(this);
     
     // Views
-    liveDashboard_ = new LiveDashboard(2, this);
+    liveDashboard_ = new LiveDashboard(CameraConfig::getCameraCount(), this);
     connect(liveDashboard_, &LiveDashboard::cameraSelected, this, &MainWindow::showDetail);
 
     detailView_ = new DetailView(this);
@@ -196,13 +200,18 @@ void MainWindow::setupUi() {
             connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
                 // Reload live settings that don't require restart
                 if (cameraManager_) {
-                    cameraManager_->setGlobalFrameRate(CameraConfig::getFps());
+                    std::vector<CameraInfo> cams = CameraConfig::getCameras();
+                    for (int i = 0; i < (int)cams.size(); ++i) {
+                        cameraManager_->setCameraFrameRate(i, cams[i].fps);
+                    }
                     cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
                 }
+                
+                // Assuming global FPS setting is still used for buffer setup (or just use a defined default)
                 EventController::instance().initialize(
-                    CameraConfig::getPreTriggerSeconds() * CameraConfig::getFps(), 
-                    CameraConfig::getFps(), 
-                    CameraConfig::getPostTriggerSeconds() * CameraConfig::getFps()
+                    CameraConfig::getPreTriggerSeconds() * 10,  // fallback base rate
+                    10, 
+                    CameraConfig::getPostTriggerSeconds() * 10
                 );
                 
                 // Reload UI Theme Globally
@@ -401,8 +410,8 @@ void MainWindow::toggleAdmin() {
 }
 
 void MainWindow::changeLayout(int rows, int cols) {
-    // Get number of cameras from LiveDashboard (we initialized with 2)
-    int numCameras = 2; // This matches the LiveDashboard(2, this) initialization
+    // Get number of cameras from config
+    int numCameras = CameraConfig::getCameraCount();
     
     // Validate grid capacity
     if (rows * cols < numCameras) {
@@ -498,6 +507,26 @@ void MainWindow::keyPressEvent(QKeyEvent *event) {
         manualTrigger();
     }
     QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::togglePauseGrab() {
+    if (!cameraManager_) return;
+    
+    bool isPaused = cameraManager_->isGrabbingPaused();
+    cameraManager_->pauseGrabbing(!isPaused);
+    
+    if (!isPaused) {
+        pauseBtn_->setText("Resume Grab");
+        // Apply a visual warning tint (light red) to signify paused state. 
+        // This takes precedence over global stylesheet.
+        pauseBtn_->setStyleSheet("background-color: #ffaaaa; color: #880000;");
+        statusBar()->showMessage("Camera Grabbing PAUSED", 3000);
+    } else {
+        pauseBtn_->setText("Pause Grab");
+        // Clear local style to revert to global theme
+        pauseBtn_->setStyleSheet("");
+        statusBar()->showMessage("Camera Grabbing RESUMED", 3000);
+    }
 }
 
 void MainWindow::applyGlobalTheme() {

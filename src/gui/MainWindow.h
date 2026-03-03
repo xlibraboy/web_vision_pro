@@ -56,6 +56,7 @@ private:
     // Actions & Menus
     QPushButton* triggerBtn_;
     QPushButton* snapshotBtn_;
+    QPushButton* pauseBtn_;
     ToggleSwitch* defectDetectionCheck_;
     QAction* adminLoginAction_; // Login toggle
     QAction* customLayoutAction_;
@@ -86,6 +87,7 @@ private slots:
     void handleFrame(int cameraId, const cv::Mat& frame);
     void toggleView();
     void manualTrigger();
+    void togglePauseGrab();
     void toggleRecording(bool recording);
     void showDetail(int cameraId);
     void showGrid();

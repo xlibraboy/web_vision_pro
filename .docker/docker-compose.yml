@@ -12,10 +12,8 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - PYLON_CAMEMU=2
       - PYLON_ROOT=/opt/pylon
       - LD_LIBRARY_PATH=/opt/pylon/lib:$LD_LIBRARY_PATH
-      - QT_DEBUG_PLUGINS=1
     volumes:
       - ../:/app
       - /tmp/.X11-unix:/tmp/.X11-unix

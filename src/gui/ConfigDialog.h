@@ -8,6 +8,11 @@
 #include <QLineEdit>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <QLabel>
+#include <QTextEdit>
+#include <QMessageBox>
+#include <QCheckBox>
+#include "CameraInfo.h"
 #include "../core/CameraManager.h"
 
 struct IpConfigEntry {
@@ -32,33 +37,52 @@ signals:
 
 private slots:
     void saveAndApply();
-    void onApplyIpClicked();
-    void refreshIpCameraList();
     void onAddCameraConfigClicked();
     void onRemoveCameraConfigClicked();
 
 private:
     void setupUI();
     void loadSettings();
+    void createCameraWidgetBlock(const CameraInfo& cam);
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
-    QComboBox* sourceCombo_;
-    QSpinBox* fpsSpin_;
+    QSpinBox* globalFpsSpin_; // Was fpsSpin_
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
     ToggleSwitch* defectCheck_;
     QComboBox* themeCombo_;
     QPushButton* saveBtn_;
     
-    // Network Configuration UI
-    QComboBox* ipCameraCombo_;
-    QPushButton* refreshNetBtn_;
-    QPushButton* applyIpBtn_;
+    // Per-Camera Setup UI
+    QPushButton* addCameraBtn_;
     
-    QScrollArea* ipScrollArea_;
-    QWidget* ipScrollWidget_;
-    QVBoxLayout* ipListLayout_;
+    QScrollArea* cameraScrollArea_;
+    QWidget* cameraScrollWidget_;
+    QVBoxLayout* cameraListLayout_;
     
-    std::vector<IpConfigEntry> activeIpConfigs_;
+    struct CameraConfigWidgets {
+        QWidget* container;
+        int id; // For saving back
+        QComboBox* sourceCombo;
+        QLineEdit* nameEdit;
+        QLineEdit* locationEdit;
+        QComboBox* sideCombo;
+        QSpinBox* positionSpin;
+        QLabel* ipLabel;
+        QComboBox* macCombo;
+        QLineEdit* subnetEdit;
+        QLineEdit* gatewayEdit;
+        QPushButton* writeIpBtn;
+        QSpinBox* fpsSpin;
+        QCheckBox* editParamsCheck;
+        QSpinBox* gainSpin;
+        QSpinBox* exposureSpin;
+        QSpinBox* gammaSpin;
+        QSpinBox* contrastSpin;
+    };
     
+    std::vector<CameraConfigWidgets> activeCameraConfigs_;
     std::vector<GigEDeviceInfo> currentGigEDevices_;
+    
+    QTextEdit* connectionLogsBrowser_;
 };

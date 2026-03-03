@@ -24,17 +24,23 @@ struct ThemeColors {
  */
 class CameraConfig {
 public:
-    // Get full camera information for a specific camera ID (0-based)
+    // Get full camera information for a specific camera ID (1-based index)
     static CameraInfo getCameraInfo(int cameraId);
     
-    // Get formatted camera label (e.g., "CAM-01: Headbox")
+    // Get formatted camera label (e.g., "CAM-01: DRYER 1")
     static QString getCameraLabel(int cameraId);
     
-    // Get short camera name (e.g., "Headbox")
+    // Get short camera name (e.g., "DRYER 1")
     static QString getCameraName(int cameraId);
     
     // Get total number of configured cameras
     static int getCameraCount();
+
+    // Get all configured cameras
+    static std::vector<CameraInfo> getCameras();
+    
+    // Save configured cameras
+    static void saveCameras(const std::vector<CameraInfo>& cameras);
 
     // Configuration Enums
     enum class CameraSource {
@@ -71,7 +77,6 @@ public:
     // Returns the full set of color tokens for the current theme preset.
     static ThemeColors getThemeColors();
 
-private:
-    // Centralized camera metadata
-    static const std::vector<CameraInfo>& getCameraMetadata();
+    // Initialize default cameras if empty
+    static void ensureDefaultCameras();
 };

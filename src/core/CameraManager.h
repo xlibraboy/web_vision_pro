@@ -31,6 +31,15 @@ struct GigEDeviceInfo {
 
 class CameraManager {
 public:
+    // Event Handler for Device Removal
+    class DeviceRemovalHandler : public Pylon::CConfigurationEventHandler {
+    public:
+        DeviceRemovalHandler(CameraManager* manager) : manager_(manager) {}
+        void OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) override;
+    private:
+        CameraManager* manager_;
+    };
+
     CameraManager(int numCameras = 8);
     ~CameraManager();
 
@@ -42,6 +51,10 @@ public:
 
     // Stop acquisition
     void stopAcquisition();
+
+    // Pause/Resume grab
+    void pauseGrabbing(bool pause);
+    bool isGrabbingPaused() const;
 
     // Register a callback to receive frames
     void registerCallback(FrameCallback callback);
@@ -64,6 +77,7 @@ public:
 
     // Global Configuration
     void setGlobalFrameRate(double fps);
+    void setCameraFrameRate(int cameraIndex, double fps);
     void setGlobalResolution(int binningFactor); // 1 = Full, 2 = 2x2, etc.
 
     // GigE Network Configuration
@@ -86,7 +100,14 @@ private:
 
     int numCameras_;
     std::atomic<bool> acquiring_; // Threading
+    std::atomic<bool> paused_{false}; // Paused Grab
     std::thread acquisitionThread_;
+    
+    // Device Removal Recovery
+    std::atomic<bool> recovering_;
+    std::thread recoveryThread_;
+    void recoveryLoop();
+
     FrameCallback callback_;
     std::mutex callbackMutex_;
 
@@ -112,6 +133,9 @@ private:
     
     std::vector<std::string> cameraLabels_;
     std::vector<std::string> modelNames_;
+    
+    // Recovery tracking info (Device Class, Serial Numbers, MACs)
+    std::vector<Pylon::CDeviceInfo> targetDevices_;
     
     // Preallocated buffer pools (one per camera)
     std::vector<std::unique_ptr<BufferPool>> bufferPools_;

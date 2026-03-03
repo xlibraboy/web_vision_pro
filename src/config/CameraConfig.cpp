@@ -7,7 +7,7 @@
 
 CameraConfig::CameraSource CameraConfig::getCameraSource() {
     QSettings settings("PaperVision", "SystemConfig");
-    int val = settings.value("CameraSource", 0).toInt(); // Default 0 (Emulation)
+    int val = settings.value("CameraSource", 1).toInt(); // Default 1 (RealCamera)
     return static_cast<CameraSource>(val);
 }
 
@@ -102,63 +102,137 @@ ThemeColors CameraConfig::getThemeColors() {
     return c;
 }
 
-const std::vector<CameraInfo>& CameraConfig::getCameraMetadata() {
-    static std::vector<CameraInfo> cameraMetadata = {
+std::vector<CameraInfo> CameraConfig::getCameras() {
+    QSettings settings("PaperVision", "SystemConfig");
+    int count = settings.beginReadArray("Cameras");
+    std::vector<CameraInfo> cameras;
+    
+    if (count == 0) {
+        settings.endArray();
+        ensureDefaultCameras();
+        return getCameras(); // recursive call after ensuring defaults
+    }
+    
+    for (int i = 0; i < count; ++i) {
+        settings.setArrayIndex(i);
+        CameraInfo cam;
+        cam.id = settings.value("id", i + 1).toInt();
+        cam.source = settings.value("source", 1).toInt(); // Default 1 (Real)
+        cam.name = settings.value("name", QString("Camera %1").arg(i + 1)).toString();
+        cam.location = settings.value("location", "Unknown Location").toString();
+        cam.side = settings.value("side", "DRIVE SIDE").toString();
+        cam.machinePosition = settings.value("machinePosition", 0).toInt();
+        cam.ipAddress = settings.value("ipAddress", QString("172.17.2.%1").arg(i + 1)).toString();
+        cam.macAddress = settings.value("macAddress", "").toString();
+        cam.subnetMask = settings.value("subnetMask", "255.255.255.0").toString();
+        cam.defaultGateway = settings.value("defaultGateway", "0.0.0.0").toString();
+        cam.gain = settings.value("gain", 428).toInt();
+        cam.exposureTime = settings.value("exposureTime", 541).toInt();
+        cam.gamma = settings.value("gamma", 23).toInt();
+        cam.contrast = settings.value("contrast", 4).toInt();
+        cam.fps = settings.value("fps", 50).toInt();
+        cam.temperature = 0.0; // Runtime value
+        cameras.push_back(cam);
+    }
+    settings.endArray();
+    return cameras;
+}
+
+void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.beginWriteArray("Cameras", cameras.size());
+    for (int i = 0; i < cameras.size(); ++i) {
+        settings.setArrayIndex(i);
+        const auto& cam = cameras[i];
+        settings.setValue("id", cam.id);
+        settings.setValue("source", cam.source);
+        settings.setValue("name", cam.name);
+        settings.setValue("location", cam.location);
+        settings.setValue("side", cam.side);
+        settings.setValue("machinePosition", cam.machinePosition);
+        settings.setValue("ipAddress", cam.ipAddress);
+        settings.setValue("macAddress", cam.macAddress);
+        settings.setValue("subnetMask", cam.subnetMask);
+        settings.setValue("defaultGateway", cam.defaultGateway);
+        settings.setValue("gain", cam.gain);
+        settings.setValue("exposureTime", cam.exposureTime);
+        settings.setValue("gamma", cam.gamma);
+        settings.setValue("contrast", cam.contrast);
+        settings.setValue("fps", cam.fps);
+    }
+    settings.endArray();
+}
+
+void CameraConfig::ensureDefaultCameras() {
+    QSettings settings("PaperVision", "SystemConfig");
+    int count = settings.beginReadArray("Cameras");
+    settings.endArray();
+    
+    if (count > 0) return;
+    
+    std::vector<CameraInfo> defaults = {
         {
-            1,  // ID starts from 01
-            "Paper Machine #1",
-            "OS",  // Operator Side
-            "Headbox monitoring",
-            "Basler acA1920-40gm",
-            "Not Connected / Simulated",  // IP for emulated camera
-            "640 x 480",
-            55.0,  // FPS
-            42.5   // Temperature
+            1,  // ID starts from 1
+            1,  // source (1 = Real Camera)
+            "DRYER 1", // name
+            "CYLINDER 13", // location
+            "OPERATOR SIDE", // side
+            16600, // machinePosition
+            "172.17.2.1", // ipAddress
+            "", // macAddress
+            "255.255.255.0", // subnetMask
+            "0.0.0.0", // defaultGateway
+            428, 541, 23, 4, 50, 0.0 // defaults
         },
         {
-            2,  // ID 02
-            "Paper Machine #1",
-            "DS",  // Drive Side
-            "Dryer section monitoring",
-            "Basler acA1920-40gm",
-            "Not Connected / Simulated",
-            "640 x 480",
-            55.0,
-            43.2
+            2,
+            1,  // source (1 = Real Camera)
+            "DRYER 2",
+            "CYLINDER 14",
+            "DRIVE SIDE",
+            17200,
+            "172.17.2.2",
+            "",
+            "255.255.255.0",
+            "0.0.0.0",
+            428, 541, 23, 4, 50, 0.0
         }
     };
-    return cameraMetadata;
+    saveCameras(defaults);
 }
 
 CameraInfo CameraConfig::getCameraInfo(int cameraId) {
-    const auto& metadata = getCameraMetadata();
-    if (cameraId >= 0 && cameraId < static_cast<int>(metadata.size())) {
-        return metadata[cameraId];
+    auto cameras = getCameras();
+    // find by ID if possible
+    for (const auto& cam : cameras) {
+        if (cam.id == cameraId || (cam.id == 0 && cameraId == 1)) { // handle 0-based vs 1-based slightly
+            return cam;
+        }
     }
-    // Return first camera as default if ID is out of range
-    return metadata.empty() ? CameraInfo{} : metadata[0];
+    // Alternatively fallback to index (cameraId is an index if it's 0-based in older code)
+    if (cameraId >= 0 && cameraId < cameras.size()) {
+        return cameras[cameraId];
+    }
+    return cameras.empty() ? CameraInfo{} : cameras[0];
 }
 
-QString CameraConfig::getCameraLabel(int cameraId) {
-    const auto& metadata = getCameraMetadata();
-    QString label = QString("CAM-%1").arg(cameraId + 1, 2, 10, QChar('0'));
-    
-    if (cameraId >= 0 && cameraId < static_cast<int>(metadata.size())) {
-        label += ": " + metadata[cameraId].description.split(" ").first();  // First word of description
+QString CameraConfig::getCameraLabel(int index) {
+    auto cameras = getCameras();
+    if (index >= 0 && index < cameras.size()) {
+        const CameraInfo& info = cameras[index];
+        return QString("CAM-%1: %2").arg(info.id, 2, 10, QChar('0')).arg(info.name);
     }
-    
-    return label;
+    return QString("CAM-??: Unknown");
 }
 
-QString CameraConfig::getCameraName(int cameraId) {
-    const auto& metadata = getCameraMetadata();
-    if (cameraId >= 0 && cameraId < static_cast<int>(metadata.size())) {
-        // Return first word of description as short name
-        return metadata[cameraId].description.split(" ").first();
+QString CameraConfig::getCameraName(int index) {
+    auto cameras = getCameras();
+    if (index >= 0 && index < cameras.size()) {
+        return cameras[index].name;
     }
-    return QString();
+    return "Unknown";
 }
 
 int CameraConfig::getCameraCount() {
-    return static_cast<int>(getCameraMetadata().size());
+    return getCameras().size();
 }

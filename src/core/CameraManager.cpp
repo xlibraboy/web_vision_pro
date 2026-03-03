@@ -7,18 +7,28 @@
 // Use Pylon namespace
 using namespace Pylon;
 
+// DeviceRemovalHandler Implementation
+void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
+    if (manager_) {
+        std::cout << "[CameraManager] 🚨 DEVICE REMOVAL EVENT DETECTED AND TRIGGERED 🚨" << std::endl;
+        // In this implementation, the actual recovery handles the exception in the acquisition loop,
+        // but this confirms the event successfully fired.
+        manager_->acquiring_ = false; // Graceful stop to acquisition loop
+    }
+}
+
 CameraManager::CameraManager(int numCameras) 
-    : numCameras_(numCameras), acquiring_(false), width_(782), height_(582), fps_(10.0), 
+    : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(782), height_(582), fps_(10.0), 
       defectDetectionEnabled_(false) {
     // Pylon requires initialization
     
-    // Check Config for Source
-    if (CameraConfig::getCameraSource() == CameraConfig::CameraSource::RealCamera) {
-        std::cout << "[CameraManager] Configured for REAL CAMERA. Disabling Emulation." << std::endl;
-        unsetenv("PYLON_CAMEMU");
+    // Check environment for emulation mode (set externally via docker-compose or workflow script)
+    const char* pylonCamEmu = getenv("PYLON_CAMEMU");
+    if (pylonCamEmu) {
+        std::cout << "[CameraManager] PYLON_CAMEMU detected in environment (value=" << pylonCamEmu 
+                  << "). Running in EMULATION mode." << std::endl;
     } else {
-        std::cout << "[CameraManager] Configured for EMULATION." << std::endl;
-        setenv("PYLON_CAMEMU", std::to_string(numCameras).c_str(), 1); 
+        std::cout << "[CameraManager] No PYLON_CAMEMU in environment. Searching for REAL cameras." << std::endl;
     }
 
     try {
@@ -50,24 +60,104 @@ bool CameraManager::initialize() {
         DeviceInfoList_t devices;
         
         // Find all attached devices. 
-        // With PYLON_CAMEMU=8, this will find 8 emulated devices.
         if (tlFactory.EnumerateDevices(devices) == 0) {
             std::cerr << "[CameraManager] No cameras found!" << std::endl;
             return false;
         }
 
         std::cout << "[CameraManager] Found " << devices.size() << " Pylon devices." << std::endl;
+        for (const auto& dev : devices) {
+            std::cout << "  - DeviceClass: " << dev.GetDeviceClass() << " | MAC: " << (dev.GetDeviceClass() != "BaslerCamEmu" ? dev.GetMacAddress().c_str() : "N/A") << std::endl;
+        }
 
-        // Initialize camera array
-        cameras_.Initialize(std::min((int)devices.size(), numCameras_));
+        // Get configured cameras from CameraConfig
+        std::vector<CameraInfo> configuredCams = CameraConfig::getCameras();
+        std::vector<Pylon::CDeviceInfo> activeDevices;
+        
+        std::cout << "[CameraManager] Loaded " << configuredCams.size() << " Camera configs." << std::endl;
+        for (const auto& c : configuredCams) {
+            std::cout << "[CameraManager] Config - ID: " << c.id << " Source: " << c.source << " MAC: " << c.macAddress.toStdString() << std::endl;
+        }
+        
+        // Detect if running in emulation mode from environment
+        bool isEmulationEnv = (getenv("PYLON_CAMEMU") != nullptr);
+        
+        // Match discovered devices against configuration
+        for (const auto& camInfo : configuredCams) {
+            bool foundMatch = false;
+            
+            if (camInfo.source == 2) { 
+                std::cout << "[CameraManager] Camera ID " << camInfo.id << " is DISABLED. Skipping." << std::endl;
+                continue;
+            }
+            
+            for (const auto& dev : devices) {
+                bool isEmulatedDevice = (dev.GetDeviceClass() == "BaslerCamEmu");
+                
+                // Match logic:
+                // - source=0 (Emulated): match BaslerCamEmu only
+                // - source=1 (Real): match real GigE devices (by MAC if specified)
+                //   BUT if PYLON_CAMEMU is in the environment, fall back to emulated devices
+                bool canMatch = false;
+                
+                if (camInfo.source == 0 && isEmulatedDevice) {
+                    canMatch = true;
+                } else if (camInfo.source == 1) {
+                    if (!isEmulatedDevice) {
+                        // Real device — match by MAC if specified
+                        if (camInfo.macAddress.isEmpty() || camInfo.macAddress.toStdString() == dev.GetMacAddress().c_str()) {
+                            canMatch = true;
+                        }
+                    } else if (isEmulationEnv) {
+                        // Emulation fallback: PYLON_CAMEMU is set, allow Real-sourced config to use emulated device
+                        canMatch = true;
+                    }
+                }
+                
+                if (canMatch) {
+                    // Safeguard: don't attach the same device twice
+                    bool alreadyUsed = false;
+                    for (const auto& active : activeDevices) {
+                        if (active.GetSerialNumber() == dev.GetSerialNumber()) { alreadyUsed = true; break;}
+                    }
+                    if (!alreadyUsed) {
+                        activeDevices.push_back(dev);
+                        foundMatch = true;
+                        std::cout << "[CameraManager] Matched " << (isEmulatedDevice ? "EMULATED" : "REAL") 
+                                  << " camera" << (isEmulatedDevice ? "" : std::string(" (") + dev.GetMacAddress().c_str() + ")")
+                                  << " for ID " << camInfo.id << std::endl;
+                        break;
+                    }
+                }
+            }
+            
+            if (!foundMatch) {
+                std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID " 
+                          << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+            }
+        }
+
+        // Initialize camera array with active matched devices ONLY
+        size_t numToInitialize = std::min(activeDevices.size(), (size_t)numCameras_);
+        cameras_.Initialize(numToInitialize);
+        targetDevices_.clear(); // Reset tracking info
 
         for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-            cameras_[i].Attach(tlFactory.CreateDevice(devices[i]));
+            cameras_[i].Attach(tlFactory.CreateDevice(activeDevices[i]));
+            
+            // Store device properties for recovery
+            CDeviceInfo targetInfo;
+            targetInfo.SetDeviceClass(cameras_[i].GetDeviceInfo().GetDeviceClass());
+            targetInfo.SetSerialNumber(cameras_[i].GetDeviceInfo().GetSerialNumber());
+            targetDevices_.push_back(targetInfo);
+            
+            // Register Device Removal Handler
+            cameras_[i].RegisterConfiguration(new DeviceRemovalHandler(this), RegistrationMode_Append, Cleanup_Delete);
+
             // Set context to identify the camera in the grab result
             cameras_[i].SetCameraContext(i);
             
             // Apply industrial configuration (PTP, MTU 9000)
-            // Use GetNodeMap() directly from the camera object, which returns INodeMap&
             configureCamera(cameras_[i].GetNodeMap(), cameras_[i].GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
 
             std::cout << "[CameraManager] Attached camera " << i << ": " 
@@ -256,6 +346,90 @@ void CameraManager::stopAcquisition() {
     bufferPools_.clear();
 }
 
+void CameraManager::pauseGrabbing(bool pause) {
+    paused_ = pause;
+    std::cout << "[CameraManager] Grabbing " << (pause ? "PAUSED" : "RESUMED") << std::endl;
+}
+
+bool CameraManager::isGrabbingPaused() const {
+    return paused_;
+}
+
+void CameraManager::recoveryLoop() {
+    recovering_ = true;
+    std::cout << "[CameraManager] --- RECOVERY LOOP STARTED ---" << std::endl;
+
+    // 1. Give the system time to cleanly disconnect everything
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    
+    // 2. Terminate the old camera handles safely
+    try {
+        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
+        if (cameras_.IsOpen()) cameras_.Close();
+        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+            if (cameras_[i].IsPylonDeviceAttached()) {
+                cameras_[i].DestroyDevice();
+            }
+        }
+    } catch (...) {
+        std::cerr << "[CameraManager] Ignored exception during old handle teardown in recovery." << std::endl;
+    }
+    
+    CTlFactory& tlFactory = CTlFactory::GetInstance();
+    
+    // 3. Continuously poll for the target devices
+    while (recovering_) {
+        std::cout << "[CameraManager] Polling for " << targetDevices_.size() << " missing cameras..." << std::endl;
+        
+        bool allFound = true;
+        DeviceInfoList_t foundDevices;
+        
+        // Use the filter technique from the sample
+        for (const auto& target : targetDevices_) {
+            DeviceInfoList_t filter;
+            filter.push_back(target);
+            
+            DeviceInfoList_t matches;
+            if (tlFactory.EnumerateDevices(matches, filter) > 0) {
+                foundDevices.push_back(matches[0]);
+            } else {
+                allFound = false;
+                break; // Missing at least one
+            }
+        }
+        
+        if (allFound) {
+            std::cout << "[CameraManager] All missing cameras found! Re-initializing..." << std::endl;
+            
+            // Wait an extra second for hardware stability before seizing control
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            
+            // Use existing initialize but override devices directly
+            try {
+                cameras_.Initialize(foundDevices.size());
+                for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+                    cameras_[i].Attach(tlFactory.CreateDevice(foundDevices[i]));
+                    // Re-register handler
+                    cameras_[i].RegisterConfiguration(new DeviceRemovalHandler(this), RegistrationMode_Append, Cleanup_Delete);
+                    cameras_[i].SetCameraContext(i);
+                    configureCamera(cameras_[i].GetNodeMap(), cameras_[i].GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+                }
+                
+                std::cout << "[CameraManager] Re-init successful. Restarting acquisition..." << std::endl;
+                recovering_ = false;
+                startAcquisition(); // This will spin up a new acquisition thread
+                return; // Exit recovery thread
+                
+            } catch (const GenericException& e) {
+                std::cerr << "[CameraManager] Recovery Re-init failed. Retrying... " << e.GetDescription() << std::endl;
+            }
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Poll every second
+    }
+    std::cout << "[CameraManager] --- RECOVERY LOOP ABORTED ---" << std::endl;
+}
+
 void CameraManager::registerCallback(FrameCallback callback) {
     std::lock_guard<std::mutex> lock(callbackMutex_);
     callback_ = callback;
@@ -305,6 +479,8 @@ void CameraManager::acquisitionLoop() {
         try {
             if (cameras_.RetrieveResult(5000, ptrGrabResult, TimeoutHandling_ThrowException)) {
                 if (!ptrGrabResult) continue;  
+
+                if (paused_) continue; // Skip frame processing when paused
 
                 uint32_t cameraIndex = (uint32_t)ptrGrabResult->GetCameraContext();
 
@@ -415,6 +591,26 @@ void CameraManager::acquisitionLoop() {
             if (acquiring_) {
                 std::cerr << "[CameraManager] Pylon exception in loop: " 
                           << e.GetDescription() << std::endl;
+                          
+                // Check if the exception was caused by device removal
+                Pylon::WaitObject::Sleep(1000); 
+                bool deviceRemoved = false;
+                for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+                    if (cameras_[i].IsCameraDeviceRemoved()) {
+                        std::cerr << "[CameraManager] Hardware disconnect confirmed on Camera " << i << std::endl;
+                        deviceRemoved = true;
+                        break;
+                    }
+                }
+                
+                if (deviceRemoved && !recovering_) {
+                    acquiring_ = false; // Stop this loop
+                    
+                    // Detach thread safely and launch recovery
+                    if (recoveryThread_.joinable()) recoveryThread_.join();
+                    recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                    break; // Exit this acquisition thread immediately
+                }
             }
         } catch (const std::exception& e) {
             std::cerr << "[CameraManager] Standard exception in loop: " << e.what() << std::endl;
@@ -517,14 +713,61 @@ void CameraManager::setGlobalFrameRate(double fps) {
         std::cerr << "[CameraManager] Pylon Error during FPS set: " << e.GetDescription() << std::endl;
     }
     
-    if (restart) startAcquisition();
+    if (restart) {
+        cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
+        acquiring_ = true;
+        acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
+    }
+}
+
+void CameraManager::setCameraFrameRate(int cameraIndex, double fps) {
+    std::cout << "[CameraManager] Setting FPS for Camera " << cameraIndex << " to " << fps << std::endl;
+    
+    // Check if index is valid
+    if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) {
+        std::cerr << "[CameraManager] Invalid camera index for FPS update: " << cameraIndex << std::endl;
+        return;
+    }
+    
+    bool restart = acquiring_;
+    if (restart) {
+        acquiring_ = false;
+        if (acquisitionThread_.joinable()) acquisitionThread_.join();
+        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
+    }
+    
+    try {
+        if (cameras_[cameraIndex].IsPylonDeviceAttached()) {
+             cameras_[cameraIndex].Open(); // Must be open to write nodes
+             GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
+             
+             try {
+                Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
+             } catch (...) {
+                std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << cameraIndex << std::endl;
+             }
+             cameras_[cameraIndex].Close(); 
+        }
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Pylon Error during individual FPS set: " << e.GetDescription() << std::endl;
+    }
+    
+    if (restart) {
+        cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
+        acquiring_ = true;
+        acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
+    }
 }
 
 void CameraManager::setGlobalResolution(int binningFactor) {
     std::cout << "[CameraManager] Setting global Binning to " << binningFactor << "x" << binningFactor << std::endl;
     
     bool restart = acquiring_;
-    if (restart) stopAcquisition();
+    if (restart) {
+        acquiring_ = false;
+        if (acquisitionThread_.joinable()) acquisitionThread_.join();
+        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
+    }
     
     try {
         if (cameras_.GetSize() > 0) {
@@ -554,7 +797,11 @@ void CameraManager::setGlobalResolution(int binningFactor) {
         std::cerr << "[CameraManager] Pylon Error during Binning set: " << e.GetDescription() << std::endl;
     }
     
-    if (restart) startAcquisition();
+    if (restart) {
+        cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
+        acquiring_ = true;
+        acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
+    }
 }
 
 std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
@@ -574,10 +821,13 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
             GigEDeviceInfo info;
             info.friendlyName = dev.GetFriendlyName().c_str();
             info.macAddress = dev.GetMacAddress().c_str();
-            info.ipAddress = dev.GetIpAddress().c_str();
-            info.subnetMask = dev.GetSubnetMask().c_str();
-            info.defaultGateway = dev.GetDefaultGateway().c_str();
-            info.userDefinedName = dev.GetUserDefinedName().c_str();
+            
+            Pylon::String_t val;
+            if (dev.GetPropertyValue("IpAddress", val)) info.ipAddress = val.c_str();
+            if (dev.GetPropertyValue("SubnetMask", val)) info.subnetMask = val.c_str();
+            if (dev.GetPropertyValue("DefaultGateway", val)) info.defaultGateway = val.c_str();
+            if (dev.GetPropertyValue("UserDefinedName", val)) info.userDefinedName = val.c_str();
+            
             devices.push_back(info);
         }
         

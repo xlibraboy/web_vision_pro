@@ -768,7 +768,7 @@ void AnalysisView::updateDynamicTab(int cameraId) {
         
         // Details
         diagLayout->addWidget(createDetailRow("ID:", QString::number(info.id)));
-        diagLayout->addWidget(createDetailRow("Name:", info.description)); // Using description as name
+        diagLayout->addWidget(createDetailRow("Name:", info.name));
         diagLayout->addWidget(createDetailRow("Model:", info.model));
         diagLayout->addWidget(createDetailRow("IP Address:", info.ipAddress));
         diagLayout->addWidget(createDetailRow("Location:", info.location));
@@ -861,10 +861,14 @@ void AnalysisView::onSliderMoved(int value) {
                     }
                 }
             } else {
-                // Legacy or single-camera recording (apply to all for fallback)
-                for (auto* widget : cameraWidgets_) {
-                    widget->setFrame(frameImage);
-                    widget->setTimestamp(overlayText, tooltipText);
+                // Single-camera recording: only update camera widget 0
+                if (!cameraWidgets_.empty()) {
+                    cameraWidgets_[0]->setFrame(frameImage);
+                    cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+                }
+                // Clear all other camera slots so they don't show stale or duplicate data
+                for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
+                    cameraWidgets_[wi]->clear();
                 }
                 
                 if (selectedCameraWidget_) {
@@ -1329,9 +1333,17 @@ void AnalysisView::onPlaybackTick() {
         QString overlayText = getMetadataOverlayText(idx, relativeFrame);
         QString tooltipText = getMetadataTooltip(idx, relativeFrame);
         
-        for (auto* widget : cameraWidgets_) {
-            widget->setFrame(frame);
-            widget->setTimestamp(overlayText, tooltipText);
+        // Only update the camera that was actually recorded (camera 0).
+        // Multi-camera recordings are not yet supported in EventController.
+        if (!cameraWidgets_.empty()) {
+            cameraWidgets_[0]->setFrame(frame);
+            cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+        }
+        // Clear any other camera widgets so they don't show stale/duplicate data
+        for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
+            // Keep existing frame if it's a different real camera - but since we only
+            // record cam 0 currently, clear to avoid confusion
+            cameraWidgets_[wi]->clear();
         }
         
         if (selectedCameraWidget_) {
@@ -1456,9 +1468,12 @@ void AnalysisView::loadRawSequence(const QString& binPath) {
         meta.displayTime = QString::number(ts); 
         frameMetadata_.push_back(meta);
         
-        // Create QImage (Deep Copy)
+        // Create QImage with explicit bytes-per-line to avoid stride/tilt artifacts
         QImage img(width, height, QImage::Format_Grayscale8);
-        memcpy(img.bits(), buffer.data(), frameSize);
+        // Copy row by row to ensure correct stride alignment
+        for (int row = 0; row < height; ++row) {
+            memcpy(img.scanLine(row), buffer.data() + row * width, width);
+        }
         recordedSequence_.push_back(img);
     }
     

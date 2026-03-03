@@ -169,7 +169,7 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     lblId_->setText(QString("%1").arg(info.id, 2, 10, QChar('0')));  // Format as 01, 02, etc.
     lblLocation_->setText(info.location);
     lblSide_->setText(info.side);
-    lblDescription_->setText(info.description);
+    lblDescription_->setText(info.name);
     lblModel_->setText(info.model);
     lblIP_->setText(info.ipAddress);
     lblImageSize_->setText(info.imageSize);

@@ -115,8 +115,12 @@ save_image() {
     local image_name="$1"
     local output_file="$2"
     
+    print_info "Current local Docker images:"
+    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"
+    echo ""
+
     if [ -z "$image_name" ]; then
-        print_error "Image name is required"
+        print_error "Image name is required as the first argument"
         echo "Usage: $0 save <image_name[:tag]> [output_file]"
         exit 1
     fi

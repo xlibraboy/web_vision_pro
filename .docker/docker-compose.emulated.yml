@@ -1,0 +1,4 @@
+services:
+  vision_node:
+    environment:
+      - PYLON_CAMEMU=2
