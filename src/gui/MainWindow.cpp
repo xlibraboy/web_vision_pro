@@ -132,6 +132,13 @@ void MainWindow::setupUi() {
     connect(detailView_, &DetailView::snapshotRequested, [this](int cameraId) {
         if (cameraManager_) cameraManager_->triggerSnapshot(cameraId);
     });
+    // Live parameter adjustment: forward signal to CameraManager
+    connect(detailView_, &DetailView::parameterChanged, [this](int cameraId, QString param, double value) {
+        if (!cameraManager_) return;
+        if (param == "Gain")     cameraManager_->setCameraGain(cameraId, value);
+        else if (param == "Exposure") cameraManager_->setCameraExposure(cameraId, value);
+        else if (param == "Gamma")   cameraManager_->setCameraGamma(cameraId, value);
+    });
 
     stackedWidget_->addWidget(liveDashboard_); // Index 0
     stackedWidget_->addWidget(detailView_);    // Index 1
@@ -198,8 +205,13 @@ void MainWindow::setupUi() {
         if (!configWindow_) {
             configWindow_ = new ConfigDialog();
             connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
-                // Reload live settings that don't require restart
+                // Total Camera Source/MAC change requires restart
                 if (cameraManager_) {
+                    cameraManager_->stopAcquisition();
+                    cameraManager_->initialize();
+                    cameraManager_->startAcquisition();
+                    
+                    // Reload live settings like FPS
                     std::vector<CameraInfo> cams = CameraConfig::getCameras();
                     for (int i = 0; i < (int)cams.size(); ++i) {
                         cameraManager_->setCameraFrameRate(i, cams[i].fps);
@@ -207,7 +219,17 @@ void MainWindow::setupUi() {
                     cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
                 }
                 
-                // Assuming global FPS setting is still used for buffer setup (or just use a defined default)
+                // Update camera counts in views to handle newly added cameras
+                int newCamCount = CameraConfig::getCameraCount();
+                if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
+                if (analysisView_) analysisView_->setCameraCount(newCamCount);
+                
+                // Redraw UI to remove empty placeholders for newly configured cameras
+                if (liveDashboard_) {
+                    liveDashboard_->setGridDimensions(liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
+                }
+                
+                // Update global tracking configurations
                 EventController::instance().initialize(
                     CameraConfig::getPreTriggerSeconds() * 10,  // fallback base rate
                     10, 
@@ -257,11 +279,23 @@ void MainWindow::setupCore() {
     // Using QueuedConnection to handle cross-thread signal safely
     connect(this, &MainWindow::frameReady, this, &MainWindow::handleFrame, Qt::QueuedConnection);
 
+    // Status Callback from CameraManager to MainWindow
+    cameraManager_->registerStatusCallback([this](const std::string& msg) {
+        QMetaObject::invokeMethod(this, [this, msg]() {
+            statusBar()->showMessage(QString::fromStdString(msg), 5000);
+        }, Qt::QueuedConnection);
+    });
+
     // 3. Register Callback
     // THROTTLE: Only emit if GUI is ready for THIS camera. Drops frames if GUI is slow.
     cameraManager_->registerCallback([this](int cameraId, const cv::Mat& frame) {
         if (cameraId >= 0 && cameraId < 16) {
             bool expected = false;
+            // Always allow empty frames to pass through to clear UI
+            if (frame.empty()) {
+                emit frameReady(cameraId, cv::Mat());
+                return;
+            }
             if (framePending_[cameraId].compare_exchange_strong(expected, true)) {
                 // DEEP COPY: Pylon buffer is temporary, must clone for GUI queue
                 emit frameReady(cameraId, frame.clone());
@@ -273,12 +307,47 @@ void MainWindow::setupCore() {
     cameraManager_->initialize();
     cameraManager_->startAcquisition();
     statusBar()->showMessage("Acquisition Started");
+
+    // 5. Register Temperature Alert Callback (Basler App Note AW00138003000)
+    cameraManager_->registerTemperatureAlertCallback(
+        [this](int camId, double temp, CameraManager::TemperatureStatus status) {
+            QMetaObject::invokeMethod(this, [this, camId, temp, status]() {
+                // Update grid tile badge
+                if (liveDashboard_) {
+                    liveDashboard_->updateCameraTemperature(camId, temp, status);
+                }
+                // Update DetailView if it's currently showing this camera
+                if (detailView_ && detailView_->videoWidget() &&
+                    detailView_->videoWidget()->cameraId() == camId) {
+                    detailView_->updateTemperature(temp);
+                }
+                // Status bar alert for Critical or Error
+                if (status == TempStatus::Error) {
+                    statusBar()->showMessage(
+                        QString("🔴 OVER-TEMP ERROR: Camera %1 at %2°C — Sensor may power down!").arg(camId + 1).arg(temp, 0, 'f', 1),
+                        10000);
+                } else if (status == TempStatus::Critical) {
+                    statusBar()->showMessage(
+                        QString("🟠 CRITICAL TEMP: Camera %1 at %2°C — approaching sensor limit!").arg(camId + 1).arg(temp, 0, 'f', 1),
+                        8000);
+                }
+            }, Qt::QueuedConnection);
+        }
+    );
 }
 
 void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
     // Acknowledge receipt immediately so next frame for THIS camera can be queued.
     if (cameraId >= 0 && cameraId < 16) {
         framePending_[cameraId] = false;
+    }
+
+    if (frame.empty()) {
+        liveDashboard_->clearCameraWidget(cameraId);
+        if (detailView_->videoWidget()->cameraId() == cameraId) {
+            detailView_->videoWidget()->clearFrame();
+        }
+        return;
     }
 
     frameCount_++;
@@ -298,18 +367,11 @@ void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
     }
 
     // 3. Update GUI
-    QWidget* current = stackedWidget_->currentWidget();
-    if (current == liveDashboard_) {
-        liveDashboard_->updateFrame(cameraId, frame);
-    } 
-    else if (current == detailView_) {
-        // No, DetailView::videoWidget()->updateFrame() works on the widget.
-        // We need to know WHICH camera is detailed.
-        // For now, let's just make DetailView expose its widget and update it if ID matches.
-        // Wait, DetailView has a `videoWidget()` accessor now.
-        if (detailView_->videoWidget()->cameraId() == cameraId) {
-            detailView_->videoWidget()->updateFrame(frame);
-        }
+    liveDashboard_->updateFrame(cameraId, frame);
+    
+    // Always keep DetailView in sync if it's currently focused on this camera
+    if (detailView_->videoWidget()->cameraId() == cameraId) {
+        detailView_->videoWidget()->updateFrame(frame);
     }
     
     // Also update Analysis View (always, so it has latest frames)
@@ -338,9 +400,18 @@ void MainWindow::showDetail(int cameraId) {
     // Get camera info from centralized config
     CameraInfo info = CameraConfig::getCameraInfo(cameraId);
     
+    // Smooth transition: Fetch current live image from the grid so it doesn't flash "waiting"
+    QImage currentFrame = liveDashboard_->getCameraImage(cameraId);
+    if (!currentFrame.isNull()) {
+        detailView_->videoWidget()->setImage(currentFrame);
+    } else {
+        detailView_->videoWidget()->clearFrame();
+    }
+    
     // OVERRIDE with actual data from Pylon (via CameraManager)
     if (cameraManager_) {
         info.model = QString::fromStdString(cameraManager_->getModelName(cameraId));
+        info.temperature = cameraManager_->getTemperature(cameraId);
         cv::Size res = cameraManager_->getResolution();
         info.imageSize = QString("%1 x %2").arg(res.width).arg(res.height);
     }

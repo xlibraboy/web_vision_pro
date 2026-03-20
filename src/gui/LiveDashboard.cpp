@@ -62,6 +62,42 @@ void LiveDashboard::setGridDimensions(int rows, int cols) {
     setupGrid(rows, cols);
 }
 
+void LiveDashboard::setCameraCount(int count) {
+    if (count == numCameras_) return;
+    
+    if (count > numCameras_) {
+        // Add new camera widgets
+        for (int i = numCameras_; i < count; ++i) {
+            QWidget* cellContainer = new QWidget(this);
+            QVBoxLayout* cellLayout = new QVBoxLayout(cellContainer);
+            cellLayout->setContentsMargins(0, 0, 0, 0);
+            cellLayout->setSpacing(2);
+            
+            QString labelText = CameraConfig::getCameraLabel(i);
+            CameraWidget* cam = new CameraWidget(this);
+            cam->setCameraId(i);
+            cam->setOverlayText(labelText);
+            
+            connect(cam, &CameraWidget::doubleClicked, this, &LiveDashboard::cameraSelected);
+            cellLayout->addWidget(cam, 1);
+            
+            cameraWidgets_.push_back(cam);
+            cameraCells_.push_back(cellContainer);
+        }
+    } else {
+        // Remove excess camera widgets
+        for (int i = numCameras_ - 1; i >= count; --i) {
+            gridLayout_->removeWidget(cameraCells_[i]);
+            cameraCells_[i]->deleteLater(); // Deletes container and its children (CameraWidget)
+            cameraCells_.pop_back();
+            cameraWidgets_.pop_back();
+        }
+    }
+    
+    numCameras_ = count;
+    // setupGrid will be called by MainWindow right after this anyway
+}
+
 void LiveDashboard::setupGrid(int rows, int cols) {
     // Clear layout items (this only removes from layout, doesn't delete widgets)
     QLayoutItem *child;
@@ -93,7 +129,7 @@ void LiveDashboard::setupGrid(int rows, int cols) {
             // Add actual camera cell
             gridLayout_->addWidget(cameraCells_[i], row, col);
         } else {
-            // Create empty placeholder with border
+            // Create empty placeholder with border for extra slots
             QWidget* emptyCell = new QWidget(gridContainer_);
             ThemeColors tc = CameraConfig::getThemeColors();
             emptyCell->setStyleSheet(QString(
@@ -116,6 +152,25 @@ void LiveDashboard::setupGrid(int rows, int cols) {
 void LiveDashboard::updateFrame(int cameraId, const cv::Mat& frame) {
     if (cameraId >= 0 && cameraId < numCameras_ && cameraWidgets_[cameraId]) {
         cameraWidgets_[cameraId]->updateFrame(frame);
+    }
+}
+
+void LiveDashboard::clearCameraWidget(int cameraId) {
+    if (cameraId >= 0 && cameraId < numCameras_ && cameraWidgets_[cameraId]) {
+        cameraWidgets_[cameraId]->clearFrame();
+    }
+}
+
+QImage LiveDashboard::getCameraImage(int cameraId) {
+    if (cameraId >= 0 && cameraId < numCameras_ && cameraWidgets_[cameraId]) {
+        return cameraWidgets_[cameraId]->getImage();
+    }
+    return QImage();
+}
+
+void LiveDashboard::updateCameraTemperature(int cameraId, double temp, TempStatus::Status status) {
+    if (cameraId >= 0 && cameraId < numCameras_ && cameraWidgets_[cameraId]) {
+        cameraWidgets_[cameraId]->setTemperatureStatus(temp, status);
     }
 }
 

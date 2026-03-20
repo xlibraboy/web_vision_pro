@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QMutex>
 #include <opencv2/opencv.hpp>
+#include "../../core/TemperatureStatus.h"
 
 class CameraWidget : public QWidget {
     Q_OBJECT
@@ -17,6 +18,10 @@ public:
 
 public slots:
     void updateFrame(const cv::Mat& frame);
+    void clearFrame(); // Reset to disconnected state
+    
+    QImage getImage();
+    void setImage(const QImage& img);
 
 signals:
     void clicked(int cameraId);
@@ -33,7 +38,12 @@ private:
     int cameraId_ = -1;
     QString overlayText_;
     long frameCounter_ = 0;
+    // Temperature badge
+    double tempValue_ = -1.0;
+    TempStatus::Status tempStatus_ = TempStatus::Unknown;
 
 public:
     void setOverlayText(const QString& text);
+    // Set temperature reading for badge display in grid view
+    void setTemperatureStatus(double temp, TempStatus::Status status);
 };

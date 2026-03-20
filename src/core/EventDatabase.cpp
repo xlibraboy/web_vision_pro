@@ -52,19 +52,26 @@ void EventDatabase::scanDirectory() {
         }
     }
 
-    // 2. Discover orphan .bin files (Legacy/Recovered)
+    // 2. Discover orphan .bin files (Legacy/Recovered) - catch whatever primary camera triggered first
     QStringList binFilters;
-    binFilters << "event_*.bin";
+    binFilters << "event_*.bin"; 
     QFileInfoList binFiles = dir.entryInfoList(binFilters, QDir::Files, QDir::Name);
 
     for (const QFileInfo& fileInfo : binFiles) {
-        // Extract timestamp from filename: event_20260214_143005_123.bin
         QString baseName = fileInfo.baseName(); 
         if (!baseName.startsWith("event_")) continue;
         
-        QString timestamp = baseName.mid(6);
+        // Handle old format: event_YYYYMMDD_HHMMSS_ZZZ
+        // Handle new format: event_YYYYMMDD_HHMMSS_ZZZ_camX
+        QString timestamp;
+        if (baseName.contains("_cam")) {
+            int camIdx = baseName.lastIndexOf("_cam");
+            timestamp = baseName.mid(6, camIdx - 6); // remove "event_" and "_cam..."
+        } else {
+            timestamp = baseName.mid(6); // old format
+        }
         
-        // If we already have metadata for this timestamp, skip
+        // If we already have metadata for this timestamp, skip (prevents duplicates for multi-camera events)
         if (events_.contains(timestamp)) continue;
 
         // Otherwise, create default metadata from BIN header
@@ -188,12 +195,19 @@ bool EventDatabase::deleteEvent(const QString& timestamp) {
 
     EventInfo info = events_[timestamp];
     
-    // Delete video file
+    // Delete video files for all cameras (looping up to an arbitrary reasonable max, like 16)
+    for (int i = 1; i <= 16; ++i) {
+        QString camPath = QString("../data/event_%1_cam%2.bin").arg(timestamp).arg(i);
+        if (QFile::exists(camPath)) {
+            QFile::remove(camPath);
+        }
+    }
+    
+    // Also try removing old legacy formats
     if (QFile::exists(info.videoPath)) {
         QFile::remove(info.videoPath);
     }
     
-    // Also try removing potential alternative format (.mp4 vs .bin) just in case
     QString otherPath = info.videoPath;
     if (otherPath.endsWith(".bin")) {
         otherPath.replace(".bin", ".mp4");

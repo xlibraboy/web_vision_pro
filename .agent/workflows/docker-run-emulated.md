@@ -7,7 +7,7 @@ Follow these steps to run the PaperVision application with emulated Basler camer
 1. Ensure you have authorized local Docker containers to access your X11 display (for GUI).
 // turbo
 ```bash
-xhost +local:docker
+xhost +local:root && xhost +
 ```
 
 2. Start the container in detached mode using Docker Compose with the emulation override.

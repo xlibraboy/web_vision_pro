@@ -55,6 +55,9 @@ public slots:
     void setPlaybackPosition(double frame);
     void updateCameraFrame(int cameraId, const QImage& frame);
     
+    // Dynamically update camera count
+    void setCameraCount(int count);
+    
     // Trigger Review (load from disk)
     void startReview(const QString& eventPath, int triggerIndex = -1);
     
@@ -194,8 +197,8 @@ private:
     QString getMetadataOverlayText(int frameIndex, double relativeFrame);
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
     
-    // On-demand video loading
-    std::unique_ptr<class VideoStreamReader> videoReader_;
+    // On-demand video loading (per active camera)
+    std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
     bool isStreamingMode_;  // True when loading from file instead of RAM
     
     QTimer* stepTimer_;  // For hold-click stepping

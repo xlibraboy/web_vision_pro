@@ -16,6 +16,7 @@
 #include <QGroupBox>
 #include <QFrame>
 #include <QEvent>
+#include <QDateTime>
 #include <algorithm>
 
 // Suppress scroll-wheel on ANY QSpinBox child widget to prevent accidental changes
@@ -55,7 +56,13 @@ void ConfigDialog::setupUI() {
     topCamLayout->addWidget(new QLabel("Configure per-camera settings below:"));
     addCameraBtn_ = new QPushButton("Add New Camera +");
     connect(addCameraBtn_, &QPushButton::clicked, this, &ConfigDialog::onAddCameraConfigClicked);
+    
+    QPushButton* ipConfigBtn = new QPushButton("Open IP Configurator");
+    connect(ipConfigBtn, &QPushButton::clicked, this, &ConfigDialog::onOpenIpConfiguratorClicked);
+    
     topCamLayout->addWidget(addCameraBtn_);
+    topCamLayout->addWidget(ipConfigBtn);
+    topCamLayout->addStretch();
     camSetupLayout->addLayout(topCamLayout);
     
     cameraScrollArea_ = new QScrollArea();
@@ -70,22 +77,36 @@ void ConfigDialog::setupUI() {
     // --- Camera Connection Logs section ---
     QGroupBox* logsGroup = new QGroupBox("Camera Connection Logs");
     QVBoxLayout* logsLayout = new QVBoxLayout(logsGroup);
+    
+    QHBoxLayout* logsHeaderLayout = new QHBoxLayout();
+    QPushButton* refreshLogsBtn = new QPushButton("Refresh Logs");
+    QPushButton* clearLogsBtn = new QPushButton("Clear Logs");
+    QPushButton* toggleLogsBtn = new QPushButton("Hide Logs");
+    connect(refreshLogsBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
+    connect(clearLogsBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
+    logsHeaderLayout->addStretch();
+    logsHeaderLayout->addWidget(refreshLogsBtn);
+    logsHeaderLayout->addWidget(clearLogsBtn);
+    logsHeaderLayout->addWidget(toggleLogsBtn);
+    logsLayout->addLayout(logsHeaderLayout);
+    
     connectionLogsBrowser_ = new QTextEdit();
     connectionLogsBrowser_->setReadOnly(true);
     connectionLogsBrowser_->setMinimumHeight(120);
-    // Build initial logs string right away
-    QString logsText;
-    for (const auto& dev : currentGigEDevices_) {
-        logsText += QString("[%1] MAC: %2 | IP: %3 | Subnet: %4 | Gateway: %5\n")
-            .arg(QString::fromStdString(dev.friendlyName))
-            .arg(QString::fromStdString(dev.macAddress))
-            .arg(QString::fromStdString(dev.ipAddress))
-            .arg(QString::fromStdString(dev.subnetMask))
-            .arg(QString::fromStdString(dev.defaultGateway));
-    }
-    if(logsText.isEmpty()) logsText = "No online Real cameras detected.";
-    connectionLogsBrowser_->setText(logsText);
     logsLayout->addWidget(connectionLogsBrowser_);
+    
+    connect(toggleLogsBtn, &QPushButton::clicked, [this, toggleLogsBtn]() {
+        if (connectionLogsBrowser_->isVisible()) {
+            connectionLogsBrowser_->hide();
+            toggleLogsBtn->setText("Show Logs");
+        } else {
+            connectionLogsBrowser_->show();
+            toggleLogsBtn->setText("Hide Logs");
+        }
+    });
+    
+    // Call the refresh slot once to initialize logs
+    onRefreshLogsClicked();
     
     camSetupLayout->addWidget(cameraScrollArea_, 1); // stretch
     camSetupLayout->addWidget(logsGroup, 0);
@@ -192,11 +213,36 @@ void ConfigDialog::loadSettings() {
 
 void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     QGroupBox* gb = new QGroupBox(QString("Camera ID: %1").arg(cam.id));
-    QFormLayout* form = new QFormLayout(gb);
+    QGridLayout* grid = new QGridLayout(gb);
     
     CameraConfigWidgets w;
     w.container = gb;
     w.id = cam.id;
+    
+    // Configuration Edit Toggle — controls ALL writable fields (Move to top)
+    w.editParamsCheck = new QCheckBox("Enable Configuration Editing");
+    w.editParamsCheck->setChecked(false);
+    grid->addWidget(w.editParamsCheck, 0, 0, 1, 4);
+    
+    // Separator
+    QFrame* topParamLine = new QFrame();
+    topParamLine->setFrameShape(QFrame::HLine);
+    topParamLine->setFrameShadow(QFrame::Sunken);
+    grid->addWidget(topParamLine, 1, 0, 1, 4);
+
+    // Helper lambda for adding rows dynamically in 2-column layout
+    int row = 2, col = 0;
+    auto addField = [&](const QString& labelText, QWidget* widget) {
+        if (!labelText.isEmpty()) {
+            grid->addWidget(new QLabel(labelText), row, col * 2);
+            grid->addWidget(widget, row, col * 2 + 1);
+        } else {
+            // Span 2 columns if no label
+            grid->addWidget(widget, row, col * 2, 1, 2);
+        }
+        col++;
+        if (col > 1) { col = 0; row++; }
+    };
     
     // Source
     w.sourceCombo = new QComboBox();
@@ -204,34 +250,34 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     w.sourceCombo->addItem("Real", 1);
     w.sourceCombo->addItem("Disabled", 2);
     w.sourceCombo->setCurrentIndex(w.sourceCombo->findData(cam.source));
-    form->addRow("Camera Source:", w.sourceCombo);
+    addField("Camera Source:", w.sourceCombo);
     
     // Name
     w.nameEdit = new QLineEdit(cam.name);
-    form->addRow("Name:", w.nameEdit);
+    addField("Name:", w.nameEdit);
     
     // Location
     w.locationEdit = new QLineEdit(cam.location);
-    form->addRow("Location:", w.locationEdit);
+    addField("Location:", w.locationEdit);
     
     // Side
     w.sideCombo = new QComboBox();
     w.sideCombo->addItem("DRIVE SIDE");
     w.sideCombo->addItem("OPERATOR SIDE");
     w.sideCombo->setCurrentText(cam.side);
-    form->addRow("Machine Side:", w.sideCombo);
+    addField("Machine Side:", w.sideCombo);
     
     // Position
     w.positionSpin = new QSpinBox();
     w.positionSpin->setRange(0, 500000);
     w.positionSpin->setSuffix(" mm");
     w.positionSpin->setValue(cam.machinePosition);
-    w.positionSpin->setFocusPolicy(Qt::StrongFocus);  // Disable wheel scroll
-    form->addRow("Machine Position:", w.positionSpin);
+    w.positionSpin->setFocusPolicy(Qt::StrongFocus);
+    addField("Machine Position:", w.positionSpin);
     
     // IP Address (Read Only)
     w.ipLabel = new QLabel(cam.ipAddress);
-    form->addRow("IP Address:", w.ipLabel);
+    addField("IP Address:", w.ipLabel);
     
     // MAC Address
     w.macCombo = new QComboBox();
@@ -240,16 +286,16 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
         w.macCombo->addItem(QString::fromStdString(dev.macAddress));
     }
     w.macCombo->setCurrentText(cam.macAddress);
-    w.macCombo->setEditable(true); // Allow typing a custom MAC if camera is offline
-    form->addRow("MAC Address:", w.macCombo);
+    w.macCombo->setEditable(true);
+    addField("MAC Address:", w.macCombo);
     
     // Subnet Mask
     w.subnetEdit = new QLineEdit(cam.subnetMask);
-    form->addRow("Subnet Mask:", w.subnetEdit);
+    addField("Subnet Mask:", w.subnetEdit);
     
     // Default Gateway
     w.gatewayEdit = new QLineEdit(cam.defaultGateway);
-    form->addRow("Default Gateway:", w.gatewayEdit);
+    addField("Default Gateway:", w.gatewayEdit);
     
     // Write IP Button
     w.writeIpBtn = new QPushButton("Write IP to Physical Camera");
@@ -270,49 +316,55 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
             QMessageBox::critical(w.container, "Write IP", "Failed to write IP configuration to camera " + mac + ".\nPlease check connection and MAC address.");
         }
     });
-    form->addRow("", w.writeIpBtn);
+    w.writeIpBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    addField("", w.writeIpBtn);
     
     // FPS
     w.fpsSpin = new QSpinBox();
     w.fpsSpin->setRange(1, 200);
     w.fpsSpin->setValue(cam.fps);
-    w.fpsSpin->setFocusPolicy(Qt::StrongFocus);  // Disable wheel scroll
-    form->addRow("FPS:", w.fpsSpin);
-    
-    // Separator line before params
-    QFrame* paramLine = new QFrame();
-    paramLine->setFrameShape(QFrame::HLine);
-    paramLine->setFrameShadow(QFrame::Sunken);
-    form->addRow(paramLine);
-    
-    // Configuration Edit Toggle — controls ALL writable fields
-    w.editParamsCheck = new QCheckBox("Enable Configuration Editing");
-    w.editParamsCheck->setChecked(false);
-    form->addRow("", w.editParamsCheck);
+    w.fpsSpin->setFocusPolicy(Qt::StrongFocus);
+    addField("FPS:", w.fpsSpin);
     
     w.gainSpin = new QSpinBox();
     w.gainSpin->setRange(0, 10000);
     w.gainSpin->setValue(cam.gain);
     w.gainSpin->setFocusPolicy(Qt::StrongFocus);
-    form->addRow("Gain (initial):", w.gainSpin);
+    addField("Gain (initial):", w.gainSpin);
     
     w.exposureSpin = new QSpinBox();
     w.exposureSpin->setRange(10, 100000);
     w.exposureSpin->setValue(cam.exposureTime);
     w.exposureSpin->setFocusPolicy(Qt::StrongFocus);
-    form->addRow("Exposure Time (initial):", w.exposureSpin);
+    addField("Exposure Time (initial):", w.exposureSpin);
     
     w.gammaSpin = new QSpinBox();
     w.gammaSpin->setRange(0, 100);
     w.gammaSpin->setValue(cam.gamma);
     w.gammaSpin->setFocusPolicy(Qt::StrongFocus);
-    form->addRow("Gamma (initial):", w.gammaSpin);
+    addField("Gamma (initial):", w.gammaSpin);
     
     w.contrastSpin = new QSpinBox();
     w.contrastSpin->setRange(0, 100);
     w.contrastSpin->setValue(cam.contrast);
     w.contrastSpin->setFocusPolicy(Qt::StrongFocus);
-    form->addRow("Contrast (initial):", w.contrastSpin);
+    addField("Contrast (initial):", w.contrastSpin);
+    
+    // If we have an odd number of items, move to next row
+    if (col != 0) { row++; col = 0; }
+    
+    // Separator line before Remove
+    QFrame* paramLine = new QFrame();
+    paramLine->setFrameShape(QFrame::HLine);
+    paramLine->setFrameShadow(QFrame::Sunken);
+    grid->addWidget(paramLine, row++, 0, 1, 4);
+
+    // Remove Button
+    QPushButton* removeBtn = new QPushButton("Delete Camera Config");
+    removeBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    connect(removeBtn, &QPushButton::clicked, this, &ConfigDialog::onRemoveCameraConfigClicked);
+    removeBtn->setProperty("containerPtr", QVariant::fromValue(static_cast<void*>(gb)));
+    grid->addWidget(removeBtn, row++, 0, 1, 2);
     
     // Toggle controls ALL writable fields
     auto setAllEditable = [w](bool en) {
@@ -337,13 +389,16 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
         setAllEditable(checked);
     });
     
-    // Remove Button
-    QPushButton* removeBtn = new QPushButton("Remove Camera Configuration");
-    connect(removeBtn, &QPushButton::clicked, this, &ConfigDialog::onRemoveCameraConfigClicked);
-    removeBtn->setProperty("containerPtr", QVariant::fromValue(static_cast<void*>(gb)));
-    form->addRow("", removeBtn);
+    // Wrap to prevent full-width stretching
+    QWidget* rowWidget = new QWidget();
+    QHBoxLayout* rowLayout = new QHBoxLayout(rowWidget);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->addWidget(gb);
+    rowLayout->addStretch(1);
     
-    cameraListLayout_->addWidget(gb);
+    removeBtn->setProperty("wrapperPtr", QVariant::fromValue(static_cast<void*>(rowWidget)));
+    
+    cameraListLayout_->addWidget(rowWidget);
     activeCameraConfigs_.push_back(w);
 }
 
@@ -380,15 +435,16 @@ void ConfigDialog::onRemoveCameraConfigClicked() {
     if (!btn) return;
     
     QWidget* container = static_cast<QWidget*>(btn->property("containerPtr").value<void*>());
-    if (!container) return;
+    QWidget* wrapper = static_cast<QWidget*>(btn->property("wrapperPtr").value<void*>());
+    if (!container || !wrapper) return;
     
     // Remove from vector
     activeCameraConfigs_.erase(std::remove_if(activeCameraConfigs_.begin(), activeCameraConfigs_.end(), 
         [container](const CameraConfigWidgets& entry) { return entry.container == container; }), activeCameraConfigs_.end());
         
     // Remove from UI
-    cameraListLayout_->removeWidget(container);
-    delete container;
+    cameraListLayout_->removeWidget(wrapper);
+    delete wrapper;
 }
 
 void ConfigDialog::saveAndApply() {
@@ -455,4 +511,62 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
             // Fields are disabled by the toggled() signal triggered above
         }
     }
+}
+
+void ConfigDialog::onRefreshLogsClicked() {
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+    QString refreshTs = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+    connectionLogsBrowser_->append(QString("--- Refresh at %1 ---").arg(refreshTs));
+    
+    // Static map to remember when a camera was first connected/detected
+    static QMap<QString, QString> cameraConnectionTimes;
+    
+    for (const auto& dev : currentGigEDevices_) {
+        QString mac = QString::fromStdString(dev.macAddress);
+        
+        // If this is the first time we see this MAC, record the timestamp
+        if (!cameraConnectionTimes.contains(mac)) {
+            cameraConnectionTimes.insert(mac, QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"));
+        }
+        
+        QString devTs = cameraConnectionTimes.value(mac);
+        
+        connectionLogsBrowser_->append(
+            QString("[%1] %2 MAC: %3 | IP: %4 | Subnet: %5 | Gateway: %6")
+            .arg(devTs)
+            .arg(QString::fromStdString(dev.friendlyName))
+            .arg(QString::fromStdString(dev.macAddress))
+            .arg(QString::fromStdString(dev.ipAddress))
+            .arg(QString::fromStdString(dev.subnetMask))
+            .arg(QString::fromStdString(dev.defaultGateway))
+        );
+    }
+    if(currentGigEDevices_.empty()) {
+        cameraConnectionTimes.clear(); // Clear so next time they are "new" if they reconnect
+        QString emptyTs = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+        connectionLogsBrowser_->append(
+            QString("[%1] No online Real cameras detected.").arg(emptyTs)
+        );
+    }
+    
+    // Update MAC Address dropdowns in active camera configs
+    for (auto& w : activeCameraConfigs_) {
+        QString currentText = w.macCombo->currentText();
+        w.macCombo->blockSignals(true);
+        w.macCombo->clear();
+        w.macCombo->addItem("None / Auto");
+        for (const auto& dev : currentGigEDevices_) {
+            w.macCombo->addItem(QString::fromStdString(dev.macAddress));
+        }
+        w.macCombo->setCurrentText(currentText);
+        w.macCombo->blockSignals(false);
+    }
+}
+
+void ConfigDialog::onClearLogsClicked() {
+    connectionLogsBrowser_->clear();
+}
+
+void ConfigDialog::onOpenIpConfiguratorClicked() {
+    QProcess::startDetached("/opt/pylon/bin/IpConfigurator", QStringList());
 }

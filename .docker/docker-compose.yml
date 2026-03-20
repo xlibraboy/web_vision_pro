@@ -18,6 +18,8 @@ services:
       - ../:/app
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ../data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     working_dir: /app
     command: /bin/bash -c "mkdir -p build && cd build && cmake .. && make && ./PaperVision_App"
     stdin_open: true

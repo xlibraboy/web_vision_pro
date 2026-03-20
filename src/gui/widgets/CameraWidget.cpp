@@ -59,6 +59,12 @@ void CameraWidget::updateFrame(const cv::Mat& frame) {
     update();
 }
 
+void CameraWidget::clearFrame() {
+    QMutexLocker locker(&mutex_);
+    image_ = QImage(); // Reset to null
+    update();
+}
+
 void CameraWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     QMutexLocker locker(&mutex_);
@@ -73,6 +79,33 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
     
     if (image_.isNull()) {
         painter.fillRect(contentRect, QColor(0, 0, 0)); // Pure black
+        painter.setPen(QColor(tc.text)); // Standard text color
+        
+        // Draw Warning Icon (Centered above text)
+        QFont iconFont = painter.font();
+        iconFont.setPixelSize(48);
+        painter.setFont(iconFont);
+        painter.drawText(contentRect.adjusted(0, -25, 0, -25), Qt::AlignCenter, "⚠");
+
+        // Info Text
+        QFont textFont = painter.font();
+        textFont.setPixelSize(14);
+        textFont.setBold(true);
+        painter.setFont(textFont);
+        QString msg;
+        if (cameraId_ >= 0) {
+            msg = QString("%1\nWaiting for physical connection...").arg(CameraConfig::getCameraName(cameraId_));
+        } else {
+            msg = "Waiting for physical connection...";
+        }
+        painter.drawText(contentRect.adjusted(0, 45, 0, 45), Qt::AlignCenter, msg);
+        
+        // Draw overlay text if set even when disconnected
+        if (!overlayText_.isEmpty()) {
+            painter.setPen(QColor(tc.primary));
+            painter.setFont(textFont);
+            painter.drawText(contentRect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::AlignTop, overlayText_);
+        }
         return;
     }
     
@@ -95,9 +128,61 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         // Draw at top-left with some padding
         painter.drawText(contentRect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::AlignTop, overlayText_);
     }
+
+    // === Temperature Badge (top-right corner) ===
+    // Only drawn for Critical or Error states (Ok/Unknown need no badge)
+    if (tempStatus_ == TempStatus::Critical ||
+        tempStatus_ == TempStatus::Error) {
+
+        QColor badgeColor = (tempStatus_ == TempStatus::Error)
+                            ? QColor("#ff4444")  // Red for Error
+                            : QColor("#ff9900"); // Orange for Critical
+
+        QString tempStr = (tempValue_ >= 0)
+                          ? QString("%1°C").arg(tempValue_, 0, 'f', 0)
+                          : "TEMP!";
+
+        QFont badgeFont = painter.font();
+        badgeFont.setPixelSize(11);
+        badgeFont.setBold(true);
+        painter.setFont(badgeFont);
+
+        QFontMetrics fm(badgeFont);
+        int textW = fm.horizontalAdvance(tempStr) + 8;
+        int textH = fm.height() + 4;
+        QRect badgeRect(contentRect.right() - textW - 5,
+                        contentRect.top() + 5,
+                        textW, textH);
+
+        // Badge background
+        painter.setBrush(badgeColor);
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(badgeRect, 3, 3);
+
+        // Badge text
+        painter.setPen(Qt::white);
+        painter.drawText(badgeRect, Qt::AlignCenter, tempStr);
+    }
 }
 
 void CameraWidget::setOverlayText(const QString& text) {
     overlayText_ = text;
+    update();
+}
+
+void CameraWidget::setTemperatureStatus(double temp, TempStatus::Status status) {
+    tempValue_  = temp;
+    tempStatus_ = status;
+    update();  // Repaint to show updated badge
+}
+
+QImage CameraWidget::getImage() {
+    QMutexLocker locker(&mutex_);
+    return image_.copy();
+}
+
+void CameraWidget::setImage(const QImage& img) {
+    QMutexLocker locker(&mutex_);
+    image_ = img.copy();
     update();
 }

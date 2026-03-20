@@ -8,9 +8,13 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <chrono>
 
 // Pylon Includes
 #include <pylon/PylonIncludes.h>
+
+// Shared lightweight temperature status (avoids circular dependencies)
+#include "TemperatureStatus.h"
 
 // Buffer pool for optimized memory management
 #include "BufferPool.h"
@@ -31,6 +35,21 @@ struct GigEDeviceInfo {
 
 class CameraManager {
 public:
+    // Temperature status aliases — types defined in TemperatureStatus.h
+    using TemperatureStatus = TempStatus::Status;
+    static constexpr TemperatureStatus TS_Ok       = TempStatus::Ok;
+    static constexpr TemperatureStatus TS_Critical  = TempStatus::Critical;
+    static constexpr TemperatureStatus TS_Error     = TempStatus::Error;
+    static constexpr TemperatureStatus TS_Unknown   = TempStatus::Unknown;
+
+    // Callback fired from background thread when a camera's temp status changes
+    using TempAlertCallback = std::function<void(int camId, double temp, TemperatureStatus status)>;
+    void registerTemperatureAlertCallback(TempAlertCallback cb) { tempAlertCallback_ = cb; }
+
+    // Classify temperature into status using Basler GigE thresholds
+    static TemperatureStatus classifyTemperature(double temp) {
+        return TempStatus::classify(temp);
+    }
     // Event Handler for Device Removal
     class DeviceRemovalHandler : public Pylon::CConfigurationEventHandler {
     public:
@@ -59,11 +78,18 @@ public:
     // Register a callback to receive frames
     void registerCallback(FrameCallback callback);
     
+    // Register a callback to receive connection status messages
+    using StatusCallback = std::function<void(const std::string&)>;
+    void registerStatusCallback(StatusCallback callback) { statusCallback_ = callback; }
+    
     // Get camera labels
     std::vector<std::string> getCameraLabels() const;
     
     // Get Camera Model Name from Pylon
-    std::string getModelName(int index) const;
+    std::string getModelName(int index);
+    
+    // Get Camera Device Temperature from Pylon
+    double getTemperature(int index);
     
     // Get Configured Resolution
     cv::Size getResolution() const;
@@ -79,6 +105,11 @@ public:
     void setGlobalFrameRate(double fps);
     void setCameraFrameRate(int cameraIndex, double fps);
     void setGlobalResolution(int binningFactor); // 1 = Full, 2 = 2x2, etc.
+    
+    // Live Camera Parameter Adjustment (Pylon nodes, no restart needed)
+    void setCameraGain(int cameraIndex, double gain);
+    void setCameraExposure(int cameraIndex, double exposureUs);
+    void setCameraGamma(int cameraIndex, double gamma);
 
     // GigE Network Configuration
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
@@ -108,8 +139,17 @@ private:
     std::thread recoveryThread_;
     void recoveryLoop();
 
+    // Temperature monitor
+    std::atomic<bool> tempMonitorRunning_{false};
+    std::thread tempMonitorThread_;
+    void temperatureMonitorLoop();
+    TempAlertCallback tempAlertCallback_;
+    // Tracks previous status per camera to avoid redundant alerts
+    std::vector<TemperatureStatus> prevTempStatus_;
+
     FrameCallback callback_;
     std::mutex callbackMutex_;
+    StatusCallback statusCallback_;
 
     int width_;
     int height_;
@@ -133,6 +173,18 @@ private:
     
     std::vector<std::string> cameraLabels_;
     std::vector<std::string> modelNames_;
+    
+    // Maps Pylon array index -> CameraConfig ID (1-based)
+    // e.g. cameras_[0] corresponds to Config ID stored in cameraIndexToConfigId_[0]
+    std::vector<int> cameraIndexToConfigId_;
+    
+    // Maps config array index (0-based, order from getCameras()) -> Pylon array index
+    // Used to get the correct camera_ entry for a given UI slot
+    std::vector<int> configArrayIndexToPylonIndex_;
+    
+    // Maps Pylon array index -> config array index (0-based UI slot)
+    // Used in the acquisition callback to emit the correct slot index
+    std::vector<int> pylonIndexToConfigArrayIndex_;
     
     // Recovery tracking info (Device Class, Serial Numbers, MACs)
     std::vector<Pylon::CDeviceInfo> targetDevices_;

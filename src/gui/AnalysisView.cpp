@@ -44,8 +44,7 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
       currentFrame_(0), totalFrames_(1000), playbackSpeed_(1.0), triggerFrameIndex_(0),
       isStreamingMode_(false), baseWidth_(782), baseHeight_(582) {
     
-    // Initialize video reader
-    videoReader_ = std::make_unique<VideoStreamReader>();
+    // Readers initialized per camera dynamically
     
     // Setup playback timer
     playbackTimer_ = new QTimer(this);
@@ -156,16 +155,41 @@ void AnalysisView::setupUI() {
 void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerIndex) {
     std::cout << "[AnalysisView] Starting review from file: " << videoPath.toStdString() << std::endl;
     
-    // Check if this is a TIFF directory (ends with _tiff) or Raw Binary (.bin)
-    if (videoPath.endsWith("_tiff") || videoPath.endsWith(".bin")) {
+    // Check if this is a TIFF directory (ends with _tiff)
+    if (videoPath.endsWith("_tiff")) {
         std::cout << "[AnalysisView] Delegating to specialized loader: " << videoPath.toStdString() << std::endl;
         startReview(videoPath, triggerIndex);
         return;
     }
     
-    // Open video file with VideoStreamReader (for .bin, .mp4, etc.)
-    if (!videoReader_->open(videoPath)) {
-        std::cerr << "[AnalysisView] Failed to open video file!" << std::endl;
+    // Open video files for all possible cameras (up to max configured)
+    int maxCameras = CameraConfig::getCameraCount();
+    videoReaders_.clear();
+    
+    bool anyOpened = false;
+    for (int i = 0; i < maxCameras; ++i) {
+        int camId = i + 1;
+        QString camPath = videoPath;
+        
+        if (camPath.contains("_cam")) {
+            int idx = camPath.lastIndexOf("_cam");
+            camPath = camPath.left(idx) + QString("_cam%1.bin").arg(camId);
+        } else if (camPath.endsWith(".bin")) {
+             // Legacy fallback - only 1 camera file available
+             if (i > 0) continue;
+        }
+
+        if (QFile::exists(camPath)) {
+            auto reader = std::make_unique<VideoStreamReader>();
+            if (reader->open(camPath)) {
+                videoReaders_[i] = std::move(reader);
+                anyOpened = true;
+            }
+        }
+    }
+
+    if (!anyOpened) {
+        std::cerr << "[AnalysisView] Failed to open any video files for event!" << std::endl;
         return;
     }
     
@@ -174,8 +198,11 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     isStreamingMode_ = true;
     recordedSequence_.clear();  // Clear in-memory sequence as we're loading from disk
     
-    // Get video properties
-    totalFrames_ = videoReader_->getTotalFrames() - 1;
+    // Get video properties from first available reader
+    totalFrames_ = 0;
+    if (!videoReaders_.empty()) {
+        totalFrames_ = videoReaders_.begin()->second->getTotalFrames() - 1;
+    }
     
     // Set trigger index
     if (triggerIndex < 0 || triggerIndex > totalFrames_) {
@@ -195,8 +222,10 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     playbackSlider_->setValue(0);
     frameInput_->setText("0.0");
     
-    // Preload chunk around trigger point
-    videoReader_->preloadChunk(triggerFrameIndex_, 25);
+    // Preload chunk around trigger point for all active readers
+    for (auto& pair : videoReaders_) {
+        pair.second->preloadChunk(triggerFrameIndex_, 25);
+    }
     
     // Update display
     onSliderMoved(0);
@@ -462,6 +491,46 @@ void AnalysisView::setupCameraGrid(QWidget* container) {
     // Set equal stretch for all rows and columns
     for (int i = 0; i < rows; ++i) layout->setRowStretch(i, 1);
     for (int i = 0; i < cols; ++i) layout->setColumnStretch(i, 1);
+}
+
+void AnalysisView::setCameraCount(int count) {
+    if (count == numCameras_) return;
+    
+    auto layout = qobject_cast<QGridLayout*>(allCameraTab_->layout());
+    if (!layout) return;
+    
+    int cols = 4;
+    int rows = (std::max(count, 1) + cols - 1) / cols;
+    
+    if (count > numCameras_) {
+        for (int i = numCameras_; i < count; ++i) {
+            QString label = CameraConfig::getCameraLabel(i);
+            auto widget = new AnalysisVideoWidget(i, label, allCameraTab_);
+            connect(widget, &AnalysisVideoWidget::clicked, this, &AnalysisView::onCameraClicked);
+            
+            int row = i / cols;
+            int col = i % cols;
+            layout->addWidget(widget, row, col);
+            cameraWidgets_.push_back(widget);
+        }
+    } else {
+        for (int i = numCameras_ - 1; i >= count; --i) {
+            auto widget = cameraWidgets_.back();
+            layout->removeWidget(widget);
+            widget->deleteLater();
+            cameraWidgets_.pop_back();
+        }
+    }
+    
+    // Clear old stretches
+    for (int i = 0; i < layout->rowCount(); ++i) layout->setRowStretch(i, 0);
+    for (int i = 0; i < layout->columnCount(); ++i) layout->setColumnStretch(i, 0);
+    
+    // Set equal stretch for all active rows and columns
+    for (int i = 0; i < rows; ++i) layout->setRowStretch(i, 1);
+    for (int i = 0; i < cols; ++i) layout->setColumnStretch(i, 1);
+    
+    numCameras_ = count;
 }
 
 void AnalysisView::setupPlaybackControls() {
@@ -805,75 +874,95 @@ void AnalysisView::onSliderMoved(int value) {
     
     // In Review Mode, immediate update is needed when dragging slider
     if (isReviewMode_) {
-        QImage frameImage;
+        // Get consistent metadata text
+        double relFrame = currentFrame_ - triggerFrameIndex_;
+        QString overlayText = getMetadataOverlayText(static_cast<int>(currentFrame_), relFrame);
+        QString tooltipText = getMetadataTooltip(static_cast<int>(currentFrame_), relFrame);
         
         if (isStreamingMode_) {
             // On-demand loading from video file
             int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(totalFrames_ - 1));
-            cv::Mat cvFrame = videoReader_->getFrame(idx);
             
-            if (!cvFrame.empty()) {
-                // Convert Mat to QImage
-                cv::Mat rgb;
-                cv::cvtColor(cvFrame, rgb, cv::COLOR_BGR2RGB);
-                frameImage = QImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888).copy();
-            }
-        } else if (!recordedSequence_.empty()) {
-            // Load from in-memory sequence
-            int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(recordedSequence_.size()) - 1);
-            frameImage = recordedSequence_[idx];
-        }
-        
-        if (!frameImage.isNull()) {
-            // Check if this is a tiled image (multi-camera recording)
-            bool isTiled = (frameImage.width() > baseWidth_ || frameImage.height() > baseHeight_);
-            
-            // Get consistent metadata text
-            QString overlayText = getMetadataOverlayText(static_cast<int>(currentFrame_), relativeFrame);
-            QString tooltipText = getMetadataTooltip(static_cast<int>(currentFrame_), relativeFrame);
-            
-            if (isTiled) {
-                int cols = 4;
-                int rows = (numCameras_ + cols - 1) / cols;
-                int cellW = frameImage.width() / cols;
-                int cellH = frameImage.height() / rows;
+            for (auto& pair : videoReaders_) {
+                int camIdx = pair.first;
+                cv::Mat cvFrame = pair.second->getFrame(idx);
                 
-                for (int i = 0; i < numCameras_; ++i) {
-                    int r = i / cols;
-                    int c = i % cols;
-                    QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
-                    
-                    if (i < (int)cameraWidgets_.size()) {
-                        cameraWidgets_[i]->setFrame(slice);
-                        cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
+                if (!cvFrame.empty() && camIdx < static_cast<int>(cameraWidgets_.size())) {
+                    // Convert Mat to QImage safely without crashing on Mono8
+                    cv::Mat rgb;
+                    if (cvFrame.channels() == 1) {
+                        cv::cvtColor(cvFrame, rgb, cv::COLOR_GRAY2RGB);
+                    } else if (cvFrame.channels() == 3) {
+                        cv::cvtColor(cvFrame, rgb, cv::COLOR_BGR2RGB);
+                    } else {
+                        rgb = cvFrame.clone(); 
                     }
-                }
-                
-                // Update selected camera widget with its specific slice
-                if (selectedCameraWidget_) {
-                    int scId = selectedCameraWidget_->getCameraId();
-                    if (scId >= 0 && scId < numCameras_) {
-                        int r = scId / cols;
-                        int c = scId % cols;
-                        QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
-                        selectedCameraWidget_->setFrame(slice);
+                    QImage frameImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
+                    
+                    // Directly update the widget instead of using updateCameraFrame (which aborts in review mode)
+                    QImage finalImage = frameImage.copy();
+                    cameraWidgets_[camIdx]->setFrame(finalImage);
+                    cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
+                    
+                    if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
+                        selectedCameraWidget_->setFrame(finalImage);
                         selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
                     }
                 }
-            } else {
-                // Single-camera recording: only update camera widget 0
-                if (!cameraWidgets_.empty()) {
-                    cameraWidgets_[0]->setFrame(frameImage);
-                    cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
-                }
-                // Clear all other camera slots so they don't show stale or duplicate data
-                for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
-                    cameraWidgets_[wi]->clear();
-                }
+            }
+        } else if (!recordedSequence_.empty()) {
+            QImage frameImage;
+            // Load from in-memory sequence
+            int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(recordedSequence_.size()) - 1);
+            frameImage = recordedSequence_[idx];
+            
+            if (!frameImage.isNull()) {
+                // Check if this is a tiled image (multi-camera recording)
+                bool isTiled = (frameImage.width() > baseWidth_ || frameImage.height() > baseHeight_);
                 
-                if (selectedCameraWidget_) {
-                    selectedCameraWidget_->setFrame(frameImage);
-                    selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                if (isTiled) {
+                    int cols = 4;
+                    int rows = (numCameras_ + cols - 1) / cols;
+                    int cellW = frameImage.width() / cols;
+                    int cellH = frameImage.height() / rows;
+                    
+                    for (int i = 0; i < numCameras_; ++i) {
+                        int r = i / cols;
+                        int c = i % cols;
+                        QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
+                        
+                        if (i < (int)cameraWidgets_.size()) {
+                            cameraWidgets_[i]->setFrame(slice);
+                            cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
+                        }
+                    }
+                    
+                    // Update selected camera widget with its specific slice
+                    if (selectedCameraWidget_) {
+                        int scId = selectedCameraWidget_->getCameraId();
+                        if (scId >= 0 && scId < numCameras_) {
+                            int r = scId / cols;
+                            int c = scId % cols;
+                            QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
+                            selectedCameraWidget_->setFrame(slice);
+                            selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                        }
+                    }
+                } else {
+                    // Single-camera recording: only update camera widget 0
+                    if (!cameraWidgets_.empty()) {
+                        cameraWidgets_[0]->setFrame(frameImage);
+                        cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+                    }
+                    // Clear all other camera slots so they don't show stale or duplicate data
+                    for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
+                        cameraWidgets_[wi]->clear();
+                    }
+                    
+                    if (selectedCameraWidget_) {
+                        selectedCameraWidget_->setFrame(frameImage);
+                        selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                    }
                 }
             }
         }
@@ -965,7 +1054,7 @@ void AnalysisView::onBeginClicked() {
 }
 
 void AnalysisView::onPreviousPressed() {
-    currentFrame_ = qMax(0.0, currentFrame_ - 1.0); // Step by 1 frame
+    currentFrame_ = qMax(0.0, currentFrame_ - playbackSpeed_); // Step by playback speed
     double relativeFrame = currentFrame_ - triggerFrameIndex_;
     playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
     frameInput_->setText(QString::number(relativeFrame, 'f', 1));
@@ -983,7 +1072,7 @@ void AnalysisView::onResetClicked() {
 }
 
 void AnalysisView::onNextPressed() {
-    currentFrame_ = qMin(static_cast<double>(totalFrames_), currentFrame_ + 1.0); // Step by 1 frame
+    currentFrame_ = qMin(static_cast<double>(totalFrames_), currentFrame_ + playbackSpeed_); // Step by playback speed
     double relativeFrame = currentFrame_ - triggerFrameIndex_;
     playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
     frameInput_->setText(QString::number(relativeFrame, 'f', 1));
@@ -1303,8 +1392,8 @@ void AnalysisView::updateCameraFrame(int cameraId, const QImage& frame) {
 }
 
 void AnalysisView::onPlaybackTick() {
-    // Early exit if no data
-    if (recordedSequence_.empty()) return;
+    // Early exit if no data in either mode
+    if (recordedSequence_.empty() && !isStreamingMode_) return;
     
     // Advance frame based on speed
     // Timer runs at ~33ms (30fps). To play at 30fps (1.0x), we need 1 frame per tick.
@@ -1316,41 +1405,23 @@ void AnalysisView::onPlaybackTick() {
     if (currentFrame_ >= totalFrames_) {
         currentFrame_ = totalFrames_;
         onPlayPauseClicked(); // Stop playback
+        
+        // Ensure final frame is shown correctly
+        onSliderMoved(playbackSlider_->value());
+        return;
     }
     
     // Update UI (Slider value is relative)
     double relativeFrame = currentFrame_ - triggerFrameIndex_;
     
     playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
     
-    // In Review Mode, update the camera widgets with the recorded frame
-    if (isReviewMode_ && !recordedSequence_.empty()) {
-        int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(recordedSequence_.size()) - 1);
-        const QImage& frame = recordedSequence_[idx];
-        
-        // Metadata Display (Consistent with Slider Moved)
-        QString overlayText = getMetadataOverlayText(idx, relativeFrame);
-        QString tooltipText = getMetadataTooltip(idx, relativeFrame);
-        
-        // Only update the camera that was actually recorded (camera 0).
-        // Multi-camera recordings are not yet supported in EventController.
-        if (!cameraWidgets_.empty()) {
-            cameraWidgets_[0]->setFrame(frame);
-            cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
-        }
-        // Clear any other camera widgets so they don't show stale/duplicate data
-        for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
-            // Keep existing frame if it's a different real camera - but since we only
-            // record cam 0 currently, clear to avoid confusion
-            cameraWidgets_[wi]->clear();
-        }
-        
-        if (selectedCameraWidget_) {
-            selectedCameraWidget_->setFrame(frame);
-            selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-        }
-    }
+    // Force view update:
+    // In Review Mode, the valueChanged signal triggers onSliderValueChanged,
+    // but onSliderValueChanged deliberately ignores updates while playing to prevent
+    // slider drag interference. So we must explicitly call onSliderMoved here
+    // to fetch and display the new frames.
+    onSliderMoved(static_cast<int>(relativeFrame * 10));
 }
 
 void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {
@@ -1383,9 +1454,9 @@ void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerI
     // Note: sorting enabled is manipulated manually, just sort here.
     paperBreakTable_->sortByColumn(0, paperBreakTable_->horizontalHeader()->sortIndicatorOrder());
     
-    // Load RAW BINARY from disk
-    QString binPath = QString("../data/event_%1.bin").arg(rawTs);
-    startReview(binPath, triggerIndex);
+    // Load RAW BINARY from disk (using new per-camera format base)
+    QString binPath = QString("../data/event_%1_cam1.bin").arg(rawTs);
+    startReviewFromFile(binPath, triggerIndex);
     
     // Auto-select the new row
     paperBreakTable_->selectRow(row);
@@ -1624,15 +1695,20 @@ void AnalysisView::showEvent(QShowEvent* event) {
 void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Clearing data to free memory..." << std::endl;
     
-    // 1. Clear In-Memory Sequence
-    recordedSequence_.clear();
-    // Force vector to release memory
-    std::vector<QImage>().swap(recordedSequence_);
+    isReviewMode_ = false;
+    isStreamingMode_ = false;
+    currentFrame_ = 0;
+    triggerFrameIndex_ = 0;
     
-    // 2. Close Video Reader (File handles + Buffer)
-    if (videoReader_) {
-        videoReader_->close();
-    }
+    // Clear in-memory sequences
+    recordedSequence_.clear();
+    frameMetadata_.clear();
+    
+    // Clear and close video readers
+    videoReaders_.clear();
+    
+    // Reset UI
+    playbackSlider_->setValue(0);
     isStreamingMode_ = false;
     isReviewMode_ = false;
     

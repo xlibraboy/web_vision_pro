@@ -201,19 +201,12 @@ void CameraConfig::ensureDefaultCameras() {
     saveCameras(defaults);
 }
 
-CameraInfo CameraConfig::getCameraInfo(int cameraId) {
+CameraInfo CameraConfig::getCameraInfo(int index) {
     auto cameras = getCameras();
-    // find by ID if possible
-    for (const auto& cam : cameras) {
-        if (cam.id == cameraId || (cam.id == 0 && cameraId == 1)) { // handle 0-based vs 1-based slightly
-            return cam;
-        }
+    if (index >= 0 && index < cameras.size()) {
+        return cameras[index];
     }
-    // Alternatively fallback to index (cameraId is an index if it's 0-based in older code)
-    if (cameraId >= 0 && cameraId < cameras.size()) {
-        return cameras[cameraId];
-    }
-    return cameras.empty() ? CameraInfo{} : cameras[0];
+    return CameraInfo{};
 }
 
 QString CameraConfig::getCameraLabel(int index) {

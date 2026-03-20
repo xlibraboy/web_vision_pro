@@ -1,4 +1,6 @@
 #include "DetailView.h"
+#include "../config/CameraConfig.h"
+#include "../core/TemperatureStatus.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
@@ -58,7 +60,12 @@ void DetailView::setupUi() {
     connect(spinGain_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             [this](double val) { sliderGain_->setValue(static_cast<int>(val * 10)); });
     connect(sliderGain_, &QSlider::valueChanged, 
-            [this](int val) { spinGain_->setValue(val / 10.0); });
+            [this](int val) {
+                // Sync spinbox
+                spinGain_->setValue(val / 10.0);
+                // Live apply
+                emit parameterChanged(currentCameraId_, "Gain", val / 10.0);
+            });
 
     // Exposure Time (row 1)
     QLabel* lblExposure = new QLabel("Exposure Time [µs]:", this);
@@ -73,7 +80,11 @@ void DetailView::setupUi() {
     connect(spinExposure_, QOverload<int>::of(&QSpinBox::valueChanged), 
             sliderExposure_, &QSlider::setValue);
     connect(sliderExposure_, &QSlider::valueChanged, 
-            spinExposure_, &QSpinBox::setValue);
+            [this](int val) {
+                spinExposure_->setValue(val);
+                // Live apply
+                emit parameterChanged(currentCameraId_, "Exposure", val);
+            });
 
     // Gamma (row 2)
     QLabel* lblGamma = new QLabel("Gamma:", this);
@@ -90,7 +101,11 @@ void DetailView::setupUi() {
     connect(spinGamma_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             [this](double val) { sliderGamma_->setValue(static_cast<int>(val * 100)); });
     connect(sliderGamma_, &QSlider::valueChanged, 
-            [this](int val) { spinGamma_->setValue(val / 100.0); });
+            [this](int val) {
+                spinGamma_->setValue(val / 100.0);
+                // Live apply
+                emit parameterChanged(currentCameraId_, "Gamma", val / 100.0);
+            });
 
     // Contrast (row 3)
     QLabel* lblContrast = new QLabel("Contrast:", this);
@@ -109,8 +124,8 @@ void DetailView::setupUi() {
     connect(sliderContrast_, &QSlider::valueChanged, 
             [this](int val) { spinContrast_->setValue(val / 100.0); });
 
-    // Apply button (row 4)
-    btnSave_ = new QPushButton("Apply Parameters", this);
+    // Save Parameter button
+    btnSave_ = new QPushButton("Save Parameters", this);
     connect(btnSave_, &QPushButton::clicked, this, &DetailView::onSaveParams);
 
     // Layout: Label | SpinBox (with sliders below each parameter)
@@ -173,8 +188,12 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     lblModel_->setText(info.model);
     lblIP_->setText(info.ipAddress);
     lblImageSize_->setText(info.imageSize);
-    lblFPS_->setText(QString("%1 FPS").arg(info.fps, 0, 'f', 1));
-    lblTemp_->setText(QString("%1").arg(info.temperature, 0, 'f', 1));
+    lblFPS_->setText(QString("%1 FPS").arg(static_cast<double>(info.fps), 0, 'f', 1));
+    // Temperature rendering
+    updateTemperature(info.temperature);
+    
+    // Set overlay text to match LiveDashboard
+    cameraWidget_->setOverlayText(CameraConfig::getCameraLabel(cameraId));
     
     // Set default parameter values (would come from Pylon in real implementation)
     // TODO: Get actual values from CameraManager/Pylon SDK
@@ -182,6 +201,41 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     spinExposure_->setValue(5000);
     spinGamma_->setValue(1.0);
     spinContrast_->setValue(1.0);
+}
+
+void DetailView::updateTemperature(double temp) {
+    if (!lblTemp_) return;
+
+    TempStatus::Status status = TempStatus::classify(temp);
+
+    QString text;
+    QString color;
+
+    switch (status) {
+        case TempStatus::Error:
+            text  = QString("⛔ %1 °C  ERROR").arg(temp, 0, 'f', 1);
+            color = "#ff4444";
+            break;
+        case TempStatus::Critical:
+            text  = QString("⚠ %1 °C  CRITICAL").arg(temp, 0, 'f', 1);
+            color = "#ff9900";
+            break;
+        case TempStatus::Ok:
+            text  = QString("%1 °C").arg(temp, 0, 'f', 1);
+            color = "";  // Default theme text
+            break;
+        default:  // Unknown / N/A
+            text  = "N/A";
+            color = "#888888";
+            break;
+    }
+
+    lblTemp_->setText(text);
+    if (color.isEmpty()) {
+        lblTemp_->setStyleSheet("");  // Revert to theme
+    } else {
+        lblTemp_->setStyleSheet(QString("color: %1; font-weight: bold;").arg(color));
+    }
 }
 
 void DetailView::setAdminMode(bool isAdmin) {

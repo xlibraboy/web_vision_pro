@@ -6,6 +6,7 @@
 #include "widgets/CameraWidget.h"
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include "../core/TemperatureStatus.h"
 
 class LiveDashboard : public QWidget {
     Q_OBJECT
@@ -16,9 +17,19 @@ public:
 
     // Layout Config
     void setGridDimensions(int rows, int cols);
+    void setCameraCount(int count);
 
     // Update a specific camera's frame
     void updateFrame(int cameraId, const cv::Mat& frame);
+    
+    // Clear a specific camera to disconnected state
+    void clearCameraWidget(int cameraId);
+    
+    // Get current image from a specific camera tile
+    QImage getCameraImage(int cameraId);
+    
+    // Update temperature badge on a specific camera tile
+    void updateCameraTemperature(int cameraId, double temp, TempStatus::Status status);
     
     // Update status labels
     void updateStatus(double fps, bool recording);

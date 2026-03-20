@@ -39,6 +39,9 @@ private slots:
     void saveAndApply();
     void onAddCameraConfigClicked();
     void onRemoveCameraConfigClicked();
+    void onRefreshLogsClicked();
+    void onClearLogsClicked();
+    void onOpenIpConfiguratorClicked();
 
 private:
     void setupUI();

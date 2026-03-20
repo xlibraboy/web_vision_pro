@@ -24,14 +24,14 @@ struct ThemeColors {
  */
 class CameraConfig {
 public:
-    // Get full camera information for a specific camera ID (1-based index)
-    static CameraInfo getCameraInfo(int cameraId);
+    // Get full camera information for a specific camera index (0-based array index)
+    static CameraInfo getCameraInfo(int index);
     
     // Get formatted camera label (e.g., "CAM-01: DRYER 1")
-    static QString getCameraLabel(int cameraId);
+    static QString getCameraLabel(int index);
     
     // Get short camera name (e.g., "DRYER 1")
-    static QString getCameraName(int cameraId);
+    static QString getCameraName(int index);
     
     // Get total number of configured cameras
     static int getCameraCount();

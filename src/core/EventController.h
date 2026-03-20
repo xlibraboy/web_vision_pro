@@ -30,10 +30,10 @@ public:
     // Initialize buffer size (fps * seconds)
     void initialize(int bufferSize = 550, double fps = 55.0, int postTriggerFrames = 110);
 
-    // Add frame to circular buffer with metadata
-    void addFrame(const cv::Mat& frame, int64_t timestamp, int64_t frameCounter);
+    // Add frame to a specific camera's circular buffer with metadata
+    void addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter);
 
-    // Trigger an event (Paper Break)
+    // Trigger an event (Paper Break) - captures post-trigger for ALL active cameras
     void triggerEvent();
 
     // Check if currently saving
@@ -54,26 +54,30 @@ private:
     // Worker thread for saving
     void saveWorker();
 
-    // Save as Raw Binary File (.bin)
-    void saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex);
+    // Save a queue of frames as Raw Binary File (.bin)
+    void saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId);
 
     // Configuration
     int bufferSize_;
     int postTriggerLimit_; // Frames to capture AFTER trigger
     double fps_;
 
-    // Buffer state
-    std::vector<FrameData> circularBuffer_;
-    size_t writeIndex_;
-    size_t currentFillSize_;
+    struct CameraBufferState {
+        std::vector<FrameData> circularBuffer;
+        size_t writeIndex = 0;
+        size_t currentFillSize = 0;
+        int postFramesRecorded = 0;
+        std::deque<FrameData> saveQueue;
+        int linearizedTriggerIndex = 0;
+    };
+
+    // Buffer state per camera (using 1-based indexing passed from CameraManager's config ID resolving)
+    std::map<int, CameraBufferState> cameraStates_;
     std::mutex bufferMutex_;
     
     // Save state
     std::atomic<bool> triggering_;
-    std::atomic<int> postFramesRecorded_;
-    int triggerIndex_; 
-    int linearizedTriggerIndex_; // Correct index for saved sequence
-    std::deque<FrameData> saveQueue_;
+    
     std::string currentTimestamp_;
 
     // Threading
