@@ -17,7 +17,51 @@
 #include <QFrame>
 #include <QEvent>
 #include <QDateTime>
+#include <QMap>
+#include <QSet>
 #include <algorithm>
+
+namespace {
+QString normalizeIp(const QString& ip) {
+    return ip.trimmed();
+}
+
+QString normalizeMac(const QString& mac) {
+    QString normalized;
+    normalized.reserve(mac.size());
+    for (const QChar ch : mac) {
+        if (ch.isLetterOrNumber()) {
+            normalized.append(ch.toUpper());
+        }
+    }
+    return normalized;
+}
+
+void persistCameraNetworkSelection(int cameraId, int source, const QString& ip, const QString& mac, const QString& mask, const QString& gateway) {
+    std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+    for (auto& cam : cameras) {
+        if (cam.id != cameraId) {
+            continue;
+        }
+
+        cam.source = source;
+        cam.ipAddress = normalizeIp(ip);
+        cam.macAddress = normalizeMac(mac);
+        cam.subnetMask = normalizeIp(mask);
+        cam.defaultGateway = normalizeIp(gateway);
+        CameraConfig::saveCameras(cameras);
+        return;
+    }
+}
+
+QString joinCameraIds(const QList<int>& ids) {
+    QStringList parts;
+    for (int id : ids) {
+        parts.append(QString::number(id));
+    }
+    return parts.join(", ");
+}
+}
 
 // Suppress scroll-wheel on ANY QSpinBox child widget to prevent accidental changes
 bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
@@ -64,6 +108,10 @@ void ConfigDialog::setupUI() {
     topCamLayout->addWidget(ipConfigBtn);
     topCamLayout->addStretch();
     camSetupLayout->addLayout(topCamLayout);
+
+    networkSummaryLabel_ = new QLabel("Scanning camera network...");
+    networkSummaryLabel_->setWordWrap(true);
+    camSetupLayout->addWidget(networkSummaryLabel_);
     
     cameraScrollArea_ = new QScrollArea();
     cameraScrollArea_->setWidgetResizable(true);
@@ -209,6 +257,8 @@ void ConfigDialog::loadSettings() {
     
     int themeIdx = themeCombo_->findData(CameraConfig::getThemePreset());
     if (themeIdx != -1) themeCombo_->setCurrentIndex(themeIdx);
+
+    refreshNetworkStatus();
 }
 
 void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
@@ -278,6 +328,13 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     // IP Address (Read Only)
     w.ipLabel = new QLabel(cam.ipAddress);
     addField("IP Address:", w.ipLabel);
+
+    w.detectedIpLabel = new QLabel("Offline");
+    addField("Detected IP:", w.detectedIpLabel);
+
+    w.statusLabel = new QLabel("Pending discovery");
+    w.statusLabel->setWordWrap(true);
+    addField("Status:", w.statusLabel);
     
     // MAC Address
     w.macCombo = new QComboBox();
@@ -288,6 +345,9 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     w.macCombo->setCurrentText(cam.macAddress);
     w.macCombo->setEditable(true);
     addField("MAC Address:", w.macCombo);
+    connect(w.macCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        refreshNetworkStatus();
+    });
     
     // Subnet Mask
     w.subnetEdit = new QLineEdit(cam.subnetMask);
@@ -299,21 +359,92 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     
     // Write IP Button
     w.writeIpBtn = new QPushButton("Write IP to Physical Camera");
-    connect(w.writeIpBtn, &QPushButton::clicked, this, [w]() {
-        QString mac = w.macCombo->currentText();
-        QString ip = w.ipLabel->text(); // IP is fixed based on ID
-        QString mask = w.subnetEdit->text();
-        QString gw = w.gatewayEdit->text();
-        
-        if (mac.isEmpty() || mac == "None / Auto") {
-            QMessageBox::warning(w.container, "Write IP", "Please select or enter a valid MAC Address first.");
+    connect(w.writeIpBtn, &QPushButton::clicked, this, [this, button = w.writeIpBtn]() {
+        auto it = std::find_if(activeCameraConfigs_.begin(), activeCameraConfigs_.end(), [button](const CameraConfigWidgets& entry) {
+            return entry.writeIpBtn == button;
+        });
+        if (it == activeCameraConfigs_.end()) {
             return;
         }
+
+        CameraConfigWidgets& row = *it;
+        if (row.sourceCombo->currentData().toInt() != 1) {
+            QMessageBox::warning(row.container, "Write IP", "IP writing is only available for cameras configured as Real.");
+            return;
+        }
+
+        QString mac = row.macCombo->currentText();
+        QString ip = row.ipLabel->text(); // IP is fixed based on ID
+        QString mask = row.subnetEdit->text();
+        QString gw = row.gatewayEdit->text();
+        const QString normalizedMac = normalizeMac(mac);
         
-        if (CameraManager::applyIpConfiguration(mac.toStdString(), ip.toStdString(), mask.toStdString(), gw.toStdString())) {
-            QMessageBox::information(w.container, "Write IP", "Successfully wrote IP configuration to camera " + mac);
+        if (normalizedMac.isEmpty()) {
+            QMessageBox::warning(row.container, "Write IP", "Please select or enter a valid MAC Address first.");
+            return;
+        }
+
+        bool macVisible = false;
+        for (const auto& dev : currentGigEDevices_) {
+            if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizedMac) {
+                macVisible = true;
+                break;
+            }
+        }
+        if (!macVisible) {
+            QMessageBox::warning(row.container, "Write IP", "The selected MAC is not currently visible in GigE discovery. Refresh discovery and verify the physical camera is connected before writing its IP.");
+            return;
+        }
+
+        // Persist the selected MAC and network values before restarting acquisition.
+        // Without this, CameraManager reloads stale settings with blank MACs and cannot
+        // rematch the physical camera after the temporary stop/start cycle.
+        persistCameraNetworkSelection(
+            row.id,
+            row.sourceCombo->currentData().toInt(),
+            ip,
+            mac,
+            mask,
+            gw
+        );
+        
+        // Pylon SDK requires the camera to NOT be open when reconfiguring IP.
+        // Stop acquisition so the control channel is released before writing.
+        bool wasRunning = false;
+        if (cameraManager_) {
+            cameraManager_->stopAcquisition();
+            wasRunning = true;
+        }
+
+        bool writeOk = CameraManager::applyIpConfiguration(normalizedMac.toStdString(), ip.toStdString(), mask.toStdString(), gw.toStdString());
+
+        if (!writeOk) {
+            QMessageBox::critical(row.container, "Write IP", "Failed to write IP configuration to camera " + mac + ".\nPlease check connection and MAC address.");
+            // Restart acquisition even on failure so cameras resume
+            if (wasRunning && cameraManager_) {
+                cameraManager_->startAcquisition();
+            }
+            return;
+        }
+
+        onRefreshLogsClicked();
+        QString detectedIp = "Offline";
+        for (const auto& dev : currentGigEDevices_) {
+            if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizeMac(mac)) {
+                detectedIp = QString::fromStdString(dev.ipAddress);
+                break;
+            }
+        }
+
+        if (normalizeIp(detectedIp) == normalizeIp(ip)) {
+            QMessageBox::information(row.container, "Write IP", "Camera " + mac + " is now detected at " + ip + ".");
         } else {
-            QMessageBox::critical(w.container, "Write IP", "Failed to write IP configuration to camera " + mac + ".\nPlease check connection and MAC address.");
+            QMessageBox::warning(row.container, "Write IP", "IP write sent to camera " + mac + ", but it has not been rediscovered at " + ip + " yet.\nRefresh after reconnecting the camera if needed.");
+        }
+
+        // Restart acquisition after IP write
+        if (wasRunning && cameraManager_) {
+            cameraManager_->startAcquisition();
         }
     });
     w.writeIpBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -377,6 +508,10 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     connect(w.editParamsCheck, &QCheckBox::toggled, this, [setAllEditable](bool checked) {
         setAllEditable(checked);
     });
+
+    connect(w.sourceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
+        refreshNetworkStatus();
+    });
     
     // Re-wire enableFpsCheck → fpsSpin within editing context
     connect(w.enableFpsCheck, &QCheckBox::toggled, w.fpsSpin, [w](bool checked) {
@@ -397,6 +532,7 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     
     cameraListLayout_->addWidget(rowWidget);
     activeCameraConfigs_.push_back(w);
+    refreshNetworkStatus();
 }
 
 void ConfigDialog::onAddCameraConfigClicked() {
@@ -413,7 +549,7 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cam.location = QString("CYLINDER %1").arg(10 + cam.id);
     cam.side = "DRIVE SIDE";
     cam.machinePosition = 16000 + (cam.id * 500);
-    cam.ipAddress = QString("172.17.2.%1").arg(cam.id);
+        cam.ipAddress = QString("172.20.2.%1").arg(cam.id);
     cam.macAddress = "";
     cam.subnetMask = "255.255.255.0";
     cam.defaultGateway = "0.0.0.0";
@@ -442,6 +578,12 @@ void ConfigDialog::onRemoveCameraConfigClicked() {
 }
 
 void ConfigDialog::saveAndApply() {
+    QStringList validationErrors;
+    if (!validateConfiguration(&validationErrors)) {
+        QMessageBox::warning(this, "Invalid Camera Configuration", validationErrors.join("\n"));
+        return;
+    }
+
     // 1. Gather all camera configs
     std::vector<CameraInfo> newCameras;
     for (const auto& w : activeCameraConfigs_) {
@@ -453,8 +595,8 @@ void ConfigDialog::saveAndApply() {
         cam.side = w.sideCombo->currentText();
         cam.machinePosition = w.positionSpin->value();
         cam.ipAddress = w.ipLabel->text();
-        cam.macAddress = w.macCombo->currentText();
-        if (cam.macAddress == "None / Auto") cam.macAddress = "";
+        cam.macAddress = normalizeMac(w.macCombo->currentText());
+        if (cam.macAddress.isEmpty()) cam.macAddress = "";
         cam.subnetMask = w.subnetEdit->text();
         cam.defaultGateway = w.gatewayEdit->text();
         
@@ -552,9 +694,16 @@ void ConfigDialog::onRefreshLogsClicked() {
         for (const auto& dev : currentGigEDevices_) {
             w.macCombo->addItem(QString::fromStdString(dev.macAddress));
         }
-        w.macCombo->setCurrentText(currentText);
+        const QString normalizedCurrentText = normalizeMac(currentText);
+        if (normalizedCurrentText.isEmpty()) {
+            w.macCombo->setCurrentText("None / Auto");
+        } else {
+            w.macCombo->setCurrentText(normalizedCurrentText);
+        }
         w.macCombo->blockSignals(false);
     }
+
+    refreshNetworkStatus();
 }
 
 void ConfigDialog::onClearLogsClicked() {
@@ -563,4 +712,194 @@ void ConfigDialog::onClearLogsClicked() {
 
 void ConfigDialog::onOpenIpConfiguratorClicked() {
     QProcess::startDetached("/opt/pylon/bin/IpConfigurator", QStringList());
+}
+
+bool ConfigDialog::validateConfiguration(QStringList* errors) const {
+    QMap<QString, QList<int>> ipUsage;
+    QMap<QString, QList<int>> macUsage;
+
+    for (const auto& w : activeCameraConfigs_) {
+        const int source = w.sourceCombo->currentData().toInt();
+        if (source == 2) {
+            continue;
+        }
+
+        const QString configuredIp = normalizeIp(w.ipLabel->text());
+        if (!configuredIp.isEmpty()) {
+            ipUsage[configuredIp].append(w.id);
+        }
+
+        if (source == 1) {
+            const QString configuredMac = normalizeMac(w.macCombo->currentText());
+            if (configuredMac.isEmpty() || configuredMac == "NONE / AUTO") {
+                if (errors) {
+                    errors->append(QString("Camera ID %1 is set to Real but has no MAC assigned.").arg(w.id));
+                }
+            } else {
+                macUsage[configuredMac].append(w.id);
+            }
+        }
+    }
+
+    for (auto it = ipUsage.cbegin(); it != ipUsage.cend(); ++it) {
+        if (it.value().size() > 1 && errors) {
+            errors->append(QString("Configured IP %1 is assigned to multiple camera IDs (%2).").arg(it.key(), joinCameraIds(it.value())));
+        }
+    }
+
+    for (auto it = macUsage.cbegin(); it != macUsage.cend(); ++it) {
+        if (it.value().size() > 1 && errors) {
+            errors->append(QString("MAC %1 is assigned to multiple camera IDs (%2).").arg(it.key(), joinCameraIds(it.value())));
+        }
+    }
+
+    return !errors || errors->isEmpty();
+}
+
+void ConfigDialog::refreshNetworkStatus() {
+    QMap<QString, QList<QString>> liveIpToMacs;
+    QMap<QString, GigEDeviceInfo> macToDevice;
+
+    for (const auto& dev : currentGigEDevices_) {
+        const QString ip = normalizeIp(QString::fromStdString(dev.ipAddress));
+        const QString mac = normalizeMac(QString::fromStdString(dev.macAddress));
+        if (!mac.isEmpty()) {
+            macToDevice.insert(mac, dev);
+        }
+        if (!ip.isEmpty()) {
+            liveIpToMacs[ip].append(mac);
+        }
+    }
+
+    QSet<QString> duplicateConfiguredIps;
+    QSet<QString> duplicateConfiguredMacs;
+    QMap<QString, int> configuredIpCounts;
+    QMap<QString, int> configuredMacCounts;
+
+    for (const auto& w : activeCameraConfigs_) {
+        if (w.sourceCombo->currentData().toInt() == 2) {
+            continue;
+        }
+
+        const QString configuredIp = normalizeIp(w.ipLabel->text());
+        if (!configuredIp.isEmpty()) {
+            configuredIpCounts[configuredIp] += 1;
+        }
+
+        if (w.sourceCombo->currentData().toInt() == 1) {
+            const QString configuredMac = normalizeMac(w.macCombo->currentText());
+            if (!configuredMac.isEmpty() && configuredMac != "NONE / AUTO") {
+                configuredMacCounts[configuredMac] += 1;
+            }
+        }
+    }
+
+    for (auto it = configuredIpCounts.cbegin(); it != configuredIpCounts.cend(); ++it) {
+        if (it.value() > 1) {
+            duplicateConfiguredIps.insert(it.key());
+        }
+    }
+
+    for (auto it = configuredMacCounts.cbegin(); it != configuredMacCounts.cend(); ++it) {
+        if (it.value() > 1) {
+            duplicateConfiguredMacs.insert(it.key());
+        }
+    }
+
+    int mismatchCount = 0;
+    int missingCount = 0;
+    int blockingCount = 0;
+    bool liveDuplicateSeen = false;
+
+    for (auto& w : activeCameraConfigs_) {
+        const int source = w.sourceCombo->currentData().toInt();
+        const QString configuredIp = normalizeIp(w.ipLabel->text());
+        const QString configuredMac = normalizeMac(w.macCombo->currentText());
+
+        QString detectedIp = "Offline";
+        QString statusText = "Disabled";
+        QString statusColor = "#888888";
+
+        if (source != 2) {
+            statusText = "Unassigned MAC";
+            statusColor = "#E0A800";
+
+            if (duplicateConfiguredIps.contains(configuredIp)) {
+                statusText = "Duplicate configured IP";
+                statusColor = "#FF5A5A";
+                blockingCount++;
+            } else if (source == 1 && (configuredMac.isEmpty() || configuredMac == "NONE / AUTO")) {
+                missingCount++;
+            } else if (source == 1 && duplicateConfiguredMacs.contains(configuredMac)) {
+                statusText = "Duplicate configured MAC";
+                statusColor = "#FF5A5A";
+                blockingCount++;
+            } else if (source == 0) {
+                statusText = "Emulated camera";
+                statusColor = "#4CAF50";
+            } else if (macToDevice.contains(configuredMac)) {
+                const GigEDeviceInfo& dev = macToDevice[configuredMac];
+                detectedIp = QString::fromStdString(dev.ipAddress);
+                const QString normalizedDetectedIp = normalizeIp(detectedIp);
+                if (liveIpToMacs.value(normalizedDetectedIp).size() > 1) {
+                    statusText = "Duplicate live IP";
+                    statusColor = "#FF5A5A";
+                    liveDuplicateSeen = true;
+                    blockingCount++;
+                } else if (normalizedDetectedIp == configuredIp) {
+                    statusText = "OK";
+                    statusColor = "#4CAF50";
+                } else {
+                    statusText = "IP mismatch";
+                    statusColor = "#E0A800";
+                    mismatchCount++;
+                }
+            } else if (source == 1) {
+                statusText = "MAC not found";
+                statusColor = "#E0A800";
+                missingCount++;
+            }
+        }
+
+        w.detectedIpLabel->setText(detectedIp);
+        w.statusLabel->setText(statusText);
+        w.statusLabel->setStyleSheet(QString("color: %1; font-weight: bold;").arg(statusColor));
+    }
+
+    QStringList summary;
+    QString summaryColor = "#4CAF50";
+
+    if (blockingCount > 0) {
+        summaryColor = "#FF5A5A";
+        if (!duplicateConfiguredIps.isEmpty()) {
+            summary << "Duplicate configured IPs detected";
+        }
+        if (!duplicateConfiguredMacs.isEmpty()) {
+            summary << "Duplicate configured MACs detected";
+        }
+        if (liveDuplicateSeen) {
+            summary << "Duplicate live IP detected. Disconnect one conflicting camera, write a unique static IP, then reconnect.";
+        }
+    }
+
+    if (mismatchCount > 0) {
+        if (summaryColor != "#FF5A5A") {
+            summaryColor = "#E0A800";
+        }
+        summary << QString("%1 camera%2 have IP mismatch").arg(mismatchCount).arg(mismatchCount == 1 ? "" : "s");
+    }
+
+    if (missingCount > 0) {
+        if (summaryColor == "#4CAF50") {
+            summaryColor = "#E0A800";
+        }
+        summary << QString("%1 camera%2 are not currently mapped to a visible MAC").arg(missingCount).arg(missingCount == 1 ? "" : "s");
+    }
+
+    if (summary.isEmpty()) {
+        networkSummaryLabel_->setText("Network OK: configured camera IP and MAC assignments are consistent.");
+    } else {
+        networkSummaryLabel_->setText(summary.join(" | "));
+    }
+    networkSummaryLabel_->setStyleSheet(QString("color: %1; font-weight: bold;").arg(summaryColor));
 }

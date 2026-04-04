@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QMutex>
+#include <QFutureWatcher>
 #include <atomic>
 
 #include "LiveDashboard.h"
@@ -44,6 +45,8 @@ private:
     void setupUi();
     void setupCore();
     void applyGlobalTheme();
+    void startCameraLifecycleAsync(bool restart, const QString& reason);
+    bool validateSavedCameraConfiguration(QStringList* errors) const;
 
     // GUI
     QTabWidget* mainTabWidget_;
@@ -71,6 +74,8 @@ private:
     double currentFps_;
     QTimer fpsTimer_;
     bool isAdmin_ = false;
+    bool cameraLifecycleInProgress_ = false;
+    QFutureWatcher<bool>* cameraLifecycleWatcher_ = nullptr;
     
     // Core
     std::unique_ptr<CameraManager> cameraManager_;

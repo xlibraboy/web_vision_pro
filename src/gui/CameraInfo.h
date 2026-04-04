@@ -10,7 +10,7 @@ struct CameraInfo {
     QString location;    // e.g., "CYLINDER 13"
     QString side;        // "DRIVE SIDE" or "OPERATOR SIDE"
     int machinePosition; // e.g., 16600 (mm)
-    QString ipAddress;   // e.g., "172.17.2.1"
+    QString ipAddress;   // e.g., "172.20.2.1"
     QString macAddress;  // e.g., "00:11:22:33:44:55"
     QString subnetMask;  // e.g., "255.255.255.0"
     QString defaultGateway; // e.g., "0.0.0.0"

@@ -47,6 +47,8 @@ private:
     void setupUI();
     void loadSettings();
     void createCameraWidgetBlock(const CameraInfo& cam);
+    void refreshNetworkStatus();
+    bool validateConfiguration(QStringList* errors) const;
     bool eventFilter(QObject* obj, QEvent* event) override;
 
     QSpinBox* globalFpsSpin_; // Was fpsSpin_
@@ -62,6 +64,7 @@ private:
     QScrollArea* cameraScrollArea_;
     QWidget* cameraScrollWidget_;
     QVBoxLayout* cameraListLayout_;
+    QLabel* networkSummaryLabel_;
     
     struct CameraConfigWidgets {
         QWidget* container;
@@ -72,6 +75,8 @@ private:
         QComboBox* sideCombo;
         QSpinBox* positionSpin;
         QLabel* ipLabel;
+        QLabel* detectedIpLabel;
+        QLabel* statusLabel;
         QComboBox* macCombo;
         QLineEdit* subnetEdit;
         QLineEdit* gatewayEdit;

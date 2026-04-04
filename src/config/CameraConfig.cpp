@@ -3,6 +3,16 @@
 #include <QStringList>
 #include <QSettings>
 
+namespace {
+QString defaultCameraIp(int id) {
+    return QString("172.20.2.%1").arg(id);
+}
+
+bool isLegacyCameraIp(const QString& ip, int id) {
+    return ip.trimmed() == QString("172.17.2.%1").arg(id);
+}
+}
+
 // --- Configuration Implementation ---
 
 CameraConfig::CameraSource CameraConfig::getCameraSource() {
@@ -122,7 +132,10 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.location = settings.value("location", "Unknown Location").toString();
         cam.side = settings.value("side", "DRIVE SIDE").toString();
         cam.machinePosition = settings.value("machinePosition", 0).toInt();
-        cam.ipAddress = settings.value("ipAddress", QString("172.17.2.%1").arg(i + 1)).toString();
+        cam.ipAddress = settings.value("ipAddress", defaultCameraIp(i + 1)).toString();
+        if (cam.ipAddress.isEmpty() || isLegacyCameraIp(cam.ipAddress, cam.id)) {
+            cam.ipAddress = defaultCameraIp(cam.id);
+        }
         cam.macAddress = settings.value("macAddress", "").toString();
         cam.subnetMask = settings.value("subnetMask", "255.255.255.0").toString();
         cam.defaultGateway = settings.value("defaultGateway", "0.0.0.0").toString();
@@ -172,7 +185,7 @@ void CameraConfig::ensureDefaultCameras() {
             "CYLINDER 13", // location
             "OPERATOR SIDE", // side
             16600, // machinePosition
-            "172.17.2.1", // ipAddress
+            "172.20.2.1", // ipAddress
             "", // macAddress
             "255.255.255.0", // subnetMask
             "0.0.0.0", // defaultGateway
@@ -187,7 +200,7 @@ void CameraConfig::ensureDefaultCameras() {
             "CYLINDER 14",
             "DRIVE SIDE",
             17200,
-            "172.17.2.2",
+            "172.20.2.2",
             "",
             "255.255.255.0",
             "0.0.0.0",

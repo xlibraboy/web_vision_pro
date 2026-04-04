@@ -3,11 +3,27 @@
 #include <iostream>
 #include <chrono>
 #include <algorithm>
+#include <cctype>
+#include <memory>
 #include <pylon/gige/GigETransportLayer.h>
+#include <pylon/gige/BaslerGigEInstantCamera.h>
 #include <QDir>
 
 // Use Pylon namespace
 using namespace Pylon;
+
+namespace {
+std::string normalizeMacAddress(const std::string& mac) {
+    std::string normalized;
+    normalized.reserve(mac.size());
+    for (unsigned char ch : mac) {
+        if (std::isxdigit(ch)) {
+            normalized.push_back(static_cast<char>(std::toupper(ch)));
+        }
+    }
+    return normalized;
+}
+}
 
 // DeviceRemovalHandler Implementation
 void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
@@ -126,9 +142,10 @@ bool CameraManager::initialize() {
                 } else if (camInfo.source == 1) {
                     if (!isEmulatedDevice) {
                         // Strict Match: Camera must have an explicit MAC set to connect.
+                        // Normalize both sides to handle different MAC formats (with/without colons).
                         if (!camInfo.macAddress.isEmpty() && 
                             camInfo.macAddress != "None / Auto" && 
-                            camInfo.macAddress.toStdString() == dev.GetMacAddress().c_str()) {
+                            normalizeMacAddress(camInfo.macAddress.toStdString()) == normalizeMacAddress(dev.GetMacAddress().c_str())) {
                             canMatch = true;
                         }
                     }
@@ -791,14 +808,13 @@ void CameraManager::recoveryLoop() {
         if (tlFactory.EnumerateDevices(allDevices) > 0) {
             for (const auto& camInfo : configuredCams) {
                 bool isEmulatedDevice = (camInfo.source == 0);
-                std::string targetMac = camInfo.macAddress.toStdString();
-                targetMac.erase(std::remove(targetMac.begin(), targetMac.end(), ':'), targetMac.end());
+                const std::string targetMac = normalizeMacAddress(camInfo.macAddress.toStdString());
                 
                 for (const auto& dev : allDevices) {
                     if (isEmulatedDevice && dev.GetDeviceClass() == "BaslerCamEmu") {
                         matchedPhysicalCount++;
                         break;
-                    } else if (!isEmulatedDevice && dev.GetDeviceClass() == "BaslerGigE" && dev.GetMacAddress() == targetMac.c_str()) {
+                    } else if (!isEmulatedDevice && dev.GetDeviceClass() == "BaslerGigE" && normalizeMacAddress(dev.GetMacAddress().c_str()) == targetMac) {
                         matchedPhysicalCount++;
                         break;
                     }
@@ -1622,25 +1638,70 @@ bool CameraManager::applyIpConfiguration(const std::string& mac, const std::stri
             return false;
         }
 
-        // Find user defined name
+        // Find user defined name and validate device exists
         Pylon::DeviceInfoList_t lstDevices;
         pTl->EnumerateAllDevices(lstDevices);
+        const std::string targetMac = normalizeMacAddress(mac);
         std::string userDefinedName = "";
+        std::string currentIp;
+        Pylon::CDeviceInfo matchedDeviceInfo;
+        bool found = false;
         for (const auto& dev : lstDevices) {
-            if (dev.GetMacAddress().c_str() == mac) {
+            const std::string enumeratedMac = normalizeMacAddress(dev.GetMacAddress().c_str());
+            if (enumeratedMac == targetMac) {
+                found = true;
+                matchedDeviceInfo = dev;
                 userDefinedName = dev.GetUserDefinedName().c_str();
+                Pylon::String_t val;
+                if (dev.GetPropertyValue("IpAddress", val)) {
+                    currentIp = val.c_str();
+                }
                 break;
             }
         }
 
-        // isStatic = true, isDhcp = false for fixed IP broadcast
-        bool setOk = pTl->BroadcastIpConfiguration(mac.c_str(), true, false, ip.c_str(), mask.c_str(), gateway.c_str(), userDefinedName.c_str());
+        if (!found) {
+            std::cerr << "[CameraManager] Cannot apply IP config: target MAC " << mac
+                      << " was not found in the current GigE device discovery list." << std::endl;
+            TlFactory.ReleaseTl(pTl);
+            return false;
+        }
+
+        std::cout << "[CameraManager] Applying GigE IP config: input MAC=" << mac
+                  << " normalized=" << targetMac
+                  << " currentIp=" << (currentIp.empty() ? "<unknown>" : currentIp)
+                  << " targetIp=" << ip
+                  << " mask=" << mask
+                  << " gateway=" << gateway << std::endl;
+
+        // Prefer the direct device API when the camera is currently reachable.
+        // This writes the persistent IP and enables persistent-IP mode on the device itself.
+        try {
+            std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(matchedDeviceInfo));
+            Pylon::CBaslerGigEInstantCamera camera(device.release());
+            camera.Open();
+            camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
+            camera.ChangeIpConfiguration(true, false);
+            camera.Close();
+            TlFactory.ReleaseTl(pTl);
+            std::cout << "[CameraManager] Successfully changed persistent IP for MAC " << targetMac
+                      << " to " << ip << " using direct GigE device API." << std::endl;
+            return true;
+        } catch (const Pylon::GenericException& e) {
+            std::cerr << "[CameraManager] Direct GigE IP configuration failed for MAC " << targetMac
+                      << ": " << e.GetDescription() << ". Falling back to broadcast IP configuration." << std::endl;
+        }
+
+        // Pylon SDK requires MAC address with NO delimiters (e.g., "003053061a58")
+        // and the camera must NOT be open when reconfiguring IP.
+        // Use the normalized (delimiter-free, uppercase) MAC for all transport layer calls.
+        bool setOk = pTl->BroadcastIpConfiguration(targetMac.c_str(), true, false, ip.c_str(), mask.c_str(), gateway.c_str(), userDefinedName.c_str());
         
         if (setOk) {
-            pTl->RestartIpConfiguration(mac.c_str());
-            std::cout << "[CameraManager] Successfully changed IP for MAC " << mac << " to " << ip << std::endl;
+            pTl->RestartIpConfiguration(targetMac.c_str());
+            std::cout << "[CameraManager] Successfully changed IP for MAC " << targetMac << " to " << ip << std::endl;
         } else {
-            std::cerr << "[CameraManager] Failed to change IP for MAC " << mac << std::endl;
+            std::cerr << "[CameraManager] Failed to change IP for MAC " << targetMac << " (input=" << mac << ")" << std::endl;
         }
         
         TlFactory.ReleaseTl(pTl);

@@ -13,6 +13,9 @@
 #include <QMessageBox>
 #include <QDesktopWidget>
 #include <QApplication>
+#include <QtConcurrent>
+#include <QMap>
+#include <QSet>
 
 // Register cv::Mat for signal/slot
 Q_DECLARE_METATYPE(cv::Mat)
@@ -43,6 +46,10 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
+    if (cameraLifecycleWatcher_) {
+        cameraLifecycleWatcher_->waitForFinished();
+    }
+
     // Enable clean UI shutdown for child dialogs not parented correctly
     if (configWindow_) {
         configWindow_->close();
@@ -52,6 +59,131 @@ MainWindow::~MainWindow() {
     if (cameraManager_) {
         cameraManager_->stopAcquisition();
     }
+}
+
+bool MainWindow::validateSavedCameraConfiguration(QStringList* errors) const {
+    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+    QMap<QString, QList<int>> ipUsage;
+    QMap<QString, QList<int>> macUsage;
+
+    for (const auto& cam : cams) {
+        if (cam.source == 2) {
+            continue;
+        }
+
+        const QString configuredIp = cam.ipAddress.trimmed();
+        if (!configuredIp.isEmpty()) {
+            ipUsage[configuredIp].append(cam.id);
+        }
+
+        if (cam.source == 1) {
+            const QString configuredMac = cam.macAddress.trimmed().toUpper();
+            if (configuredMac.isEmpty()) {
+                if (errors) {
+                    errors->append(QString("Camera ID %1 is set to Real but has no MAC assigned.").arg(cam.id));
+                }
+            } else {
+                macUsage[configuredMac].append(cam.id);
+            }
+        }
+    }
+
+    auto appendDuplicates = [errors](const QString& prefix, const QMap<QString, QList<int>>& usage) {
+        if (!errors) {
+            return;
+        }
+
+        for (auto it = usage.cbegin(); it != usage.cend(); ++it) {
+            if (it.value().size() < 2) {
+                continue;
+            }
+
+            QStringList ids;
+            for (int id : it.value()) {
+                ids.append(QString::number(id));
+            }
+
+            errors->append(QString("%1 %2 is assigned to multiple camera IDs (%3).").arg(prefix, it.key(), ids.join(", ")));
+        }
+    };
+
+    appendDuplicates("Configured IP", ipUsage);
+    appendDuplicates("MAC", macUsage);
+
+    return !errors || errors->isEmpty();
+}
+
+void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) {
+    if (!cameraManager_ || cameraLifecycleInProgress_) {
+        return;
+    }
+
+    QStringList validationErrors;
+    if (!validateSavedCameraConfiguration(&validationErrors)) {
+        const QString message = QString("Camera startup blocked due to invalid configuration:\n%1").arg(validationErrors.join("\n"));
+        statusBar()->showMessage("Camera startup blocked by invalid network configuration.", 5000);
+        QMessageBox::warning(this, "Invalid Camera Configuration", message);
+        pauseBtn_->setEnabled(false);
+        if (configWindow_) {
+            configWindow_->setEnabled(true);
+        }
+        return;
+    }
+
+    if (!cameraLifecycleWatcher_) {
+        cameraLifecycleWatcher_ = new QFutureWatcher<bool>(this);
+        connect(cameraLifecycleWatcher_, &QFutureWatcher<bool>::finished, this, [this]() {
+            cameraLifecycleInProgress_ = false;
+
+            const bool success = cameraLifecycleWatcher_->result();
+            if (success) {
+                statusBar()->showMessage("Acquisition running", 3000);
+                pauseBtn_->setEnabled(true);
+                if (configWindow_) {
+                    configWindow_->setEnabled(true);
+                }
+                return;
+            }
+
+            statusBar()->showMessage("Camera startup failed. Check camera connections and configuration.", 5000);
+            pauseBtn_->setEnabled(false);
+            if (configWindow_) {
+                configWindow_->setEnabled(true);
+            }
+        });
+    }
+
+    cameraLifecycleInProgress_ = true;
+    pauseBtn_->setEnabled(false);
+    if (configWindow_) {
+        configWindow_->setEnabled(false);
+    }
+
+    statusBar()->showMessage(reason, 0);
+
+    cameraLifecycleWatcher_->setFuture(QtConcurrent::run([manager = cameraManager_.get(), restart]() {
+        if (!manager) {
+            return false;
+        }
+
+        if (restart) {
+            manager->stopAcquisition();
+        }
+
+        if (!manager->initialize()) {
+            return false;
+        }
+
+        manager->startAcquisition();
+
+        const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+        for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
+            manager->setCameraFrameRate(i, cams[i].fps, cams[i].enableAcquisitionFps);
+        }
+
+        manager->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
+        return true;
+    }));
 }
 
 void MainWindow::setupUi() {
@@ -225,19 +357,8 @@ void MainWindow::setupUi() {
             configWindow_ = new ConfigDialog(cameraManager_.get());
             connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
                 // Total Camera Source/MAC change requires restart
-                if (cameraManager_) {
-                    cameraManager_->stopAcquisition();
-                    cameraManager_->initialize();
-                    cameraManager_->startAcquisition();
-                    
-                    // Reload live settings like FPS
-                    std::vector<CameraInfo> cams = CameraConfig::getCameras();
-                    for (int i = 0; i < (int)cams.size(); ++i) {
-                        cameraManager_->setCameraFrameRate(i, cams[i].fps, cams[i].enableAcquisitionFps);
-                    }
-                    cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
-                }
-                
+                startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
+                 
                 // Update camera counts in views to handle newly added cameras
                 int newCamCount = CameraConfig::getCameraCount();
                 if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
@@ -321,9 +442,8 @@ void MainWindow::setupCore() {
     });
 
     // 4. Start Camera
-    cameraManager_->initialize();
-    cameraManager_->startAcquisition();
-    statusBar()->showMessage("Acquisition Started");
+    cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
+    startCameraLifecycleAsync(false, "Starting camera acquisition...");
 
     // 5. Register Temperature Alert Callback (Basler App Note AW00138003000)
     cameraManager_->registerTemperatureAlertCallback(
@@ -688,4 +808,3 @@ void MainWindow::applyGlobalTheme() {
     if (liveDashboard_) liveDashboard_->updateTheme();
     if (analysisView_) analysisView_->updateTheme();
 }
-
