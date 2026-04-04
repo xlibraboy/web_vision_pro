@@ -27,7 +27,7 @@ class ConfigDialog : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ConfigDialog(QWidget *parent = nullptr);
+    explicit ConfigDialog(CameraManager* cameraManager = nullptr, QWidget *parent = nullptr);
     void setAdminMode(bool isAdmin);
 
 signals:
@@ -76,16 +76,14 @@ private:
         QLineEdit* subnetEdit;
         QLineEdit* gatewayEdit;
         QPushButton* writeIpBtn;
+        QCheckBox* enableFpsCheck;
         QSpinBox* fpsSpin;
         QCheckBox* editParamsCheck;
-        QSpinBox* gainSpin;
-        QSpinBox* exposureSpin;
-        QSpinBox* gammaSpin;
-        QSpinBox* contrastSpin;
     };
     
     std::vector<CameraConfigWidgets> activeCameraConfigs_;
     std::vector<GigEDeviceInfo> currentGigEDevices_;
     
+    CameraManager* cameraManager_; // For saving .pfs on apply
     QTextEdit* connectionLogsBrowser_;
 };

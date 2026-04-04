@@ -14,11 +14,8 @@ struct CameraInfo {
     QString macAddress;  // e.g., "00:11:22:33:44:55"
     QString subnetMask;  // e.g., "255.255.255.0"
     QString defaultGateway; // e.g., "0.0.0.0"
-    int gain;            // Default 428
-    int exposureTime;    // Default 541
-    int gamma;           // Default 23
-    int contrast;        // Default 4
     int fps;             // Default 50
+    bool enableAcquisitionFps; // Enable/disable AcquisitionFrameRate in Pylon
     double temperature;  // Temperature in Celsius (Runtime, not config)
     QString model;       // Populated at runtime
     QString imageSize;   // Populated at runtime

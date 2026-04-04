@@ -192,7 +192,15 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         std::cerr << "[AnalysisView] Failed to open any video files for event!" << std::endl;
         return;
     }
-    
+
+    // Clear widgets for cameras that have no video file in this event
+    // (prevents stale freeze-frames from a previously viewed event)
+    for (int i = 0; i < (int)cameraWidgets_.size(); ++i) {
+        if (videoReaders_.find(i) == videoReaders_.end()) {
+            cameraWidgets_[i]->clear();
+        }
+    }
+
     // Switch to streaming mode
     isReviewMode_ = true;
     isStreamingMode_ = true;
@@ -522,9 +530,10 @@ void AnalysisView::setCameraCount(int count) {
         }
     }
     
-    // Clear old stretches
-    for (int i = 0; i < layout->rowCount(); ++i) layout->setRowStretch(i, 0);
-    for (int i = 0; i < layout->columnCount(); ++i) layout->setColumnStretch(i, 0);
+    // Clear ALL stretch factors up to a safe upper bound (prevents stale stretches on old rows)
+    const int MAX_GRID = 8;
+    for (int i = 0; i < MAX_GRID; ++i) layout->setRowStretch(i, 0);
+    for (int i = 0; i < MAX_GRID; ++i) layout->setColumnStretch(i, 0);
     
     // Set equal stretch for all active rows and columns
     for (int i = 0; i < rows; ++i) layout->setRowStretch(i, 1);

@@ -27,6 +27,7 @@ BaslerDocuments/
 *.a
 *.so
 .agent/
+.opencode/
 
 # Temp files
 check.cpp

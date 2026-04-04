@@ -26,7 +26,6 @@ set(SOURCES
     src/processing/ImageBuffer.cpp
     src/processing/DefectDetector.cpp
     src/processing/VideoEncoder.cpp
-    src/communication/WebsocketServer.cpp
     src/gui/MainWindow.cpp
     src/gui/LiveDashboard.cpp
     src/gui/AnalysisView.cpp

@@ -4,8 +4,8 @@
 #include <QDebug>
 
 CameraWidget::CameraWidget(QWidget *parent) : QWidget(parent) {
-    setAttribute(Qt::WA_OpaquePaintEvent); // Optimization
-    // Tooltip style uses system default
+    setAttribute(Qt::WA_OpaquePaintEvent);
+    displayTimestamps_.resize(DISPLAY_FPS_WINDOW, 0);
 }
 
 CameraWidget::~CameraWidget() {}
@@ -48,12 +48,18 @@ void CameraWidget::updateFrame(const cv::Mat& frame) {
                         QImage::Format_Grayscale8).copy();
     }
     
-    
+    // Record timestamp for Display FPS calculation
+    displayTimestamps_[displayTimestampIndex_] = 
+        std::chrono::steady_clock::now().time_since_epoch().count();
+    displayTimestampIndex_ = (displayTimestampIndex_ + 1) % DISPLAY_FPS_WINDOW;
     
     frameCounter_++;
-    if (!frame.empty()) {
-       setToolTip(QString("Resolution: %1x%2\nFrame: %3")
-                  .arg(frame.cols).arg(frame.rows).arg(frameCounter_));
+    // Only update tooltip if resolution actually changed (avoids Qt tooltip-internal overhead per frame)
+    if (frame.cols != lastWidth_ || frame.rows != lastHeight_) {
+        lastWidth_ = frame.cols;
+        lastHeight_ = frame.rows;
+        setToolTip(QString("Resolution: %1x%2\nFrame: %3")
+                   .arg(frame.cols).arg(frame.rows).arg(frameCounter_));
     }
     
     update();
@@ -69,8 +75,11 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     QMutexLocker locker(&mutex_);
     
+    // Cache theme colors — avoid repeated getThemeColors() calls at frame rate
+    cachedTheme_ = CameraConfig::getThemeColors();
+    ThemeColors& tc = cachedTheme_;
+    
     // Draw border first using theme color
-    ThemeColors tc = CameraConfig::getThemeColors();
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawRect(0, 0, width() - 1, height() - 1);
     
@@ -185,4 +194,28 @@ void CameraWidget::setImage(const QImage& img) {
     QMutexLocker locker(&mutex_);
     image_ = img.copy();
     update();
+}
+
+double CameraWidget::getActualDisplayFps() {
+    QMutexLocker locker(&mutex_);
+    
+    // Find first and last valid (non-zero) timestamps
+    int64_t firstTs = 0;
+    int64_t lastTs = 0;
+    int count = 0;
+    
+    for (int i = 0; i < DISPLAY_FPS_WINDOW; ++i) {
+        if (displayTimestamps_[i] != 0) {
+            if (firstTs == 0) firstTs = displayTimestamps_[i];
+            lastTs = displayTimestamps_[i];
+            count++;
+        }
+    }
+    
+    if (count < 2) return -1.0;
+    
+    double elapsedNs = static_cast<double>(lastTs - firstTs);
+    if (elapsedNs <= 0) return -1.0;
+    
+    return (count - 1) / (elapsedNs / 1e9);
 }

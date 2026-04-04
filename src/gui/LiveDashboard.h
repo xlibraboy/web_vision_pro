@@ -34,6 +34,9 @@ public:
     // Update status labels
     void updateStatus(double fps, bool recording);
     
+    // Get camera widget pointer for FPS querying
+    CameraWidget* getCameraWidget(int cameraId);
+    
     // Get current grid dimensions
     int getCurrentRows() const { return currentRows_; }
     int getCurrentCols() const { return currentCols_; }

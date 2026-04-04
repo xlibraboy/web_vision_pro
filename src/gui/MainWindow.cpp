@@ -135,9 +135,28 @@ void MainWindow::setupUi() {
     // Live parameter adjustment: forward signal to CameraManager
     connect(detailView_, &DetailView::parameterChanged, [this](int cameraId, QString param, double value) {
         if (!cameraManager_) return;
-        if (param == "Gain")     cameraManager_->setCameraGain(cameraId, value);
+        if (param == "Gain")          cameraManager_->setCameraGain(cameraId, value);
         else if (param == "Exposure") cameraManager_->setCameraExposure(cameraId, value);
-        else if (param == "Gamma")   cameraManager_->setCameraGamma(cameraId, value);
+        else if (param == "Gamma")    cameraManager_->setCameraGamma(cameraId, value);
+        else if (param == "Contrast") cameraManager_->setCameraContrast(cameraId, value);
+    });
+    connect(detailView_, &DetailView::saveParametersRequested, [this](int cameraId) {
+        if (!cameraManager_) return;
+        bool ok = cameraManager_->saveParameters(cameraId);
+        statusBar()->showMessage(ok ? QString("📁 Parameters saved for Camera %1").arg(cameraId + 1)
+                                    : QString("⚠ Failed to save parameters for Camera %1").arg(cameraId + 1), 3000);
+    });
+    connect(detailView_, &DetailView::loadParametersRequested, [this](int cameraId) {
+        if (!cameraManager_) return;
+        bool ok = cameraManager_->loadParameters(cameraId);
+        if (ok) {
+            // Readback current values from Pylon nodemap and refresh UI spinboxes
+            auto p = cameraManager_->getCameraParams(cameraId);
+            detailView_->setParameterValues(p.gain, p.exposureUs, p.gamma, p.contrast);
+            statusBar()->showMessage(QString("✅ Parameters loaded for Camera %1").arg(cameraId + 1), 3000);
+        } else {
+            statusBar()->showMessage(QString("⚠ No saved parameters found for Camera %1").arg(cameraId + 1), 3000);
+        }
     });
 
     stackedWidget_->addWidget(liveDashboard_); // Index 0
@@ -203,7 +222,7 @@ void MainWindow::setupUi() {
     configAction_->setEnabled(isAdmin_); // Grayed out until Admin login
     connect(configAction_, &QAction::triggered, [this]() {
         if (!configWindow_) {
-            configWindow_ = new ConfigDialog();
+            configWindow_ = new ConfigDialog(cameraManager_.get());
             connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
                 // Total Camera Source/MAC change requires restart
                 if (cameraManager_) {
@@ -214,7 +233,7 @@ void MainWindow::setupUi() {
                     // Reload live settings like FPS
                     std::vector<CameraInfo> cams = CameraConfig::getCameras();
                     for (int i = 0; i < (int)cams.size(); ++i) {
-                        cameraManager_->setCameraFrameRate(i, cams[i].fps);
+                        cameraManager_->setCameraFrameRate(i, cams[i].fps, cams[i].enableAcquisitionFps);
                     }
                     cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
                 }
@@ -272,8 +291,6 @@ void MainWindow::setupCore() {
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040); 
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
-    websocketServer_ = std::make_unique<WebsocketServer>(9000);
-    websocketServer_->start();
 
     // 2. Connect Signals
     // Using QueuedConnection to handle cross-thread signal safely
@@ -355,18 +372,9 @@ void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
     // 1. Add to buffer (only from camera 0 for now)
     if (cameraId == 0) {
         imageBuffer_->addFrame(frame);
-
-        // 2. Run Detection (only on camera 0)
-        bool defect = defectDetector_->detect(frame);
-        if (defect) {
-            QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
-            websocketServer_->broadcastDefect(cameraId, timestamp.toStdString());
-            manualTrigger(); // Auto-trigger
-            statusBar()->showMessage("DEFECT DETECTED! Recording...", 2000);
-        }
     }
-
-    // 3. Update GUI
+    
+    // 2. Update GUI
     liveDashboard_->updateFrame(cameraId, frame);
     
     // Always keep DetailView in sync if it's currently focused on this camera
@@ -411,12 +419,27 @@ void MainWindow::showDetail(int cameraId) {
     // OVERRIDE with actual data from Pylon (via CameraManager)
     if (cameraManager_) {
         info.model = QString::fromStdString(cameraManager_->getModelName(cameraId));
-        info.temperature = cameraManager_->getTemperature(cameraId);
-        cv::Size res = cameraManager_->getResolution();
+        info.ipAddress = QString::fromStdString(cameraManager_->getIpAddress(cameraId));
+        cv::Size res = cameraManager_->getCameraResolution(cameraId);
         info.imageSize = QString("%1 x %2").arg(res.width).arg(res.height);
+        double f = cameraManager_->getCameraFps(cameraId);
+        if (f > 0) info.fps = f; // only override if readable
+        info.temperature = cameraManager_->getTemperature(cameraId);
+
+        // Read actual live camera parameters (Gain, Exposure, Gamma) directly from the camera
+        CameraManager::CameraParams liveParams = cameraManager_->getCameraParams(cameraId);
+
+        detailView_->setCamera(cameraId, info, nullptr);
+        detailView_->setParameterValues(liveParams.gain, liveParams.exposureUs, liveParams.gamma, liveParams.contrast);
+    } else {
+        detailView_->setCamera(cameraId, info, nullptr);
     }
     
-    detailView_->setCamera(cameraId, info, nullptr);
+    // Query Display FPS from the CameraWidget's ring buffer
+    CameraWidget* widget = liveDashboard_->getCameraWidget(cameraId);
+    if (widget) {
+        detailView_->setDisplayFps(widget->getActualDisplayFps());
+    }
     stackedWidget_->setCurrentWidget(detailView_);
     
     // Use centralized camera label in status bar

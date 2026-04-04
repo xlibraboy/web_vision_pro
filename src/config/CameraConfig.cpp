@@ -126,11 +126,8 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.macAddress = settings.value("macAddress", "").toString();
         cam.subnetMask = settings.value("subnetMask", "255.255.255.0").toString();
         cam.defaultGateway = settings.value("defaultGateway", "0.0.0.0").toString();
-        cam.gain = settings.value("gain", 428).toInt();
-        cam.exposureTime = settings.value("exposureTime", 541).toInt();
-        cam.gamma = settings.value("gamma", 23).toInt();
-        cam.contrast = settings.value("contrast", 4).toInt();
         cam.fps = settings.value("fps", 50).toInt();
+        cam.enableAcquisitionFps = settings.value("enableAcquisitionFps", false).toBool();
         cam.temperature = 0.0; // Runtime value
         cameras.push_back(cam);
     }
@@ -154,11 +151,8 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("macAddress", cam.macAddress);
         settings.setValue("subnetMask", cam.subnetMask);
         settings.setValue("defaultGateway", cam.defaultGateway);
-        settings.setValue("gain", cam.gain);
-        settings.setValue("exposureTime", cam.exposureTime);
-        settings.setValue("gamma", cam.gamma);
-        settings.setValue("contrast", cam.contrast);
         settings.setValue("fps", cam.fps);
+        settings.setValue("enableAcquisitionFps", cam.enableAcquisitionFps);
     }
     settings.endArray();
 }
@@ -182,7 +176,9 @@ void CameraConfig::ensureDefaultCameras() {
             "", // macAddress
             "255.255.255.0", // subnetMask
             "0.0.0.0", // defaultGateway
-            428, 541, 23, 4, 50, 0.0 // defaults
+            50, // fps
+            false, // enableAcquisitionFps
+            0.0 // temperature
         },
         {
             2,
@@ -195,7 +191,9 @@ void CameraConfig::ensureDefaultCameras() {
             "",
             "255.255.255.0",
             "0.0.0.0",
-            428, 541, 23, 4, 50, 0.0
+            50, // fps
+            false, // enableAcquisitionFps
+            0.0 // temperature
         }
     };
     saveCameras(defaults);

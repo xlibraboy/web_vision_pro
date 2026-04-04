@@ -16,7 +16,6 @@
 #include "../processing/ImageBuffer.h"
 #include "../processing/DefectDetector.h"
 #include "../processing/VideoEncoder.h"
-#include "../communication/WebsocketServer.h" // Added dependency
 
 class ConfigDialog;
 
@@ -78,7 +77,6 @@ private:
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
     std::unique_ptr<VideoEncoder> videoEncoder_;
-    std::unique_ptr<WebsocketServer> websocketServer_;
     
 
 

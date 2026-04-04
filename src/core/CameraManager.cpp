@@ -4,25 +4,32 @@
 #include <chrono>
 #include <algorithm>
 #include <pylon/gige/GigETransportLayer.h>
+#include <QDir>
 
 // Use Pylon namespace
 using namespace Pylon;
 
 // DeviceRemovalHandler Implementation
 void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
-    if (manager_) {
-        std::cout << "[CameraManager] 🚨 DEVICE REMOVAL EVENT DETECTED AND TRIGGERED 🚨" << std::endl;
-        
-        // When a single camera drops from a multi-camera array, the RetrieveResult 
-        // often just hangs or spits out non-fatal incomplete buffers instead of throwing
-        // a GenericException. So we MUST forcefully terminate the acquisition loop from here!
-        if (!manager_->recovering_ && manager_->acquiring_) {
-            manager_->acquiring_ = false; // Force the main loop to exit its next iteration
+    try {
+        if (manager_) {
+            std::cout << "[CameraManager] DEVICE REMOVAL EVENT DETECTED AND TRIGGERED" << std::endl;
             
-            // Detach thread safely and launch recovery
-            if (manager_->recoveryThread_.joinable()) manager_->recoveryThread_.join();
-            manager_->recoveryThread_ = std::thread(&CameraManager::recoveryLoop, manager_);
+            // When a single camera drops from a multi-camera array, the RetrieveResult 
+            // often just hangs or spits out non-fatal incomplete buffers instead of throwing
+            // a GenericException. So we MUST forcefully terminate the acquisition loop from here!
+            if (!manager_->recovering_ && manager_->acquiring_) {
+                manager_->acquiring_ = false; // Force the main loop to exit its next iteration
+                
+                // Detach thread safely and launch recovery
+                if (manager_->recoveryThread_.joinable()) manager_->recoveryThread_.join();
+                manager_->recoveryThread_ = std::thread(&CameraManager::recoveryLoop, manager_);
+            }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "[CameraManager] Exception in DeviceRemovalHandler: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "[CameraManager] Unknown exception in DeviceRemovalHandler" << std::endl;
     }
 }
 
@@ -52,6 +59,11 @@ CameraManager::CameraManager(int numCameras)
         cameraLabels_.push_back(CameraConfig::getCameraLabel(i).toStdString());
         modelNames_.push_back("Unknown Model"); // Default
         snapshotRequests_.push_back(false);
+        swGain_.push_back(1.0);
+        swGamma_.push_back(1.0);
+        swContrast_.push_back(1.0);
+        lutCache_.push_back(cv::Mat());
+        lutValid_.push_back(false);
     }
 }
 
@@ -241,43 +253,237 @@ bool CameraManager::initialize() {
 // ============================================================
 
 void CameraManager::setCameraGain(int cameraIndex, double gain) {
-    if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) return;
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    int pylonIndex = -1;
+    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
+    }
+    if (pylonIndex < 0) {
+        std::cerr << "[CameraManager] setCameraGain: invalid cameraIndex " << cameraIndex << std::endl;
+        return;
+    }
+    
+    if (cameraIndex < (int)swGain_.size()) swGain_[cameraIndex] = std::max(0.0, gain);
+    if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
-        if (cameras_[cameraIndex].IsPylonDeviceAttached() && cameras_[cameraIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
+        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
             Pylon::CFloatParameter(nodemap, "Gain").SetValue(gain);
+            std::cout << "[CameraManager] setCameraGain: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " gain=" << gain << " OK" << std::endl;
+        } else {
+            std::cerr << "[CameraManager] setCameraGain: cam " << cameraIndex << " camera not open" << std::endl;
         }
     } catch (const Pylon::GenericException& e) {
-        std::cerr << "[CameraManager] Error setting Gain for cam " << cameraIndex
-                  << ": " << e.GetDescription() << std::endl;
+        std::cerr << "[CameraManager] setCameraGain: cam " << cameraIndex << " ERROR: " << e.GetDescription() << std::endl;
     }
 }
 
 void CameraManager::setCameraExposure(int cameraIndex, double exposureUs) {
-    if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) return;
+    int pylonIndex = -1;
+    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
+    }
+    if (pylonIndex < 0) {
+        std::cerr << "[CameraManager] setCameraExposure: invalid cameraIndex " << cameraIndex << std::endl;
+        return;
+    }
+    
     try {
-        if (cameras_[cameraIndex].IsPylonDeviceAttached() && cameras_[cameraIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
+        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
             Pylon::CFloatParameter(nodemap, "ExposureTimeAbs").SetValue(exposureUs);
+            std::cout << "[CameraManager] setCameraExposure: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " exp=" << exposureUs << " OK" << std::endl;
+        } else {
+            std::cerr << "[CameraManager] setCameraExposure: cam " << cameraIndex << " camera not open" << std::endl;
         }
     } catch (const Pylon::GenericException& e) {
-        std::cerr << "[CameraManager] Error setting ExposureTime for cam " << cameraIndex
-                  << ": " << e.GetDescription() << std::endl;
+        std::cerr << "[CameraManager] setCameraExposure: cam " << cameraIndex << " ERROR: " << e.GetDescription() << std::endl;
     }
 }
 
 void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
-    if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) return;
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    int pylonIndex = -1;
+    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
+    }
+    if (pylonIndex < 0) {
+        std::cerr << "[CameraManager] setCameraGamma: invalid cameraIndex " << cameraIndex << std::endl;
+        return;
+    }
+    
+    if (cameraIndex < (int)swGamma_.size()) swGamma_[cameraIndex] = std::max(0.01, gamma);
+    if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
-        if (cameras_[cameraIndex].IsPylonDeviceAttached() && cameras_[cameraIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
+        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
             Pylon::CFloatParameter(nodemap, "Gamma").SetValue(gamma);
+            std::cout << "[CameraManager] setCameraGamma: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " gamma=" << gamma << " OK" << std::endl;
+        } else {
+            std::cerr << "[CameraManager] setCameraGamma: cam " << cameraIndex << " camera not open" << std::endl;
         }
     } catch (const Pylon::GenericException& e) {
-        std::cerr << "[CameraManager] Error setting Gamma for cam " << cameraIndex
-                  << ": " << e.GetDescription() << std::endl;
+        std::cerr << "[CameraManager] setCameraGamma: cam " << cameraIndex << " ERROR: " << e.GetDescription() << std::endl;
     }
 }
+
+CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex) {
+    CameraParams p{0.0, 5000.0, 1.0, 1.0, 0.0};
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    if (pylonIndex < 0 || !(cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()))
+        return p;
+    try {
+        GenApi::INodeMap& nm = cameras_[pylonIndex].GetNodeMap();
+        GenApi::CFloatPtr g(nm.GetNode("Gain"));
+        if (g && IsReadable(g)) p.gain = g->GetValue();
+
+        GenApi::CFloatPtr e(nm.GetNode("ExposureTimeAbs"));
+        if (!e || !IsReadable(e)) e = GenApi::CFloatPtr(nm.GetNode("ExposureTime"));
+        if (e && IsReadable(e)) p.exposureUs = e->GetValue();
+
+        GenApi::CFloatPtr gm(nm.GetNode("Gamma"));
+        if (gm && IsReadable(gm)) p.gamma = gm->GetValue();
+
+        GenApi::CFloatPtr ct(nm.GetNode("BslContrast"));
+        if (ct && IsReadable(ct)) p.contrast = ct->GetValue();
+
+        GenApi::CFloatPtr fps(nm.GetNode("ResultingFrameRateAbs"));
+        if (!fps || !IsReadable(fps)) fps = GenApi::CFloatPtr(nm.GetNode("ResultingFrameRate"));
+        if (fps && IsReadable(fps)) p.fps = fps->GetValue();
+    } catch (...) {}
+    return p;
+}
+
+void CameraManager::setCameraContrast(int cameraIndex, double contrast) {
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    int pylonIndex = -1;
+    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
+    }
+    if (pylonIndex < 0) {
+        std::cerr << "[CameraManager] setCameraContrast: invalid cameraIndex " << cameraIndex << std::endl;
+        return;
+    }
+    
+    if (cameraIndex < (int)swContrast_.size()) swContrast_[cameraIndex] = std::max(0.0, contrast);
+    if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
+    try {
+        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+            GenApi::CFloatPtr ptrContrast(nodemap.GetNode("BslContrast"));
+            if (ptrContrast && GenApi::IsWritable(ptrContrast)) {
+                ptrContrast->SetValue(contrast);
+                std::cout << "[CameraManager] setCameraContrast: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " contrast=" << contrast << " OK" << std::endl;
+            } else {
+                std::cerr << "[CameraManager] setCameraContrast: cam " << cameraIndex << " BslContrast node not found or not writable" << std::endl;
+            }
+        } else {
+            std::cerr << "[CameraManager] setCameraContrast: cam " << cameraIndex << " camera not open" << std::endl;
+        }
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] setCameraContrast: cam " << cameraIndex << " ERROR: " << e.GetDescription() << std::endl;
+    }
+}
+
+bool CameraManager::saveParameters(int configArrayIndex) {
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    if (pylonIndex < 0 || !cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+        std::cerr << "[CameraManager] saveParameters: camera " << configArrayIndex << " not connected." << std::endl;
+        return false;
+    }
+    // Determine the config-level ID (1-based) for a unique filename
+    int configId = configArrayIndex + 1;
+    if (configArrayIndex < (int)cameraIndexToConfigId_.size()) {
+        // Get id from mapping array if possible
+        for (size_t i = 0; i < cameraIndexToConfigId_.size(); ++i) {
+            if ((int)i == pylonIndex) { configId = cameraIndexToConfigId_[i]; break; }
+        }
+    }
+    std::string pfsDir = "/etc/papervision/cameras";
+    // Ensure directory exists
+    {
+        QDir dir(QString::fromStdString(pfsDir));
+        if (!dir.exists()) dir.mkpath(".");
+    }
+    std::string filename = pfsDir + "/camera_" + std::to_string(configId) + ".pfs";
+
+    bool result = false;
+    try {
+        Pylon::CFeaturePersistence::Save(filename.c_str(), &cameras_[pylonIndex].GetNodeMap());
+        std::cout << "[CameraManager] Parameters saved to " << filename << std::endl;
+        result = true;
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Error saving parameters: " << e.GetDescription() << std::endl;
+    }
+    return result;
+}
+
+bool CameraManager::loadParameters(int configArrayIndex) {
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    if (pylonIndex < 0 || !cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+        std::cerr << "[CameraManager] loadParameters: camera " << configArrayIndex << " not connected." << std::endl;
+        return false;
+    }
+    int configId = configArrayIndex + 1;
+    std::string filename = "/etc/papervision/cameras/camera_" + std::to_string(configId) + ".pfs";
+
+    bool result = false;
+    try {
+        Pylon::CFeaturePersistence::Load(filename.c_str(), &cameras_[pylonIndex].GetNodeMap(), true);
+        std::cout << "[CameraManager] Parameters loaded from " << filename << std::endl;
+        result = true;
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Error loading parameters: " << e.GetDescription() << std::endl;
+    }
+    return result;
+}
+
+void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras) {
+    std::lock_guard<std::mutex> lock(cameraParamsMutex_);
+    
+    std::string pfsDir = "/etc/papervision/cameras";
+    {
+        QDir dir(QString::fromStdString(pfsDir));
+        if (!dir.exists()) dir.mkpath(".");
+    }
+    
+    // CFeaturePersistence::Save only reads the NodeMap — safe to call while grabbing,
+    // no need to StopGrabbing which would block the UI thread.
+    for (int i = 0; i < (int)cameras.size(); ++i) {
+        if (cameras[i].source != 1) continue; // Only real cameras
+        
+        int pylonIndex = -1;
+        if (i >= 0 && i < (int)configArrayIndexToPylonIndex_.size()) {
+            pylonIndex = configArrayIndexToPylonIndex_[i];
+        }
+        if (pylonIndex < 0) continue;
+        
+        if (!cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+            std::cerr << "[CameraManager] saveParametersForAll: camera " << cameras[i].id << " not connected." << std::endl;
+            continue;
+        }
+        
+        int configId = cameras[i].id;
+        std::string filename = pfsDir + "/camera_" + std::to_string(configId) + ".pfs";
+        
+        try {
+            Pylon::CFeaturePersistence::Save(filename.c_str(), &cameras_[pylonIndex].GetNodeMap());
+            std::cout << "[CameraManager] Parameters saved to " << filename << std::endl;
+        } catch (const Pylon::GenericException& e) {
+            std::cerr << "[CameraManager] Error saving parameters for cam " << cameras[i].id << ": " << e.GetDescription() << std::endl;
+        }
+    }
+}
+
 void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation) {
     try {
         // GenApi::INodeMap& nodemap = device->GetNodeMap(); // Removed, passed directly
@@ -478,6 +684,12 @@ void CameraManager::startAcquisition() {
 void CameraManager::stopAcquisition() {
     acquiring_ = false;
 
+    // Stop recovery thread first — it may try to restart acquisition
+    recovering_ = false;
+    if (recoveryThread_.joinable()) {
+        recoveryThread_.join();
+    }
+
     // Stop temperature monitor thread
     tempMonitorRunning_ = false;
     if (tempMonitorThread_.joinable()) {
@@ -538,6 +750,17 @@ void CameraManager::recoveryLoop() {
         }
     } catch (...) {
         std::cerr << "[CameraManager] Ignored exception during old handle teardown in recovery." << std::endl;
+    }
+
+    // 2b. Clear all camera tiles in the GUI immediately — don't leave frozen frames
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (callback_) {
+            auto configuredCams = CameraConfig::getCameras();
+            for (int i = 0; i < (int)configuredCams.size(); ++i) {
+                callback_(i, cv::Mat()); // empty frame → clearFrame() in LiveDashboard
+            }
+        }
     }
     
     // 3. IMMEDIATELY try to re-initialize with any *surviving* cameras so the user doesn't lose all views!
@@ -689,6 +912,74 @@ std::string CameraManager::getModelName(int configArrayIndex) {
         return modelNames_[pylonIndex];
     }
     return "Unknown Model";
+}
+
+std::string CameraManager::getIpAddress(int configArrayIndex) {
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    
+    if (pylonIndex < 0) {
+        return "Offline";
+    }
+    
+    try {
+        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached()) {
+            return cameras_[pylonIndex].GetDeviceInfo().GetIpAddress().c_str();
+        }
+    } catch (...) {}
+    
+    return "Offline";
+}
+
+cv::Size CameraManager::getCameraResolution(int configArrayIndex) {
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    
+    if (pylonIndex < 0) {
+        return cv::Size(0, 0);
+    }
+    
+    try {
+        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+            int w = (int)GenApi::CIntegerPtr(nodemap.GetNode("Width"))->GetValue();
+            int h = (int)GenApi::CIntegerPtr(nodemap.GetNode("Height"))->GetValue();
+            return cv::Size(w, h);
+        }
+    } catch (...) {}
+    
+    return cv::Size(0, 0);
+}
+
+double CameraManager::getCameraFps(int configArrayIndex) {
+    int pylonIndex = -1;
+    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
+        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
+    }
+    
+    if (pylonIndex < 0) {
+        return 0.0;
+    }
+    
+    try {
+        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
+            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+            GenApi::CFloatPtr ptrFpsAbs(nodemap.GetNode("ResultingFrameRateAbs"));
+            if (GenApi::IsReadable(ptrFpsAbs)) {
+                return ptrFpsAbs->GetValue();
+            }
+            GenApi::CFloatPtr ptrFps(nodemap.GetNode("ResultingFrameRate"));
+            if (GenApi::IsReadable(ptrFps)) {
+                return ptrFps->GetValue();
+            }
+        }
+    } catch (...) {}
+    
+    return 0.0;
 }
 
 double CameraManager::getTemperature(int configArrayIndex) {
@@ -860,10 +1151,44 @@ void CameraManager::acquisitionLoop() {
                         cv::Mat wrapper(height, width, CV_8UC1, (void*)pImageBuffer);
                         
                         // 3. PROCESSING
+                        // Always apply per-camera software LUT (Gain/Gamma/Contrast) for visual feedback
+                        cv::Mat softFrame;
+                        {
+                            std::lock_guard<std::mutex> lock(paramMutex_);
+                            int cfgIdx = pylonIndexToConfigArrayIndex_.size() > cameraIndex
+                                       ? pylonIndexToConfigArrayIndex_[cameraIndex] : (int)cameraIndex;
+                            double g  = (cfgIdx >= 0 && cfgIdx < (int)swGain_.size())     ? swGain_[cfgIdx]     : 1.0;
+                            double gm = (cfgIdx >= 0 && cfgIdx < (int)swGamma_.size())    ? swGamma_[cfgIdx]    : 1.0;
+                            double c  = (cfgIdx >= 0 && cfgIdx < (int)swContrast_.size()) ? swContrast_[cfgIdx] : 1.0;
+                            bool needsLUT = (std::abs(g-1.0) > 0.01 || std::abs(gm-1.0) > 0.01 || std::abs(c-1.0) > 0.01);
+                            if (needsLUT) {
+                                if (cfgIdx >= 0 && cfgIdx < (int)lutValid_.size() && lutValid_[cfgIdx]) {
+                                    // Use cached LUT — avoids rebuilding 256-entry lookup + pow() on every frame
+                                    cv::LUT(wrapper, lutCache_[cfgIdx], softFrame);
+                                } else {
+                                    // Build and cache the LUT
+                                    cv::Mat lut(1, 256, CV_8U);
+                                    for (int i = 0; i < 256; ++i) {
+                                        double v = i * g;
+                                        v = (v - 128) * c + 128;
+                                        v = std::pow(std::max(v / 255.0, 0.0), 1.0 / gm) * 255.0;
+                                        lut.at<uchar>(i) = static_cast<uchar>(std::min(255.0, std::max(0.0, v)));
+                                    }
+                                    if (cfgIdx >= 0 && cfgIdx < (int)lutCache_.size()) {
+                                        lutCache_[cfgIdx] = lut;
+                                        lutValid_[cfgIdx] = true;
+                                    }
+                                    cv::LUT(wrapper, lut, softFrame);
+                                }
+                            } else {
+                                softFrame = wrapper; // no-op reference copy, zero overhead
+                            }
+                        }
+
                         if (defectDetectionEnabled_) {
-                             processFrame(wrapper, displayFrame, (int)cameraIndex);
+                             processFrame(softFrame, displayFrame, (int)cameraIndex);
                         } else {
-                            displayFrame = wrapper; 
+                            displayFrame = softFrame;
                         }
 
                         // Resolve the Config ID from the Pylon index
@@ -1037,8 +1362,33 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
     
     // OPTIMIZATION: Keep Mono8 (Grayscale) to save 3x Memory
     // Input is already Mono8.
-    if (input.data != output.data) {
-        input.copyTo(output);
+    // Apply software Gain, Gamma, and Contrast via a LUT for performance
+    {
+        // Resolve config index for this pylon camera index
+        int cfgIdx = cameraIndex;
+        if (cameraIndex < (int)pylonIndexToConfigArrayIndex_.size()) {
+            cfgIdx = pylonIndexToConfigArrayIndex_[cameraIndex];
+        }
+        double gain     = (cfgIdx >= 0 && cfgIdx < (int)swGain_.size())     ? swGain_[cfgIdx]     : 1.0;
+        double gamma    = (cfgIdx >= 0 && cfgIdx < (int)swGamma_.size())    ? swGamma_[cfgIdx]    : 1.0;
+        double contrast = (cfgIdx >= 0 && cfgIdx < (int)swContrast_.size()) ? swContrast_[cfgIdx] : 1.0;
+
+        bool needsProcessing = (std::abs(gain - 1.0) > 0.01 || std::abs(gamma - 1.0) > 0.01 || std::abs(contrast - 1.0) > 0.01);
+        if (needsProcessing) {
+            // Build a 256-entry LUT: Gain -> Contrast -> Gamma
+            cv::Mat lut(1, 256, CV_8U);
+            for (int i = 0; i < 256; ++i) {
+                double v = i * gain;                // apply gain
+                v = (v - 128) * contrast + 128;    // apply contrast around midpoint
+                v = std::pow(std::max(v / 255.0, 0.0), 1.0 / gamma) * 255.0; // apply gamma
+                lut.at<uchar>(i) = static_cast<uchar>(std::min(255.0, std::max(0.0, v)));
+            }
+            cv::LUT(input, lut, output);
+        } else {
+            if (input.data != output.data) {
+                input.copyTo(output);
+            }
+        }
     }
     
     // Only run defect detection if enabled
@@ -1128,8 +1478,9 @@ void CameraManager::setGlobalFrameRate(double fps) {
     }
 }
 
-void CameraManager::setCameraFrameRate(int cameraIndex, double fps) {
-    std::cout << "[CameraManager] Setting FPS for Camera " << cameraIndex << " to " << fps << std::endl;
+void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableFrameRate) {
+    std::cout << "[CameraManager] Setting FPS for Camera " << cameraIndex << " to " << fps
+              << " (enable=" << enableFrameRate << ")" << std::endl;
     
     // Check if index is valid
     if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) {
@@ -1150,7 +1501,15 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps) {
              GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
              
              try {
-                Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
+                // Toggle AcquisitionFrameRateEnable node
+                GenApi::CBooleanPtr enableNode = nodemap.GetNode("AcquisitionFrameRateEnable");
+                if (enableNode && GenApi::IsWritable(enableNode)) {
+                    enableNode->SetValue(enableFrameRate);
+                }
+                // Only apply FPS value if enabled
+                if (enableFrameRate) {
+                    Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
+                }
              } catch (...) {
                 std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << cameraIndex << std::endl;
              }

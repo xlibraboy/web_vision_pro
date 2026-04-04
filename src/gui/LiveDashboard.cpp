@@ -95,7 +95,7 @@ void LiveDashboard::setCameraCount(int count) {
     }
     
     numCameras_ = count;
-    // setupGrid will be called by MainWindow right after this anyway
+    setupGrid(currentRows_, currentCols_);
 }
 
 void LiveDashboard::setupGrid(int rows, int cols) {
@@ -178,6 +178,13 @@ void LiveDashboard::updateStatus(double fps, bool recording) {
     QString status = QString("Status: %1 | FPS: %2").arg(
         recording ? "<font color='red'>RECORDING</font>" : "Monitoring").arg(fps, 0, 'f', 1);
     statusLabel_->setText(status);
+}
+
+CameraWidget* LiveDashboard::getCameraWidget(int cameraId) {
+    if (cameraId >= 0 && cameraId < numCameras_) {
+        return cameraWidgets_[cameraId];
+    }
+    return nullptr;
 }
 
 void LiveDashboard::updateTheme() {

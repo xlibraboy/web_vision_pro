@@ -23,18 +23,25 @@ public:
     void setAdminMode(bool isAdmin);
     // Update temperature display live (from background monitor thread via MainWindow)
     void updateTemperature(double temp);
+    // Update spinboxes/sliders from live camera readback (e.g. after PFS load)
+    void setParameterValues(double gain, double exposureUs, double gamma, double contrast);
+    // Update Display FPS label (called when user selects a camera)
+    void setDisplayFps(double fps);
 
 signals:
     void backRequested();
     void analysisRequested();
     void parameterChanged(int cameraId, QString param, double value);
     void snapshotRequested(int cameraId); // Signal for CameraManager
+    void saveParametersRequested(int cameraId);
+    void loadParametersRequested(int cameraId);
 
 public:
     CameraWidget* videoWidget();
 
 private slots:
     void onSaveParams();
+    void onLoadParams();
     void onBackClicked();
     void onAnalysisClicked();
     void onSnapshotClicked(); // New slot
@@ -53,6 +60,7 @@ private:
     QLabel* lblIP_;
     QLabel* lblImageSize_;
     QLabel* lblFPS_;
+    QLabel* lblDisplayFps_;
     QLabel* lblTemp_;
 
     // Parameter Controls
@@ -70,6 +78,7 @@ private:
     QSlider* sliderContrast_;
     
     QPushButton* btnSave_;
+    QPushButton* btnLoad_;
     QPushButton* btnBack_;
     QPushButton* btnAnalysis_;
     QPushButton* btnSnapshot_; // Added missing member

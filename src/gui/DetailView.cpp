@@ -30,6 +30,7 @@ void DetailView::setupUi() {
     lblIP_ = new QLabel("-", this);
     lblImageSize_ = new QLabel("-", this);
     lblFPS_ = new QLabel("-", this);
+    lblDisplayFps_ = new QLabel("-", this);
     lblTemp_ = new QLabel("-", this);
 
     infoLayout->addRow("ID:", lblId_);
@@ -39,15 +40,17 @@ void DetailView::setupUi() {
     infoLayout->addRow("Model:", lblModel_);
     infoLayout->addRow("IP Address:", lblIP_);
     infoLayout->addRow("Image Size:", lblImageSize_);
-    infoLayout->addRow("Frequency:", lblFPS_);
+    infoLayout->addRow("Acquisition FPS:", lblFPS_);
+    infoLayout->addRow("Display FPS:", lblDisplayFps_);
     infoLayout->addRow("Temperature °C:", lblTemp_);
 
     // Parameters Group (Below Camera Info)
     controlGroup_ = new QGroupBox("Camera Parameters", this);
-    QGridLayout* controlLayout = new QGridLayout(controlGroup_);
+    QVBoxLayout* controlLayout = new QVBoxLayout(controlGroup_);
 
-    // Gain (row 0)
-    QLabel* lblGain = new QLabel("Gain:", this);
+    // Gain Group
+    QGroupBox* gainGroup = new QGroupBox("Gain", controlGroup_);
+    QVBoxLayout* gainLayout = new QVBoxLayout(gainGroup);
     spinGain_ = new QDoubleSpinBox(this);
     spinGain_->setRange(0.0, 24.0);
     spinGain_->setSingleStep(0.1);
@@ -66,11 +69,15 @@ void DetailView::setupUi() {
                 // Live apply
                 emit parameterChanged(currentCameraId_, "Gain", val / 10.0);
             });
+    gainLayout->addWidget(spinGain_);
+    gainLayout->addWidget(sliderGain_);
+    controlLayout->addWidget(gainGroup);
 
-    // Exposure Time (row 1)
-    QLabel* lblExposure = new QLabel("Exposure Time [µs]:", this);
+    // Exposure Time Group
+    QGroupBox* expGroup = new QGroupBox("Exposure Time", controlGroup_);
+    QVBoxLayout* expLayout = new QVBoxLayout(expGroup);
     spinExposure_ = new QSpinBox(this);
-    spinExposure_->setRange(100, 100000);  // Reduced max for slider usability
+    spinExposure_->setRange(100, 100000);  // Will be constrained dynamically
     spinExposure_->setSuffix(" µs");
     
     sliderExposure_ = new QSlider(Qt::Horizontal, this);
@@ -85,9 +92,13 @@ void DetailView::setupUi() {
                 // Live apply
                 emit parameterChanged(currentCameraId_, "Exposure", val);
             });
+    expLayout->addWidget(spinExposure_);
+    expLayout->addWidget(sliderExposure_);
+    controlLayout->addWidget(expGroup);
 
-    // Gamma (row 2)
-    QLabel* lblGamma = new QLabel("Gamma:", this);
+    // Gamma Group
+    QGroupBox* gammaGroup = new QGroupBox("Gamma", controlGroup_);
+    QVBoxLayout* gammaLayout = new QVBoxLayout(gammaGroup);
     spinGamma_ = new QDoubleSpinBox(this);
     spinGamma_->setRange(0.1, 4.0);
     spinGamma_->setSingleStep(0.1);
@@ -106,9 +117,13 @@ void DetailView::setupUi() {
                 // Live apply
                 emit parameterChanged(currentCameraId_, "Gamma", val / 100.0);
             });
+    gammaLayout->addWidget(spinGamma_);
+    gammaLayout->addWidget(sliderGamma_);
+    controlLayout->addWidget(gammaGroup);
 
-    // Contrast (row 3)
-    QLabel* lblContrast = new QLabel("Contrast:", this);
+    // Contrast Group
+    QGroupBox* contrastGroup = new QGroupBox("Contrast", controlGroup_);
+    QVBoxLayout* contrastLayout = new QVBoxLayout(contrastGroup);
     spinContrast_ = new QDoubleSpinBox(this);
     spinContrast_->setRange(0.0, 2.0);
     spinContrast_->setSingleStep(0.05);
@@ -122,35 +137,25 @@ void DetailView::setupUi() {
     connect(spinContrast_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             [this](double val) { sliderContrast_->setValue(static_cast<int>(val * 100)); });
     connect(sliderContrast_, &QSlider::valueChanged, 
-            [this](int val) { spinContrast_->setValue(val / 100.0); });
+            [this](int val) { 
+                spinContrast_->setValue(val / 100.0); 
+                // Live apply
+                emit parameterChanged(currentCameraId_, "Contrast", val / 100.0);
+            });
+    contrastLayout->addWidget(spinContrast_);
+    contrastLayout->addWidget(sliderContrast_);
+    controlLayout->addWidget(contrastGroup);
 
-    // Save Parameter button
+    // Save & Load Parameter buttons
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLoad_ = new QPushButton("Load Parameters", this);
     btnSave_ = new QPushButton("Save Parameters", this);
+    connect(btnLoad_, &QPushButton::clicked, this, &DetailView::onLoadParams);
     connect(btnSave_, &QPushButton::clicked, this, &DetailView::onSaveParams);
-
-    // Layout: Label | SpinBox (with sliders below each parameter)
-    // Gain (rows 0-1)
-    controlLayout->addWidget(lblGain, 0, 0);
-    controlLayout->addWidget(spinGain_, 0, 1);
-    controlLayout->addWidget(sliderGain_, 1, 0, 1, 2);  // Span both columns
     
-    // Exposure (rows 2-3)
-    controlLayout->addWidget(lblExposure, 2, 0);
-    controlLayout->addWidget(spinExposure_, 2, 1);
-    controlLayout->addWidget(sliderExposure_, 3, 0, 1, 2);  // Span both columns
-    
-    // Gamma (rows 4-5)
-    controlLayout->addWidget(lblGamma, 4, 0);
-    controlLayout->addWidget(spinGamma_, 4, 1);
-    controlLayout->addWidget(sliderGamma_, 5, 0, 1, 2);  // Span both columns
-    
-    // Contrast (rows 6-7)
-    controlLayout->addWidget(lblContrast, 6, 0);
-    controlLayout->addWidget(spinContrast_, 6, 1);
-    controlLayout->addWidget(sliderContrast_, 7, 0, 1, 2);  // Span both columns
-    
-    // Apply button (row 8)
-    controlLayout->addWidget(btnSave_, 8, 0, 1, 2);  // Span both columns
+    btnLayout->addWidget(btnLoad_);
+    btnLayout->addWidget(btnSave_);
+    controlLayout->addLayout(btnLayout);
 
     leftPanelLayout->addWidget(infoGroup);
     leftPanelLayout->addWidget(controlGroup_);
@@ -181,7 +186,7 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     cameraWidget_->setCameraId(cameraId);
     
     // Update Info Panel with comprehensive camera information
-    lblId_->setText(QString("%1").arg(info.id, 2, 10, QChar('0')));  // Format as 01, 02, etc.
+    lblId_->setText(QString("%1").arg(info.id, 2, 10, QChar('0')));
     lblLocation_->setText(info.location);
     lblSide_->setText(info.side);
     lblDescription_->setText(info.name);
@@ -189,18 +194,58 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     lblIP_->setText(info.ipAddress);
     lblImageSize_->setText(info.imageSize);
     lblFPS_->setText(QString("%1 FPS").arg(static_cast<double>(info.fps), 0, 'f', 1));
-    // Temperature rendering
     updateTemperature(info.temperature);
     
     // Set overlay text to match LiveDashboard
     cameraWidget_->setOverlayText(CameraConfig::getCameraLabel(cameraId));
     
-    // Set default parameter values (would come from Pylon in real implementation)
-    // TODO: Get actual values from CameraManager/Pylon SDK
-    spinGain_->setValue(1.0);
-    spinExposure_->setValue(5000);
+    // --- Clamp Exposure Time based on FPS (max exposure = 1,000,000 / fps µs) ---
+    // This ensures exposure is always within a range that does not cause frame drops.
+    int maxExposure = 100000;
+    if (info.fps > 0) {
+        maxExposure = static_cast<int>(1000000.0 / info.fps) - 1;
+        if (maxExposure < 100) maxExposure = 100;
+    }
+    spinExposure_->blockSignals(true);
+    sliderExposure_->blockSignals(true);
+    spinExposure_->setRange(100, maxExposure);
+    sliderExposure_->setRange(100, maxExposure);
+    spinExposure_->blockSignals(false);
+    sliderExposure_->blockSignals(false);
+    
+    // Load current parameter values from info (config-backed defaults)
+    // Block ALL slider AND spinbox signals to prevent parameterChanged from firing
+    // during initialization — this avoids triggering StopGrabbing/StartGrabbing
+    // on the acquisition loop while the detail view is being set up.
+    // NOTE: MainWindow::showDetail calls setParameterValues() right after setCamera()
+    // with live values from the camera NodeMap, so we just initialize to safe defaults here.
+    spinGain_->blockSignals(true);
+    sliderGain_->blockSignals(true);
+    spinGain_->setValue(0);
+    sliderGain_->setValue(0);
+    spinGain_->blockSignals(false);
+    sliderGain_->blockSignals(false);
+
+    spinExposure_->blockSignals(true);
+    sliderExposure_->blockSignals(true);
+    spinExposure_->setValue(100);
+    sliderExposure_->setValue(100);
+    spinExposure_->blockSignals(false);
+    sliderExposure_->blockSignals(false);
+
+    spinGamma_->blockSignals(true);
+    sliderGamma_->blockSignals(true);
     spinGamma_->setValue(1.0);
+    sliderGamma_->setValue(100);
+    spinGamma_->blockSignals(false);
+    sliderGamma_->blockSignals(false);
+
+    spinContrast_->blockSignals(true);
+    sliderContrast_->blockSignals(true);
     spinContrast_->setValue(1.0);
+    sliderContrast_->setValue(100);
+    spinContrast_->blockSignals(false);
+    sliderContrast_->blockSignals(false);
 }
 
 void DetailView::updateTemperature(double temp) {
@@ -258,15 +303,49 @@ void DetailView::setAdminMode(bool isAdmin) {
     sliderContrast_->setEnabled(isAdmin);
     
     btnSave_->setEnabled(isAdmin);
+    btnLoad_->setEnabled(isAdmin);
+}
+
+void DetailView::setParameterValues(double gain, double exposureUs, double gamma, double contrast) {
+    // Block signals while we update controls so we don't emit parameterChanged back
+    spinGain_->blockSignals(true);
+    sliderGain_->blockSignals(true);
+    spinGain_->setValue(gain);
+    sliderGain_->setValue(static_cast<int>(gain * 10));
+    spinGain_->blockSignals(false);
+    sliderGain_->blockSignals(false);
+
+    int expClamped = qBound(spinExposure_->minimum(), static_cast<int>(exposureUs), spinExposure_->maximum());
+    spinExposure_->blockSignals(true);
+    sliderExposure_->blockSignals(true);
+    spinExposure_->setValue(expClamped);
+    sliderExposure_->setValue(expClamped);
+    spinExposure_->blockSignals(false);
+    sliderExposure_->blockSignals(false);
+
+    spinGamma_->blockSignals(true);
+    sliderGamma_->blockSignals(true);
+    spinGamma_->setValue(gamma);
+    sliderGamma_->setValue(static_cast<int>(gamma * 100));
+    spinGamma_->blockSignals(false);
+    sliderGamma_->blockSignals(false);
+
+    spinContrast_->blockSignals(true);
+    sliderContrast_->blockSignals(true);
+    spinContrast_->setValue(contrast);
+    sliderContrast_->setValue(static_cast<int>(contrast * 100));
+    spinContrast_->blockSignals(false);
+    sliderContrast_->blockSignals(false);
 }
 
 void DetailView::onSaveParams() {
-    qDebug() << "Saving params for camera " << currentCameraId_;
-    // TODO: Emit signal to CameraManager to set params
-    // emit parameterChanged(currentCameraId_, "Gain", spinGain_->value());
-    // emit parameterChanged(currentCameraId_, "Exposure", spinExposure_->value());
-    // emit parameterChanged(currentCameraId_, "Gamma", spinGamma_->value());
-    // emit parameterChanged(currentCameraId_, "Contrast", spinContrast_->value());
+    qDebug() << "[DetailView] Save parameters for camera" << currentCameraId_;
+    emit saveParametersRequested(currentCameraId_);
+}
+
+void DetailView::onLoadParams() {
+    qDebug() << "[DetailView] Load parameters for camera" << currentCameraId_;
+    emit loadParametersRequested(currentCameraId_);
 }
 
 void DetailView::onBackClicked() {
@@ -284,4 +363,12 @@ void DetailView::onAnalysisClicked() {
 
 void DetailView::onSnapshotClicked() {
     emit snapshotRequested(currentCameraId_);
+}
+
+void DetailView::setDisplayFps(double fps) {
+    if (fps < 0) {
+        lblDisplayFps_->setText("N/A");
+    } else {
+        lblDisplayFps_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
+    }
 }

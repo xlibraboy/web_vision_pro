@@ -30,7 +30,7 @@ bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
 }
 
 
-ConfigDialog::ConfigDialog(QWidget *parent) : QWidget(parent) {
+ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent) : QWidget(parent), cameraManager_(cameraManager) {
     setWindowTitle("System Configuration");
     
     // Set as an independent window that deletes itself when closed
@@ -319,36 +319,27 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     w.writeIpBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     addField("", w.writeIpBtn);
     
-    // FPS
+    // FPS with Enable Acquisition Frame Rate checkbox
+    w.enableFpsCheck = new QCheckBox("Enable Acquisition Frame Rate");
+    w.enableFpsCheck->setChecked(cam.enableAcquisitionFps);
     w.fpsSpin = new QSpinBox();
     w.fpsSpin->setRange(1, 200);
     w.fpsSpin->setValue(cam.fps);
     w.fpsSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("FPS:", w.fpsSpin);
-    
-    w.gainSpin = new QSpinBox();
-    w.gainSpin->setRange(0, 10000);
-    w.gainSpin->setValue(cam.gain);
-    w.gainSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("Gain (initial):", w.gainSpin);
-    
-    w.exposureSpin = new QSpinBox();
-    w.exposureSpin->setRange(10, 100000);
-    w.exposureSpin->setValue(cam.exposureTime);
-    w.exposureSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("Exposure Time (initial):", w.exposureSpin);
-    
-    w.gammaSpin = new QSpinBox();
-    w.gammaSpin->setRange(0, 100);
-    w.gammaSpin->setValue(cam.gamma);
-    w.gammaSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("Gamma (initial):", w.gammaSpin);
-    
-    w.contrastSpin = new QSpinBox();
-    w.contrastSpin->setRange(0, 100);
-    w.contrastSpin->setValue(cam.contrast);
-    w.contrastSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("Contrast (initial):", w.contrastSpin);
+    w.fpsSpin->setEnabled(cam.enableAcquisitionFps); // only active when checkbox is on
+
+    // Layout: checkbox + spinbox side by side under "FPS" label
+    {
+        QWidget* fpsWidget = new QWidget();
+        QHBoxLayout* fpsHBox = new QHBoxLayout(fpsWidget);
+        fpsHBox->setContentsMargins(0, 0, 0, 0);
+        fpsHBox->addWidget(w.enableFpsCheck);
+        fpsHBox->addWidget(w.fpsSpin);
+        fpsHBox->addStretch();
+        addField("FPS:", fpsWidget);
+    }
+
+    // Wire checkbox to enable/disable the spinbox — handled in setAllEditable lambda below
     
     // If we have an odd number of items, move to next row
     if (col != 0) { row++; col = 0; }
@@ -377,16 +368,22 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
         w.subnetEdit->setEnabled(en);
         w.gatewayEdit->setEnabled(en);
         w.writeIpBtn->setEnabled(en);
-        w.fpsSpin->setEnabled(en);
-        w.gainSpin->setEnabled(en);
-        w.exposureSpin->setEnabled(en);
-        w.gammaSpin->setEnabled(en);
-        w.contrastSpin->setEnabled(en);
+        w.enableFpsCheck->setEnabled(en);
+        // fpsSpin follows enableFpsCheck, only enable if both editing AND fps enabled
+        w.fpsSpin->setEnabled(en && w.enableFpsCheck->isChecked());
     };
     setAllEditable(false); // start locked
     
     connect(w.editParamsCheck, &QCheckBox::toggled, this, [setAllEditable](bool checked) {
         setAllEditable(checked);
+    });
+    
+    // Re-wire enableFpsCheck → fpsSpin within editing context
+    connect(w.enableFpsCheck, &QCheckBox::toggled, w.fpsSpin, [w](bool checked) {
+        // Only enable fpsSpin if editing is also active
+        if (w.editParamsCheck->isChecked()) {
+            w.fpsSpin->setEnabled(checked);
+        }
     });
     
     // Wrap to prevent full-width stretching
@@ -420,11 +417,8 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cam.macAddress = "";
     cam.subnetMask = "255.255.255.0";
     cam.defaultGateway = "0.0.0.0";
-    cam.gain = 428;
-    cam.exposureTime = 541;
-    cam.gamma = 23;
-    cam.contrast = 4;
     cam.fps = 50;
+    cam.enableAcquisitionFps = false;
     cam.temperature = 0.0;
     
     createCameraWidgetBlock(cam);
@@ -464,13 +458,8 @@ void ConfigDialog::saveAndApply() {
         cam.subnetMask = w.subnetEdit->text();
         cam.defaultGateway = w.gatewayEdit->text();
         
-        // Save initial parameters directly from newly added fields!
-        cam.gain = w.gainSpin->value();
-        cam.exposureTime = w.exposureSpin->value();
-        cam.gamma = w.gammaSpin->value();
-        cam.contrast = w.contrastSpin->value();
-        
         cam.fps = w.fpsSpin->value();
+        cam.enableAcquisitionFps = w.enableFpsCheck->isChecked();
         cam.temperature = 0.0;
         
         newCameras.push_back(cam);
@@ -485,7 +474,12 @@ void ConfigDialog::saveAndApply() {
     CameraConfig::setDefectDetectionEnabled(defectCheck_->isChecked());
     CameraConfig::setThemePreset(themeCombo_->currentData().toInt());
     
-    // 3. Notify main window to apply dynamics (like FPS) WITHOUT RESTART requested
+    // 3. Save .pfs for all real connected cameras (single stop/start cycle)
+    if (cameraManager_) {
+        cameraManager_->saveParametersForAll(newCameras);
+    }
+    
+    // 4. Notify main window to apply dynamics (like FPS) WITHOUT RESTART requested
     emit configUpdated();
     
     // Close the dialog immediately

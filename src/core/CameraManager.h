@@ -16,6 +16,9 @@
 // Shared lightweight temperature status (avoids circular dependencies)
 #include "TemperatureStatus.h"
 
+// CameraInfo for saveParametersForAll
+#include "../gui/CameraInfo.h"
+
 // Buffer pool for optimized memory management
 #include "BufferPool.h"
 #include "EventController.h"
@@ -94,6 +97,15 @@ public:
     // Get Configured Resolution
     cv::Size getResolution() const;
     
+    // Get Camera IP Address
+    std::string getIpAddress(int index);
+    
+    // Get Specific Camera Resolution
+    cv::Size getCameraResolution(int index);
+    
+    // Get Specific Camera Resulting FPS
+    double getCameraFps(int index);
+    
     // Defect Detection Control
     void setDefectDetectionEnabled(bool enabled);
     bool isDefectDetectionEnabled() const;
@@ -103,13 +115,21 @@ public:
 
     // Global Configuration
     void setGlobalFrameRate(double fps);
-    void setCameraFrameRate(int cameraIndex, double fps);
+    void setCameraFrameRate(int cameraIndex, double fps, bool enableFrameRate = true);
     void setGlobalResolution(int binningFactor); // 1 = Full, 2 = 2x2, etc.
     
     // Live Camera Parameter Adjustment (Pylon nodes, no restart needed)
     void setCameraGain(int cameraIndex, double gain);
     void setCameraExposure(int cameraIndex, double exposureUs);
     void setCameraGamma(int cameraIndex, double gamma);
+    void setCameraContrast(int cameraIndex, double contrast);
+
+    // Pylon Feature Persistence (Save/Load .pfs per camera)
+    struct CameraParams { double gain; double exposureUs; double gamma; double contrast; double fps; };
+    CameraParams getCameraParams(int configArrayIndex);
+    bool saveParameters(int configArrayIndex);
+    bool loadParameters(int configArrayIndex);
+    void saveParametersForAll(const std::vector<CameraInfo>& cameras);
 
     // GigE Network Configuration
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
@@ -166,6 +186,9 @@ private:
     // Since we have fixed MAX_CAMERAS or dynamic, a mutex protected vector is safer for dynamic resizing.
     std::mutex snapshotMutex_;
     std::vector<bool> snapshotRequests_;
+    
+    // Mutex to protect camera parameter operations (save/load) from concurrent access
+    std::mutex cameraParamsMutex_;
     int fps_;
 
     // Pylon Objects
@@ -191,4 +214,18 @@ private:
     
     // Preallocated buffer pools (one per camera)
     std::vector<std::unique_ptr<BufferPool>> bufferPools_;
+    
+    // Software-applied display parameters (applied in processFrame for visual feedback)
+    // Indexed by config array index (same as UI slot)
+    std::vector<double> swGain_;    // Multiplier: 1.0 = no change
+    std::vector<double> swGamma_;   // Gamma exponent: 1.0 = no change
+    std::vector<double> swContrast_; // Contrast multiplier: 1.0 = no change
+    
+    // Cached LUT per camera — invalidated when swGain/swGamma/swContrast change
+    std::vector<cv::Mat> lutCache_;
+    std::vector<bool> lutValid_;
+    
+    // Mutex protecting software parameter data (swGain/swGamma/swContrast/lutValid/lutCache)
+    // Guards against race between UI thread (writer) and acquisition thread (reader)
+     std::mutex paramMutex_;
 };
