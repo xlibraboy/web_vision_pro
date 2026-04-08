@@ -10,6 +10,7 @@
 #include <memory>
 #include <chrono>
 #include <set>
+#include <unordered_map>
 
 // Pylon Includes
 #include <pylon/PylonIncludes.h>
@@ -139,6 +140,15 @@ public:
     static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:
+    struct CameraRuntime {
+        std::unique_ptr<Pylon::CInstantCamera> camera;
+        Pylon::CDeviceInfo targetDevice;
+        std::thread grabThread;
+        int configId = -1;
+        int source = 2;
+        bool connected = false;
+    };
+
     // Helper to configure camera parameters (PTP, Packet Size)
     // Helper to configure camera parameters (PTP, Packet Size)
     void configureCamera(GenApi::INodeMap& nodemap, bool isEmulation);
@@ -146,8 +156,18 @@ private:
     // Vision Pipeline (Blur -> Threshold -> Canny)
     void processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex);
 
-    // Pylon Acquisition Loop
-    void acquisitionLoop();
+    // Per-camera acquisition and recovery helpers
+    void acquisitionLoop(int configArrayIndex);
+    bool attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
+                                const Pylon::DeviceInfoList_t& devices,
+                                std::set<int>& claimedDeviceIndices,
+                                bool suppressBlank);
+    bool tryReconnectCamera(int configArrayIndex);
+    void stopCameraRuntime(int configArrayIndex);
+    void clearCameraTile(int configArrayIndex);
+    Pylon::CInstantCamera* getCameraByConfigIndex(int configArrayIndex);
+    const Pylon::CInstantCamera* getCameraByConfigIndex(int configArrayIndex) const;
+    bool isCameraConnected(int configArrayIndex) const;
 
     // Snapshot Control
 
@@ -155,7 +175,6 @@ private:
     int numCameras_;
     std::atomic<bool> acquiring_; // Threading
     std::atomic<bool> paused_{false}; // Paused Grab
-    std::thread acquisitionThread_;
     
     // Device Removal Recovery
     std::atomic<bool> recovering_;
@@ -194,8 +213,7 @@ private:
     std::mutex cameraParamsMutex_;
     int fps_;
 
-    // Pylon Objects
-    Pylon::CInstantCameraArray cameras_;
+    std::vector<CameraRuntime> cameraRuntimes_;
     
     std::vector<std::string> cameraLabels_;
     std::vector<std::string> modelNames_;
@@ -212,10 +230,7 @@ private:
     // Used in the acquisition callback to emit the correct slot index
     std::vector<int> pylonIndexToConfigArrayIndex_;
     
-    // Recovery tracking info (Device Class, Serial Numbers, MACs)
-    std::vector<Pylon::CDeviceInfo> targetDevices_;
-
-    // Per-camera disconnect tracking: set of Pylon array indices that have been removed.
+    // Per-camera disconnect tracking: set of config array indices that have been removed.
     // Written from DeviceRemovalHandler / acquisitionLoop, read in acquisitionLoop.
     // Protected by disconnectedMutex_.
     std::set<uint32_t> disconnectedCameras_;

@@ -33,25 +33,22 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
         std::cout << "[CameraManager] DEVICE REMOVAL EVENT: camera context="
                   << camera.GetCameraContext() << std::endl;
 
-        // Identify which Pylon index was removed via the camera context tag set during initialize()
-        uint32_t pylonIdx = static_cast<uint32_t>(camera.GetCameraContext());
+        // Camera context stores config array index in the per-camera runtime model.
+        uint32_t configIdx = static_cast<uint32_t>(camera.GetCameraContext());
 
         // 1. Mark this camera as disconnected so the acquisition loop skips it gracefully.
         //    Do NOT touch acquiring_ — surviving cameras must keep streaming uninterrupted.
         {
             std::lock_guard<std::mutex> lock(manager_->disconnectedMutex_);
-            manager_->disconnectedCameras_.insert(pylonIdx);
+            manager_->disconnectedCameras_.insert(configIdx);
         }
 
         // 2. Blank ONLY the disconnected camera's UI tile.
         {
             std::lock_guard<std::mutex> lock(manager_->callbackMutex_);
             if (manager_->callback_) {
-                int configArrayIdx = (pylonIdx < manager_->pylonIndexToConfigArrayIndex_.size())
-                                     ? manager_->pylonIndexToConfigArrayIndex_[pylonIdx]
-                                     : static_cast<int>(pylonIdx);
-                if (configArrayIdx >= 0) {
-                    manager_->callback_(configArrayIdx, cv::Mat());
+                if (configIdx < manager_->cameraRuntimes_.size()) {
+                    manager_->callback_(static_cast<int>(configIdx), cv::Mat());
                 }
             }
         }
@@ -102,6 +99,7 @@ CameraManager::CameraManager(int numCameras)
         lutCache_.push_back(cv::Mat());
         lutValid_.push_back(false);
     }
+    cameraRuntimes_.resize(numCameras_);
 }
 
 CameraManager::~CameraManager() {
@@ -111,6 +109,161 @@ CameraManager::~CameraManager() {
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] Failed to terminate Pylon: " << e.GetDescription() << std::endl;
     }
+}
+
+bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
+                                           const Pylon::DeviceInfoList_t& devices,
+                                           std::set<int>& claimedDeviceIndices,
+                                           bool suppressBlank) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return false;
+    }
+
+    CameraRuntime& runtime = cameraRuntimes_[configArrayIndex];
+    runtime.configId = camInfo.id;
+    runtime.source = camInfo.source;
+    runtime.connected = false;
+    runtime.targetDevice = Pylon::CDeviceInfo();
+    runtime.camera.reset();
+
+    cameraIndexToConfigId_[configArrayIndex] = camInfo.id;
+    configArrayIndexToPylonIndex_[configArrayIndex] = -1;
+    pylonIndexToConfigArrayIndex_[configArrayIndex] = configArrayIndex;
+
+    if (camInfo.source == 2) {
+        if (!suppressBlank) {
+            clearCameraTile(configArrayIndex);
+        }
+        return false;
+    }
+
+    int matchedDeviceIndex = -1;
+    for (int devIndex = 0; devIndex < static_cast<int>(devices.size()); ++devIndex) {
+        if (claimedDeviceIndices.count(devIndex)) {
+            continue;
+        }
+
+        const auto& dev = devices[devIndex];
+        const bool isEmulatedDevice = (dev.GetDeviceClass() == "BaslerCamEmu");
+        bool canMatch = false;
+
+        if (camInfo.source == 0 && isEmulatedDevice) {
+            canMatch = true;
+        } else if (camInfo.source == 1 && !isEmulatedDevice && !camInfo.macAddress.isEmpty() &&
+                   camInfo.macAddress != "None / Auto" &&
+                   normalizeMacAddress(camInfo.macAddress.toStdString()) == normalizeMacAddress(dev.GetMacAddress().c_str())) {
+            canMatch = true;
+        }
+
+        if (canMatch) {
+            matchedDeviceIndex = devIndex;
+            break;
+        }
+    }
+
+    if (matchedDeviceIndex < 0) {
+        std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID "
+                  << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+        if (!suppressBlank) {
+            clearCameraTile(configArrayIndex);
+        }
+        return false;
+    }
+
+    claimedDeviceIndices.insert(matchedDeviceIndex);
+    const auto& matchedDevice = devices[matchedDeviceIndex];
+
+    try {
+        CTlFactory& tlFactory = CTlFactory::GetInstance();
+        runtime.camera = std::make_unique<CInstantCamera>(tlFactory.CreateDevice(matchedDevice));
+        runtime.camera->RegisterConfiguration(new DeviceRemovalHandler(this), RegistrationMode_Append, Cleanup_Delete);
+        runtime.camera->SetCameraContext(configArrayIndex);
+        runtime.targetDevice = matchedDevice;
+        runtime.connected = true;
+
+        configArrayIndexToPylonIndex_[configArrayIndex] = configArrayIndex;
+        pylonIndexToConfigArrayIndex_[configArrayIndex] = configArrayIndex;
+
+        std::cout << "[CameraManager] Config array index " << configArrayIndex
+                  << " (Config ID " << camInfo.id << ") attached to device "
+                  << matchedDevice.GetModelName() << std::endl;
+
+        if (configArrayIndex < static_cast<int>(modelNames_.size())) {
+            modelNames_[configArrayIndex] = matchedDevice.GetModelName().c_str();
+        }
+
+        return true;
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] Failed to attach camera for config index " << configArrayIndex
+                  << ": " << e.GetDescription() << std::endl;
+        runtime.camera.reset();
+        runtime.connected = false;
+        configArrayIndexToPylonIndex_[configArrayIndex] = -1;
+        if (!suppressBlank) {
+            clearCameraTile(configArrayIndex);
+        }
+        return false;
+    }
+}
+
+void CameraManager::clearCameraTile(int configArrayIndex) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    if (callback_ && configArrayIndex >= 0) {
+        callback_(configArrayIndex, cv::Mat());
+    }
+}
+
+Pylon::CInstantCamera* CameraManager::getCameraByConfigIndex(int configArrayIndex) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return nullptr;
+    }
+    return cameraRuntimes_[configArrayIndex].camera.get();
+}
+
+const Pylon::CInstantCamera* CameraManager::getCameraByConfigIndex(int configArrayIndex) const {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return nullptr;
+    }
+    return cameraRuntimes_[configArrayIndex].camera.get();
+}
+
+bool CameraManager::isCameraConnected(int configArrayIndex) const {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return false;
+    }
+    return cameraRuntimes_[configArrayIndex].connected && cameraRuntimes_[configArrayIndex].camera != nullptr;
+}
+
+void CameraManager::stopCameraRuntime(int configArrayIndex) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return;
+    }
+
+    CameraRuntime& runtime = cameraRuntimes_[configArrayIndex];
+    runtime.connected = false;
+
+    try {
+        if (runtime.camera) {
+            if (runtime.camera->IsGrabbing()) {
+                runtime.camera->StopGrabbing();
+            }
+            if (runtime.camera->IsOpen()) {
+                runtime.camera->Close();
+            }
+            if (runtime.camera->IsPylonDeviceAttached()) {
+                runtime.camera->DestroyDevice();
+            }
+        }
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] stopCameraRuntime warning: " << e.GetDescription() << std::endl;
+    }
+
+    if (runtime.grabThread.joinable()) {
+        runtime.grabThread.join();
+    }
+
+    runtime.camera.reset();
+    configArrayIndexToPylonIndex_[configArrayIndex] = -1;
 }
 
 bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
@@ -131,157 +284,26 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
 
         // Get configured cameras from CameraConfig
         std::vector<CameraInfo> configuredCams = CameraConfig::getCameras();
-        std::vector<Pylon::CDeviceInfo> activeDevices;
         
         std::cout << "[CameraManager] Loaded " << configuredCams.size() << " Camera configs." << std::endl;
         for (const auto& c : configuredCams) {
             std::cout << "[CameraManager] Config - ID: " << c.id << " Source: " << c.source << " MAC: " << c.macAddress.toStdString() << std::endl;
         }
         
-        // Detect if running in emulation mode from environment
-        bool isEmulationEnv = (getenv("PYLON_CAMEMU") != nullptr);
-        
-        // Match discovered devices against configuration
-        cameraIndexToConfigId_.clear();
-        std::vector<int> matchedConfigIds; // To track in order
-        
-        for (const auto& camInfo : configuredCams) {
-            bool foundMatch = false;
-            
-            if (camInfo.source == 2) { 
-                std::cout << "[CameraManager] Camera ID " << camInfo.id << " is DISABLED. Skipping." << std::endl;
-                continue;
-            }
-            
-            for (const auto& dev : devices) {
-                bool isEmulatedDevice = (dev.GetDeviceClass() == "BaslerCamEmu");
-                
-                bool canMatch = false;
-                
-                if (camInfo.source == 0 && isEmulatedDevice) {
-                    canMatch = true;
-                } else if (camInfo.source == 1) {
-                    if (!isEmulatedDevice) {
-                        // Strict Match: Camera must have an explicit MAC set to connect.
-                        // Normalize both sides to handle different MAC formats (with/without colons).
-                        if (!camInfo.macAddress.isEmpty() && 
-                            camInfo.macAddress != "None / Auto" && 
-                            normalizeMacAddress(camInfo.macAddress.toStdString()) == normalizeMacAddress(dev.GetMacAddress().c_str())) {
-                            canMatch = true;
-                        }
-                    }
-                }
-                
-                if (canMatch) {
-                    bool alreadyUsed = false;
-                    for (const auto& active : activeDevices) {
-                        if (active.GetSerialNumber() == dev.GetSerialNumber()) { alreadyUsed = true; break;}
-                    }
-                    if (!alreadyUsed) {
-                        activeDevices.push_back(dev);
-                        matchedConfigIds.push_back(camInfo.id); // <-- store config ID in order
-                        foundMatch = true;
-                        std::string statusMsg = "[CameraManager] Matched " + std::string(isEmulatedDevice ? "EMULATED" : "REAL") 
-                                  + " camera" + (isEmulatedDevice ? "" : std::string(" (") + dev.GetMacAddress().c_str() + ")")
-                                  + " for Config ID " + std::to_string(camInfo.id)
-                                  + " -> Pylon index " + std::to_string(activeDevices.size() - 1);
-                        std::cout << statusMsg << std::endl;
-                        if (statusCallback_) statusCallback_(statusMsg);
-                        break;
-                    }
-                }
-            }
-            
-            if (!foundMatch) {
-                std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID " 
-                          << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
-            }
+        if (cameraRuntimes_.size() < configuredCams.size()) {
+            cameraRuntimes_.resize(configuredCams.size());
         }
 
-        // Initialize camera array with active matched devices ONLY
-        size_t numToInitialize = std::min(activeDevices.size(), (size_t)numCameras_);
-        cameras_.Initialize(numToInitialize);
-        
-        // ONLY clear and build targetDevices_ on the very first fresh startup!
-        // During a degraded recovery rebuild, we MUST preserve the original targetDevices_ 
-        // list so we don't forget about the missing camera!
-        bool firstInit = targetDevices_.empty();
-        cameraIndexToConfigId_.clear();
+        cameraIndexToConfigId_.assign(configuredCams.size(), -1);
+        configArrayIndexToPylonIndex_.assign(configuredCams.size(), -1);
+        pylonIndexToConfigArrayIndex_.assign(configuredCams.size(), -1);
 
-        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-            cameras_[i].Attach(tlFactory.CreateDevice(activeDevices[i]));
-            
-            // Store Config ID mapping (index i -> config ID from matched list)
-            int configId = (i < matchedConfigIds.size()) ? matchedConfigIds[i] : (int)(i + 1);
-            cameraIndexToConfigId_.push_back(configId);
-            std::cout << "[CameraManager] Pylon index " << i 
-                      << " -> Config ID " << configId << std::endl;
-            
-            // Store device properties for recovery (ONLY on first successful startup)
-            if (firstInit) {
-                CDeviceInfo targetInfo;
-                targetInfo.SetDeviceClass(cameras_[i].GetDeviceInfo().GetDeviceClass());
-                targetInfo.SetSerialNumber(cameras_[i].GetDeviceInfo().GetSerialNumber());
-                targetDevices_.push_back(targetInfo);
-            }
-            
-            // Register Device Removal Handler
-            cameras_[i].RegisterConfiguration(new DeviceRemovalHandler(this), RegistrationMode_Append, Cleanup_Delete);
-
-            // Set context to Pylon array index (still needed for frame routing)
-            cameras_[i].SetCameraContext(i);
-            
-            // Apply industrial configuration (PTP, MTU 9000)
-            configureCamera(cameras_[i].GetNodeMap(), cameras_[i].GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
-
-            std::cout << "[CameraManager] Attached camera " << i << " (Config ID " << configId << "): " 
-                      << cameras_[i].GetDeviceInfo().GetModelName() << std::endl;
-            
-            // Store model name
-            if (i < modelNames_.size()) {
-                modelNames_[i] = cameras_[i].GetDeviceInfo().GetModelName().c_str();
-            }
+        std::set<int> claimedDeviceIndices;
+        for (int cfgArrayIdx = 0; cfgArrayIdx < static_cast<int>(configuredCams.size()); ++cfgArrayIdx) {
+            const bool suppressBlank = suppressBlankFor.find(cfgArrayIdx) != suppressBlankFor.end();
+            attachConfiguredCamera(cfgArrayIdx, configuredCams[cfgArrayIdx], devices, claimedDeviceIndices, suppressBlank);
         }
 
-        // Also build reverse map: config array index (0-based) -> Pylon index
-        // This allows getTemperature/getModelName to look up the device by UI slot index
-        configArrayIndexToPylonIndex_.clear();
-        {
-            auto configuredCamsForMap = CameraConfig::getCameras();
-            for (int cfgArrayIdx = 0; cfgArrayIdx < (int)configuredCamsForMap.size(); ++cfgArrayIdx) {
-                int cfgId = configuredCamsForMap[cfgArrayIdx].id;
-                int pylonIdx = -1; // -1 means not connected
-                for (int pi = 0; pi < (int)cameraIndexToConfigId_.size(); ++pi) {
-                    if (cameraIndexToConfigId_[pi] == cfgId) {
-                        pylonIdx = pi;
-                        break;
-                    }
-                }
-                configArrayIndexToPylonIndex_.push_back(pylonIdx);
-                std::cout << "[CameraManager] Config array index " << cfgArrayIdx
-                          << " (Config ID " << cfgId << ") -> Pylon index " << pylonIdx << std::endl;
-            }
-            
-            // Build the inverse: pylon index -> config array index
-            // Size = number of connected cameras (Pylon array size)
-            pylonIndexToConfigArrayIndex_.assign(cameras_.GetSize(), -1);
-            for (int cfgArrayIdx = 0; cfgArrayIdx < (int)configArrayIndexToPylonIndex_.size(); ++cfgArrayIdx) {
-                int pi = configArrayIndexToPylonIndex_[cfgArrayIdx];
-                if (pi >= 0 && pi < (int)pylonIndexToConfigArrayIndex_.size()) {
-                    pylonIndexToConfigArrayIndex_[pi] = cfgArrayIdx;
-                } else {
-                    // Camera is disconnected or missing.
-                    // Only send blank frame if we're not suppressing it for this slot
-                    // (suppression is used during hot-rebuild to avoid flashing survivors).
-                    if (suppressBlankFor.find(cfgArrayIdx) == suppressBlankFor.end()) {
-                        std::lock_guard<std::mutex> lock(callbackMutex_);
-                        if (callback_) {
-                            callback_(cfgArrayIdx, cv::Mat());
-                        }
-                    }
-                }
-            }
-        } // end reverse map scope
         return true;
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] Pylon exception during initialization: " 
@@ -296,11 +318,8 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
 
 void CameraManager::setCameraGain(int cameraIndex, double gain) {
     std::lock_guard<std::mutex> lock(paramMutex_);
-    int pylonIndex = -1;
-    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
-    }
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
         std::cerr << "[CameraManager] setCameraGain: invalid cameraIndex " << cameraIndex << std::endl;
         return;
     }
@@ -308,10 +327,10 @@ void CameraManager::setCameraGain(int cameraIndex, double gain) {
     if (cameraIndex < (int)swGain_.size()) swGain_[cameraIndex] = std::max(0.0, gain);
     if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
-        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             Pylon::CFloatParameter(nodemap, "Gain").SetValue(gain);
-            std::cout << "[CameraManager] setCameraGain: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " gain=" << gain << " OK" << std::endl;
+            std::cout << "[CameraManager] setCameraGain: cam=" << cameraIndex << " gain=" << gain << " OK" << std::endl;
         } else {
             std::cerr << "[CameraManager] setCameraGain: cam " << cameraIndex << " camera not open" << std::endl;
         }
@@ -321,20 +340,17 @@ void CameraManager::setCameraGain(int cameraIndex, double gain) {
 }
 
 void CameraManager::setCameraExposure(int cameraIndex, double exposureUs) {
-    int pylonIndex = -1;
-    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
-    }
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
         std::cerr << "[CameraManager] setCameraExposure: invalid cameraIndex " << cameraIndex << std::endl;
         return;
     }
     
     try {
-        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             Pylon::CFloatParameter(nodemap, "ExposureTimeAbs").SetValue(exposureUs);
-            std::cout << "[CameraManager] setCameraExposure: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " exp=" << exposureUs << " OK" << std::endl;
+            std::cout << "[CameraManager] setCameraExposure: cam=" << cameraIndex << " exp=" << exposureUs << " OK" << std::endl;
         } else {
             std::cerr << "[CameraManager] setCameraExposure: cam " << cameraIndex << " camera not open" << std::endl;
         }
@@ -345,11 +361,8 @@ void CameraManager::setCameraExposure(int cameraIndex, double exposureUs) {
 
 void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
     std::lock_guard<std::mutex> lock(paramMutex_);
-    int pylonIndex = -1;
-    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
-    }
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
         std::cerr << "[CameraManager] setCameraGamma: invalid cameraIndex " << cameraIndex << std::endl;
         return;
     }
@@ -357,10 +370,10 @@ void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
     if (cameraIndex < (int)swGamma_.size()) swGamma_[cameraIndex] = std::max(0.01, gamma);
     if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
-        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             Pylon::CFloatParameter(nodemap, "Gamma").SetValue(gamma);
-            std::cout << "[CameraManager] setCameraGamma: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " gamma=" << gamma << " OK" << std::endl;
+            std::cout << "[CameraManager] setCameraGamma: cam=" << cameraIndex << " gamma=" << gamma << " OK" << std::endl;
         } else {
             std::cerr << "[CameraManager] setCameraGamma: cam " << cameraIndex << " camera not open" << std::endl;
         }
@@ -371,14 +384,11 @@ void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
 
 CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex) {
     CameraParams p{0.0, 5000.0, 1.0, 1.0, 0.0};
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    if (pylonIndex < 0 || !(cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()))
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !(camera->IsPylonDeviceAttached() && camera->IsOpen()))
         return p;
     try {
-        GenApi::INodeMap& nm = cameras_[pylonIndex].GetNodeMap();
+        GenApi::INodeMap& nm = camera->GetNodeMap();
         GenApi::CFloatPtr g(nm.GetNode("Gain"));
         if (g && IsReadable(g)) p.gain = g->GetValue();
 
@@ -401,11 +411,8 @@ CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex)
 
 void CameraManager::setCameraContrast(int cameraIndex, double contrast) {
     std::lock_guard<std::mutex> lock(paramMutex_);
-    int pylonIndex = -1;
-    if (cameraIndex >= 0 && cameraIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[cameraIndex];
-    }
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
         std::cerr << "[CameraManager] setCameraContrast: invalid cameraIndex " << cameraIndex << std::endl;
         return;
     }
@@ -413,12 +420,12 @@ void CameraManager::setCameraContrast(int cameraIndex, double contrast) {
     if (cameraIndex < (int)swContrast_.size()) swContrast_[cameraIndex] = std::max(0.0, contrast);
     if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
-        if (cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             GenApi::CFloatPtr ptrContrast(nodemap.GetNode("BslContrast"));
             if (ptrContrast && GenApi::IsWritable(ptrContrast)) {
                 ptrContrast->SetValue(contrast);
-                std::cout << "[CameraManager] setCameraContrast: cam=" << cameraIndex << " pylonIdx=" << pylonIndex << " contrast=" << contrast << " OK" << std::endl;
+                std::cout << "[CameraManager] setCameraContrast: cam=" << cameraIndex << " contrast=" << contrast << " OK" << std::endl;
             } else {
                 std::cerr << "[CameraManager] setCameraContrast: cam " << cameraIndex << " BslContrast node not found or not writable" << std::endl;
             }
@@ -431,21 +438,15 @@ void CameraManager::setCameraContrast(int cameraIndex, double contrast) {
 }
 
 bool CameraManager::saveParameters(int configArrayIndex) {
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    if (pylonIndex < 0 || !cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
         std::cerr << "[CameraManager] saveParameters: camera " << configArrayIndex << " not connected." << std::endl;
         return false;
     }
     // Determine the config-level ID (1-based) for a unique filename
     int configId = configArrayIndex + 1;
-    if (configArrayIndex < (int)cameraIndexToConfigId_.size()) {
-        // Get id from mapping array if possible
-        for (size_t i = 0; i < cameraIndexToConfigId_.size(); ++i) {
-            if ((int)i == pylonIndex) { configId = cameraIndexToConfigId_[i]; break; }
-        }
+    if (configArrayIndex < (int)cameraIndexToConfigId_.size() && cameraIndexToConfigId_[configArrayIndex] > 0) {
+        configId = cameraIndexToConfigId_[configArrayIndex];
     }
     std::string pfsDir = "/etc/papervision/cameras";
     // Ensure directory exists
@@ -457,7 +458,7 @@ bool CameraManager::saveParameters(int configArrayIndex) {
 
     bool result = false;
     try {
-        Pylon::CFeaturePersistence::Save(filename.c_str(), &cameras_[pylonIndex].GetNodeMap());
+        Pylon::CFeaturePersistence::Save(filename.c_str(), &camera->GetNodeMap());
         std::cout << "[CameraManager] Parameters saved to " << filename << std::endl;
         result = true;
     } catch (const Pylon::GenericException& e) {
@@ -467,11 +468,8 @@ bool CameraManager::saveParameters(int configArrayIndex) {
 }
 
 bool CameraManager::loadParameters(int configArrayIndex) {
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    if (pylonIndex < 0 || !cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
         std::cerr << "[CameraManager] loadParameters: camera " << configArrayIndex << " not connected." << std::endl;
         return false;
     }
@@ -480,7 +478,7 @@ bool CameraManager::loadParameters(int configArrayIndex) {
 
     bool result = false;
     try {
-        Pylon::CFeaturePersistence::Load(filename.c_str(), &cameras_[pylonIndex].GetNodeMap(), true);
+        Pylon::CFeaturePersistence::Load(filename.c_str(), &camera->GetNodeMap(), true);
         std::cout << "[CameraManager] Parameters loaded from " << filename << std::endl;
         result = true;
     } catch (const Pylon::GenericException& e) {
@@ -503,13 +501,10 @@ void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras)
     for (int i = 0; i < (int)cameras.size(); ++i) {
         if (cameras[i].source != 1) continue; // Only real cameras
         
-        int pylonIndex = -1;
-        if (i >= 0 && i < (int)configArrayIndexToPylonIndex_.size()) {
-            pylonIndex = configArrayIndexToPylonIndex_[i];
-        }
-        if (pylonIndex < 0) continue;
+        auto* camera = getCameraByConfigIndex(i);
+        if (!camera) continue;
         
-        if (!cameras_[pylonIndex].IsPylonDeviceAttached() || !cameras_[pylonIndex].IsOpen()) {
+        if (!camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
             std::cerr << "[CameraManager] saveParametersForAll: camera " << cameras[i].id << " not connected." << std::endl;
             continue;
         }
@@ -518,7 +513,7 @@ void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras)
         std::string filename = pfsDir + "/camera_" + std::to_string(configId) + ".pfs";
         
         try {
-            Pylon::CFeaturePersistence::Save(filename.c_str(), &cameras_[pylonIndex].GetNodeMap());
+            Pylon::CFeaturePersistence::Save(filename.c_str(), &camera->GetNodeMap());
             std::cout << "[CameraManager] Parameters saved to " << filename << std::endl;
         } catch (const Pylon::GenericException& e) {
             std::cerr << "[CameraManager] Error saving parameters for cam " << cameras[i].id << ": " << e.GetDescription() << std::endl;
@@ -608,114 +603,109 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
 
 void CameraManager::startAcquisition() {
     if (acquiring_) return;
-    
+
     try {
-        // Update width/height
-        if (cameras_.GetSize() > 0) {
-            cameras_.Open();
-            GenApi::CIntegerPtr ptrWidth(cameras_[0].GetNodeMap().GetNode("Width"));
-            GenApi::CIntegerPtr ptrHeight(cameras_[0].GetNodeMap().GetNode("Height"));
-            if (IsReadable(ptrWidth) && IsReadable(ptrHeight)) {
-                width_ = (int)ptrWidth->GetValue();
-                height_ = (int)ptrHeight->GetValue();
-                std::cout << "[CameraManager] Updated resolution from camera: " << width_ << "x" << height_ << std::endl;
-            }
-        }
-        
-        // Initialize buffer pools
         bufferPools_.clear();
         for (int i = 0; i < numCameras_; ++i) {
-            bufferPools_.push_back(
-                std::make_unique<BufferPool>(3, width_, height_, CV_8UC1)
-            );
+            bufferPools_.push_back(std::make_unique<BufferPool>(3, width_, height_, CV_8UC1));
         }
 
-        // Clear per-camera disconnect tracking on every fresh start
         {
             std::lock_guard<std::mutex> lock(disconnectedMutex_);
             disconnectedCameras_.clear();
         }
-        
-        // Initialize latest frames
+
         {
             std::lock_guard<std::mutex> lock(latestFramesMutex_);
             latestFrames_.assign(numCameras_, cv::Mat());
         }
-        
-        // Only start Pylon grabbing if we actually have cameras
-        if (cameras_.GetSize() > 0) {
-            // Camera Configuration
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                cameras_[i].MaxNumBuffer.SetValue(5);
-            }
-            
-            cameras_.StartGrabbing(GrabStrategy_LatestImageOnly);
 
-            // Debug info for Stream Grabber (as per Grab.cpp)
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                 if (cameras_[i].IsGigE()) {
-                     std::cout << "[CameraManager] Cam " << i << " Stream grabber uses " 
-                               << Pylon::CEnumParameter(cameras_[i].GetStreamGrabberNodeMap(), "Type").GetValueOrDefault("Other") 
-                               << std::endl;
-                 }
-            }
-            
-            // Initialize Event Controller
-            EventController::instance().initialize(100, 10.0, 50);
+        EventController::instance().initialize(100, 10.0, 50);
 
-            // === TEMPERATURE MONITORING: Enable Pylon camera events per Basler App Note ===
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+        bool anyConnected = false;
+        for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+            auto* camera = getCameraByConfigIndex(i);
+            if (!camera) {
+                continue;
+            }
+
+            try {
+                if (!camera->IsOpen()) {
+                    camera->Open();
+                }
+
+                if (!anyConnected) {
+                    GenApi::CIntegerPtr ptrWidth(camera->GetNodeMap().GetNode("Width"));
+                    GenApi::CIntegerPtr ptrHeight(camera->GetNodeMap().GetNode("Height"));
+                    if (IsReadable(ptrWidth) && IsReadable(ptrHeight)) {
+                        width_ = static_cast<int>(ptrWidth->GetValue());
+                        height_ = static_cast<int>(ptrHeight->GetValue());
+                        std::cout << "[CameraManager] Updated resolution from camera: " << width_ << "x" << height_ << std::endl;
+                    }
+                }
+
+                configureCamera(camera->GetNodeMap(), camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+                camera->MaxNumBuffer.SetValue(5);
+                camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
+                anyConnected = true;
+
+                if (camera->IsGigE()) {
+                    std::cout << "[CameraManager] Cam " << i << " Stream grabber uses "
+                              << Pylon::CEnumParameter(camera->GetStreamGrabberNodeMap(), "Type").GetValueOrDefault("Other")
+                              << std::endl;
+                }
+
                 try {
-                    GenApi::INodeMap& nodemap = cameras_[i].GetNodeMap();
-                    // Only applicable to real (non-emulated) cameras
-                    bool isEmu = (cameras_[i].GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+                    GenApi::INodeMap& nodemap = camera->GetNodeMap();
+                    bool isEmu = (camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
                     if (!isEmu) {
                         GenApi::CEnumerationPtr ptrEvtSel(nodemap.GetNode("EventSelector"));
                         GenApi::CEnumerationPtr ptrEvtNotif(nodemap.GetNode("EventNotification"));
                         if (IsWritable(ptrEvtSel) && IsWritable(ptrEvtNotif)) {
-                            // Enable CriticalTemperature event
                             if (GenApi::IsAvailable(ptrEvtSel->GetEntryByName("CriticalTemperature"))) {
                                 ptrEvtSel->FromString("CriticalTemperature");
                                 ptrEvtNotif->FromString("On");
-                                std::cout << "[CameraManager] CriticalTemperature event enabled on camera " << i << std::endl;
                             }
-                            // Enable OverTemperature event
                             if (GenApi::IsAvailable(ptrEvtSel->GetEntryByName("OverTemperature"))) {
                                 ptrEvtSel->FromString("OverTemperature");
                                 ptrEvtNotif->FromString("On");
-                                std::cout << "[CameraManager] OverTemperature event enabled on camera " << i << std::endl;
                             }
                         }
                     }
                 } catch (const GenericException& e) {
                     std::cout << "[CameraManager] Temp event setup warning (cam " << i << "): " << e.GetDescription() << std::endl;
                 }
+            } catch (const GenericException& e) {
+                std::cerr << "[CameraManager] Failed to start camera " << i << ": " << e.GetDescription() << std::endl;
+                stopCameraRuntime(i);
+                {
+                    std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                    disconnectedCameras_.insert(static_cast<uint32_t>(i));
+                }
+                clearCameraTile(i);
             }
         }
 
-        // Start background temperature monitor thread (runs regardless of array size)
-        prevTempStatus_.assign(cameras_.GetSize(), TemperatureStatus::Unknown);
-        
-        // Safely join old threads if they exist to prevent std::terminate on unjoined threads
+        prevTempStatus_.assign(std::max(numCameras_, static_cast<int>(cameraRuntimes_.size())), TemperatureStatus::Unknown);
+
         if (tempMonitorThread_.joinable()) {
-            tempMonitorRunning_ = false; 
+            tempMonitorRunning_ = false;
             tempMonitorThread_.join();
         }
-        
+
         tempMonitorRunning_ = true;
         tempMonitorThread_ = std::thread(&CameraManager::temperatureMonitorLoop, this);
 
-        if (acquisitionThread_.joinable()) {
-            // acquiring_ is already false if this is running or recovering
-            acquisitionThread_.join();
-        }
-        
-        if (cameras_.GetSize() > 0) {
-            acquiring_ = true;
-            acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
-            std::cout << "[CameraManager] Started Pylon acquisition loop." << std::endl;
+        acquiring_ = anyConnected;
+        if (anyConnected) {
+            for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+                CameraRuntime& runtime = cameraRuntimes_[i];
+                if (runtime.connected && runtime.camera && !runtime.grabThread.joinable()) {
+                    runtime.grabThread = std::thread(&CameraManager::acquisitionLoop, this, i);
+                }
+            }
+            std::cout << "[CameraManager] Started per-camera acquisition loops." << std::endl;
         } else {
-            acquiring_ = false;
             std::cout << "[CameraManager] Skipped acquisition loop (0 cameras attached)." << std::endl;
             if (!recovering_) {
                 std::cout << "[CameraManager] Bootstrapping recovery thread to poll for cameras..." << std::endl;
@@ -724,7 +714,7 @@ void CameraManager::startAcquisition() {
             }
         }
     } catch (const GenericException& e) {
-        std::cerr << "[CameraManager] Pylon exception during start: " 
+        std::cerr << "[CameraManager] Pylon exception during start: "
                   << e.GetDescription() << std::endl;
     }
 }
@@ -744,27 +734,8 @@ void CameraManager::stopAcquisition() {
         tempMonitorThread_.join();
     }
 
-    if (acquisitionThread_.joinable()) {
-        acquisitionThread_.join();
-    }
-    
-    try {
-        if (cameras_.IsGrabbing()) {
-            cameras_.StopGrabbing();
-        }
-        if (cameras_.IsOpen()) {
-            cameras_.Close();
-        }
-        // Detach all devices so they can be re-enumerated
-        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-            if (cameras_[i].IsPylonDeviceAttached()) {
-                cameras_[i].DestroyDevice();
-            }
-        }
-        cameras_.Initialize(0); // Reset camera array
-    } catch (const GenericException& e) {
-        std::cerr << "[CameraManager] Pylon exception during stop: " 
-                  << e.GetDescription() << std::endl;
+    for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+        stopCameraRuntime(i);
     }
     
     // Clear buffer pools
@@ -780,178 +751,110 @@ bool CameraManager::isGrabbingPaused() const {
     return paused_;
 }
 
+bool CameraManager::tryReconnectCamera(int configArrayIndex) {
+    auto configuredCams = CameraConfig::getCameras();
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(configuredCams.size())) {
+        return false;
+    }
+
+    stopCameraRuntime(configArrayIndex);
+
+    CTlFactory& tlFactory = CTlFactory::GetInstance();
+    DeviceInfoList_t devices;
+    tlFactory.EnumerateDevices(devices);
+    std::set<int> claimed;
+
+    for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+        if (i == configArrayIndex) {
+            continue;
+        }
+
+        const auto* camera = getCameraByConfigIndex(i);
+        if (!camera || !camera->IsPylonDeviceAttached()) {
+            continue;
+        }
+
+        for (int devIndex = 0; devIndex < static_cast<int>(devices.size()); ++devIndex) {
+            if (claimed.count(devIndex)) {
+                continue;
+            }
+            if (camera->GetDeviceInfo().GetSerialNumber() == devices[devIndex].GetSerialNumber()) {
+                claimed.insert(devIndex);
+                break;
+            }
+        }
+    }
+
+    if (!attachConfiguredCamera(configArrayIndex, configuredCams[configArrayIndex], devices, claimed, true)) {
+        return false;
+    }
+
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
+        return false;
+    }
+
+    try {
+        if (!camera->IsOpen()) {
+            camera->Open();
+        }
+        configureCamera(camera->GetNodeMap(), camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        camera->MaxNumBuffer.SetValue(5);
+        camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
+        cameraRuntimes_[configArrayIndex].connected = true;
+        cameraRuntimes_[configArrayIndex].grabThread = std::thread(&CameraManager::acquisitionLoop, this, configArrayIndex);
+        setCameraFrameRate(configArrayIndex, configuredCams[configArrayIndex].fps, configuredCams[configArrayIndex].enableAcquisitionFps);
+        return true;
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] Reconnect failed for camera " << configArrayIndex << ": " << e.GetDescription() << std::endl;
+        stopCameraRuntime(configArrayIndex);
+        return false;
+    }
+}
+
 void CameraManager::recoveryLoop() {
     recovering_ = true;
     std::cout << "[CameraManager] --- RECOVERY LOOP STARTED ---" << std::endl;
 
-    // Determine up-front whether this is a FULL recovery (all cameras gone / acquiring_ killed)
-    // or a PARTIAL recovery (only some cameras removed, acquisition loop still running).
-    bool fullRecovery = !acquiring_;
-
-    if (fullRecovery) {
-        // 1. Give the system time to cleanly disconnect everything
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-        // 2. Terminate the old camera handles safely
-        try {
-            if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
-            if (cameras_.IsOpen()) cameras_.Close();
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                if (cameras_[i].IsPylonDeviceAttached()) {
-                    cameras_[i].DestroyDevice();
-                }
-            }
-        } catch (...) {
-            std::cerr << "[CameraManager] Ignored exception during old handle teardown in recovery." << std::endl;
-        }
-
-        // 2b. Clear ALL camera tiles (full recovery: we lost everything)
-        {
-            std::lock_guard<std::mutex> lock(callbackMutex_);
-            if (callback_) {
-                auto configuredCams = CameraConfig::getCameras();
-                for (int i = 0; i < (int)configuredCams.size(); ++i) {
-                    callback_(i, cv::Mat());
-                }
-            }
-        }
-
-        // 3. IMMEDIATELY try to re-initialize with any *surviving* cameras
-        if (initialize()) {
-            std::cout << "[CameraManager] Re-init with surviving cameras complete. Restarting degraded acquisition..." << std::endl;
-            {
-                std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                disconnectedCameras_.clear();
-            }
-            startAcquisition();
-            // Apply per-camera FPS settings after restart
-            const auto configuredCams = CameraConfig::getCameras();
-            for (int i = 0; i < (int)configuredCams.size(); ++i) {
-                setCameraFrameRate(i, configuredCams[i].fps, configuredCams[i].enableAcquisitionFps);
-            }
-        }
-    }
-    // else: partial recovery — the acquisition loop is still running for surviving cameras.
-    // We only need to watch for the missing camera to reappear, then rebuild the array.
-
-    CTlFactory& tlFactory = CTlFactory::GetInstance();
-
-    // 4. Continuously poll for the target devices in the background
     while (recovering_) {
-        auto configuredCams = CameraConfig::getCameras();
-        int expectedCount = (int)configuredCams.size();
-
-        // Count how many physical devices match the config right now
-        int matchedPhysicalCount = 0;
-        DeviceInfoList_t allDevices;
-        if (tlFactory.EnumerateDevices(allDevices) > 0) {
-            for (const auto& camInfo : configuredCams) {
-                bool isEmulatedDevice = (camInfo.source == 0);
-                const std::string targetMac = normalizeMacAddress(camInfo.macAddress.toStdString());
-
-                for (const auto& dev : allDevices) {
-                    if (isEmulatedDevice && dev.GetDeviceClass() == "BaslerCamEmu") {
-                        matchedPhysicalCount++;
-                        break;
-                    } else if (!isEmulatedDevice && dev.GetDeviceClass() == "BaslerGigE"
-                               && normalizeMacAddress(dev.GetMacAddress().c_str()) == targetMac) {
-                        matchedPhysicalCount++;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Count how many cameras are genuinely streaming (not in the disconnected set)
-        int activeStreamingCount = 0;
+        std::vector<int> disconnected;
         {
             std::lock_guard<std::mutex> lock(disconnectedMutex_);
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                if (disconnectedCameras_.find(static_cast<uint32_t>(i)) == disconnectedCameras_.end()) {
-                    activeStreamingCount++;
-                }
-            }
+            disconnected.assign(disconnectedCameras_.begin(), disconnectedCameras_.end());
         }
 
-        // All physical cameras are present AND all are streaming — fully recovered, exit
-        if (matchedPhysicalCount >= expectedCount && activeStreamingCount >= expectedCount) {
-            std::cout << "[CameraManager] All expected cameras are active. Exiting recovery loop." << std::endl;
-            recovering_ = false;
-            {
+        bool anyRecovered = false;
+        for (int configIdx : disconnected) {
+            if (tryReconnectCamera(configIdx)) {
+                anyRecovered = true;
                 std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                disconnectedCameras_.clear();
-            }
-            if (statusCallback_) statusCallback_("[CameraManager] System Fully Recovered.");
-            break;
-        }
-
-        // A camera has returned (more physical devices than actively-streaming cameras),
-        // OR the degraded acquisition loop has crashed — rebuild the full array.
-        if (matchedPhysicalCount > activeStreamingCount || (!acquiring_ && cameras_.GetSize() > 0)) {
-            std::cout << "[CameraManager] Detected newly returned camera (or degraded loop crashed). Rebuilding array..." << std::endl;
-
-            // Build the set of surviving (non-disconnected) config array indices so we
-            // can (a) send them freeze frames during the gap and (b) suppress blank
-            // callbacks inside initialize() for those slots.
-            std::set<int> survivingSlots;
-            {
-                std::lock_guard<std::mutex> lk(disconnectedMutex_);
-                for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                    if (disconnectedCameras_.find(static_cast<uint32_t>(i)) == disconnectedCameras_.end()) {
-                        int cfgIdx = (i < pylonIndexToConfigArrayIndex_.size())
-                                     ? pylonIndexToConfigArrayIndex_[i] : (int)i;
-                        if (cfgIdx >= 0) survivingSlots.insert(cfgIdx);
-                    }
-                }
-            }
-
-            // Stop the current acquisition before rebuilding
-            acquiring_ = false;
-            if (acquisitionThread_.joinable()) acquisitionThread_.join();
-
-            // Bridge the gap: pump the last-good freeze frame for every surviving camera
-            // so the UI tile never goes blank during teardown + init + startAcquisition.
-            {
-                std::lock_guard<std::mutex> lkf(latestFramesMutex_);
-                std::lock_guard<std::mutex> lkc(callbackMutex_);
-                if (callback_) {
-                    for (int slot : survivingSlots) {
-                        if (slot < (int)latestFrames_.size() && !latestFrames_[slot].empty()) {
-                            callback_(slot, latestFrames_[slot]);
-                        }
-                    }
-                }
-            }
-
-            try {
-                if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
-                if (cameras_.IsOpen()) cameras_.Close();
-                for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                    if (cameras_[i].IsPylonDeviceAttached()) cameras_[i].DestroyDevice();
-                }
-            } catch (...) {}
-
-            // Device is already confirmed present from EnumerateDevices above — no need
-            // for a long settle; 100 ms is enough for the stack to be ready.
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            // Pass survivingSlots so initialize() won't blank those tiles
-            if (initialize(survivingSlots)) {
-                std::cout << "[CameraManager] Re-init successful. Restarting acquisition..." << std::endl;
-                {
-                    std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                    disconnectedCameras_.clear();
-                }
-                startAcquisition();
-                // Apply per-camera FPS settings — same as startCameraLifecycleAsync does
-                for (int i = 0; i < (int)configuredCams.size(); ++i) {
-                    setCameraFrameRate(i, configuredCams[i].fps, configuredCams[i].enableAcquisitionFps);
-                }
+                disconnectedCameras_.erase(static_cast<uint32_t>(configIdx));
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Poll every 500ms for faster detection
+        {
+            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+            if (disconnectedCameras_.empty()) {
+                recovering_ = false;
+                if (statusCallback_) statusCallback_("[CameraManager] System Fully Recovered.");
+                break;
+            }
+        }
+
+        if (!acquiring_) {
+            bool anyConnected = false;
+            for (const auto& runtime : cameraRuntimes_) {
+                if (runtime.connected && runtime.camera && runtime.camera->IsGrabbing()) {
+                    anyConnected = true;
+                    break;
+                }
+            }
+            acquiring_ = anyConnected;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(anyRecovered ? 100 : 500));
     }
+
     std::cout << "[CameraManager] --- RECOVERY LOOP COMPLETED ---" << std::endl;
 }
 
@@ -1018,84 +921,65 @@ std::vector<std::string> CameraManager::getCameraLabels() const {
 }
 
 std::string CameraManager::getModelName(int configArrayIndex) {
-    // Translate config array index -> Pylon index using the reverse map
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    
-    if (pylonIndex < 0) {
+    const auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
         return "Not Connected";
     }
-    
-    // Try to get live data if camera is attached
+
     try {
-        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached()) {
-            return cameras_[pylonIndex].GetDeviceInfo().GetModelName().c_str();
+        if (camera->IsPylonDeviceAttached()) {
+            return camera->GetDeviceInfo().GetModelName().c_str();
         }
     } catch (...) {}
-    
-    // Fallback to cache
-    if (pylonIndex >= 0 && pylonIndex < (int)modelNames_.size()) {
-        return modelNames_[pylonIndex];
+
+    if (configArrayIndex >= 0 && configArrayIndex < (int)modelNames_.size()) {
+        return modelNames_[configArrayIndex];
     }
     return "Unknown Model";
 }
 
 std::string CameraManager::getIpAddress(int configArrayIndex) {
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    
-    if (pylonIndex < 0) {
+    const auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
         return "Offline";
     }
-    
+
     try {
-        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached()) {
-            return cameras_[pylonIndex].GetDeviceInfo().GetIpAddress().c_str();
+        if (camera->IsPylonDeviceAttached()) {
+            return camera->GetDeviceInfo().GetIpAddress().c_str();
         }
     } catch (...) {}
-    
+
     return "Offline";
 }
 
 cv::Size CameraManager::getCameraResolution(int configArrayIndex) {
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
         return cv::Size(0, 0);
     }
-    
+
     try {
-        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             int w = (int)GenApi::CIntegerPtr(nodemap.GetNode("Width"))->GetValue();
             int h = (int)GenApi::CIntegerPtr(nodemap.GetNode("Height"))->GetValue();
             return cv::Size(w, h);
         }
     } catch (...) {}
-    
+
     return cv::Size(0, 0);
 }
 
 double CameraManager::getCameraFps(int configArrayIndex) {
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
         return 0.0;
     }
-    
+
     try {
-        if (pylonIndex >= 0 && pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             GenApi::CFloatPtr ptrFpsAbs(nodemap.GetNode("ResultingFrameRateAbs"));
             if (GenApi::IsReadable(ptrFpsAbs)) {
                 return ptrFpsAbs->GetValue();
@@ -1106,24 +990,19 @@ double CameraManager::getCameraFps(int configArrayIndex) {
             }
         }
     } catch (...) {}
-    
+
     return 0.0;
 }
 
 double CameraManager::getTemperature(int configArrayIndex) {
-    // Translate config array index -> Pylon index using the reverse map
-    int pylonIndex = -1;
-    if (configArrayIndex >= 0 && configArrayIndex < (int)configArrayIndexToPylonIndex_.size()) {
-        pylonIndex = configArrayIndexToPylonIndex_[configArrayIndex];
-    }
-    
-    if (pylonIndex < 0) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
         return -1.0; // Sentinel: camera not connected
     }
-    
+
     try {
-        if (pylonIndex < (int)cameras_.GetSize() && cameras_[pylonIndex].IsPylonDeviceAttached() && cameras_[pylonIndex].IsOpen()) {
-            GenApi::INodeMap& nodemap = cameras_[pylonIndex].GetNodeMap();
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
             
             // === Attempt 1: Scout GigE (TemperatureSelector + TemperatureAbs) ===
             GenApi::CEnumerationPtr ptrTempSelector(nodemap.GetNode("TemperatureSelector"));
@@ -1153,7 +1032,7 @@ double CameraManager::getTemperature(int configArrayIndex) {
             
             // === Attempt 3: Try reading from Transport Layer NodeMap ===
             try {
-                GenApi::INodeMap& tlNodemap = cameras_[pylonIndex].GetTLNodeMap();
+                GenApi::INodeMap& tlNodemap = camera->GetTLNodeMap();
                 GenApi::CFloatPtr ptrTlTemp(tlNodemap.GetNode("TemperatureAbs"));
                 if (IsReadable(ptrTlTemp)) {
                     return ptrTlTemp->GetValue();
@@ -1210,26 +1089,29 @@ void CameraManager::triggerSnapshot(int cameraIndex) {
     }
 }
 
-void CameraManager::acquisitionLoop() {
-    std::cout << "[CameraManager] Entering acquisition loop." << std::endl;
+void CameraManager::acquisitionLoop(int configArrayIndex) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
+        return;
+    }
+
+    std::cout << "[CameraManager] Entering acquisition loop for slot " << configArrayIndex << std::endl;
     CGrabResultPtr ptrGrabResult;
     CImageFormatConverter formatConverter;
     formatConverter.OutputPixelFormat = PixelType_Mono8;
 
     CPylonImage pylonImage; 
 
-    while (cameras_.IsGrabbing() && acquiring_) {
+    while (acquiring_ && cameraRuntimes_[configArrayIndex].connected && camera->IsGrabbing()) {
         try {
-            if (cameras_.RetrieveResult(5000, ptrGrabResult, TimeoutHandling_ThrowException)) {
+            if (camera->RetrieveResult(5000, ptrGrabResult, TimeoutHandling_Return)) {
                 if (!ptrGrabResult) continue;  
 
                 if (paused_) continue; // Skip frame processing when paused
 
-                uint32_t cameraIndex = (uint32_t)ptrGrabResult->GetCameraContext();
+                uint32_t cameraIndex = static_cast<uint32_t>(configArrayIndex);
 
                 // Skip frames from cameras that have been flagged as disconnected.
-                // Their tile was already blanked by DeviceRemovalHandler; the recovery
-                // thread will rebuild the array once the device reappears.
                 {
                     std::lock_guard<std::mutex> lock(disconnectedMutex_);
                     if (disconnectedCameras_.count(cameraIndex)) continue;
@@ -1337,13 +1219,8 @@ void CameraManager::acquisitionLoop() {
 
                         // 5. CALLBACK: emit config array index (0-based UI slot) resolved from Pylon index
                         {
-                            // Resolve pylon index -> config array index using reverse map
-                            int configArrayIdx = (cameraIndex < pylonIndexToConfigArrayIndex_.size())
-                                                     ? pylonIndexToConfigArrayIndex_[cameraIndex]
-                                                     : (int)cameraIndex;
+                            int configArrayIdx = static_cast<int>(cameraIndex);
 
-                            // Store a clone as the freeze frame for this slot so the
-                            // recovery path can send it during the teardown/rebuild gap.
                             if (configArrayIdx >= 0) {
                                 std::lock_guard<std::mutex> lk(latestFramesMutex_);
                                 if (configArrayIdx < (int)latestFrames_.size()) {
@@ -1363,48 +1240,14 @@ void CameraManager::acquisitionLoop() {
                     std::cerr << "[CameraManager] Grab failed: " 
                               << ptrGrabResult->GetErrorDescription() << std::endl;
                               
-                    // Check if this specific camera has been removed
-                    bool thisDeviceRemoved = false;
-
-                    // Check if this result's camera is flagged as removed
-                    if (cameraIndex < cameras_.GetSize() && cameras_[cameraIndex].IsCameraDeviceRemoved()) {
-                        thisDeviceRemoved = true;
-                    }
-
-                    // Also treat a fully-collapsed array as a full-recovery situation
-                    bool arrayCollapsed = (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0);
-
-                    if (arrayCollapsed) {
-                        // Entire array is gone — blank all tiles and do a full recovery
-                        std::cerr << "[CameraManager] Array collapsed. Forcing full recovery." << std::endl;
-                        {
-                            std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                            for (uint32_t i = 0; i < (uint32_t)pylonIndexToConfigArrayIndex_.size(); ++i)
-                                disconnectedCameras_.insert(i);
-                        }
-                        for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
-                            int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
-                            if (configArrayIdx >= 0) {
-                                std::lock_guard<std::mutex> lock(callbackMutex_);
-                                if (callback_) callback_(configArrayIdx, cv::Mat());
-                            }
-                        }
-                        if (!recovering_) {
-                            acquiring_ = false;
-                            if (recoveryThread_.joinable()) recoveryThread_.join();
-                            recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
-                            break;
-                        }
-                    } else if (thisDeviceRemoved) {
-                        // Only this camera is gone — blank its tile and mark it; keep loop running
-                        std::cerr << "[CameraManager] Hardware disconnect on Pylon Camera " << cameraIndex << std::endl;
+                    if (camera->IsCameraDeviceRemoved()) {
+                        std::cerr << "[CameraManager] Hardware disconnect on camera slot " << cameraIndex << std::endl;
                         {
                             std::lock_guard<std::mutex> lock(disconnectedMutex_);
                             disconnectedCameras_.insert(cameraIndex);
                         }
-                        int configArrayIdx = (cameraIndex < pylonIndexToConfigArrayIndex_.size())
-                                             ? pylonIndexToConfigArrayIndex_[cameraIndex]
-                                             : (int)cameraIndex;
+                        cameraRuntimes_[configArrayIndex].connected = false;
+                        int configArrayIdx = (int)cameraIndex;
                         if (configArrayIdx >= 0) {
                             std::lock_guard<std::mutex> lock(callbackMutex_);
                             if (callback_) callback_(configArrayIdx, cv::Mat());
@@ -1413,7 +1256,7 @@ void CameraManager::acquisitionLoop() {
                             if (recoveryThread_.joinable()) recoveryThread_.join();
                             recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
                         }
-                        // Do NOT break — keep grabbing from surviving cameras
+                        break;
                     }
                 }
 
@@ -1449,52 +1292,19 @@ void CameraManager::acquisitionLoop() {
                 // Brief pause to let the OS settle after a hot-unplug event
                 Pylon::WaitObject::Sleep(200);
 
-                bool arrayCollapsed = (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0);
-
-                if (arrayCollapsed) {
-                    // Entire array is gone — blank all tiles and do a full recovery
-                    std::cerr << "[CameraManager] Array collapsed (exception). Forcing full recovery." << std::endl;
+                if (camera->IsCameraDeviceRemoved()) {
+                    std::cerr << "[CameraManager] Hardware disconnect confirmed on camera slot " << configArrayIndex << std::endl;
                     {
                         std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                        for (uint32_t i = 0; i < (uint32_t)pylonIndexToConfigArrayIndex_.size(); ++i)
-                            disconnectedCameras_.insert(i);
+                        disconnectedCameras_.insert(static_cast<uint32_t>(configArrayIndex));
                     }
-                    for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
-                        int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
-                        if (configArrayIdx >= 0) {
-                            std::lock_guard<std::mutex> lock(callbackMutex_);
-                            if (callback_) callback_(configArrayIdx, cv::Mat());
-                        }
-                    }
+                    cameraRuntimes_[configArrayIndex].connected = false;
+                    clearCameraTile(configArrayIndex);
                     if (!recovering_) {
-                        acquiring_ = false;
                         if (recoveryThread_.joinable()) recoveryThread_.join();
                         recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
-                        break;
                     }
-                } else {
-                    // Scan for individually-removed cameras; keep the loop alive for the rest
-                    for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                        if (cameras_[i].IsCameraDeviceRemoved()) {
-                            std::cerr << "[CameraManager] Hardware disconnect confirmed on Pylon Camera " << i << std::endl;
-                            {
-                                std::lock_guard<std::mutex> lock(disconnectedMutex_);
-                                disconnectedCameras_.insert(static_cast<uint32_t>(i));
-                            }
-                            int configArrayIdx = (i < pylonIndexToConfigArrayIndex_.size())
-                                                 ? pylonIndexToConfigArrayIndex_[i]
-                                                 : (int)i;
-                            if (configArrayIdx >= 0) {
-                                std::lock_guard<std::mutex> lock(callbackMutex_);
-                                if (callback_) callback_(configArrayIdx, cv::Mat());
-                            }
-                            if (!recovering_) {
-                                if (recoveryThread_.joinable()) recoveryThread_.join();
-                                recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
-                            }
-                            // Do NOT break the outer acquisition loop
-                        }
-                    }
+                    break;
                 }
             }
         } catch (const std::exception& e) {
@@ -1503,7 +1313,7 @@ void CameraManager::acquisitionLoop() {
             std::cerr << "[CameraManager] Unknown exception in loop!" << std::endl;
         }
     }
-    std::cout << "[CameraManager] Exiting acquisition loop." << std::endl;
+    std::cout << "[CameraManager] Exiting acquisition loop for slot " << configArrayIndex << std::endl;
 }
 
 void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex) {
@@ -1597,141 +1407,82 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
 void CameraManager::setGlobalFrameRate(double fps) {
     fps_ = static_cast<int>(fps);
     std::cout << "[CameraManager] Setting global FPS to " << fps << std::endl;
-    
-    // If running, stop acquisition before changing params
-    bool restart = acquiring_;
-    if (restart) stopAcquisition();
-    
+
     try {
-        if (cameras_.GetSize() > 0) {
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                if (cameras_[i].IsPylonDeviceAttached()) {
-                     cameras_[i].Open(); // Must be open to write nodes
-                     GenApi::INodeMap& nodemap = cameras_[i].GetNodeMap();
-                     
-                     // Helper to set float if available
-                     try {
-                        Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
-                     } catch (...) {
-                        std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << i << std::endl;
-                     }
-                     cameras_[i].Close(); 
-                }
+        for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+            auto* camera = getCameraByConfigIndex(i);
+            if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
+                continue;
+            }
+
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
+            try {
+                Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
+            } catch (...) {
+                std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << i << std::endl;
             }
         }
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Pylon Error during FPS set: " << e.GetDescription() << std::endl;
-    }
-    
-    if (restart) {
-        if (cameras_.GetSize() > 0) {
-            cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
-            acquiring_ = true;
-            acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
-        } else {
-            acquiring_ = false;
-        }
     }
 }
 
 void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableFrameRate) {
     std::cout << "[CameraManager] Setting FPS for Camera " << cameraIndex << " to " << fps
               << " (enable=" << enableFrameRate << ")" << std::endl;
-    
-    // Check if index is valid
-    if (cameraIndex < 0 || cameraIndex >= (int)cameras_.GetSize()) {
+
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
         std::cerr << "[CameraManager] Invalid camera index for FPS update: " << cameraIndex << std::endl;
         return;
     }
-    
-    bool restart = acquiring_;
-    if (restart) {
-        acquiring_ = false;
-        if (acquisitionThread_.joinable()) acquisitionThread_.join();
-        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
-    }
-    
+
     try {
-        if (cameras_[cameraIndex].IsPylonDeviceAttached()) {
-             cameras_[cameraIndex].Open(); // Must be open to write nodes
-             GenApi::INodeMap& nodemap = cameras_[cameraIndex].GetNodeMap();
-             
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+             GenApi::INodeMap& nodemap = camera->GetNodeMap();
+
              try {
-                // Toggle AcquisitionFrameRateEnable node
                 GenApi::CBooleanPtr enableNode = nodemap.GetNode("AcquisitionFrameRateEnable");
                 if (enableNode && GenApi::IsWritable(enableNode)) {
                     enableNode->SetValue(enableFrameRate);
                 }
-                // Only apply FPS value if enabled
                 if (enableFrameRate) {
                     Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
                 }
              } catch (...) {
                 std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << cameraIndex << std::endl;
              }
-             cameras_[cameraIndex].Close(); 
         }
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Pylon Error during individual FPS set: " << e.GetDescription() << std::endl;
-    }
-    
-    if (restart) {
-        if (cameras_.GetSize() > 0) {
-            cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
-            acquiring_ = true;
-            acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
-        } else {
-            acquiring_ = false;
-        }
     }
 }
 
 void CameraManager::setGlobalResolution(int binningFactor) {
     std::cout << "[CameraManager] Setting global Binning to " << binningFactor << "x" << binningFactor << std::endl;
-    
-    bool restart = acquiring_;
-    if (restart) {
-        acquiring_ = false;
-        if (acquisitionThread_.joinable()) acquisitionThread_.join();
-        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
-    }
-    
+
     try {
-        if (cameras_.GetSize() > 0) {
-            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                if (cameras_[i].IsPylonDeviceAttached()) {
-                     cameras_[i].Open();
-                     GenApi::INodeMap& nodemap = cameras_[i].GetNodeMap();
-                     
-                     // Set Binning
-                     try {
-                         if (Pylon::CIntegerParameter(nodemap, "BinningHorizontal").IsWritable()) {
-                            Pylon::CIntegerParameter(nodemap, "BinningHorizontal").SetValue(binningFactor);
-                         }
-                         
-                         if (Pylon::CIntegerParameter(nodemap, "BinningVertical").IsWritable()) {
-                            Pylon::CIntegerParameter(nodemap, "BinningVertical").SetValue(binningFactor);
-                         }
-                     } catch (...) {
-                         std::cerr << "[CameraManager] Binning not supported on camera " << i << std::endl;
-                     }
-                     
-                     cameras_[i].Close();
+        for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+            auto* camera = getCameraByConfigIndex(i);
+            if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
+                continue;
+            }
+
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
+            try {
+                if (Pylon::CIntegerParameter(nodemap, "BinningHorizontal").IsWritable()) {
+                    Pylon::CIntegerParameter(nodemap, "BinningHorizontal").SetValue(binningFactor);
                 }
+
+                if (Pylon::CIntegerParameter(nodemap, "BinningVertical").IsWritable()) {
+                    Pylon::CIntegerParameter(nodemap, "BinningVertical").SetValue(binningFactor);
+                }
+            } catch (...) {
+                std::cerr << "[CameraManager] Binning not supported on camera " << i << std::endl;
             }
         }
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Pylon Error during Binning set: " << e.GetDescription() << std::endl;
-    }
-    
-    if (restart) {
-        if (cameras_.GetSize() > 0) {
-            cameras_.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly);
-            acquiring_ = true;
-            acquisitionThread_ = std::thread(&CameraManager::acquisitionLoop, this);
-        } else {
-            acquiring_ = false;
-        }
     }
 }
 
