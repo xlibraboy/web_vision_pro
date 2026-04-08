@@ -18,35 +18,43 @@ find_package(Qt5 COMPONENTS Core Widgets Gui Concurrent Svg REQUIRED)
 
 # Init Sources
 set(SOURCES
-    src/main.cpp
-    src/core/CameraManager.cpp
-    src/core/EventController.cpp
-    src/core/EventDatabase.cpp
-    src/core/VideoStreamReader.cpp
-    src/processing/ImageBuffer.cpp
-    src/processing/DefectDetector.cpp
-    src/processing/VideoEncoder.cpp
-    src/gui/MainWindow.cpp
-    src/gui/LiveDashboard.cpp
-    src/gui/AnalysisView.cpp
-    src/gui/DetailView.cpp
-    src/gui/widgets/CameraWidget.cpp
-    src/gui/widgets/AnalysisVideoWidget.cpp
-    src/gui/ConfigDialog.cpp
-    src/config/CameraConfig.cpp
-    src/gui/widgets/ToggleSwitch.cpp
+src/main.cpp
+src/core/CameraManager.cpp
+src/core/EventController.cpp
+src/core/EventDatabase.cpp
+src/core/VideoStreamReader.cpp
+src/processing/ImageBuffer.cpp
+src/processing/DefectDetector.cpp
+src/processing/VideoEncoder.cpp
+src/gui/MainWindow.cpp
+src/gui/LiveDashboard.cpp
+src/gui/AnalysisView.cpp
+src/gui/DetailView.cpp
+src/gui/widgets/CameraWidget.cpp
+src/gui/widgets/AnalysisVideoWidget.cpp
+src/gui/ConfigDialog.cpp
+src/config/CameraConfig.cpp
+src/gui/widgets/ToggleSwitch.cpp
+src/gui/widgets/IconManager.cpp
+src/gui/widgets/CameraCard.cpp
+src/gui/widgets/NetworkSummaryHeader.cpp
+src/gui/widgets/DeleteConfirmationDialog.cpp
 )
 
 # Header files for Qt MOC
 set(HEADERS
-    src/gui/MainWindow.h
-    src/gui/LiveDashboard.h
-    src/gui/AnalysisView.h
-    src/gui/DetailView.h
-    src/gui/ConfigDialog.h
-    src/gui/widgets/CameraWidget.h
-    src/gui/widgets/AnalysisVideoWidget.h
-    src/gui/widgets/ToggleSwitch.h
+src/gui/MainWindow.h
+src/gui/LiveDashboard.h
+src/gui/AnalysisView.h
+src/gui/DetailView.h
+src/gui/ConfigDialog.h
+src/gui/widgets/CameraWidget.h
+src/gui/widgets/AnalysisVideoWidget.h
+src/gui/widgets/ToggleSwitch.h
+src/gui/widgets/IconManager.h
+src/gui/widgets/CameraCard.h
+src/gui/widgets/NetworkSummaryHeader.h
+src/gui/widgets/DeleteConfirmationDialog.h
 )
 
 # Include Directories

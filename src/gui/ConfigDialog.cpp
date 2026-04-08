@@ -1,13 +1,17 @@
 #include "ConfigDialog.h"
+#include "widgets/CameraCard.h"
+#include "widgets/NetworkSummaryHeader.h"
+#include "widgets/DeleteConfirmationDialog.h"
+#include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
-#include "widgets/ToggleSwitch.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QFormLayout>
 #include <QPushButton>
-#include <QToolBox>
+#include <QListWidget>
+#include <QStackedWidget>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProcess>
@@ -19,196 +23,257 @@
 #include <QDateTime>
 #include <QMap>
 #include <QSet>
+#include <QGridLayout>
 #include <algorithm>
 
 namespace {
-QString normalizeIp(const QString& ip) {
-    return ip.trimmed();
-}
+    QString normalizeIp(const QString& ip) {
+        return ip.trimmed();
+    }
 
-QString normalizeMac(const QString& mac) {
-    QString normalized;
-    normalized.reserve(mac.size());
-    for (const QChar ch : mac) {
-        if (ch.isLetterOrNumber()) {
-            normalized.append(ch.toUpper());
+    QString normalizeMac(const QString& mac) {
+        QString normalized;
+        normalized.reserve(mac.size());
+        for (const QChar ch : mac) {
+            if (ch.isLetterOrNumber()) {
+                normalized.append(ch.toUpper());
+            }
+        }
+        return normalized;
+    }
+
+    void persistCameraNetworkSelection(int cameraId, int source, const QString& ip, const QString& mac,
+                                       const QString& mask, const QString& gateway) {
+        std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+        for (auto& cam : cameras) {
+            if (cam.id != cameraId) continue;
+
+            cam.source = source;
+            cam.ipAddress = normalizeIp(ip);
+            cam.macAddress = normalizeMac(mac);
+            cam.subnetMask = normalizeIp(mask);
+            cam.defaultGateway = normalizeIp(gateway);
+            CameraConfig::saveCameras(cameras);
+            return;
         }
     }
-    return normalized;
-}
 
-void persistCameraNetworkSelection(int cameraId, int source, const QString& ip, const QString& mac, const QString& mask, const QString& gateway) {
-    std::vector<CameraInfo> cameras = CameraConfig::getCameras();
-    for (auto& cam : cameras) {
-        if (cam.id != cameraId) {
-            continue;
+    QString joinCameraIds(const QList<int>& ids) {
+        QStringList parts;
+        for (int id : ids) {
+            parts.append(QString::number(id));
         }
-
-        cam.source = source;
-        cam.ipAddress = normalizeIp(ip);
-        cam.macAddress = normalizeMac(mac);
-        cam.subnetMask = normalizeIp(mask);
-        cam.defaultGateway = normalizeIp(gateway);
-        CameraConfig::saveCameras(cameras);
-        return;
+        return parts.join(", ");
     }
 }
 
-QString joinCameraIds(const QList<int>& ids) {
-    QStringList parts;
-    for (int id : ids) {
-        parts.append(QString::number(id));
-    }
-    return parts.join(", ");
-}
-}
-
-// Suppress scroll-wheel on ANY QSpinBox child widget to prevent accidental changes
 bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
     if (event->type() == QEvent::Wheel && qobject_cast<QSpinBox*>(obj)) {
-        // Pass the wheel event to the scroll area so the page still scrolls
         event->ignore();
-        return true; // consumed
+        return true;
     }
     return QWidget::eventFilter(obj, event);
 }
 
+ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
+    : QWidget(parent)
+    , cameraManager_(cameraManager)
+    , networkSummaryHeader_(nullptr)
+    , isAdminMode_(false)
+    , primaryColor_("#E3E3E3")
+    , accentColor_("#00E5FF") {
 
-ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent) : QWidget(parent), cameraManager_(cameraManager) {
     setWindowTitle("System Configuration");
-    
-    // Set as an independent window that deletes itself when closed
     setWindowFlags(Qt::Window);
-    resize(600, 700);
-    
-    // Get gigE devices before setting up UI
+    resize(800, 900);
+
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
-    
+
     setupUI();
     loadSettings();
 }
 
+ConfigDialog::~ConfigDialog() = default;
+
 void ConfigDialog::setupUI() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    QToolBox* toolBox = new QToolBox(this);
+    mainLayout->setSpacing(20);
+    mainLayout->setContentsMargins(24, 24, 24, 24);
+
+    ThemeColors tc = CameraConfig::getThemeColors();
     
-    // --- Camera Setup Group (New Dynamic Config) ---
+    // Create list widget for sidebar navigation
+    QListWidget* sidebar = new QListWidget(this);
+    sidebar->setFixedWidth(220);
+    sidebar->setStyleSheet(QString(
+        "QListWidget { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 8px; "
+        "  outline: 0; "
+        "} "
+        "QListWidget::item { "
+        "  padding: 12px 16px; "
+        "  color: %3; "
+        "  font-size: 14px; "
+        "  font-weight: 600; "
+        "  border-bottom: 1px solid %2; "
+        "} "
+        "QListWidget::item:selected { "
+        "  background-color: %4; "
+        "  border-left: 4px solid %5; "
+        "} "
+        "QListWidget::item:hover:!selected { "
+        "  background-color: %4; "
+        "}"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary));
+    
+    QStackedWidget* stackedWidget = new QStackedWidget(this);
+    
+    QHBoxLayout* contentLayout = new QHBoxLayout();
+    contentLayout->addWidget(sidebar);
+    contentLayout->addWidget(stackedWidget, 1);
+
+
+    // Camera Configuration Tab
     QWidget* camSetupGroup = new QWidget(this);
     QVBoxLayout* camSetupLayout = new QVBoxLayout(camSetupGroup);
-    
-    QHBoxLayout* topCamLayout = new QHBoxLayout();
-    topCamLayout->addWidget(new QLabel("Configure per-camera settings below:"));
-    addCameraBtn_ = new QPushButton("Add New Camera +");
-    connect(addCameraBtn_, &QPushButton::clicked, this, &ConfigDialog::onAddCameraConfigClicked);
-    
-    QPushButton* ipConfigBtn = new QPushButton("Open IP Configurator");
-    connect(ipConfigBtn, &QPushButton::clicked, this, &ConfigDialog::onOpenIpConfiguratorClicked);
-    
-    topCamLayout->addWidget(addCameraBtn_);
-    topCamLayout->addWidget(ipConfigBtn);
-    topCamLayout->addStretch();
-    camSetupLayout->addLayout(topCamLayout);
+    camSetupLayout->setSpacing(16);
+    camSetupLayout->setContentsMargins(16, 16, 16, 16);
 
-    networkSummaryLabel_ = new QLabel("Scanning camera network...");
-    networkSummaryLabel_->setWordWrap(true);
-    camSetupLayout->addWidget(networkSummaryLabel_);
-    
-    cameraScrollArea_ = new QScrollArea();
+    // Premium Network Summary Header
+    networkSummaryHeader_ = new NetworkSummaryHeader(this);
+    connect(networkSummaryHeader_, &NetworkSummaryHeader::refreshRequested,
+            this, &ConfigDialog::onRefreshLogsClicked);
+    connect(networkSummaryHeader_, &NetworkSummaryHeader::clearLogsRequested,
+            this, &ConfigDialog::onClearLogsClicked);
+    connect(networkSummaryHeader_, &NetworkSummaryHeader::toggleLogsRequested,
+            this, &ConfigDialog::onToggleLogsClicked);
+    connect(networkSummaryHeader_, &NetworkSummaryHeader::addCameraRequested,
+            this, &ConfigDialog::onAddCameraConfigClicked);
+    camSetupLayout->addWidget(networkSummaryHeader_);
+
+    // Scroll area for camera cards
+    cameraScrollArea_ = new QScrollArea(this);
     cameraScrollArea_->setWidgetResizable(true);
     cameraScrollArea_->setFrameShape(QFrame::NoFrame);
-    
+    cameraScrollArea_->setStyleSheet(QString(
+        "QScrollArea { border: none; background: transparent; } "
+        "QScrollBar:vertical { "
+        "  background-color: %1; "
+        "  width: 12px; "
+        "  border-radius: 6px; "
+        "} "
+        "QScrollBar::handle:vertical { "
+        "  background-color: %2; "
+        "  border-radius: 6px; "
+        "  min-height: 30px; "
+        "} "
+        "QScrollBar::handle:vertical:hover { "
+        "  background-color: %3; "
+        "} "
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
+        "  height: 0px; "
+        "}"
+    ).arg(tc.bg, tc.btnBg, tc.primary));
+
     cameraScrollWidget_ = new QWidget();
     cameraListLayout_ = new QVBoxLayout(cameraScrollWidget_);
+    cameraListLayout_->setSpacing(16);
     cameraListLayout_->setAlignment(Qt::AlignTop);
+    cameraListLayout_->setContentsMargins(0, 8, 12, 8);
+
     cameraScrollArea_->setWidget(cameraScrollWidget_);
-    
-    // --- Camera Connection Logs section ---
-    QGroupBox* logsGroup = new QGroupBox("Camera Connection Logs");
-    QVBoxLayout* logsLayout = new QVBoxLayout(logsGroup);
-    
-    QHBoxLayout* logsHeaderLayout = new QHBoxLayout();
-    QPushButton* refreshLogsBtn = new QPushButton("Refresh Logs");
-    QPushButton* clearLogsBtn = new QPushButton("Clear Logs");
-    QPushButton* toggleLogsBtn = new QPushButton("Hide Logs");
-    connect(refreshLogsBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
-    connect(clearLogsBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
-    logsHeaderLayout->addStretch();
-    logsHeaderLayout->addWidget(refreshLogsBtn);
-    logsHeaderLayout->addWidget(clearLogsBtn);
-    logsHeaderLayout->addWidget(toggleLogsBtn);
-    logsLayout->addLayout(logsHeaderLayout);
-    
-    connectionLogsBrowser_ = new QTextEdit();
+    camSetupLayout->addWidget(cameraScrollArea_, 1);
+
+    // Camera Connection Logs
+    logsGroup_ = new QGroupBox("Camera Connection Logs", this);
+    logsGroup_->setStyleSheet(QString(
+        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+        "border-radius: 8px; margin-top: 12px; padding-top: 8px; font-size: 12px; } "
+        "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 8px; }"
+    ).arg(tc.primary, tc.border));
+    QVBoxLayout* logsLayout = new QVBoxLayout(logsGroup_);
+    logsLayout->setContentsMargins(12, 16, 12, 12);
+
+    connectionLogsBrowser_ = new QTextEdit(this);
     connectionLogsBrowser_->setReadOnly(true);
     connectionLogsBrowser_->setMinimumHeight(120);
+    connectionLogsBrowser_->setStyleSheet(QString(
+        "QTextEdit { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  color: %3; "
+        "  font-family: 'SF Mono', Monaco, Consolas, monospace; "
+        "  font-size: 12px; "
+        "  padding: 8px; "
+        "}"
+    ).arg(tc.bg, tc.border, tc.text));
     logsLayout->addWidget(connectionLogsBrowser_);
     
-    connect(toggleLogsBtn, &QPushButton::clicked, [this, toggleLogsBtn]() {
-        if (connectionLogsBrowser_->isVisible()) {
-            connectionLogsBrowser_->hide();
-            toggleLogsBtn->setText("Show Logs");
-        } else {
-            connectionLogsBrowser_->show();
-            toggleLogsBtn->setText("Hide Logs");
-        }
-    });
+    // Hide logs group by default
+    logsGroup_->setVisible(false);
     
-    // Call the refresh slot once to initialize logs
-    onRefreshLogsClicked();
-    
-    camSetupLayout->addWidget(cameraScrollArea_, 1); // stretch
-    camSetupLayout->addWidget(logsGroup, 0);
+    camSetupLayout->addWidget(logsGroup_, 0);
 
-    toolBox->addItem(camSetupGroup, "Camera Configurations");
-    
-    // --- Event Buffer Settings Group (Global) ---
+    QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
+    sidebar->addItem(camSetupItem);
+    stackedWidget->addWidget(camSetupGroup);
+
+    // Global Recording & Events Tab
     QWidget* bufferGroup = new QWidget(this);
-    QVBoxLayout* bufferLayout = new QVBoxLayout(bufferGroup);
-    
+    QFormLayout* bufferLayout = new QFormLayout(bufferGroup);
+    bufferLayout->setSpacing(16);
+    bufferLayout->setContentsMargins(16, 16, 16, 16);
+
     // Global FPS
-    QHBoxLayout* fpsLayout = new QHBoxLayout();
-    fpsLayout->addWidget(new QLabel("Global Target FPS (fallback):"));
-    globalFpsSpin_ = new QSpinBox();
+    globalFpsSpin_ = new QSpinBox(bufferGroup);
     globalFpsSpin_->setRange(1, 200);
     globalFpsSpin_->setSuffix(" fps");
-    fpsLayout->addWidget(globalFpsSpin_);
-    bufferLayout->addLayout(fpsLayout);
-    
+    globalFpsSpin_->setStyleSheet(QString(
+        "QSpinBox { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  padding: 6px 10px; "
+        "  color: %3; "
+        "  min-width: 100px; "
+        "} "
+        "QSpinBox:hover { border-color: %4; } "
+        "QSpinBox:focus { border-color: %4; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    bufferLayout->addRow("Global Target FPS (fallback):", globalFpsSpin_);
+
     // Pre-Trigger
-    QHBoxLayout* preLayout = new QHBoxLayout();
-    preLayout->addWidget(new QLabel("Pre-Trigger Buffer:"));
-    preTriggerSpin_ = new QSpinBox();
+    preTriggerSpin_ = new QSpinBox(bufferGroup);
     preTriggerSpin_->setRange(1, 60);
     preTriggerSpin_->setSuffix(" sec");
-    preLayout->addWidget(preTriggerSpin_);
-    bufferLayout->addLayout(preLayout);
-    
+    preTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    bufferLayout->addRow("Pre-Trigger Buffer:", preTriggerSpin_);
+
     // Post-Trigger
-    QHBoxLayout* postLayout = new QHBoxLayout();
-    postLayout->addWidget(new QLabel("Post-Trigger Record:"));
-    postTriggerSpin_ = new QSpinBox();
+    postTriggerSpin_ = new QSpinBox(bufferGroup);
     postTriggerSpin_->setRange(1, 60);
     postTriggerSpin_->setSuffix(" sec");
-    postLayout->addWidget(postTriggerSpin_);
-    bufferLayout->addLayout(postLayout);
-    
-    // Defect Config
-    QHBoxLayout* defectLayout = new QHBoxLayout();
-    defectLayout->addWidget(new QLabel("Enable Defect Detection (Auto-Trigger):"));
-    defectCheck_ = new ToggleSwitch(this);
-    defectLayout->addWidget(defectCheck_);
-    defectLayout->addStretch();
-    bufferLayout->addLayout(defectLayout);
-    
-    toolBox->addItem(bufferGroup, "Global Recording & Events");
-    
-    // --- UI Preferences Group ---
+    postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    bufferLayout->addRow("Post-Trigger Record:", postTriggerSpin_);
+
+    // Defect Detection
+    defectCheck_ = new ToggleSwitch(bufferGroup);
+    bufferLayout->addRow("Enable Defect Detection (Auto-Trigger):", defectCheck_);
+
+    QListWidgetItem* globalGroupItem = new QListWidgetItem(IconManager::instance().warning(20), "Global Recording & Events");
+    sidebar->addItem(globalGroupItem);
+    stackedWidget->addWidget(bufferGroup);
+
+    // UI Preferences Tab
     QWidget* uiGroup = new QWidget(this);
-    QVBoxLayout* uiLayout = new QVBoxLayout(uiGroup);
-    
-    QHBoxLayout* themeLayout = new QHBoxLayout();
-    themeLayout->addWidget(new QLabel("Color Theme:"));
-    themeCombo_ = new QComboBox();
+    QFormLayout* uiLayout = new QFormLayout(uiGroup);
+    uiLayout->setSpacing(16);
+    uiLayout->setContentsMargins(16, 16, 16, 16);
+
+    themeCombo_ = new QComboBox(uiGroup);
     themeCombo_->addItem("Industrial Dark - Cyan", 0);
     themeCombo_->addItem("Classic Dark - Blue", 1);
     themeCombo_->addItem("High Contrast - Orange", 2);
@@ -217,364 +282,297 @@ void ConfigDialog::setupUI() {
     themeCombo_->addItem("Visionary - Purple", 5);
     themeCombo_->addItem("Alert - Deep Red", 6);
     themeCombo_->addItem("Contrast Mono - Black & White", 7);
-    themeLayout->addWidget(themeCombo_);
-    uiLayout->addLayout(themeLayout);
-    uiLayout->addStretch();
+    themeCombo_->setStyleSheet(QString(
+        "QComboBox { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  padding: 6px 10px; "
+        "  color: %3; "
+        "  min-width: 200px; "
+        "} "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; width: 24px; } "
+        "QComboBox::down-arrow { image: none; border: none; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    uiLayout->addRow("Color Theme:", themeCombo_);
+
+    QListWidgetItem* uiGroupItem = new QListWidgetItem(IconManager::instance().settings(20), "UI Preferences");
+    sidebar->addItem(uiGroupItem);
+    stackedWidget->addWidget(uiGroup);
+
+    mainLayout->addLayout(contentLayout, 1);
     
-    toolBox->addItem(uiGroup, "UI Preferences");
-    
-    mainLayout->addWidget(toolBox);
-    
-    // --- Buttons ---
+    connect(sidebar, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex);
+    sidebar->setCurrentRow(0);
+
+    // Bottom buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLayout->setSpacing(12);
     btnLayout->addStretch();
-    
-    QPushButton* closeBtn = new QPushButton("Close");
+
+    QPushButton* closeBtn = new QPushButton("Close", this);
+    closeBtn->setIcon(IconManager::instance().close(16));
+    closeBtn->setStyleSheet(QString(
+        "QPushButton { "
+        "  background-color: transparent; "
+        "  color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 8px; "
+        "  padding: 10px 20px; "
+        "  font-size: 13px; "
+        "  font-weight: 500; "
+        "} "
+        "QPushButton:hover { "
+        "  background-color: %3; "
+        "  border-color: %4; "
+        "}"
+    ).arg(tc.text, tc.border, tc.btnHover, tc.primary));
     connect(closeBtn, &QPushButton::clicked, this, &QWidget::close);
-    
-    saveBtn_ = new QPushButton("Save and Apply Settings");
-    saveBtn_->setDefault(true);
-    connect(saveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveAndApply);
-    
     btnLayout->addWidget(closeBtn);
+
+    saveBtn_ = new QPushButton("Save and Apply Settings", this);
+    saveBtn_->setIcon(IconManager::instance().save(16));
+    saveBtn_->setDefault(true);
+    saveBtn_->setStyleSheet(QString(
+        "QPushButton { "
+        "  background-color: %1; "
+        "  color: %2; "
+        "  border: none; "
+        "  border-radius: 8px; "
+        "  padding: 10px 20px; "
+        "  font-size: 13px; "
+        "  font-weight: 600; "
+        "} "
+        "QPushButton:hover { "
+        "  background-color: %3; "
+        "} "
+        "QPushButton:pressed { "
+        "  background-color: %1; "
+        "}"
+    ).arg(tc.primary, tc.bg, tc.btnHover));
+    connect(saveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveAndApply);
     btnLayout->addWidget(saveBtn_);
-    
+
     mainLayout->addLayout(btnLayout);
+
+    // Initialize logs
+    onRefreshLogsClicked();
 }
 
 void ConfigDialog::loadSettings() {
-    // 1. Load Camera Setup Configs
+    // Load camera configurations and create cards
     std::vector<CameraInfo> cameras = CameraConfig::getCameras();
     for (const auto& cam : cameras) {
         createCameraWidgetBlock(cam);
     }
-    
-    // 2. Load Global Settings
+
+    // Load global settings
     globalFpsSpin_->setValue(CameraConfig::getFps());
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
     defectCheck_->setChecked(CameraConfig::isDefectDetectionEnabled());
-    
+
     int themeIdx = themeCombo_->findData(CameraConfig::getThemePreset());
     if (themeIdx != -1) themeCombo_->setCurrentIndex(themeIdx);
 
+    // Initial network status update
     refreshNetworkStatus();
 }
 
 void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
-    QGroupBox* gb = new QGroupBox(QString("Camera ID: %1").arg(cam.id));
-    QGridLayout* grid = new QGridLayout(gb);
-    
-    CameraConfigWidgets w;
-    w.container = gb;
-    w.id = cam.id;
-    
-    // Configuration Edit Toggle — controls ALL writable fields (Move to top)
-    w.editParamsCheck = new QCheckBox("Enable Configuration Editing");
-    w.editParamsCheck->setChecked(false);
-    grid->addWidget(w.editParamsCheck, 0, 0, 1, 4);
-    
-    // Separator
-    QFrame* topParamLine = new QFrame();
-    topParamLine->setFrameShape(QFrame::HLine);
-    topParamLine->setFrameShadow(QFrame::Sunken);
-    grid->addWidget(topParamLine, 1, 0, 1, 4);
+    CameraCard* card = new CameraCard(cam, cameraScrollWidget_);
+    connectCameraCardSignals(card);
 
-    // Helper lambda for adding rows dynamically in 2-column layout
-    int row = 2, col = 0;
-    auto addField = [&](const QString& labelText, QWidget* widget) {
-        if (!labelText.isEmpty()) {
-            grid->addWidget(new QLabel(labelText), row, col * 2);
-            grid->addWidget(widget, row, col * 2 + 1);
-        } else {
-            // Span 2 columns if no label
-            grid->addWidget(widget, row, col * 2, 1, 2);
+    cameraListLayout_->addWidget(card);
+    cameraCards_.push_back(card);
+}
+
+void ConfigDialog::connectCameraCardSignals(CameraCard* card) {
+    connect(card, &CameraCard::editToggled, this, &ConfigDialog::onCameraCardEditToggled);
+    connect(card, &CameraCard::removeClicked, this, &ConfigDialog::onCameraCardRemoveClicked);
+    connect(card, &CameraCard::sourceChanged, this, &ConfigDialog::onCameraCardSourceChanged);
+    connect(card, &CameraCard::macChanged, this, &ConfigDialog::onCameraCardMacChanged);
+    connect(card, &CameraCard::writeIpClicked, this, &ConfigDialog::onCameraCardWriteIpClicked);
+}
+
+CameraCard* ConfigDialog::findCameraCard(int cameraId) const {
+    for (auto* card : cameraCards_) {
+        if (card->cameraId() == cameraId) {
+            return card;
         }
-        col++;
-        if (col > 1) { col = 0; row++; }
-    };
-    
-    // Source
-    w.sourceCombo = new QComboBox();
-    w.sourceCombo->addItem("Emulated", 0);
-    w.sourceCombo->addItem("Real", 1);
-    w.sourceCombo->addItem("Disabled", 2);
-    w.sourceCombo->setCurrentIndex(w.sourceCombo->findData(cam.source));
-    addField("Camera Source:", w.sourceCombo);
-    
-    // Name
-    w.nameEdit = new QLineEdit(cam.name);
-    addField("Name:", w.nameEdit);
-    
-    // Location
-    w.locationEdit = new QLineEdit(cam.location);
-    addField("Location:", w.locationEdit);
-    
-    // Side
-    w.sideCombo = new QComboBox();
-    w.sideCombo->addItem("DRIVE SIDE");
-    w.sideCombo->addItem("OPERATOR SIDE");
-    w.sideCombo->setCurrentText(cam.side);
-    addField("Machine Side:", w.sideCombo);
-    
-    // Position
-    w.positionSpin = new QSpinBox();
-    w.positionSpin->setRange(0, 500000);
-    w.positionSpin->setSuffix(" mm");
-    w.positionSpin->setValue(cam.machinePosition);
-    w.positionSpin->setFocusPolicy(Qt::StrongFocus);
-    addField("Machine Position:", w.positionSpin);
-    
-    // IP Address (Read Only)
-    w.ipLabel = new QLabel(cam.ipAddress);
-    addField("IP Address:", w.ipLabel);
-
-    w.detectedIpLabel = new QLabel("Offline");
-    addField("Detected IP:", w.detectedIpLabel);
-
-    w.statusLabel = new QLabel("Pending discovery");
-    w.statusLabel->setWordWrap(true);
-    addField("Status:", w.statusLabel);
-    
-    // MAC Address
-    w.macCombo = new QComboBox();
-    w.macCombo->addItem("None / Auto");
-    for (const auto& dev : currentGigEDevices_) {
-        w.macCombo->addItem(QString::fromStdString(dev.macAddress));
     }
-    w.macCombo->setCurrentText(cam.macAddress);
-    w.macCombo->setEditable(true);
-    addField("MAC Address:", w.macCombo);
-    connect(w.macCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+    return nullptr;
+}
+
+CameraCard* ConfigDialog::findCameraCard(QObject* sender) const {
+    for (auto* card : cameraCards_) {
+        if (card == sender || card->findChild<QObject*>(sender->objectName()) == sender) {
+            return card;
+        }
+    }
+    return qobject_cast<CameraCard*>(sender);
+}
+
+void ConfigDialog::onCameraCardEditToggled(bool checked) {
+    if (CameraCard* card = findCameraCard(sender())) {
+        card->setEditable(checked && isAdminMode_);
+    }
+}
+
+void ConfigDialog::onCameraCardRemoveClicked() {
+    CameraCard* card = findCameraCard(sender());
+    if (!card) return;
+
+    // Show premium delete confirmation dialog
+    DeleteConfirmationDialog dialog(
+        QString("Camera %1: %2").arg(card->cameraId()).arg(card->name()),
+        this
+    );
+
+    if (dialog.exec() == QDialog::Accepted) {
+        // Remove from vector
+        cameraCards_.erase(std::remove(cameraCards_.begin(), cameraCards_.end(), card),
+                          cameraCards_.end());
+
+        // Remove from UI
+        cameraListLayout_->removeWidget(card);
+        delete card;
+
+        // Update network status
         refreshNetworkStatus();
-    });
-    
-    // Subnet Mask
-    w.subnetEdit = new QLineEdit(cam.subnetMask);
-    addField("Subnet Mask:", w.subnetEdit);
-    
-    // Default Gateway
-    w.gatewayEdit = new QLineEdit(cam.defaultGateway);
-    addField("Default Gateway:", w.gatewayEdit);
-    
-    // Write IP Button
-    w.writeIpBtn = new QPushButton("Write IP to Physical Camera");
-    connect(w.writeIpBtn, &QPushButton::clicked, this, [this, button = w.writeIpBtn]() {
-        auto it = std::find_if(activeCameraConfigs_.begin(), activeCameraConfigs_.end(), [button](const CameraConfigWidgets& entry) {
-            return entry.writeIpBtn == button;
-        });
-        if (it == activeCameraConfigs_.end()) {
-            return;
-        }
+    }
+}
 
-        CameraConfigWidgets& row = *it;
-        if (row.sourceCombo->currentData().toInt() != 1) {
-            QMessageBox::warning(row.container, "Write IP", "IP writing is only available for cameras configured as Real.");
-            return;
-        }
+void ConfigDialog::onCameraCardSourceChanged(int) {
+    refreshNetworkStatus();
+}
 
-        QString mac = row.macCombo->currentText();
-        QString ip = row.ipLabel->text(); // IP is fixed based on ID
-        QString mask = row.subnetEdit->text();
-        QString gw = row.gatewayEdit->text();
-        const QString normalizedMac = normalizeMac(mac);
-        
-        if (normalizedMac.isEmpty()) {
-            QMessageBox::warning(row.container, "Write IP", "Please select or enter a valid MAC Address first.");
-            return;
-        }
+void ConfigDialog::onCameraCardMacChanged(const QString&) {
+    refreshNetworkStatus();
+}
 
-        bool macVisible = false;
-        for (const auto& dev : currentGigEDevices_) {
-            if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizedMac) {
-                macVisible = true;
-                break;
-            }
-        }
-        if (!macVisible) {
-            QMessageBox::warning(row.container, "Write IP", "The selected MAC is not currently visible in GigE discovery. Refresh discovery and verify the physical camera is connected before writing its IP.");
-            return;
-        }
+void ConfigDialog::onCameraCardWriteIpClicked() {
+    CameraCard* card = findCameraCard(sender());
+    if (!card) return;
 
-        // Persist the selected MAC and network values before restarting acquisition.
-        // Without this, CameraManager reloads stale settings with blank MACs and cannot
-        // rematch the physical camera after the temporary stop/start cycle.
-        persistCameraNetworkSelection(
-            row.id,
-            row.sourceCombo->currentData().toInt(),
-            ip,
-            mac,
-            mask,
-            gw
-        );
-        
-        // Pylon SDK requires the camera to NOT be open when reconfiguring IP.
-        // Stop acquisition so the control channel is released before writing.
-        bool wasRunning = false;
-        if (cameraManager_) {
-            cameraManager_->stopAcquisition();
-            wasRunning = true;
+    // Write IP logic (similar to original)
+    if (card->sourceType() != 1) {
+        QMessageBox::warning(this, "Write IP", "IP writing is only available for cameras configured as Real.");
+        return;
+    }
+
+    QString mac = card->macAddress();
+    QString ip = card->ipAddress();
+    QString mask = card->subnetMask();
+    QString gw = card->gateway();
+    const QString normalizedMac = normalizeMac(mac);
+
+    if (normalizedMac.isEmpty()) {
+        QMessageBox::warning(this, "Write IP", "Please select or enter a valid MAC Address first.");
+        return;
+    }
+
+    bool macVisible = false;
+    for (const auto& dev : currentGigEDevices_) {
+        if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizedMac) {
+            macVisible = true;
+            break;
         }
+    }
 
-        bool writeOk = CameraManager::applyIpConfiguration(normalizedMac.toStdString(), ip.toStdString(), mask.toStdString(), gw.toStdString());
+    if (!macVisible) {
+        QMessageBox::warning(this, "Write IP",
+            "The selected MAC is not currently visible in GigE discovery. "
+            "Refresh discovery and verify the physical camera is connected before writing its IP.");
+        return;
+    }
 
-        if (!writeOk) {
-            QMessageBox::critical(row.container, "Write IP", "Failed to write IP configuration to camera " + mac + ".\nPlease check connection and MAC address.");
-            // Restart acquisition even on failure so cameras resume
-            if (wasRunning && cameraManager_) {
-                cameraManager_->startAcquisition();
-            }
-            return;
-        }
+    persistCameraNetworkSelection(
+        card->cameraId(),
+        card->sourceType(),
+        ip, mac, mask, gw
+    );
 
-        onRefreshLogsClicked();
-        QString detectedIp = "Offline";
-        for (const auto& dev : currentGigEDevices_) {
-            if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizeMac(mac)) {
-                detectedIp = QString::fromStdString(dev.ipAddress);
-                break;
-            }
-        }
+    bool wasRunning = false;
+    if (cameraManager_) {
+        cameraManager_->stopAcquisition();
+        wasRunning = true;
+    }
 
-        if (normalizeIp(detectedIp) == normalizeIp(ip)) {
-            QMessageBox::information(row.container, "Write IP", "Camera " + mac + " is now detected at " + ip + ".");
-        } else {
-            QMessageBox::warning(row.container, "Write IP", "IP write sent to camera " + mac + ", but it has not been rediscovered at " + ip + " yet.\nRefresh after reconnecting the camera if needed.");
-        }
+    bool writeOk = CameraManager::applyIpConfiguration(
+        normalizedMac.toStdString(),
+        ip.toStdString(),
+        mask.toStdString(),
+        gw.toStdString()
+    );
 
-        // Restart acquisition after IP write
+    if (!writeOk) {
+        QMessageBox::critical(this, "Write IP",
+            "Failed to write IP configuration to camera " + mac + ".\n"
+            "Please check connection and MAC address.");
         if (wasRunning && cameraManager_) {
             cameraManager_->startAcquisition();
         }
-    });
-    w.writeIpBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    addField("", w.writeIpBtn);
-    
-    // FPS with Enable Acquisition Frame Rate checkbox
-    w.enableFpsCheck = new QCheckBox("Enable Acquisition Frame Rate");
-    w.enableFpsCheck->setChecked(cam.enableAcquisitionFps);
-    w.fpsSpin = new QSpinBox();
-    w.fpsSpin->setRange(1, 200);
-    w.fpsSpin->setValue(cam.fps);
-    w.fpsSpin->setFocusPolicy(Qt::StrongFocus);
-    w.fpsSpin->setEnabled(cam.enableAcquisitionFps); // only active when checkbox is on
-
-    // Layout: checkbox + spinbox side by side under "FPS" label
-    {
-        QWidget* fpsWidget = new QWidget();
-        QHBoxLayout* fpsHBox = new QHBoxLayout(fpsWidget);
-        fpsHBox->setContentsMargins(0, 0, 0, 0);
-        fpsHBox->addWidget(w.enableFpsCheck);
-        fpsHBox->addWidget(w.fpsSpin);
-        fpsHBox->addStretch();
-        addField("FPS:", fpsWidget);
+        return;
     }
 
-    // Wire checkbox to enable/disable the spinbox — handled in setAllEditable lambda below
-    
-    // If we have an odd number of items, move to next row
-    if (col != 0) { row++; col = 0; }
-    
-    // Separator line before Remove
-    QFrame* paramLine = new QFrame();
-    paramLine->setFrameShape(QFrame::HLine);
-    paramLine->setFrameShadow(QFrame::Sunken);
-    grid->addWidget(paramLine, row++, 0, 1, 4);
-
-    // Remove Button
-    QPushButton* removeBtn = new QPushButton("Delete Camera Config");
-    removeBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    connect(removeBtn, &QPushButton::clicked, this, &ConfigDialog::onRemoveCameraConfigClicked);
-    removeBtn->setProperty("containerPtr", QVariant::fromValue(static_cast<void*>(gb)));
-    grid->addWidget(removeBtn, row++, 0, 1, 2);
-    
-    // Toggle controls ALL writable fields
-    auto setAllEditable = [w](bool en) {
-        w.sourceCombo->setEnabled(en);
-        w.nameEdit->setEnabled(en);
-        w.locationEdit->setEnabled(en);
-        w.sideCombo->setEnabled(en);
-        w.positionSpin->setEnabled(en);
-        w.macCombo->setEnabled(en);
-        w.subnetEdit->setEnabled(en);
-        w.gatewayEdit->setEnabled(en);
-        w.writeIpBtn->setEnabled(en);
-        w.enableFpsCheck->setEnabled(en);
-        // fpsSpin follows enableFpsCheck, only enable if both editing AND fps enabled
-        w.fpsSpin->setEnabled(en && w.enableFpsCheck->isChecked());
-    };
-    setAllEditable(false); // start locked
-    
-    connect(w.editParamsCheck, &QCheckBox::toggled, this, [setAllEditable](bool checked) {
-        setAllEditable(checked);
-    });
-
-    connect(w.sourceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
-        refreshNetworkStatus();
-    });
-    
-    // Re-wire enableFpsCheck → fpsSpin within editing context
-    connect(w.enableFpsCheck, &QCheckBox::toggled, w.fpsSpin, [w](bool checked) {
-        // Only enable fpsSpin if editing is also active
-        if (w.editParamsCheck->isChecked()) {
-            w.fpsSpin->setEnabled(checked);
-        }
-    });
-    
-    // Wrap to prevent full-width stretching
-    QWidget* rowWidget = new QWidget();
-    QHBoxLayout* rowLayout = new QHBoxLayout(rowWidget);
-    rowLayout->setContentsMargins(0, 0, 0, 0);
-    rowLayout->addWidget(gb);
-    rowLayout->addStretch(1);
-    
-    removeBtn->setProperty("wrapperPtr", QVariant::fromValue(static_cast<void*>(rowWidget)));
-    
-    cameraListLayout_->addWidget(rowWidget);
-    activeCameraConfigs_.push_back(w);
+    onRefreshLogsClicked();
     refreshNetworkStatus();
+
+    // Check if IP matches
+    QString detectedIp = "Offline";
+    for (const auto& dev : currentGigEDevices_) {
+        if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizeMac(mac)) {
+            detectedIp = QString::fromStdString(dev.ipAddress);
+            break;
+        }
+    }
+
+    if (normalizeIp(detectedIp) == normalizeIp(ip)) {
+        QMessageBox::information(this, "Write IP",
+            "Camera " + mac + " is now detected at " + ip + ".");
+    } else {
+        QMessageBox::warning(this, "Write IP",
+            "IP write sent to camera " + mac + ", but it has not been rediscovered at " + ip + " yet.\n"
+            "Refresh after reconnecting the camera if needed.");
+    }
+
+    if (wasRunning && cameraManager_) {
+        cameraManager_->startAcquisition();
+    }
 }
 
 void ConfigDialog::onAddCameraConfigClicked() {
     CameraInfo cam;
-    
-    // Compute next ID and IP
+
     int maxId = 0;
-    for (const auto& w : activeCameraConfigs_) {
-        if (w.id > maxId) maxId = w.id;
+    for (auto* card : cameraCards_) {
+        if (card->cameraId() > maxId) maxId = card->cameraId();
     }
     cam.id = maxId + 1;
-    cam.source = 0; // default to emulated for testing safety
+    cam.source = 0;
     cam.name = QString("DRYER %1").arg(cam.id);
     cam.location = QString("CYLINDER %1").arg(10 + cam.id);
     cam.side = "DRIVE SIDE";
     cam.machinePosition = 16000 + (cam.id * 500);
-        cam.ipAddress = QString("172.20.2.%1").arg(cam.id);
+    cam.ipAddress = QString("172.20.2.%1").arg(cam.id);
     cam.macAddress = "";
     cam.subnetMask = "255.255.255.0";
     cam.defaultGateway = "0.0.0.0";
     cam.fps = 50;
     cam.enableAcquisitionFps = false;
     cam.temperature = 0.0;
-    
+
     createCameraWidgetBlock(cam);
+
+    // Scroll to the new card
+    cameraScrollArea_->ensureWidgetVisible(cameraCards_.back());
 }
 
 void ConfigDialog::onRemoveCameraConfigClicked() {
-    QPushButton* btn = qobject_cast<QPushButton*>(sender());
-    if (!btn) return;
-    
-    QWidget* container = static_cast<QWidget*>(btn->property("containerPtr").value<void*>());
-    QWidget* wrapper = static_cast<QWidget*>(btn->property("wrapperPtr").value<void*>());
-    if (!container || !wrapper) return;
-    
-    // Remove from vector
-    activeCameraConfigs_.erase(std::remove_if(activeCameraConfigs_.begin(), activeCameraConfigs_.end(), 
-        [container](const CameraConfigWidgets& entry) { return entry.container == container; }), activeCameraConfigs_.end());
-        
-    // Remove from UI
-    cameraListLayout_->removeWidget(wrapper);
-    delete wrapper;
+    // Handled by CameraCard signals
 }
 
 void ConfigDialog::saveAndApply() {
@@ -584,91 +582,83 @@ void ConfigDialog::saveAndApply() {
         return;
     }
 
-    // 1. Gather all camera configs
+    // Gather all camera configs
     std::vector<CameraInfo> newCameras;
-    for (const auto& w : activeCameraConfigs_) {
+    for (auto* card : cameraCards_) {
         CameraInfo cam;
-        cam.id = w.id;
-        cam.source = w.sourceCombo->currentData().toInt();
-        cam.name = w.nameEdit->text();
-        cam.location = w.locationEdit->text();
-        cam.side = w.sideCombo->currentText();
-        cam.machinePosition = w.positionSpin->value();
-        cam.ipAddress = w.ipLabel->text();
-        cam.macAddress = normalizeMac(w.macCombo->currentText());
+        cam.id = card->cameraId();
+        cam.source = card->sourceType();
+        cam.name = card->name();
+        cam.location = card->location();
+        cam.side = card->side();
+        cam.machinePosition = card->position();
+        cam.ipAddress = card->ipAddress();
+        cam.macAddress = normalizeMac(card->macAddress());
         if (cam.macAddress.isEmpty()) cam.macAddress = "";
-        cam.subnetMask = w.subnetEdit->text();
-        cam.defaultGateway = w.gatewayEdit->text();
-        
-        cam.fps = w.fpsSpin->value();
-        cam.enableAcquisitionFps = w.enableFpsCheck->isChecked();
+        cam.subnetMask = card->subnetMask();
+        cam.defaultGateway = card->gateway();
+        cam.fps = card->fps();
+        cam.enableAcquisitionFps = card->isAcquisitionFpsEnabled();
         cam.temperature = 0.0;
-        
         newCameras.push_back(cam);
     }
-    
+
     CameraConfig::saveCameras(newCameras);
-    
-    // 2. Save Global Configs
+
+    // Save global configs
     CameraConfig::setFps(globalFpsSpin_->value());
     CameraConfig::setPreTriggerSeconds(preTriggerSpin_->value());
     CameraConfig::setPostTriggerSeconds(postTriggerSpin_->value());
     CameraConfig::setDefectDetectionEnabled(defectCheck_->isChecked());
     CameraConfig::setThemePreset(themeCombo_->currentData().toInt());
-    
-    // 3. Save .pfs for all real connected cameras (single stop/start cycle)
+
+    // Save .pfs for all real connected cameras
     if (cameraManager_) {
         cameraManager_->saveParametersForAll(newCameras);
     }
-    
-    // 4. Notify main window to apply dynamics (like FPS) WITHOUT RESTART requested
+
     emit configUpdated();
-    
-    // Close the dialog immediately
     close();
 }
 
 void ConfigDialog::setAdminMode(bool isAdmin) {
-    // Global settings: controlled by admin mode
-    addCameraBtn_->setEnabled(isAdmin);
+    isAdminMode_ = isAdmin;
+
+    // Global settings
+    if (networkSummaryHeader_) {
+        // Update add button visibility
+    }
     globalFpsSpin_->setEnabled(isAdmin);
     preTriggerSpin_->setEnabled(isAdmin);
     postTriggerSpin_->setEnabled(isAdmin);
     defectCheck_->setEnabled(isAdmin);
     saveBtn_->setEnabled(isAdmin);
-    
-    // Per-camera: only the toggle checkbox is admin-gated.
-    // The checkbox itself controls whether fields are accessible.
-    for (const auto& w : activeCameraConfigs_) {
-        w.editParamsCheck->setEnabled(isAdmin);
-        if (!isAdmin) {
-            // Locking admin mode collapses all fields
-            w.editParamsCheck->setChecked(false);
-            // Fields are disabled by the toggled() signal triggered above
-        }
+
+    // Per-camera: only the edit checkbox is admin-gated
+    for (auto* card : cameraCards_) {
+        // Card handles its own edit state
     }
 }
 
 void ConfigDialog::onRefreshLogsClicked() {
+    networkSummaryHeader_->setRefreshing(true);
+
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
     QString refreshTs = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
     connectionLogsBrowser_->append(QString("--- Refresh at %1 ---").arg(refreshTs));
-    
-    // Static map to remember when a camera was first connected/detected
+
     static QMap<QString, QString> cameraConnectionTimes;
-    
+
     for (const auto& dev : currentGigEDevices_) {
         QString mac = QString::fromStdString(dev.macAddress);
-        
-        // If this is the first time we see this MAC, record the timestamp
+
         if (!cameraConnectionTimes.contains(mac)) {
             cameraConnectionTimes.insert(mac, QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"));
         }
-        
+
         QString devTs = cameraConnectionTimes.value(mac);
-        
         connectionLogsBrowser_->append(
-            QString("[%1] %2 MAC: %3 | IP: %4 | Subnet: %5 | Gateway: %6")
+            QString("[%1] %2 | MAC: %3 | IP: %4 | Subnet: %5 | Gateway: %6")
             .arg(devTs)
             .arg(QString::fromStdString(dev.friendlyName))
             .arg(QString::fromStdString(dev.macAddress))
@@ -677,37 +667,33 @@ void ConfigDialog::onRefreshLogsClicked() {
             .arg(QString::fromStdString(dev.defaultGateway))
         );
     }
-    if(currentGigEDevices_.empty()) {
-        cameraConnectionTimes.clear(); // Clear so next time they are "new" if they reconnect
+
+    if (currentGigEDevices_.empty()) {
+        cameraConnectionTimes.clear();
         QString emptyTs = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
-        connectionLogsBrowser_->append(
-            QString("[%1] No online Real cameras detected.").arg(emptyTs)
-        );
+        connectionLogsBrowser_->append(QString("[%1] No online Real cameras detected.").arg(emptyTs));
     }
-    
-    // Update MAC Address dropdowns in active camera configs
-    for (auto& w : activeCameraConfigs_) {
-        QString currentText = w.macCombo->currentText();
-        w.macCombo->blockSignals(true);
-        w.macCombo->clear();
-        w.macCombo->addItem("None / Auto");
-        for (const auto& dev : currentGigEDevices_) {
-            w.macCombo->addItem(QString::fromStdString(dev.macAddress));
-        }
-        const QString normalizedCurrentText = normalizeMac(currentText);
-        if (normalizedCurrentText.isEmpty()) {
-            w.macCombo->setCurrentText("None / Auto");
-        } else {
-            w.macCombo->setCurrentText(normalizedCurrentText);
-        }
-        w.macCombo->blockSignals(false);
+
+    // Update MAC Address dropdowns in camera cards
+    QStringList availableMacs;
+    for (const auto& dev : currentGigEDevices_) {
+        availableMacs.append(QString::fromStdString(dev.macAddress));
+    }
+
+    for (auto* card : cameraCards_) {
+        card->updateMacCombo(availableMacs, card->macAddress());
     }
 
     refreshNetworkStatus();
+    networkSummaryHeader_->setRefreshing(false);
 }
 
 void ConfigDialog::onClearLogsClicked() {
     connectionLogsBrowser_->clear();
+}
+
+void ConfigDialog::onToggleLogsClicked() {
+    logsGroup_->setVisible(!logsGroup_->isVisible());
 }
 
 void ConfigDialog::onOpenIpConfiguratorClicked() {
@@ -718,38 +704,38 @@ bool ConfigDialog::validateConfiguration(QStringList* errors) const {
     QMap<QString, QList<int>> ipUsage;
     QMap<QString, QList<int>> macUsage;
 
-    for (const auto& w : activeCameraConfigs_) {
-        const int source = w.sourceCombo->currentData().toInt();
-        if (source == 2) {
-            continue;
-        }
+    for (auto* card : cameraCards_) {
+        int source = card->sourceType();
+        if (source == 2) continue;
 
-        const QString configuredIp = normalizeIp(w.ipLabel->text());
+        QString configuredIp = normalizeIp(card->ipAddress());
         if (!configuredIp.isEmpty()) {
-            ipUsage[configuredIp].append(w.id);
+            ipUsage[configuredIp].append(card->cameraId());
         }
 
         if (source == 1) {
-            const QString configuredMac = normalizeMac(w.macCombo->currentText());
-            if (configuredMac.isEmpty() || configuredMac == "NONE / AUTO") {
+            QString configuredMac = normalizeMac(card->macAddress());
+            if (configuredMac.isEmpty() || configuredMac == "NONE/AUTO") {
                 if (errors) {
-                    errors->append(QString("Camera ID %1 is set to Real but has no MAC assigned.").arg(w.id));
+                    errors->append(QString("Camera ID %1 is set to Real but has no MAC assigned.").arg(card->cameraId()));
                 }
             } else {
-                macUsage[configuredMac].append(w.id);
+                macUsage[configuredMac].append(card->cameraId());
             }
         }
     }
 
     for (auto it = ipUsage.cbegin(); it != ipUsage.cend(); ++it) {
         if (it.value().size() > 1 && errors) {
-            errors->append(QString("Configured IP %1 is assigned to multiple camera IDs (%2).").arg(it.key(), joinCameraIds(it.value())));
+            errors->append(QString("Configured IP %1 is assigned to multiple camera IDs (%2).")
+                          .arg(it.key(), joinCameraIds(it.value())));
         }
     }
 
     for (auto it = macUsage.cbegin(); it != macUsage.cend(); ++it) {
         if (it.value().size() > 1 && errors) {
-            errors->append(QString("MAC %1 is assigned to multiple camera IDs (%2).").arg(it.key(), joinCameraIds(it.value())));
+            errors->append(QString("MAC %1 is assigned to multiple camera IDs (%2).")
+                          .arg(it.key(), joinCameraIds(it.value())));
         }
     }
 
@@ -761,8 +747,8 @@ void ConfigDialog::refreshNetworkStatus() {
     QMap<QString, GigEDeviceInfo> macToDevice;
 
     for (const auto& dev : currentGigEDevices_) {
-        const QString ip = normalizeIp(QString::fromStdString(dev.ipAddress));
-        const QString mac = normalizeMac(QString::fromStdString(dev.macAddress));
+        QString ip = normalizeIp(QString::fromStdString(dev.ipAddress));
+        QString mac = normalizeMac(QString::fromStdString(dev.macAddress));
         if (!mac.isEmpty()) {
             macToDevice.insert(mac, dev);
         }
@@ -776,19 +762,17 @@ void ConfigDialog::refreshNetworkStatus() {
     QMap<QString, int> configuredIpCounts;
     QMap<QString, int> configuredMacCounts;
 
-    for (const auto& w : activeCameraConfigs_) {
-        if (w.sourceCombo->currentData().toInt() == 2) {
-            continue;
-        }
+    for (auto* card : cameraCards_) {
+        if (card->sourceType() == 2) continue;
 
-        const QString configuredIp = normalizeIp(w.ipLabel->text());
+        QString configuredIp = normalizeIp(card->ipAddress());
         if (!configuredIp.isEmpty()) {
             configuredIpCounts[configuredIp] += 1;
         }
 
-        if (w.sourceCombo->currentData().toInt() == 1) {
-            const QString configuredMac = normalizeMac(w.macCombo->currentText());
-            if (!configuredMac.isEmpty() && configuredMac != "NONE / AUTO") {
+        if (card->sourceType() == 1) {
+            QString configuredMac = normalizeMac(card->macAddress());
+            if (!configuredMac.isEmpty() && configuredMac != "NONE/AUTO") {
                 configuredMacCounts[configuredMac] += 1;
             }
         }
@@ -810,67 +794,86 @@ void ConfigDialog::refreshNetworkStatus() {
     int missingCount = 0;
     int blockingCount = 0;
     bool liveDuplicateSeen = false;
+    int onlineCount = 0;
+    int warningCount = 0;
+    int errorCount = 0;
+    int offlineCount = 0;
 
-    for (auto& w : activeCameraConfigs_) {
-        const int source = w.sourceCombo->currentData().toInt();
-        const QString configuredIp = normalizeIp(w.ipLabel->text());
-        const QString configuredMac = normalizeMac(w.macCombo->currentText());
+    for (auto* card : cameraCards_) {
+        int source = card->sourceType();
+        QString configuredIp = normalizeIp(card->ipAddress());
+        QString configuredMac = normalizeMac(card->macAddress());
 
         QString detectedIp = "Offline";
         QString statusText = "Disabled";
-        QString statusColor = "#888888";
+        QColor statusColor("#888888");
 
         if (source != 2) {
             statusText = "Unassigned MAC";
-            statusColor = "#E0A800";
+            statusColor = QColor("#E0A800");
 
             if (duplicateConfiguredIps.contains(configuredIp)) {
-                statusText = "Duplicate configured IP";
-                statusColor = "#FF5A5A";
+                statusText = "Duplicate IP";
+                statusColor = QColor("#FF5A5A");
                 blockingCount++;
-            } else if (source == 1 && (configuredMac.isEmpty() || configuredMac == "NONE / AUTO")) {
+                errorCount++;
+            } else if (source == 1 && (configuredMac.isEmpty() || configuredMac == "NONE/AUTO")) {
                 missingCount++;
+                warningCount++;
             } else if (source == 1 && duplicateConfiguredMacs.contains(configuredMac)) {
-                statusText = "Duplicate configured MAC";
-                statusColor = "#FF5A5A";
+                statusText = "Duplicate MAC";
+                statusColor = QColor("#FF5A5A");
                 blockingCount++;
+                errorCount++;
             } else if (source == 0) {
-                statusText = "Emulated camera";
-                statusColor = "#4CAF50";
+                statusText = "Emulated";
+                statusColor = QColor("#4CAF50");
+                onlineCount++;
             } else if (macToDevice.contains(configuredMac)) {
                 const GigEDeviceInfo& dev = macToDevice[configuredMac];
                 detectedIp = QString::fromStdString(dev.ipAddress);
-                const QString normalizedDetectedIp = normalizeIp(detectedIp);
+                QString normalizedDetectedIp = normalizeIp(detectedIp);
+
                 if (liveIpToMacs.value(normalizedDetectedIp).size() > 1) {
                     statusText = "Duplicate live IP";
-                    statusColor = "#FF5A5A";
+                    statusColor = QColor("#FF5A5A");
                     liveDuplicateSeen = true;
                     blockingCount++;
+                    errorCount++;
                 } else if (normalizedDetectedIp == configuredIp) {
-                    statusText = "OK";
-                    statusColor = "#4CAF50";
+                    statusText = "Online";
+                    statusColor = QColor("#4CAF50");
+                    onlineCount++;
                 } else {
                     statusText = "IP mismatch";
-                    statusColor = "#E0A800";
+                    statusColor = QColor("#E0A800");
                     mismatchCount++;
+                    warningCount++;
                 }
             } else if (source == 1) {
-                statusText = "MAC not found";
-                statusColor = "#E0A800";
+                statusText = "Offline";
+                statusColor = QColor("#6E7681");
                 missingCount++;
+                offlineCount++;
             }
+        } else {
+            offlineCount++;
         }
 
-        w.detectedIpLabel->setText(detectedIp);
-        w.statusLabel->setText(statusText);
-        w.statusLabel->setStyleSheet(QString("color: %1; font-weight: bold;").arg(statusColor));
+        card->setDetectedIp(detectedIp);
+        card->setStatus(statusText, statusColor);
     }
 
+    // Update network summary header
+    int totalCount = cameraCards_.size();
+    networkSummaryHeader_->setCameraCounts(totalCount, onlineCount, warningCount, errorCount, offlineCount);
+
+    // Update summary text
     QStringList summary;
-    QString summaryColor = "#4CAF50";
+    QColor summaryColor = QColor("#4CAF50");
 
     if (blockingCount > 0) {
-        summaryColor = "#FF5A5A";
+        summaryColor = QColor("#FF5A5A");
         if (!duplicateConfiguredIps.isEmpty()) {
             summary << "Duplicate configured IPs detected";
         }
@@ -878,28 +881,27 @@ void ConfigDialog::refreshNetworkStatus() {
             summary << "Duplicate configured MACs detected";
         }
         if (liveDuplicateSeen) {
-            summary << "Duplicate live IP detected. Disconnect one conflicting camera, write a unique static IP, then reconnect.";
+            summary << "Duplicate live IP detected";
         }
     }
 
     if (mismatchCount > 0) {
-        if (summaryColor != "#FF5A5A") {
-            summaryColor = "#E0A800";
+        if (summaryColor != QColor("#FF5A5A")) {
+            summaryColor = QColor("#E0A800");
         }
         summary << QString("%1 camera%2 have IP mismatch").arg(mismatchCount).arg(mismatchCount == 1 ? "" : "s");
     }
 
     if (missingCount > 0) {
-        if (summaryColor == "#4CAF50") {
-            summaryColor = "#E0A800";
+        if (summaryColor == QColor("#4CAF50")) {
+            summaryColor = QColor("#E0A800");
         }
-        summary << QString("%1 camera%2 are not currently mapped to a visible MAC").arg(missingCount).arg(missingCount == 1 ? "" : "s");
+        summary << QString("%1 camera%2 not visible").arg(missingCount).arg(missingCount == 1 ? "" : "s");
     }
 
     if (summary.isEmpty()) {
-        networkSummaryLabel_->setText("Network OK: configured camera IP and MAC assignments are consistent.");
+        networkSummaryHeader_->setNetworkStatus("Network OK: All cameras configured correctly", QColor("#4CAF50"));
     } else {
-        networkSummaryLabel_->setText(summary.join(" | "));
+        networkSummaryHeader_->setNetworkStatus(summary.join(" | "), summaryColor);
     }
-    networkSummaryLabel_->setStyleSheet(QString("color: %1; font-weight: bold;").arg(summaryColor));
 }

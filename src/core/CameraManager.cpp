@@ -28,19 +28,40 @@ std::string normalizeMacAddress(const std::string& mac) {
 // DeviceRemovalHandler Implementation
 void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
     try {
-        if (manager_) {
-            std::cout << "[CameraManager] DEVICE REMOVAL EVENT DETECTED AND TRIGGERED" << std::endl;
-            
-            // When a single camera drops from a multi-camera array, the RetrieveResult 
-            // often just hangs or spits out non-fatal incomplete buffers instead of throwing
-            // a GenericException. So we MUST forcefully terminate the acquisition loop from here!
-            if (!manager_->recovering_ && manager_->acquiring_) {
-                manager_->acquiring_ = false; // Force the main loop to exit its next iteration
-                
-                // Detach thread safely and launch recovery
-                if (manager_->recoveryThread_.joinable()) manager_->recoveryThread_.join();
-                manager_->recoveryThread_ = std::thread(&CameraManager::recoveryLoop, manager_);
+        if (!manager_) return;
+
+        std::cout << "[CameraManager] DEVICE REMOVAL EVENT: camera context="
+                  << camera.GetCameraContext() << std::endl;
+
+        // Identify which Pylon index was removed via the camera context tag set during initialize()
+        uint32_t pylonIdx = static_cast<uint32_t>(camera.GetCameraContext());
+
+        // 1. Mark this camera as disconnected so the acquisition loop skips it gracefully.
+        //    Do NOT touch acquiring_ — surviving cameras must keep streaming uninterrupted.
+        {
+            std::lock_guard<std::mutex> lock(manager_->disconnectedMutex_);
+            manager_->disconnectedCameras_.insert(pylonIdx);
+        }
+
+        // 2. Blank ONLY the disconnected camera's UI tile.
+        {
+            std::lock_guard<std::mutex> lock(manager_->callbackMutex_);
+            if (manager_->callback_) {
+                int configArrayIdx = (pylonIdx < manager_->pylonIndexToConfigArrayIndex_.size())
+                                     ? manager_->pylonIndexToConfigArrayIndex_[pylonIdx]
+                                     : static_cast<int>(pylonIdx);
+                if (configArrayIdx >= 0) {
+                    manager_->callback_(configArrayIdx, cv::Mat());
+                }
             }
+        }
+
+        // 3. Launch the background recovery thread to wait for the camera to reappear and
+        //    rebuild only the missing slot.  If a recovery is already running, it will
+        //    handle the newly-disconnected camera on its next poll cycle.
+        if (!manager_->recovering_) {
+            if (manager_->recoveryThread_.joinable()) manager_->recoveryThread_.join();
+            manager_->recoveryThread_ = std::thread(&CameraManager::recoveryLoop, manager_);
         }
     } catch (const std::exception& e) {
         std::cerr << "[CameraManager] Exception in DeviceRemovalHandler: " << e.what() << std::endl;
@@ -92,7 +113,7 @@ CameraManager::~CameraManager() {
     }
 }
 
-bool CameraManager::initialize() {
+bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
     try {
         CTlFactory& tlFactory = CTlFactory::GetInstance();
         DeviceInfoList_t devices;
@@ -249,10 +270,14 @@ bool CameraManager::initialize() {
                 if (pi >= 0 && pi < (int)pylonIndexToConfigArrayIndex_.size()) {
                     pylonIndexToConfigArrayIndex_[pi] = cfgArrayIdx;
                 } else {
-                    // Camera is disconnected or missing. Send empty frame to clear GUI.
-                    std::lock_guard<std::mutex> lock(callbackMutex_);
-                    if (callback_) {
-                        callback_(cfgArrayIdx, cv::Mat());
+                    // Camera is disconnected or missing.
+                    // Only send blank frame if we're not suppressing it for this slot
+                    // (suppression is used during hot-rebuild to avoid flashing survivors).
+                    if (suppressBlankFor.find(cfgArrayIdx) == suppressBlankFor.end()) {
+                        std::lock_guard<std::mutex> lock(callbackMutex_);
+                        if (callback_) {
+                            callback_(cfgArrayIdx, cv::Mat());
+                        }
                     }
                 }
             }
@@ -604,6 +629,12 @@ void CameraManager::startAcquisition() {
                 std::make_unique<BufferPool>(3, width_, height_, CV_8UC1)
             );
         }
+
+        // Clear per-camera disconnect tracking on every fresh start
+        {
+            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+            disconnectedCameras_.clear();
+        }
         
         // Initialize latest frames
         {
@@ -753,55 +784,63 @@ void CameraManager::recoveryLoop() {
     recovering_ = true;
     std::cout << "[CameraManager] --- RECOVERY LOOP STARTED ---" << std::endl;
 
-    // 1. Give the system time to cleanly disconnect everything
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    
-    // 2. Terminate the old camera handles safely
-    try {
-        if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
-        if (cameras_.IsOpen()) cameras_.Close();
-        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-            if (cameras_[i].IsPylonDeviceAttached()) {
-                cameras_[i].DestroyDevice();
-            }
-        }
-    } catch (...) {
-        std::cerr << "[CameraManager] Ignored exception during old handle teardown in recovery." << std::endl;
-    }
+    // Determine up-front whether this is a FULL recovery (all cameras gone / acquiring_ killed)
+    // or a PARTIAL recovery (only some cameras removed, acquisition loop still running).
+    bool fullRecovery = !acquiring_;
 
-    // 2b. Clear all camera tiles in the GUI immediately — don't leave frozen frames
-    {
-        std::lock_guard<std::mutex> lock(callbackMutex_);
-        if (callback_) {
-            auto configuredCams = CameraConfig::getCameras();
+    if (fullRecovery) {
+        // 1. Give the system time to cleanly disconnect everything
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        // 2. Terminate the old camera handles safely
+        try {
+            if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
+            if (cameras_.IsOpen()) cameras_.Close();
+            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+                if (cameras_[i].IsPylonDeviceAttached()) {
+                    cameras_[i].DestroyDevice();
+                }
+            }
+        } catch (...) {
+            std::cerr << "[CameraManager] Ignored exception during old handle teardown in recovery." << std::endl;
+        }
+
+        // 2b. Clear ALL camera tiles (full recovery: we lost everything)
+        {
+            std::lock_guard<std::mutex> lock(callbackMutex_);
+            if (callback_) {
+                auto configuredCams = CameraConfig::getCameras();
+                for (int i = 0; i < (int)configuredCams.size(); ++i) {
+                    callback_(i, cv::Mat());
+                }
+            }
+        }
+
+        // 3. IMMEDIATELY try to re-initialize with any *surviving* cameras
+        if (initialize()) {
+            std::cout << "[CameraManager] Re-init with surviving cameras complete. Restarting degraded acquisition..." << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                disconnectedCameras_.clear();
+            }
+            startAcquisition();
+            // Apply per-camera FPS settings after restart
+            const auto configuredCams = CameraConfig::getCameras();
             for (int i = 0; i < (int)configuredCams.size(); ++i) {
-                callback_(i, cv::Mat()); // empty frame → clearFrame() in LiveDashboard
+                setCameraFrameRate(i, configuredCams[i].fps, configuredCams[i].enableAcquisitionFps);
             }
         }
     }
-    
-    // 3. IMMEDIATELY try to re-initialize with any *surviving* cameras so the user doesn't lose all views!
-    if (initialize()) {
-        std::cout << "[CameraManager] Re-init with surviving cameras complete. Restarting degraded acquisition..." << std::endl;
-        startAcquisition(); 
-    }
-    
+    // else: partial recovery — the acquisition loop is still running for surviving cameras.
+    // We only need to watch for the missing camera to reappear, then rebuild the array.
+
     CTlFactory& tlFactory = CTlFactory::GetInstance();
-    
+
     // 4. Continuously poll for the target devices in the background
     while (recovering_) {
-        int activeCount = cameras_.GetSize();
         auto configuredCams = CameraConfig::getCameras();
-        int expectedCount = configuredCams.size();
-        
-        // If we miraculously have all expected cameras, exit recovery entirely
-        if (activeCount >= expectedCount) {
-             std::cout << "[CameraManager] All expected cameras are active. Exiting recovery loop." << std::endl;
-             recovering_ = false;
-             if (statusCallback_) statusCallback_("[CameraManager] System Fully Recovered.");
-             break;
-        }
-        
+        int expectedCount = (int)configuredCams.size();
+
         // Count how many physical devices match the config right now
         int matchedPhysicalCount = 0;
         DeviceInfoList_t allDevices;
@@ -809,27 +848,81 @@ void CameraManager::recoveryLoop() {
             for (const auto& camInfo : configuredCams) {
                 bool isEmulatedDevice = (camInfo.source == 0);
                 const std::string targetMac = normalizeMacAddress(camInfo.macAddress.toStdString());
-                
+
                 for (const auto& dev : allDevices) {
                     if (isEmulatedDevice && dev.GetDeviceClass() == "BaslerCamEmu") {
                         matchedPhysicalCount++;
                         break;
-                    } else if (!isEmulatedDevice && dev.GetDeviceClass() == "BaslerGigE" && normalizeMacAddress(dev.GetMacAddress().c_str()) == targetMac) {
+                    } else if (!isEmulatedDevice && dev.GetDeviceClass() == "BaslerGigE"
+                               && normalizeMacAddress(dev.GetMacAddress().c_str()) == targetMac) {
                         matchedPhysicalCount++;
                         break;
                     }
                 }
             }
         }
-        
-        // If the number of matching physical devices is greater than what's currently in the array,
-        // OR acquiring_ has crashed again, we need to completely rebuild the array!
-        if (matchedPhysicalCount > activeCount || (!acquiring_ && activeCount > 0)) {
+
+        // Count how many cameras are genuinely streaming (not in the disconnected set)
+        int activeStreamingCount = 0;
+        {
+            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+            for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+                if (disconnectedCameras_.find(static_cast<uint32_t>(i)) == disconnectedCameras_.end()) {
+                    activeStreamingCount++;
+                }
+            }
+        }
+
+        // All physical cameras are present AND all are streaming — fully recovered, exit
+        if (matchedPhysicalCount >= expectedCount && activeStreamingCount >= expectedCount) {
+            std::cout << "[CameraManager] All expected cameras are active. Exiting recovery loop." << std::endl;
+            recovering_ = false;
+            {
+                std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                disconnectedCameras_.clear();
+            }
+            if (statusCallback_) statusCallback_("[CameraManager] System Fully Recovered.");
+            break;
+        }
+
+        // A camera has returned (more physical devices than actively-streaming cameras),
+        // OR the degraded acquisition loop has crashed — rebuild the full array.
+        if (matchedPhysicalCount > activeStreamingCount || (!acquiring_ && cameras_.GetSize() > 0)) {
             std::cout << "[CameraManager] Detected newly returned camera (or degraded loop crashed). Rebuilding array..." << std::endl;
-            
+
+            // Build the set of surviving (non-disconnected) config array indices so we
+            // can (a) send them freeze frames during the gap and (b) suppress blank
+            // callbacks inside initialize() for those slots.
+            std::set<int> survivingSlots;
+            {
+                std::lock_guard<std::mutex> lk(disconnectedMutex_);
+                for (size_t i = 0; i < cameras_.GetSize(); ++i) {
+                    if (disconnectedCameras_.find(static_cast<uint32_t>(i)) == disconnectedCameras_.end()) {
+                        int cfgIdx = (i < pylonIndexToConfigArrayIndex_.size())
+                                     ? pylonIndexToConfigArrayIndex_[i] : (int)i;
+                        if (cfgIdx >= 0) survivingSlots.insert(cfgIdx);
+                    }
+                }
+            }
+
+            // Stop the current acquisition before rebuilding
             acquiring_ = false;
             if (acquisitionThread_.joinable()) acquisitionThread_.join();
-            
+
+            // Bridge the gap: pump the last-good freeze frame for every surviving camera
+            // so the UI tile never goes blank during teardown + init + startAcquisition.
+            {
+                std::lock_guard<std::mutex> lkf(latestFramesMutex_);
+                std::lock_guard<std::mutex> lkc(callbackMutex_);
+                if (callback_) {
+                    for (int slot : survivingSlots) {
+                        if (slot < (int)latestFrames_.size() && !latestFrames_[slot].empty()) {
+                            callback_(slot, latestFrames_[slot]);
+                        }
+                    }
+                }
+            }
+
             try {
                 if (cameras_.IsGrabbing()) cameras_.StopGrabbing();
                 if (cameras_.IsOpen()) cameras_.Close();
@@ -837,17 +930,27 @@ void CameraManager::recoveryLoop() {
                     if (cameras_[i].IsPylonDeviceAttached()) cameras_[i].DestroyDevice();
                 }
             } catch (...) {}
-            
-            // Wait an extra second for hardware stability before seizing control
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            
-            if (initialize()) {
+
+            // Device is already confirmed present from EnumerateDevices above — no need
+            // for a long settle; 100 ms is enough for the stack to be ready.
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // Pass survivingSlots so initialize() won't blank those tiles
+            if (initialize(survivingSlots)) {
                 std::cout << "[CameraManager] Re-init successful. Restarting acquisition..." << std::endl;
-                startAcquisition(); 
+                {
+                    std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                    disconnectedCameras_.clear();
+                }
+                startAcquisition();
+                // Apply per-camera FPS settings — same as startCameraLifecycleAsync does
+                for (int i = 0; i < (int)configuredCams.size(); ++i) {
+                    setCameraFrameRate(i, configuredCams[i].fps, configuredCams[i].enableAcquisitionFps);
+                }
             }
         }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Poll every second
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Poll every 500ms for faster detection
     }
     std::cout << "[CameraManager] --- RECOVERY LOOP COMPLETED ---" << std::endl;
 }
@@ -864,6 +967,15 @@ void CameraManager::temperatureMonitorLoop() {
         if (numCfg == 0) numCfg = numCameras_;
 
         for (int cfgIdx = 0; cfgIdx < numCfg && tempMonitorRunning_; ++cfgIdx) {
+            // Skip cameras that are currently disconnected — avoids spamming error logs
+            int pylonIdx = (cfgIdx < (int)configArrayIndexToPylonIndex_.size())
+                           ? configArrayIndexToPylonIndex_[cfgIdx] : -1;
+            {
+                std::lock_guard<std::mutex> lk(disconnectedMutex_);
+                if (pylonIdx < 0 || disconnectedCameras_.count(static_cast<uint32_t>(pylonIdx)))
+                    continue;
+            }
+
             double temp = getTemperature(cfgIdx);
             TemperatureStatus status = classifyTemperature(temp);
 
@@ -1115,6 +1227,14 @@ void CameraManager::acquisitionLoop() {
 
                 uint32_t cameraIndex = (uint32_t)ptrGrabResult->GetCameraContext();
 
+                // Skip frames from cameras that have been flagged as disconnected.
+                // Their tile was already blanked by DeviceRemovalHandler; the recovery
+                // thread will rebuild the array once the device reappears.
+                {
+                    std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                    if (disconnectedCameras_.count(cameraIndex)) continue;
+                }
+
                 if (ptrGrabResult->GrabSucceeded()) {
                     // 1. CHUNK DATA & METADATA
                     int64_t timestamp = 0;
@@ -1217,12 +1337,22 @@ void CameraManager::acquisitionLoop() {
 
                         // 5. CALLBACK: emit config array index (0-based UI slot) resolved from Pylon index
                         {
+                            // Resolve pylon index -> config array index using reverse map
+                            int configArrayIdx = (cameraIndex < pylonIndexToConfigArrayIndex_.size())
+                                                     ? pylonIndexToConfigArrayIndex_[cameraIndex]
+                                                     : (int)cameraIndex;
+
+                            // Store a clone as the freeze frame for this slot so the
+                            // recovery path can send it during the teardown/rebuild gap.
+                            if (configArrayIdx >= 0) {
+                                std::lock_guard<std::mutex> lk(latestFramesMutex_);
+                                if (configArrayIdx < (int)latestFrames_.size()) {
+                                    latestFrames_[configArrayIdx] = displayFrame.clone();
+                                }
+                            }
+
                             std::lock_guard<std::mutex> lock(callbackMutex_);
-                            if (callback_) {
-                                // Resolve pylon index -> config array index using reverse map
-                                int configArrayIdx = (cameraIndex < pylonIndexToConfigArrayIndex_.size())
-                                                         ? pylonIndexToConfigArrayIndex_[cameraIndex]
-                                                         : (int)cameraIndex;
+                            if (callback_ && configArrayIdx >= 0) {
                                 callback_(configArrayIdx, displayFrame);
                             }
                         }
@@ -1233,51 +1363,57 @@ void CameraManager::acquisitionLoop() {
                     std::cerr << "[CameraManager] Grab failed: " 
                               << ptrGrabResult->GetErrorDescription() << std::endl;
                               
-                    // Some cameras/switches report disconnects as non-fatal grab failures
-                    bool deviceRemoved = false;
-                    
-                    // If the array completely collapsed (size 0), we must recover!
-                    if (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0) {
-                         deviceRemoved = true;
-                         std::cerr << "[CameraManager] Array collapsed or cameras missing. Forcing recovery." << std::endl;
-                         
-                         // Emit blank frames for all previously known cameras so the UI updates
-                         for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
-                              int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
-                              if (configArrayIdx >= 0) {
-                                  std::lock_guard<std::mutex> lock(callbackMutex_);
-                                  if (callback_) callback_(configArrayIdx, cv::Mat());
-                              }
-                         }
-                    } else {
-                        for (size_t i = 0; i < cameras_.GetSize(); ++i) {
-                            if (cameras_[i].IsCameraDeviceRemoved()) {
-                                std::cerr << "[CameraManager] Hardware disconnect confirmed on Pylon Camera " << i << std::endl;
-                                
-                                int configArrayIdx = (i < pylonIndexToConfigArrayIndex_.size())
-                                                         ? pylonIndexToConfigArrayIndex_[i]
-                                                         : (int)i;
-                                {
-                                    std::lock_guard<std::mutex> lock(callbackMutex_);
-                                    if (callback_) {
-                                        callback_(configArrayIdx, cv::Mat());
-                                    }
-                                }
-                                
-                                deviceRemoved = true;
+                    // Check if this specific camera has been removed
+                    bool thisDeviceRemoved = false;
+
+                    // Check if this result's camera is flagged as removed
+                    if (cameraIndex < cameras_.GetSize() && cameras_[cameraIndex].IsCameraDeviceRemoved()) {
+                        thisDeviceRemoved = true;
+                    }
+
+                    // Also treat a fully-collapsed array as a full-recovery situation
+                    bool arrayCollapsed = (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0);
+
+                    if (arrayCollapsed) {
+                        // Entire array is gone — blank all tiles and do a full recovery
+                        std::cerr << "[CameraManager] Array collapsed. Forcing full recovery." << std::endl;
+                        {
+                            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                            for (uint32_t i = 0; i < (uint32_t)pylonIndexToConfigArrayIndex_.size(); ++i)
+                                disconnectedCameras_.insert(i);
+                        }
+                        for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
+                            int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
+                            if (configArrayIdx >= 0) {
+                                std::lock_guard<std::mutex> lock(callbackMutex_);
+                                if (callback_) callback_(configArrayIdx, cv::Mat());
                             }
                         }
-                    }
-                    
-                    if (deviceRemoved && !recovering_) {
-                        acquiring_ = false; // Stop this loop
-                        
-                        // Detach thread safely and launch recovery
-                        // We cannot join our own thread, the recoveryThread_.join() should happen in a new thread context
-                        // But since we are going to launch recoveryThread_, we join the *old* one if it exists.
-                        if (recoveryThread_.joinable()) recoveryThread_.join();
-                        recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
-                        break; // Exit this acquisition thread immediately
+                        if (!recovering_) {
+                            acquiring_ = false;
+                            if (recoveryThread_.joinable()) recoveryThread_.join();
+                            recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                            break;
+                        }
+                    } else if (thisDeviceRemoved) {
+                        // Only this camera is gone — blank its tile and mark it; keep loop running
+                        std::cerr << "[CameraManager] Hardware disconnect on Pylon Camera " << cameraIndex << std::endl;
+                        {
+                            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                            disconnectedCameras_.insert(cameraIndex);
+                        }
+                        int configArrayIdx = (cameraIndex < pylonIndexToConfigArrayIndex_.size())
+                                             ? pylonIndexToConfigArrayIndex_[cameraIndex]
+                                             : (int)cameraIndex;
+                        if (configArrayIdx >= 0) {
+                            std::lock_guard<std::mutex> lock(callbackMutex_);
+                            if (callback_) callback_(configArrayIdx, cv::Mat());
+                        }
+                        if (!recovering_) {
+                            if (recoveryThread_.joinable()) recoveryThread_.join();
+                            recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                        }
+                        // Do NOT break — keep grabbing from surviving cameras
                     }
                 }
 
@@ -1309,52 +1445,56 @@ void CameraManager::acquisitionLoop() {
             if (acquiring_) {
                 std::cerr << "[CameraManager] Pylon exception in loop: " 
                           << e.GetDescription() << std::endl;
-                          
-                // Check if the exception was caused by device removal or array crash
-                Pylon::WaitObject::Sleep(1000); 
-                bool deviceRemoved = false;
-                
-                // If the array completely collapsed (size 0), we must recover!
-                if (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0) {
-                     deviceRemoved = true;
-                     std::cerr << "[CameraManager] Array collapsed or cameras missing. Forcing recovery." << std::endl;
-                     
-                     // Emit blank frames for all previously known cameras so the UI updates
-                     for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
-                          int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
-                          if (configArrayIdx >= 0) {
-                              std::lock_guard<std::mutex> lock(callbackMutex_);
-                              if (callback_) callback_(configArrayIdx, cv::Mat());
-                          }
-                     }
+
+                // Brief pause to let the OS settle after a hot-unplug event
+                Pylon::WaitObject::Sleep(200);
+
+                bool arrayCollapsed = (cameras_.GetSize() < targetDevices_.size() || cameras_.GetSize() == 0);
+
+                if (arrayCollapsed) {
+                    // Entire array is gone — blank all tiles and do a full recovery
+                    std::cerr << "[CameraManager] Array collapsed (exception). Forcing full recovery." << std::endl;
+                    {
+                        std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                        for (uint32_t i = 0; i < (uint32_t)pylonIndexToConfigArrayIndex_.size(); ++i)
+                            disconnectedCameras_.insert(i);
+                    }
+                    for (size_t i = 0; i < pylonIndexToConfigArrayIndex_.size(); ++i) {
+                        int configArrayIdx = pylonIndexToConfigArrayIndex_[i];
+                        if (configArrayIdx >= 0) {
+                            std::lock_guard<std::mutex> lock(callbackMutex_);
+                            if (callback_) callback_(configArrayIdx, cv::Mat());
+                        }
+                    }
+                    if (!recovering_) {
+                        acquiring_ = false;
+                        if (recoveryThread_.joinable()) recoveryThread_.join();
+                        recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                        break;
+                    }
                 } else {
+                    // Scan for individually-removed cameras; keep the loop alive for the rest
                     for (size_t i = 0; i < cameras_.GetSize(); ++i) {
                         if (cameras_[i].IsCameraDeviceRemoved()) {
                             std::cerr << "[CameraManager] Hardware disconnect confirmed on Pylon Camera " << i << std::endl;
-                            
-                            // Emit empty frame to correctly clear UI based on config index
-                            int configArrayIdx = (i < pylonIndexToConfigArrayIndex_.size())
-                                                     ? pylonIndexToConfigArrayIndex_[i]
-                                                     : (int)i;
                             {
-                                std::lock_guard<std::mutex> lock(callbackMutex_);
-                                if (callback_) {
-                                    callback_(configArrayIdx, cv::Mat());
-                                }
+                                std::lock_guard<std::mutex> lock(disconnectedMutex_);
+                                disconnectedCameras_.insert(static_cast<uint32_t>(i));
                             }
-                            
-                            deviceRemoved = true;
+                            int configArrayIdx = (i < pylonIndexToConfigArrayIndex_.size())
+                                                 ? pylonIndexToConfigArrayIndex_[i]
+                                                 : (int)i;
+                            if (configArrayIdx >= 0) {
+                                std::lock_guard<std::mutex> lock(callbackMutex_);
+                                if (callback_) callback_(configArrayIdx, cv::Mat());
+                            }
+                            if (!recovering_) {
+                                if (recoveryThread_.joinable()) recoveryThread_.join();
+                                recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                            }
+                            // Do NOT break the outer acquisition loop
                         }
                     }
-                }
-                
-                if (deviceRemoved && !recovering_) {
-                    acquiring_ = false; // Stop this loop
-                    
-                    // Detach thread safely and launch recovery
-                    if (recoveryThread_.joinable()) recoveryThread_.join();
-                    recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
-                    break; // Exit this acquisition thread immediately
                 }
             }
         } catch (const std::exception& e) {

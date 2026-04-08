@@ -15,13 +15,11 @@
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
 
-struct IpConfigEntry {
-    QWidget* container;
-    QLineEdit* ip;
-    QLineEdit* mask;
-    QLineEdit* gw;
-    std::string mac;
-};
+// Forward declarations for new widgets
+#include <QGroupBox>
+class CameraCard;
+class NetworkSummaryHeader;
+class DeleteConfirmationDialog;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -29,6 +27,8 @@ class ConfigDialog : public QWidget {
 public:
     explicit ConfigDialog(CameraManager* cameraManager = nullptr, QWidget *parent = nullptr);
     void setAdminMode(bool isAdmin);
+
+    ~ConfigDialog() override;
 
 signals:
     // Signal to notify main window that critical settings (like source) changed
@@ -42,6 +42,14 @@ private slots:
     void onRefreshLogsClicked();
     void onClearLogsClicked();
     void onOpenIpConfiguratorClicked();
+    void onToggleLogsClicked();
+
+    // Camera card slots
+    void onCameraCardRemoveClicked();
+    void onCameraCardEditToggled(bool checked);
+    void onCameraCardSourceChanged(int source);
+    void onCameraCardMacChanged(const QString& mac);
+    void onCameraCardWriteIpClicked();
 
 private:
     void setupUI();
@@ -51,44 +59,43 @@ private:
     bool validateConfiguration(QStringList* errors) const;
     bool eventFilter(QObject* obj, QEvent* event) override;
 
-    QSpinBox* globalFpsSpin_; // Was fpsSpin_
+    // New premium methods
+    void setupPremiumUI();
+    void updateCameraCardStatuses();
+    void updateNetworkSummary();
+    void connectCameraCardSignals(CameraCard* card);
+    CameraCard* findCameraCard(int cameraId) const;
+    CameraCard* findCameraCard(QObject* sender) const;
+
+    // Global settings UI
+    QSpinBox* globalFpsSpin_;
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
     ToggleSwitch* defectCheck_;
     QComboBox* themeCombo_;
     QPushButton* saveBtn_;
-    
-    // Per-Camera Setup UI
+
+    // Premium Camera Setup UI
+    NetworkSummaryHeader* networkSummaryHeader_;
     QPushButton* addCameraBtn_;
-    
+
     QScrollArea* cameraScrollArea_;
     QWidget* cameraScrollWidget_;
     QVBoxLayout* cameraListLayout_;
     QLabel* networkSummaryLabel_;
-    
-    struct CameraConfigWidgets {
-        QWidget* container;
-        int id; // For saving back
-        QComboBox* sourceCombo;
-        QLineEdit* nameEdit;
-        QLineEdit* locationEdit;
-        QComboBox* sideCombo;
-        QSpinBox* positionSpin;
-        QLabel* ipLabel;
-        QLabel* detectedIpLabel;
-        QLabel* statusLabel;
-        QComboBox* macCombo;
-        QLineEdit* subnetEdit;
-        QLineEdit* gatewayEdit;
-        QPushButton* writeIpBtn;
-        QCheckBox* enableFpsCheck;
-        QSpinBox* fpsSpin;
-        QCheckBox* editParamsCheck;
-    };
-    
-    std::vector<CameraConfigWidgets> activeCameraConfigs_;
+
+    // New camera cards (replacing CameraConfigWidgets)
+    std::vector<CameraCard*> cameraCards_;
     std::vector<GigEDeviceInfo> currentGigEDevices_;
-    
-    CameraManager* cameraManager_; // For saving .pfs on apply
+
+    CameraManager* cameraManager_;
     QTextEdit* connectionLogsBrowser_;
+    QGroupBox* logsGroup_;
+
+    // Admin mode
+    bool isAdminMode_;
+
+    // Theme colors
+    QColor primaryColor_;
+    QColor accentColor_;
 };

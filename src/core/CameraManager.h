@@ -9,6 +9,7 @@
 #include <string>
 #include <memory>
 #include <chrono>
+#include <set>
 
 // Pylon Includes
 #include <pylon/PylonIncludes.h>
@@ -65,8 +66,10 @@ public:
     CameraManager(int numCameras = 8);
     ~CameraManager();
 
-    // Initialize cameras (Pylon Emulated or Real)
-    bool initialize();
+    // Initialize cameras (Pylon Emulated or Real).
+    // suppressBlankFor: config-array indices whose tiles must NOT be blanked during
+    // this call — used during hot-rebuild so surviving cameras don't flash blank.
+    bool initialize(const std::set<int>& suppressBlankFor = {});
 
     // Start acquisition for all cameras
     void startAcquisition();
@@ -211,6 +214,12 @@ private:
     
     // Recovery tracking info (Device Class, Serial Numbers, MACs)
     std::vector<Pylon::CDeviceInfo> targetDevices_;
+
+    // Per-camera disconnect tracking: set of Pylon array indices that have been removed.
+    // Written from DeviceRemovalHandler / acquisitionLoop, read in acquisitionLoop.
+    // Protected by disconnectedMutex_.
+    std::set<uint32_t> disconnectedCameras_;
+    std::mutex disconnectedMutex_;
     
     // Preallocated buffer pools (one per camera)
     std::vector<std::unique_ptr<BufferPool>> bufferPools_;
