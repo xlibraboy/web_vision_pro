@@ -128,7 +128,10 @@ private:
 
     // Content widgets
     QGroupBox* basicInfoGroup_;
-    QGridLayout* fieldsLayout_;
+    QGroupBox* networkInfoGroup_;
+    QGroupBox* acquisitionGroup_;
+    QGridLayout* basicFieldsLayout_;
+    QGridLayout* networkFieldsLayout_;
 
     // Form fields
     QComboBox* sourceCombo_;

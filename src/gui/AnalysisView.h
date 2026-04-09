@@ -75,6 +75,7 @@ private slots:
     void onAdminButtonClicked();
     void onLinkCamerasToggled(bool linked);
     void onDeleteClicked();
+    void onTogglePermanentClicked();
     
     void onLogSelected(int row, int col);
     void onTiffLoadingFinished();
@@ -120,8 +121,10 @@ private:
     QPushButton* serverButton_;
     QPushButton* adminButton_;
     ToggleSwitch* enableDeleteCheck_;
-    // recordButton_ removed
     QTableWidget* paperBreakTable_;
+    QTableWidget* permanentPaperBreakTable_;
+    QWidget* permanentSectionWidget_;
+    QPushButton* togglePermanentTableButton_;
     
     // Main area
     QWidget* mainArea_;
@@ -161,6 +164,7 @@ private:
     // QAction* rawModeAction_; // Removed
     // QPushButton* deleteButton_; // Moved to Main Window Menu
     QPushButton* deleteButton_; // For deleting events
+    QPushButton* permanentButton_;
 
     
     // State
@@ -196,6 +200,15 @@ private:
     QString formatTimestamp(const QString& rawTs);
     QString getMetadataOverlayText(int frameIndex, double relativeFrame);
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
+    void addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow);
+    void reloadEventTables();
+    void updatePermanentButtonLabel();
+    QTableWidget* createLogTable(QWidget* parent, bool deleteMode);
+    void configureLogTable(QTableWidget* table, bool deleteMode);
+    void connectLogTable(QTableWidget* table);
+    void sortLogTable(QTableWidget* table);
+    void selectLatestEvent();
+    void moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent);
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;

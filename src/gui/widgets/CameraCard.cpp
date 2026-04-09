@@ -59,8 +59,8 @@ void CameraCard::setupUI(const CameraInfo& info) {
     // Create content area
     contentWidget_ = new QWidget(this);
     contentLayout_ = new QVBoxLayout(contentWidget_);
-    contentLayout_->setSpacing(12);
-    contentLayout_->setContentsMargins(16, 12, 16, 16);
+    contentLayout_->setSpacing(10);
+    contentLayout_->setContentsMargins(14, 10, 14, 14);
 
     createContent(info);
 
@@ -143,46 +143,38 @@ void CameraCard::updateHeader(const CameraInfo& info) {
 }
 
 void CameraCard::createContent(const CameraInfo& info) {
+    const QString groupStyle =
+        "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; "
+        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 12px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }";
+
+    const QString fieldStyle =
+        "QComboBox, QLineEdit, QSpinBox, QLabel { "
+        "background-color: #1C2128; border: 1px solid #30363D; "
+        "border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+        "QComboBox:hover, QLineEdit:hover { border-color: #00E5FF; }"
+        "QComboBox:focus, QLineEdit:focus { border-color: #00E5FF; }"
+        "QSpinBox { padding-right: 0; }";
+
     // Basic Info Group
     basicInfoGroup_ = new QGroupBox("Basic Info", contentWidget_);
-    basicInfoGroup_->setStyleSheet(
-        "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; "
-        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: 12px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    );
+    basicInfoGroup_->setStyleSheet(groupStyle);
 
-    fieldsLayout_ = new QGridLayout(basicInfoGroup_);
-    fieldsLayout_->setSpacing(10);
-    fieldsLayout_->setContentsMargins(12, 16, 12, 12);
+    basicFieldsLayout_ = new QGridLayout(basicInfoGroup_);
+    basicFieldsLayout_->setHorizontalSpacing(10);
+    basicFieldsLayout_->setVerticalSpacing(8);
+    basicFieldsLayout_->setContentsMargins(12, 14, 12, 10);
 
-    int row = 0, col = 0;
+    int basicRow = 0;
 
     // Helper lambda to add field
-    auto addField = [&](const QString& label, QWidget* widget, int colSpan = 1) {
-        QLabel* lbl = new QLabel(label, basicInfoGroup_);
+    auto addField = [&](QGroupBox* group, QGridLayout* layout, int& row, const QString& label, QWidget* widget) {
+        QLabel* lbl = new QLabel(label, group);
         lbl->setStyleSheet("color: #8B949E; font-size: 11px;");
-        widget->setStyleSheet(
-            "QComboBox, QLineEdit, QSpinBox, QLabel { "
-            "background-color: #1C2128; border: 1px solid #30363D; "
-            "border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
-            "QComboBox:hover, QLineEdit:hover { border-color: #00E5FF; }"
-            "QComboBox:focus, QLineEdit:focus { border-color: #00E5FF; }"
-            "QSpinBox { padding-right: 0; }"
-        );
-
-        if (col == 0) {
-            fieldsLayout_->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
-            fieldsLayout_->addWidget(widget, row, 1, 1, colSpan);
-        } else {
-            fieldsLayout_->addWidget(lbl, row, 2, Qt::AlignRight | Qt::AlignVCenter);
-            fieldsLayout_->addWidget(widget, row, 3, 1, colSpan);
-        }
-
-        col++;
-        if (col > 1) {
-            col = 0;
-            row++;
-        }
+        widget->setStyleSheet(fieldStyle);
+        layout->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
+        layout->addWidget(widget, row, 1);
+        row++;
     };
 
     // Source
@@ -191,63 +183,73 @@ void CameraCard::createContent(const CameraInfo& info) {
     sourceCombo_->addItem("Real", 1);
     sourceCombo_->addItem("Disabled", 2);
     sourceCombo_->setCurrentIndex(sourceCombo_->findData(info.source));
-    addField("Source:", sourceCombo_);
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Source:", sourceCombo_);
     connect(sourceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &CameraCard::sourceChanged);
 
     // Name
     nameEdit_ = new QLineEdit(info.name, basicInfoGroup_);
-    addField("Name:", nameEdit_);
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Name:", nameEdit_);
 
     // Location
     locationEdit_ = new QLineEdit(info.location, basicInfoGroup_);
-    addField("Location:", locationEdit_);
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Location:", locationEdit_);
 
     // Side
     sideCombo_ = new QComboBox(basicInfoGroup_);
     sideCombo_->addItem("DRIVE SIDE");
     sideCombo_->addItem("OPERATOR SIDE");
     sideCombo_->setCurrentText(info.side);
-    addField("Side:", sideCombo_);
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Side:", sideCombo_);
 
     // Position
     positionSpin_ = new QSpinBox(basicInfoGroup_);
     positionSpin_->setRange(0, 500000);
     positionSpin_->setSuffix(" mm");
     positionSpin_->setValue(info.machinePosition);
-    addField("Position:", positionSpin_);
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Position:", positionSpin_);
+
+    contentLayout_->addWidget(basicInfoGroup_);
+
+    // Network Settings Group
+    networkInfoGroup_ = new QGroupBox("Network Settings", contentWidget_);
+    networkInfoGroup_->setStyleSheet(groupStyle);
+
+    networkFieldsLayout_ = new QGridLayout(networkInfoGroup_);
+    networkFieldsLayout_->setHorizontalSpacing(10);
+    networkFieldsLayout_->setVerticalSpacing(8);
+    networkFieldsLayout_->setContentsMargins(12, 14, 12, 10);
+
+    int networkRow = 0;
 
     // IP Address (Read Only)
-    ipLabel_ = new QLabel(info.ipAddress, basicInfoGroup_);
+    ipLabel_ = new QLabel(info.ipAddress, networkInfoGroup_);
     ipLabel_->setStyleSheet("font-family: 'SF Mono', Monaco, monospace; color: #00E5FF;");
-    addField("IP Address:", ipLabel_);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "IP Address:", ipLabel_);
 
     // Detected IP (Read Only)
-    detectedIpLabel_ = new QLabel("Offline", basicInfoGroup_);
+    detectedIpLabel_ = new QLabel("Offline", networkInfoGroup_);
     detectedIpLabel_->setStyleSheet("font-family: 'SF Mono', Monaco, monospace; color: #8B949E;");
-    addField("Detected:", detectedIpLabel_);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Current Camera IP:", detectedIpLabel_);
 
     // MAC Address
-    macCombo_ = new QComboBox(basicInfoGroup_);
+    macCombo_ = new QComboBox(networkInfoGroup_);
     macCombo_->addItem("None / Auto");
     macCombo_->setEditable(true);
     macCombo_->setCurrentText(info.macAddress);
-    addField("MAC:", macCombo_);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "MAC Address:", macCombo_);
     connect(macCombo_, &QComboBox::currentTextChanged, this, &CameraCard::macChanged);
 
     // Subnet Mask
-    subnetEdit_ = new QLineEdit(info.subnetMask, basicInfoGroup_);
-    addField("Subnet:", subnetEdit_);
+    subnetEdit_ = new QLineEdit(info.subnetMask, networkInfoGroup_);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Subnet Mask:", subnetEdit_);
 
     // Gateway
-    gatewayEdit_ = new QLineEdit(info.defaultGateway, basicInfoGroup_);
-    addField("Gateway:", gatewayEdit_);
+    gatewayEdit_ = new QLineEdit(info.defaultGateway, networkInfoGroup_);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Gateway:", gatewayEdit_);
 
     // Write IP Button
-    if (col != 0) row++;
-    col = 0;
-
-    writeIpBtn_ = new QPushButton("Write IP to Physical Camera", basicInfoGroup_);
+    writeIpBtn_ = new QPushButton("Apply IP to Camera", networkInfoGroup_);
     writeIpBtn_->setIcon(IconManager::instance().save(16));
     writeIpBtn_->setStyleSheet(
         "QPushButton { background-color: #238636; color: white; "
@@ -257,33 +259,44 @@ void CameraCard::createContent(const CameraInfo& info) {
         "QPushButton:disabled { background-color: #30363D; color: #8B949E; }"
     );
     connect(writeIpBtn_, &QPushButton::clicked, this, &CameraCard::writeIpClicked);
-    fieldsLayout_->addWidget(writeIpBtn_, row, 0, 1, 4);
+    networkFieldsLayout_->addWidget(writeIpBtn_, networkRow, 0, 1, 2);
 
-    row++;
+    contentLayout_->addWidget(networkInfoGroup_);
+
+    acquisitionGroup_ = new QGroupBox("Acquisition", contentWidget_);
+    acquisitionGroup_->setStyleSheet(groupStyle);
+    QGridLayout* acquisitionLayout = new QGridLayout(acquisitionGroup_);
+    acquisitionLayout->setHorizontalSpacing(10);
+    acquisitionLayout->setVerticalSpacing(8);
+    acquisitionLayout->setContentsMargins(12, 14, 12, 10);
 
     // FPS with Enable checkbox
-    enableFpsCheck_ = new QCheckBox("Enable Acquisition Frame Rate", basicInfoGroup_);
+    enableFpsCheck_ = new QCheckBox("Enable Acquisition Frame Rate", acquisitionGroup_);
     enableFpsCheck_->setChecked(info.enableAcquisitionFps);
     enableFpsCheck_->setStyleSheet("color: #E3E3E3; font-size: 11px;");
 
-    fpsSpin_ = new QSpinBox(basicInfoGroup_);
+    fpsSpin_ = new QSpinBox(acquisitionGroup_);
     fpsSpin_->setRange(1, 200);
     fpsSpin_->setValue(info.fps);
     fpsSpin_->setEnabled(info.enableAcquisitionFps);
+    fpsSpin_->setStyleSheet(fieldStyle);
 
-    QWidget* fpsWidget = new QWidget(basicInfoGroup_);
+    QWidget* fpsWidget = new QWidget(acquisitionGroup_);
     QHBoxLayout* fpsLayout = new QHBoxLayout(fpsWidget);
     fpsLayout->setContentsMargins(0, 0, 0, 0);
-    fpsLayout->setSpacing(12);
+    fpsLayout->setSpacing(10);
     fpsLayout->addWidget(enableFpsCheck_);
     fpsLayout->addWidget(fpsSpin_);
     fpsLayout->addStretch();
 
-    addField("FPS:", fpsWidget);
+    QLabel* fpsLabel = new QLabel("Frame Rate:", acquisitionGroup_);
+    fpsLabel->setStyleSheet("color: #8B949E; font-size: 11px;");
+    acquisitionLayout->addWidget(fpsLabel, 0, 0, Qt::AlignRight | Qt::AlignTop);
+    acquisitionLayout->addWidget(fpsWidget, 0, 1);
 
     connect(enableFpsCheck_, &QCheckBox::toggled, this, &CameraCard::onFpsEnabledToggled);
 
-    contentLayout_->addWidget(basicInfoGroup_);
+    contentLayout_->addWidget(acquisitionGroup_);
     contentLayout_->addStretch();
 
     // Set initial editable state

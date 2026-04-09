@@ -42,6 +42,35 @@ namespace {
         return normalized;
     }
 
+    bool cameraConfigEqual(const CameraInfo& lhs, const CameraInfo& rhs) {
+        return lhs.id == rhs.id
+            && lhs.source == rhs.source
+            && lhs.name == rhs.name
+            && lhs.location == rhs.location
+            && lhs.side == rhs.side
+            && lhs.machinePosition == rhs.machinePosition
+            && normalizeIp(lhs.ipAddress) == normalizeIp(rhs.ipAddress)
+            && normalizeMac(lhs.macAddress) == normalizeMac(rhs.macAddress)
+            && normalizeIp(lhs.subnetMask) == normalizeIp(rhs.subnetMask)
+            && normalizeIp(lhs.defaultGateway) == normalizeIp(rhs.defaultGateway)
+            && lhs.fps == rhs.fps
+            && lhs.enableAcquisitionFps == rhs.enableAcquisitionFps;
+    }
+
+    bool cameraConfigListEqual(const std::vector<CameraInfo>& lhs, const std::vector<CameraInfo>& rhs) {
+        if (lhs.size() != rhs.size()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < lhs.size(); ++i) {
+            if (!cameraConfigEqual(lhs[i], rhs[i])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     void persistCameraNetworkSelection(int cameraId, int source, const QString& ip, const QString& mac,
                                        const QString& mask, const QString& gateway) {
         std::vector<CameraInfo> cameras = CameraConfig::getCameras();
@@ -85,7 +114,7 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
 
     setWindowTitle("System Configuration");
     setWindowFlags(Qt::Window);
-    resize(800, 900);
+    resize(780, 820);
 
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
 
@@ -97,14 +126,14 @@ ConfigDialog::~ConfigDialog() = default;
 
 void ConfigDialog::setupUI() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(20);
-    mainLayout->setContentsMargins(24, 24, 24, 24);
+    mainLayout->setSpacing(14);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
 
     ThemeColors tc = CameraConfig::getThemeColors();
     
     // Create list widget for sidebar navigation
     QListWidget* sidebar = new QListWidget(this);
-    sidebar->setFixedWidth(220);
+    sidebar->setFixedWidth(196);
     sidebar->setStyleSheet(QString(
         "QListWidget { "
         "  background-color: %1; "
@@ -113,7 +142,7 @@ void ConfigDialog::setupUI() {
         "  outline: 0; "
         "} "
         "QListWidget::item { "
-        "  padding: 12px 16px; "
+        "  padding: 10px 12px; "
         "  color: %3; "
         "  font-size: 14px; "
         "  font-weight: 600; "
@@ -221,11 +250,30 @@ void ConfigDialog::setupUI() {
     sidebar->addItem(camSetupItem);
     stackedWidget->addWidget(camSetupGroup);
 
-    // Global Recording & Events Tab
+    // Recording & Triggers Tab
     QWidget* bufferGroup = new QWidget(this);
-    QFormLayout* bufferLayout = new QFormLayout(bufferGroup);
-    bufferLayout->setSpacing(16);
-    bufferLayout->setContentsMargins(16, 16, 16, 16);
+    QVBoxLayout* bufferLayout = new QVBoxLayout(bufferGroup);
+    bufferLayout->setSpacing(12);
+    bufferLayout->setContentsMargins(12, 12, 12, 12);
+
+    const QString sectionStyle = QString(
+        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: 12px; } "
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+    ).arg(tc.primary, tc.border);
+
+    auto createSectionForm = [&](const QString& title) {
+        QGroupBox* group = new QGroupBox(title, bufferGroup);
+        group->setStyleSheet(sectionStyle);
+        QFormLayout* form = new QFormLayout(group);
+        form->setSpacing(10);
+        form->setContentsMargins(12, 16, 12, 12);
+        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        bufferLayout->addWidget(group);
+        return form;
+    };
+
+    QFormLayout* recordingForm = createSectionForm("Recording");
 
     // Global FPS
     globalFpsSpin_ = new QSpinBox(bufferGroup);
@@ -243,35 +291,48 @@ void ConfigDialog::setupUI() {
         "QSpinBox:hover { border-color: %4; } "
         "QSpinBox:focus { border-color: %4; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    bufferLayout->addRow("Global Target FPS (fallback):", globalFpsSpin_);
+    recordingForm->addRow("Fallback FPS:", globalFpsSpin_);
 
     // Pre-Trigger
     preTriggerSpin_ = new QSpinBox(bufferGroup);
     preTriggerSpin_->setRange(1, 60);
     preTriggerSpin_->setSuffix(" sec");
     preTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    bufferLayout->addRow("Pre-Trigger Buffer:", preTriggerSpin_);
+    recordingForm->addRow("Pre-Trigger Buffer:", preTriggerSpin_);
 
     // Post-Trigger
     postTriggerSpin_ = new QSpinBox(bufferGroup);
     postTriggerSpin_->setRange(1, 60);
     postTriggerSpin_->setSuffix(" sec");
     postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    bufferLayout->addRow("Post-Trigger Record:", postTriggerSpin_);
+    recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
 
-    // Defect Detection
-    defectCheck_ = new ToggleSwitch(bufferGroup);
-    bufferLayout->addRow("Enable Defect Detection (Auto-Trigger):", defectCheck_);
+    QFormLayout* retentionForm = createSectionForm("Retention");
 
-    QListWidgetItem* globalGroupItem = new QListWidgetItem(IconManager::instance().warning(20), "Global Recording & Events");
+    eventRetentionSpin_ = new QSpinBox(bufferGroup);
+    eventRetentionSpin_->setRange(1, 10000);
+    eventRetentionSpin_->setSuffix(" records");
+    eventRetentionSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    retentionForm->addRow("Event Retention Limit:", eventRetentionSpin_);
+
+    QFormLayout* triggerForm = createSectionForm("Triggering");
+
+    QLabel* defectNote = new QLabel("Defect trigger is controlled from the Live screen for immediate operation.", bufferGroup);
+    defectNote->setWordWrap(true);
+    defectNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
+    triggerForm->addRow("Defect Trigger:", defectNote);
+
+    bufferLayout->addStretch();
+
+    QListWidgetItem* globalGroupItem = new QListWidgetItem(IconManager::instance().warning(20), "Recording & Triggers");
     sidebar->addItem(globalGroupItem);
     stackedWidget->addWidget(bufferGroup);
 
     // UI Preferences Tab
     QWidget* uiGroup = new QWidget(this);
     QFormLayout* uiLayout = new QFormLayout(uiGroup);
-    uiLayout->setSpacing(16);
-    uiLayout->setContentsMargins(16, 16, 16, 16);
+    uiLayout->setSpacing(10);
+    uiLayout->setContentsMargins(12, 12, 12, 12);
 
     themeCombo_ = new QComboBox(uiGroup);
     themeCombo_->addItem("Industrial Dark - Cyan", 0);
@@ -320,7 +381,7 @@ void ConfigDialog::setupUI() {
         "  color: %1; "
         "  border: 1px solid %2; "
         "  border-radius: 8px; "
-        "  padding: 10px 20px; "
+        "  padding: 8px 16px; "
         "  font-size: 13px; "
         "  font-weight: 500; "
         "} "
@@ -341,7 +402,7 @@ void ConfigDialog::setupUI() {
         "  color: %2; "
         "  border: none; "
         "  border-radius: 8px; "
-        "  padding: 10px 20px; "
+        "  padding: 8px 16px; "
         "  font-size: 13px; "
         "  font-weight: 600; "
         "} "
@@ -372,8 +433,7 @@ void ConfigDialog::loadSettings() {
     globalFpsSpin_->setValue(CameraConfig::getFps());
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
-    defectCheck_->setChecked(CameraConfig::isDefectDetectionEnabled());
-
+    eventRetentionSpin_->setValue(CameraConfig::getEventRetentionCount());
     int themeIdx = themeCombo_->findData(CameraConfig::getThemePreset());
     if (themeIdx != -1) themeCombo_->setCurrentIndex(themeIdx);
 
@@ -582,6 +642,8 @@ void ConfigDialog::saveAndApply() {
         return;
     }
 
+    const std::vector<CameraInfo> previousCameras = CameraConfig::getCameras();
+
     // Gather all camera configs
     std::vector<CameraInfo> newCameras;
     for (auto* card : cameraCards_) {
@@ -609,16 +671,17 @@ void ConfigDialog::saveAndApply() {
     CameraConfig::setFps(globalFpsSpin_->value());
     CameraConfig::setPreTriggerSeconds(preTriggerSpin_->value());
     CameraConfig::setPostTriggerSeconds(postTriggerSpin_->value());
-    CameraConfig::setDefectDetectionEnabled(defectCheck_->isChecked());
+    CameraConfig::setEventRetentionCount(eventRetentionSpin_->value());
     CameraConfig::setThemePreset(themeCombo_->currentData().toInt());
 
-    // Save .pfs for all real connected cameras
-    if (cameraManager_) {
-        cameraManager_->saveParametersForAll(newCameras);
-    }
+    const bool requiresCameraRestart = !cameraConfigListEqual(previousCameras, newCameras);
 
-    emit configUpdated();
-    close();
+    // Let the main window restart/reapply after the dialog save completes.
+    // Avoid touching live camera node maps here because Save may also change
+    // camera topology/network configuration in the same action.
+    QMetaObject::invokeMethod(this, [this, requiresCameraRestart]() {
+        emit configUpdated(requiresCameraRestart);
+    }, Qt::QueuedConnection);
 }
 
 void ConfigDialog::setAdminMode(bool isAdmin) {
@@ -631,7 +694,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     globalFpsSpin_->setEnabled(isAdmin);
     preTriggerSpin_->setEnabled(isAdmin);
     postTriggerSpin_->setEnabled(isAdmin);
-    defectCheck_->setEnabled(isAdmin);
+    eventRetentionSpin_->setEnabled(isAdmin);
     saveBtn_->setEnabled(isAdmin);
 
     // Per-camera: only the edit checkbox is admin-gated

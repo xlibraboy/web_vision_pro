@@ -31,9 +31,8 @@ public:
     ~ConfigDialog() override;
 
 signals:
-    // Signal to notify main window that critical settings (like source) changed
-    // or just generally that config was updated
-    void configUpdated();
+    // True when camera configuration changed and acquisition should be restarted.
+    void configUpdated(bool requiresCameraRestart);
 
 private slots:
     void saveAndApply();
@@ -71,7 +70,7 @@ private:
     QSpinBox* globalFpsSpin_;
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
-    ToggleSwitch* defectCheck_;
+    QSpinBox* eventRetentionSpin_;
     QComboBox* themeCombo_;
     QPushButton* saveBtn_;
 

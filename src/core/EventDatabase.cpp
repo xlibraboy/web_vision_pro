@@ -1,4 +1,5 @@
 #include "EventDatabase.h"
+#include "../config/CameraConfig.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -92,6 +93,7 @@ void EventDatabase::scanDirectory() {
                 event.fps = 10.0; // Default
                 event.width = width;
                 event.height = height;
+                event.permanent = false;
 
                 events_[timestamp] = event;
                 
@@ -137,6 +139,7 @@ void EventDatabase::registerEvent(const EventInfo& event) {
     eventToSave.metadataPath = jsonPath;
     
     saveMetadata(jsonPath, eventToSave);
+    trimNonPermanentEvents();
     
     std::cout << "[EventDatabase] Registered new event: " << event.timestamp.toStdString() << std::endl;
 }
@@ -150,6 +153,7 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
     meta["fps"] = event.fps;
     meta["width"] = event.width;
     meta["height"] = event.height;
+    meta["permanent"] = event.permanent;
     
     QJsonDocument doc(meta);
     QFile file(filepath);
@@ -183,8 +187,50 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     event.fps = meta["fps"].toDouble();
     event.width = meta["width"].toInt();
     event.height = meta["height"].toInt();
+    event.permanent = meta["permanent"].toBool(false);
     
     return event;
+}
+
+bool EventDatabase::setPermanent(const QString& timestamp, bool permanent) {
+    auto it = events_.find(timestamp);
+    if (it == events_.end()) {
+        return false;
+    }
+
+    it->permanent = permanent;
+    saveMetadata(it->metadataPath, it.value());
+    if (!permanent) {
+        trimNonPermanentEvents();
+    }
+    return true;
+}
+
+void EventDatabase::trimNonPermanentEvents() {
+    const int maxRecords = std::max(0, CameraConfig::getEventRetentionCount());
+    if (maxRecords <= 0) {
+        return;
+    }
+
+    std::vector<EventInfo> nonPermanent;
+    nonPermanent.reserve(events_.size());
+    for (auto it = events_.cbegin(); it != events_.cend(); ++it) {
+        if (!it.value().permanent) {
+            nonPermanent.push_back(it.value());
+        }
+    }
+
+    if (static_cast<int>(nonPermanent.size()) <= maxRecords) {
+        return;
+    }
+
+    std::sort(nonPermanent.begin(), nonPermanent.end(), [](const EventInfo& a, const EventInfo& b) {
+        return a.timestamp > b.timestamp;
+    });
+
+    for (int i = maxRecords; i < static_cast<int>(nonPermanent.size()); ++i) {
+        deleteEvent(nonPermanent[i].timestamp);
+    }
 }
 
 bool EventDatabase::deleteEvent(const QString& timestamp) {

@@ -61,7 +61,11 @@ public:
     // Post-Trigger Duration (Seconds)
     static int getPostTriggerSeconds();
     static void setPostTriggerSeconds(int seconds);
-    
+
+    // Max number of non-permanent paper break records to keep.
+    static int getEventRetentionCount();
+    static void setEventRetentionCount(int count);
+
     // Pre-Trigger Duration (Seconds)
     static int getPreTriggerSeconds();
     static void setPreTriggerSeconds(int seconds);

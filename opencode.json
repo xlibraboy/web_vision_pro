@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "skill": {
+      "industrial-vision-networking": "deny",
+      "paper-machine-event-logic": "deny",
+      "pylon-scA780-config": "deny",
+      "vision-docker-builder": "deny",
+      "vision-pipeline-opencv": "deny",
+      "template": "deny"
+    }
+  }
+}

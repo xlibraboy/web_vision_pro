@@ -54,46 +54,8 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     
     // Initialize EventDatabase and load historical events
     EventDatabase::instance().initialize("../data");
-    auto events = EventDatabase::instance().getAllEvents();
-    
-    std::cout << "[AnalysisView] Loading " << events.size() << " historical events..." << std::endl;
-    
-    paperBreakTable_->setSortingEnabled(false);
-    for (const auto& event : events) {
-        // Insert new row
-        int row = paperBreakTable_->rowCount();
-        paperBreakTable_->insertRow(row);
-        
-        // Column 0: Timestamp
-        QString displayTime = formatTimestamp(event.timestamp);
-        QTableWidgetItem* timeItem = new QTableWidgetItem(displayTime);
-        paperBreakTable_->setItem(row, 0, timeItem);
-        
-        // Column 1: Trigger By (Deterministic)
-        QStringList triggers = {"Reel", "Calender", "Press", "Wire"};
-        long long seed = 0;
-        QString rawTs = event.timestamp.isEmpty() ? QString::number(row) : event.timestamp;
-        for (QChar c : rawTs) { 
-            if (c.isDigit()) seed += c.digitValue(); 
-        }
-        QString randomTrigger = triggers[seed % triggers.size()];
-        
-        QTableWidgetItem* sourceItem = new QTableWidgetItem(randomTrigger);
-        paperBreakTable_->setItem(row, 1, sourceItem);
-        
-        // Store event timestamp in item data for later loading
-        timeItem->setData(Qt::UserRole, event.timestamp);
-    }
-    // Ensure sorting logic matches new behavior
-    paperBreakTable_->horizontalHeader()->setSortIndicator(0, Qt::DescendingOrder);
-    paperBreakTable_->sortByColumn(0, Qt::DescendingOrder);
-    
-    // Auto-select latest historical event
-    if (paperBreakTable_->rowCount() > 0) {
-        int lastRow = paperBreakTable_->rowCount() - 1;
-        paperBreakTable_->selectRow(lastRow);
-        onLogSelected(lastRow, 1); // Load the event
-    }
+    reloadEventTables();
+    selectLatestEvent();
     
     // Register callback for EventController
     // Callback receives metadata only - frames loaded from disk to avoid memory spike
@@ -317,83 +279,52 @@ void AnalysisView::setupLeftSidebar() {
     auto logLayout = new QVBoxLayout(logGroup);
     logLayout->setContentsMargins(4, 8, 4, 4);
     
-    paperBreakTable_ = new QTableWidget(0, 2, logGroup); // 2 Columns
-    paperBreakTable_->setHorizontalHeaderLabels({"Trigger Time", "Reason"});
+    paperBreakTable_ = createLogTable(logGroup, false);
+    permanentPaperBreakTable_ = createLogTable(logGroup, false);
 
-    // Fix 1: Don't bold header on selection
-    paperBreakTable_->horizontalHeader()->setHighlightSections(false);
-    // Left align headers
-    paperBreakTable_->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    // Fix 2: Allow manual resizing, set default width
-    paperBreakTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    paperBreakTable_->setColumnWidth(0, 160);
-    paperBreakTable_->horizontalHeader()->setStretchLastSection(true); // Stretch last column to fill
-    // We want a scrollbar, so do not set ScrollBarAlwaysOff for vertical, but leave horizontal alone if possible, or just allow Both
-    // paperBreakTable_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // Commented out to allow standard scrolling if needed
-    paperBreakTable_->setShowGrid(true); // Show gridlines for row/col borders
-    
-    // Custom Sorting Logic: Only allow sorting on Trigger Time (Column 0)
-    paperBreakTable_->setSortingEnabled(false); 
-    paperBreakTable_->horizontalHeader()->setSortIndicatorShown(true);
-    paperBreakTable_->horizontalHeader()->setSectionsClickable(true);
-    connect(paperBreakTable_->horizontalHeader(), &QHeaderView::sectionClicked, this, [this](int logicalIndex) {
-        if (logicalIndex == 0) { // Only sort if 'Trigger Time' is clicked
-            Qt::SortOrder order = paperBreakTable_->horizontalHeader()->sortIndicatorOrder();
-            paperBreakTable_->sortByColumn(0, order);
-        } else {
-            // Keep the indicator on column 0 to avoid confusion
-            paperBreakTable_->horizontalHeader()->setSortIndicator(0, paperBreakTable_->horizontalHeader()->sortIndicatorOrder());
-        }
-    });
-
-    paperBreakTable_->verticalHeader()->setVisible(false);
-    paperBreakTable_->verticalHeader()->setDefaultSectionSize(30);
-    
-    paperBreakTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    paperBreakTable_->setSelectionMode(QAbstractItemView::SingleSelection);
-    paperBreakTable_->setEditTriggers(QAbstractItemView::NoEditTriggers); 
-    paperBreakTable_->setAlternatingRowColors(true);
-    
-    paperBreakTable_->setStyleSheet(makeTableStyle(tc, false));
-    
-    // Connect log selection and Delete toggle
-    connect(paperBreakTable_, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        if (deleteButton_ && deleteButton_->isEnabled()) {
-             // Admin Delete Mode: Native Selection handles the "Red" toggle.
-             // We do nothing here, let the user click to select/deselect.
-        } else {
-            // Normal Mode: Load Event
-            onLogSelected(row, col);
-        }
-    });
-    
-    // Enable context menu for deletion
-    paperBreakTable_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(paperBreakTable_, &QTableWidget::customContextMenuRequested, [this](const QPoint& pos) {
-        if (!deleteButton_ || !deleteButton_->isEnabled()) return; // Only allow context menu if delete is enabled
-        
-        ThemeColors lc = CameraConfig::getThemeColors();
-        QMenu menu;
-        menu.setStyleSheet(QString(
-                           "QMenu { background-color: %1; color: %2; border: 1px solid %3; }"
-                           "QMenu::item { padding: 5px 20px; }"
-                           "QMenu::item:selected { background-color: %4; color: %5; }")
-                           .arg(lc.btnBg, lc.text, lc.border, lc.btnHover, lc.primary));
-        QAction* deleteAction = menu.addAction("Delete Selected");
-        connect(deleteAction, &QAction::triggered, this, &AnalysisView::onDeleteClicked);
-        menu.exec(paperBreakTable_->mapToGlobal(pos));
-    });
-
-    // Add Keyboard Shortcut (Del and Backspace)
-    auto deleteShortcut = new QShortcut(QKeySequence::Delete, paperBreakTable_);
-    connect(deleteShortcut, &QShortcut::activated, this, &AnalysisView::onDeleteClicked);
-    
-    auto backspaceShortcut = new QShortcut(QKeySequence(Qt::Key_Backspace), paperBreakTable_);
-    connect(backspaceShortcut, &QShortcut::activated, this, &AnalysisView::onDeleteClicked);
-    
+    auto normalLabel = new QLabel("Recent Records", logGroup);
+    normalLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.text));
+    logLayout->addWidget(normalLabel);
     logLayout->addWidget(paperBreakTable_);
+
+    togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
+    togglePermanentTableButton_->setCheckable(true);
+    togglePermanentTableButton_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px; font-weight: 600; }"
+        "QPushButton:hover { background-color: %4; }"
+        "QPushButton:checked { background-color: %4; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
+    connect(togglePermanentTableButton_, &QPushButton::toggled, this, [this](bool checked) {
+        permanentSectionWidget_->setVisible(checked);
+        togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
+    });
+    logLayout->addWidget(togglePermanentTableButton_);
+
+    permanentSectionWidget_ = new QWidget(logGroup);
+    auto permanentLayout = new QVBoxLayout(permanentSectionWidget_);
+    permanentLayout->setContentsMargins(0, 0, 0, 0);
+    permanentLayout->setSpacing(4);
+    auto permanentLabel = new QLabel("Permanent Storage", permanentSectionWidget_);
+    permanentLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.primary));
+    permanentLayout->addWidget(permanentLabel);
+    permanentLayout->addWidget(permanentPaperBreakTable_);
+    permanentSectionWidget_->setVisible(false);
+    logLayout->addWidget(permanentSectionWidget_);
     
     // Delete Button (Initially Disabled/Hidden)
+    auto buttonRow = new QHBoxLayout();
+
+    permanentButton_ = new QPushButton("Mark Permanent", logGroup);
+    permanentButton_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 6px; border-radius: 4px; border: 1px solid %3; }"
+        "QPushButton:hover { background-color: %4; }"
+        "QPushButton:pressed { background-color: %1; }"
+        "QPushButton:disabled { background-color: %5; color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.bg));
+    permanentButton_->setEnabled(false);
+    connect(permanentButton_, &QPushButton::clicked, this, &AnalysisView::onTogglePermanentClicked);
+    buttonRow->addWidget(permanentButton_);
+
     deleteButton_ = new QPushButton("Delete Selected", logGroup);
     deleteButton_->setStyleSheet(QString(
         "QPushButton { background-color: #D32F2F; color: white; font-weight: bold; padding: 6px; border-radius: 4px; }"
@@ -404,8 +335,9 @@ void AnalysisView::setupLeftSidebar() {
     deleteButton_->setEnabled(false); // Only admin
     deleteButton_->setVisible(false); // Hide until admin mode
     connect(deleteButton_, &QPushButton::clicked, this, &AnalysisView::onDeleteClicked);
-    
-    logLayout->addWidget(deleteButton_);
+
+    buttonRow->addWidget(deleteButton_);
+    logLayout->addLayout(buttonRow);
     
     layout->addWidget(logGroup, 1);  // Stretches to fill remaining space
     
@@ -691,11 +623,13 @@ void AnalysisView::onDeleteClicked() {
     QList<int> rowsToDelete;
     QList<QString> timestampsToDelete;
     
-    int rowCount = paperBreakTable_->rowCount();
+    QTableWidget* activeTable = !paperBreakTable_->selectedItems().isEmpty()
+        ? paperBreakTable_
+        : permanentPaperBreakTable_;
+    int rowCount = activeTable->rowCount();
     std::cout << "[AnalysisView] Scanning " << rowCount << " rows for marked items..." << std::endl;
     
-    // Use selectedItems() to find rows
-    QList<QTableWidgetItem*> selected = paperBreakTable_->selectedItems();
+    QList<QTableWidgetItem*> selected = activeTable->selectedItems();
     QSet<int> uniqueRows;
     for (auto* item : selected) {
         uniqueRows.insert(item->row());
@@ -707,7 +641,7 @@ void AnalysisView::onDeleteClicked() {
     }
 
     for (int row : uniqueRows) {
-        QTableWidgetItem* item = paperBreakTable_->item(row, 0); 
+        QTableWidgetItem* item = activeTable->item(row, 0); 
         if (item) {
             QString ts = item->data(Qt::UserRole).toString();
             if (!ts.isEmpty()) {
@@ -742,11 +676,50 @@ void AnalysisView::onDeleteClicked() {
         std::sort(rowsToDelete.begin(), rowsToDelete.end(), std::greater<int>());
         for (int row : rowsToDelete) {
             std::cout << "[AnalysisView] Removing row " << row << std::endl;
-            paperBreakTable_->removeRow(row);
+            activeTable->removeRow(row);
         }
         
         // Clear the data view immediately
         clearData();
+    }
+}
+
+void AnalysisView::onTogglePermanentClicked() {
+    QTableWidget* sourceTable = paperBreakTable_->selectedItems().isEmpty() ? permanentPaperBreakTable_ : paperBreakTable_;
+    QList<QTableWidgetItem*> selected = sourceTable->selectedItems();
+    QSet<int> uniqueRows;
+    for (auto* item : selected) {
+        uniqueRows.insert(item->row());
+    }
+
+    if (uniqueRows.isEmpty()) {
+        QMessageBox::information(this, "Permanent Storage", "Please select a record first.");
+        return;
+    }
+
+    bool anyChanged = false;
+    for (int row : uniqueRows) {
+        QTableWidgetItem* timeItem = sourceTable->item(row, 0);
+        QTableWidgetItem* reasonItem = sourceTable->item(row, 1);
+        if (!timeItem || !reasonItem) {
+            continue;
+        }
+
+        const QString timestamp = timeItem->data(Qt::UserRole).toString();
+        const bool currentlyPermanent = timeItem->data(Qt::UserRole + 2).toBool();
+        const bool nextPermanent = !currentlyPermanent;
+        if (!EventDatabase::instance().setPermanent(timestamp, nextPermanent)) {
+            continue;
+        }
+
+        timeItem->setData(Qt::UserRole + 2, nextPermanent);
+        reasonItem->setData(Qt::UserRole + 2, nextPermanent);
+        anyChanged = true;
+    }
+
+    if (anyChanged) {
+        moveSelectedRowsToTable(sourceTable, sourceTable == paperBreakTable_ ? permanentPaperBreakTable_ : paperBreakTable_, sourceTable == paperBreakTable_);
+        updatePermanentButtonLabel();
     }
 }
 
@@ -759,8 +732,11 @@ void AnalysisView::onLogSelected(int row, int col) {
     // If clicking checkbox (col 0), just toggle check state (already handled by widget)
     // We don't want to load video on every check
     // Get event timestamp from table item data
-    // Column 0 is now Timestamp
-    QTableWidgetItem* item = paperBreakTable_->item(row, 0);
+    QTableWidget* sourceTable = qobject_cast<QTableWidget*>(sender());
+    if (!sourceTable) {
+        sourceTable = paperBreakTable_->hasFocus() ? paperBreakTable_ : permanentPaperBreakTable_;
+    }
+    QTableWidgetItem* item = sourceTable->item(row, 0);
     if (!item) return;
     
     QString timestamp = item->data(Qt::UserRole).toString();
@@ -1435,41 +1411,60 @@ void AnalysisView::onPlaybackTick() {
 
 void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {
     QString rawTs = QString::fromStdString(timestamp);
-    QString displayTs = formatTimestamp(rawTs);
-    
-    paperBreakTable_->setSortingEnabled(false);
-    int row = paperBreakTable_->rowCount();
-    paperBreakTable_->insertRow(row);
-    
-    // Column 0: Timestamp
-    QTableWidgetItem* timeItem = new QTableWidgetItem(displayTs);
-    paperBreakTable_->setItem(row, 0, timeItem);
-    
-    // Column 1: Reason
-    QStringList triggers = {"Reel", "Calender", "Press", "Wire"};
-    // Use simple hash of timestamp to pick trigger source
-    long long seed = 0;
-    for (QChar c : rawTs) { 
-        if (c.isDigit()) seed += c.digitValue(); 
-    }
-    QString randomTrigger = triggers[seed % triggers.size()];
-    
-    QTableWidgetItem* sourceItem = new QTableWidgetItem(randomTrigger);
-    paperBreakTable_->setItem(row, 1, sourceItem);
-    
-    // Store event timestamp in item data for later loading
-    timeItem->setData(Qt::UserRole, rawTs);
-    
-    // Note: sorting enabled is manipulated manually, just sort here.
-    paperBreakTable_->sortByColumn(0, paperBreakTable_->horizontalHeader()->sortIndicatorOrder());
+    reloadEventTables();
+    selectLatestEvent();
     
     // Load RAW BINARY from disk (using new per-camera format base)
     QString binPath = QString("../data/event_%1_cam1.bin").arg(rawTs);
     startReviewFromFile(binPath, triggerIndex);
     
-    // Auto-select the new row
-    paperBreakTable_->selectRow(row);
-    paperBreakTable_->scrollToItem(paperBreakTable_->item(row, 0)); // Ensure visible
+}
+
+void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow) {
+    QTableWidget* targetTable = permanent ? permanentPaperBreakTable_ : paperBreakTable_;
+    const int row = targetTable->rowCount();
+    targetTable->insertRow(row);
+
+    QTableWidgetItem* timeItem = new QTableWidgetItem(formatTimestamp(timestamp));
+    QTableWidgetItem* reasonItem = new QTableWidgetItem(reason);
+    timeItem->setData(Qt::UserRole, timestamp);
+    timeItem->setData(Qt::UserRole + 2, permanent);
+    reasonItem->setData(Qt::UserRole + 2, permanent);
+
+    targetTable->setItem(row, 0, timeItem);
+    targetTable->setItem(row, 1, reasonItem);
+    sortLogTable(targetTable);
+
+    if (selectRow) {
+        targetTable->selectRow(row);
+        targetTable->scrollToItem(timeItem);
+    }
+}
+
+void AnalysisView::reloadEventTables() {
+    const auto events = EventDatabase::instance().getAllEvents();
+
+    std::cout << "[AnalysisView] Loading " << events.size() << " historical events..." << std::endl;
+
+    paperBreakTable_->setRowCount(0);
+    permanentPaperBreakTable_->setRowCount(0);
+
+    for (const auto& event : events) {
+        QStringList triggers = {"Reel", "Calender", "Press", "Wire"};
+        long long seed = 0;
+        QString rawTs = event.timestamp;
+        for (QChar c : rawTs) {
+            if (c.isDigit()) {
+                seed += c.digitValue();
+            }
+        }
+        QString randomTrigger = triggers[seed % triggers.size()];
+
+        addEventRow(event.timestamp, randomTrigger, event.permanent, false);
+    }
+
+    sortLogTable(paperBreakTable_);
+    sortLogTable(permanentPaperBreakTable_);
 }
 
 
@@ -1569,27 +1564,20 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
     
     // Switch Selection Mode & Stylesheet
     paperBreakTable_->clearSelection();
+    permanentPaperBreakTable_->clearSelection();
     
     ThemeColors tc = CameraConfig::getThemeColors();
     if (enabled) {
         // DELETE MODE: RED Selection, Multi-Select (Click to toggle)
-        paperBreakTable_->setSelectionMode(QAbstractItemView::MultiSelection);
-        paperBreakTable_->setStyleSheet(makeTableStyle(tc, true));
+        configureLogTable(paperBreakTable_, true);
+        configureLogTable(permanentPaperBreakTable_, true);
     } else {
-        // NORMAL MODE: Primary color Selection, Single-Select
-        paperBreakTable_->setSelectionMode(QAbstractItemView::SingleSelection);
-        paperBreakTable_->setStyleSheet(makeTableStyle(tc, false));
-    }
-    
-    // Clean up any manual background modifications from previous logic (safety)
-    for (int i = 0; i < paperBreakTable_->rowCount(); ++i) {
-        for (int c = 0; c < paperBreakTable_->columnCount(); ++c) {
-            paperBreakTable_->item(i, c)->setBackground(Qt::transparent);
-            paperBreakTable_->item(i, c)->setData(Qt::UserRole + 1, false); 
-        }
+        configureLogTable(paperBreakTable_, false);
+        configureLogTable(permanentPaperBreakTable_, false);
     }
     
     std::cout << "[AnalysisView] Delete Mode: " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
+    updatePermanentButtonLabel();
 }
 
 void AnalysisView::updateTheme() {
@@ -1616,6 +1604,13 @@ void AnalysisView::updateTheme() {
         "QPushButton:pressed { background-color: #C62828; }"
         "QPushButton:disabled { background-color: %1; color: %2; }"
     ).arg(tc.btnBg, tc.border));
+
+    permanentButton_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 6px; border-radius: 4px; border: 1px solid %3; }"
+        "QPushButton:hover { background-color: %4; }"
+        "QPushButton:pressed { background-color: %1; }"
+        "QPushButton:disabled { background-color: %5; color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.bg));
     
     // 2. Tab Widget
     tabWidget_->setStyleSheet(QString(
@@ -1661,8 +1656,13 @@ void AnalysisView::updateTheme() {
         updateDynamicTab(selectedCameraId_);
     }
     
-    // 7. Table and Context Menu
-    setDeleteEnabled(deleteButton_->isVisible()); // Reapplies the makeTableStyle logic
+    togglePermanentTableButton_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px; font-weight: 600; }"
+        "QPushButton:hover { background-color: %4; }"
+        "QPushButton:checked { background-color: %4; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
+
+    setDeleteEnabled(deleteButton_->isVisible());
 }
 
 void AnalysisView::setPlaybackPosition(double frame) {
@@ -1686,11 +1686,9 @@ void AnalysisView::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     
     // Auto-select latest record whenever we return to this view
-    if (paperBreakTable_ && paperBreakTable_->rowCount() > 0) {
-        int lastRow = paperBreakTable_->rowCount() - 1;
-        paperBreakTable_->selectRow(lastRow);
-        paperBreakTable_->scrollToItem(paperBreakTable_->item(lastRow, 0)); // Ensure visible
-        onLogSelected(lastRow, 1); // Load the latest recording
+    if ((paperBreakTable_ && paperBreakTable_->rowCount() > 0) ||
+        (permanentPaperBreakTable_ && permanentPaperBreakTable_->rowCount() > 0)) {
+        selectLatestEvent();
         
         // Auto-select Camera 0 and switch to Single View ("Detail View data record")
         // "if trigger record true" -> implied by having rows
@@ -1780,5 +1778,165 @@ void AnalysisView::setAdminMode(bool isAdmin) {
             enableDeleteCheck_->setChecked(false);
         }
     }
+
+    updatePermanentButtonLabel();
 }
 
+void AnalysisView::updatePermanentButtonLabel() {
+    if (!permanentButton_) {
+        return;
+    }
+
+    const QList<QTableWidgetItem*> selected = !paperBreakTable_->selectedItems().isEmpty()
+        ? paperBreakTable_->selectedItems()
+        : permanentPaperBreakTable_->selectedItems();
+    bool hasSelection = !selected.isEmpty();
+    bool allPermanent = hasSelection;
+    for (auto* item : selected) {
+        if (!item->data(Qt::UserRole + 2).toBool()) {
+            allPermanent = false;
+            break;
+        }
+    }
+
+    permanentButton_->setEnabled(hasSelection);
+    permanentButton_->setText(allPermanent ? "Remove Permanent" : "Mark Permanent");
+}
+
+QTableWidget* AnalysisView::createLogTable(QWidget* parent, bool deleteMode) {
+    QTableWidget* table = new QTableWidget(0, 2, parent);
+    table->setHorizontalHeaderLabels({"Trigger Time", "Reason"});
+    configureLogTable(table, deleteMode);
+    connectLogTable(table);
+    return table;
+}
+
+void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
+    if (!table) {
+        return;
+    }
+
+    table->horizontalHeader()->setHighlightSections(false);
+    table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    table->setColumnWidth(0, 160);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setShowGrid(true);
+    table->setSortingEnabled(false);
+    table->horizontalHeader()->setSortIndicatorShown(true);
+    table->horizontalHeader()->setSectionsClickable(true);
+    table->verticalHeader()->setVisible(false);
+    table->verticalHeader()->setDefaultSectionSize(30);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(deleteMode ? QAbstractItemView::MultiSelection : QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(true);
+    table->setStyleSheet(makeTableStyle(CameraConfig::getThemeColors(), deleteMode));
+}
+
+void AnalysisView::connectLogTable(QTableWidget* table) {
+    connect(table, &QTableWidget::itemSelectionChanged, this, &AnalysisView::updatePermanentButtonLabel);
+    connect(table->horizontalHeader(), &QHeaderView::sectionClicked, this, [this, table](int logicalIndex) {
+        if (logicalIndex == 0) {
+            Qt::SortOrder order = table->horizontalHeader()->sortIndicatorOrder();
+            table->sortByColumn(0, order);
+        } else {
+            table->horizontalHeader()->setSortIndicator(0, table->horizontalHeader()->sortIndicatorOrder());
+        }
+    });
+    connect(table, &QTableWidget::cellClicked, this, [this, table](int row, int col) {
+        if (deleteButton_ && deleteButton_->isEnabled()) {
+            return;
+        }
+        if (table == paperBreakTable_) {
+            permanentPaperBreakTable_->clearSelection();
+        } else if (table == permanentPaperBreakTable_) {
+            paperBreakTable_->clearSelection();
+        }
+        onLogSelected(row, col);
+    });
+    table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table, &QTableWidget::customContextMenuRequested, this, [this, table](const QPoint& pos) {
+        if (!deleteButton_ || !deleteButton_->isEnabled()) {
+            return;
+        }
+        ThemeColors lc = CameraConfig::getThemeColors();
+        QMenu menu;
+        menu.setStyleSheet(QString(
+            "QMenu { background-color: %1; color: %2; border: 1px solid %3; }"
+            "QMenu::item { padding: 5px 20px; }"
+            "QMenu::item:selected { background-color: %4; color: %5; }")
+            .arg(lc.btnBg, lc.text, lc.border, lc.btnHover, lc.primary));
+        QAction* deleteAction = menu.addAction("Delete Selected");
+        connect(deleteAction, &QAction::triggered, this, &AnalysisView::onDeleteClicked);
+        menu.exec(table->mapToGlobal(pos));
+    });
+    auto deleteShortcut = new QShortcut(QKeySequence::Delete, table);
+    connect(deleteShortcut, &QShortcut::activated, this, &AnalysisView::onDeleteClicked);
+    auto backspaceShortcut = new QShortcut(QKeySequence(Qt::Key_Backspace), table);
+    connect(backspaceShortcut, &QShortcut::activated, this, &AnalysisView::onDeleteClicked);
+}
+
+void AnalysisView::sortLogTable(QTableWidget* table) {
+    if (!table) {
+        return;
+    }
+    table->horizontalHeader()->setSortIndicator(0, Qt::DescendingOrder);
+    table->sortByColumn(0, table->horizontalHeader()->sortIndicatorOrder());
+}
+
+void AnalysisView::selectLatestEvent() {
+    QTableWidget* latestTable = nullptr;
+    QString latestTimestamp;
+    for (QTableWidget* table : {paperBreakTable_, permanentPaperBreakTable_}) {
+        if (!table || table->rowCount() == 0) {
+            continue;
+        }
+        QTableWidgetItem* item = table->item(0, 0);
+        if (!item) {
+            continue;
+        }
+        const QString ts = item->data(Qt::UserRole).toString();
+        if (latestTable == nullptr || ts > latestTimestamp) {
+            latestTable = table;
+            latestTimestamp = ts;
+        }
+    }
+    if (!latestTable) {
+        return;
+    }
+    if (latestTable == paperBreakTable_) {
+        permanentPaperBreakTable_->clearSelection();
+    } else {
+        paperBreakTable_->clearSelection();
+        if (!togglePermanentTableButton_->isChecked()) {
+            togglePermanentTableButton_->setChecked(true);
+        }
+    }
+    latestTable->selectRow(0);
+    latestTable->scrollToItem(latestTable->item(0, 0));
+    onLogSelected(0, 1);
+}
+
+void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent) {
+    QList<int> rows;
+    QSet<int> uniqueRows;
+    for (auto* item : sourceTable->selectedItems()) {
+        uniqueRows.insert(item->row());
+    }
+    for (int row : uniqueRows) {
+        rows.append(row);
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int row : rows) {
+        QTableWidgetItem* timeItem = sourceTable->item(row, 0);
+        QTableWidgetItem* reasonItem = sourceTable->item(row, 1);
+        if (!timeItem || !reasonItem) {
+            continue;
+        }
+        addEventRow(timeItem->data(Qt::UserRole).toString(), reasonItem->text(), permanent, false);
+        sourceTable->removeRow(row);
+    }
+    sortLogTable(sourceTable);
+    sortLogTable(targetTable);
+}

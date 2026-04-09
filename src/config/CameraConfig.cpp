@@ -46,6 +46,16 @@ void CameraConfig::setPostTriggerSeconds(int seconds) {
     settings.setValue("PostTriggerSeconds", seconds);
 }
 
+int CameraConfig::getEventRetentionCount() {
+    QSettings settings("PaperVision", "SystemConfig");
+    return settings.value("EventRetentionCount", 200).toInt();
+}
+
+void CameraConfig::setEventRetentionCount(int count) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("EventRetentionCount", count);
+}
+
 int CameraConfig::getPreTriggerSeconds() {
     QSettings settings("PaperVision", "SystemConfig");
     return settings.value("PreTriggerSeconds", 10).toInt(); // Default 10s

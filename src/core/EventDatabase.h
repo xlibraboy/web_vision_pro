@@ -20,6 +20,7 @@ public:
         double fps;             // Frames per second
         int width;              // Frame width
         int height;             // Frame height
+        bool permanent = false; // Excluded from automatic retention cleanup
     };
     
     // Singleton access
@@ -37,6 +38,9 @@ public:
 
     // Delete event (files and registry)
     bool deleteEvent(const QString& timestamp);
+
+    // Update event retention mode and persist it to metadata.
+    bool setPermanent(const QString& timestamp, bool permanent);
     
     // Register new event (called after recording completes)
     void registerEvent(const EventInfo& event);
@@ -53,9 +57,10 @@ private:
     
     EventDatabase(const EventDatabase&) = delete;
     EventDatabase& operator=(const EventDatabase&) = delete;
-    
+
     void scanDirectory();
-    
+    void trimNonPermanentEvents();
+
     QMap<QString, EventInfo> events_;  // timestamp -> EventInfo
     QString dataPath_;
 };

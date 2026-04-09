@@ -236,12 +236,13 @@ void MainWindow::setupUi() {
     // Add spacer before check
     liveControlsLayout->addStretch();
     
-    QLabel* defectLabel = new QLabel("Enable Defect Detection:");
+    QLabel* defectLabel = new QLabel("Trigger on Defect:");
     liveControlsLayout->addWidget(defectLabel);
     
     defectDetectionCheck_ = new ToggleSwitch(this);
     defectDetectionCheck_->setEnabled(isAdmin_); // Linked to Admin
     connect(defectDetectionCheck_, &ToggleSwitch::toggled, [this](bool checked) {
+        CameraConfig::setDefectDetectionEnabled(checked);
         if (cameraManager_) {
             cameraManager_->setDefectDetectionEnabled(checked);
         }
@@ -355,10 +356,7 @@ void MainWindow::setupUi() {
     connect(configAction_, &QAction::triggered, [this]() {
         if (!configWindow_) {
             configWindow_ = new ConfigDialog(cameraManager_.get());
-            connect(configWindow_, &ConfigDialog::configUpdated, [this]() {
-                // Total Camera Source/MAC change requires restart
-                startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
-                 
+            connect(configWindow_, &ConfigDialog::configUpdated, [this](bool requiresCameraRestart) {
                 // Update camera counts in views to handle newly added cameras
                 int newCamCount = CameraConfig::getCameraCount();
                 if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
@@ -375,7 +373,13 @@ void MainWindow::setupUi() {
                     10, 
                     CameraConfig::getPostTriggerSeconds() * 10
                 );
-                
+
+                if (requiresCameraRestart) {
+                    startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
+                } else {
+                    statusBar()->showMessage("Settings saved", 3000);
+                }
+                 
                 // Reload UI Theme Globally
                 this->applyGlobalTheme();
             });
