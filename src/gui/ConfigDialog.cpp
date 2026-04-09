@@ -307,13 +307,13 @@ void ConfigDialog::setupUI() {
     postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
 
-    QFormLayout* retentionForm = createSectionForm("Retention");
+    QFormLayout* retentionForm = createSectionForm("Record Storage");
 
     eventRetentionSpin_ = new QSpinBox(bufferGroup);
     eventRetentionSpin_->setRange(1, 10000);
     eventRetentionSpin_->setSuffix(" records");
     eventRetentionSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    retentionForm->addRow("Event Retention Limit:", eventRetentionSpin_);
+    retentionForm->addRow("Keep Recent Records:", eventRetentionSpin_);
 
     QFormLayout* triggerForm = createSectionForm("Triggering");
 

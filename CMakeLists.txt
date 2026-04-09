@@ -9,7 +9,7 @@ link_directories(${PYLON_ROOT}/lib) # Ubuntu X86_64 uses lib for Pylon 6.x
 
 # Find Packages
 find_package(OpenCV REQUIRED)
-find_package(Qt5 COMPONENTS Core Widgets Gui Concurrent Svg REQUIRED)
+find_package(Qt5 COMPONENTS Core Widgets Gui Concurrent Svg Network REQUIRED)
 
 # Pylon - We might need a custom finder or just skip if mocking
 # list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -73,7 +73,7 @@ add_executable(PaperVision_App ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
 # Link Libraries
 target_link_libraries(PaperVision_App
     ${OpenCV_LIBS}
-    Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg
+    Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg Qt5::Network
     pthread
     pylonbase
     pylonutility

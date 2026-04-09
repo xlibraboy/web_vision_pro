@@ -21,6 +21,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     working_dir: /app
-    command: /bin/bash -c "mkdir -p build && cd build && cmake .. && make && ./PaperVision_App"
+    command: /bin/bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j$(nproc) && exec tail -f /dev/null"
     stdin_open: true
     tty: true

@@ -242,11 +242,22 @@ void CameraManager::stopCameraRuntime(int configArrayIndex) {
     CameraRuntime& runtime = cameraRuntimes_[configArrayIndex];
     runtime.connected = false;
 
+    // Stop the stream first so the grab loop can exit, but do not destroy the
+    // camera object until the worker thread has fully joined.
+    try {
+        if (runtime.camera && runtime.camera->IsGrabbing()) {
+            runtime.camera->StopGrabbing();
+        }
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] stopCameraRuntime stop warning: " << e.GetDescription() << std::endl;
+    }
+
+    if (runtime.grabThread.joinable()) {
+        runtime.grabThread.join();
+    }
+
     try {
         if (runtime.camera) {
-            if (runtime.camera->IsGrabbing()) {
-                runtime.camera->StopGrabbing();
-            }
             if (runtime.camera->IsOpen()) {
                 runtime.camera->Close();
             }
@@ -256,10 +267,6 @@ void CameraManager::stopCameraRuntime(int configArrayIndex) {
         }
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] stopCameraRuntime warning: " << e.GetDescription() << std::endl;
-    }
-
-    if (runtime.grabThread.joinable()) {
-        runtime.grabThread.join();
     }
 
     runtime.camera.reset();

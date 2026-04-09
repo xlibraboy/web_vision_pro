@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QCloseEvent>
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QPushButton>
@@ -34,6 +35,7 @@ public:
     };
     
     void switchView(ViewMode mode);
+    void raiseAndActivate();
 
 signals:
     // Signal to bridge non-Qt thread to Qt thread
@@ -100,5 +102,6 @@ private slots:
     void showAbout();
 
 protected:
+    void closeEvent(QCloseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 };

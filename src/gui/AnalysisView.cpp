@@ -1835,7 +1835,16 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
 }
 
 void AnalysisView::connectLogTable(QTableWidget* table) {
-    connect(table, &QTableWidget::itemSelectionChanged, this, &AnalysisView::updatePermanentButtonLabel);
+    connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
+        if (!table->selectedItems().isEmpty()) {
+            if (table == paperBreakTable_) {
+                permanentPaperBreakTable_->clearSelection();
+            } else if (table == permanentPaperBreakTable_) {
+                paperBreakTable_->clearSelection();
+            }
+        }
+        updatePermanentButtonLabel();
+    });
     connect(table->horizontalHeader(), &QHeaderView::sectionClicked, this, [this, table](int logicalIndex) {
         if (logicalIndex == 0) {
             Qt::SortOrder order = table->horizontalHeader()->sortIndicatorOrder();

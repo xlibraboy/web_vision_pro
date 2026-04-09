@@ -61,6 +61,24 @@ MainWindow::~MainWindow() {
     }
 }
 
+void MainWindow::raiseAndActivate() {
+    if (isMinimized()) {
+        setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    }
+
+    show();
+    raise();
+    activateWindow();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    if (configWindow_) {
+        configWindow_->close();
+    }
+
+    QMainWindow::closeEvent(event);
+}
+
 bool MainWindow::validateSavedCameraConfiguration(QStringList* errors) const {
     const std::vector<CameraInfo> cams = CameraConfig::getCameras();
     QMap<QString, QList<int>> ipUsage;
@@ -355,7 +373,7 @@ void MainWindow::setupUi() {
     configAction_->setEnabled(isAdmin_); // Grayed out until Admin login
     connect(configAction_, &QAction::triggered, [this]() {
         if (!configWindow_) {
-            configWindow_ = new ConfigDialog(cameraManager_.get());
+            configWindow_ = new ConfigDialog(cameraManager_.get(), this);
             connect(configWindow_, &ConfigDialog::configUpdated, [this](bool requiresCameraRestart) {
                 // Update camera counts in views to handle newly added cameras
                 int newCamCount = CameraConfig::getCameraCount();
