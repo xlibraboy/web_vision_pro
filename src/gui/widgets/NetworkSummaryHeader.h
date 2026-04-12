@@ -64,7 +64,6 @@ private:
     QVBoxLayout* mainLayout_;
     QHBoxLayout* headerLayout_;
     QHBoxLayout* statusLayout_;
-    QHBoxLayout* actionsLayout_;
 
     // Widgets
     QLabel* networkIcon_;
@@ -82,8 +81,6 @@ private:
 
     // Action buttons
     QPushButton* refreshBtn_;
-    QPushButton* clearBtn_;
-    QPushButton* toggleLogsBtn_;
     QPushButton* addBtn_;
 
     // Data

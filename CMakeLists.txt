@@ -37,6 +37,7 @@ src/config/CameraConfig.cpp
 src/gui/widgets/ToggleSwitch.cpp
 src/gui/widgets/IconManager.cpp
 src/gui/widgets/CameraCard.cpp
+src/gui/widgets/CameraDeviceSettingsDialog.cpp
 src/gui/widgets/NetworkSummaryHeader.cpp
 src/gui/widgets/DeleteConfirmationDialog.cpp
 )
@@ -53,6 +54,7 @@ src/gui/widgets/AnalysisVideoWidget.h
 src/gui/widgets/ToggleSwitch.h
 src/gui/widgets/IconManager.h
 src/gui/widgets/CameraCard.h
+src/gui/widgets/CameraDeviceSettingsDialog.h
 src/gui/widgets/NetworkSummaryHeader.h
 src/gui/widgets/DeleteConfirmationDialog.h
 )

@@ -151,6 +151,17 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.defaultGateway = settings.value("defaultGateway", "0.0.0.0").toString();
         cam.fps = settings.value("fps", 50).toInt();
         cam.enableAcquisitionFps = settings.value("enableAcquisitionFps", false).toBool();
+        cam.width = settings.value("width", 780).toInt();
+        cam.height = settings.value("height", 580).toInt();
+        cam.offsetX = settings.value("offsetX", 0).toInt();
+        cam.offsetY = settings.value("offsetY", 0).toInt();
+        cam.pixelFormat = settings.value("pixelFormat", "Mono8").toString();
+        cam.exposureTimeAbs = settings.value("exposureTimeAbs", 40880.0).toDouble();
+        cam.enableExposureTimeBase = settings.value("enableExposureTimeBase", false).toBool();
+        cam.exposureTimeBaseAbs = settings.value("exposureTimeBaseAbs", 20.0).toDouble();
+        cam.exposureTimeRaw = settings.value("exposureTimeRaw", 2044).toInt();
+        cam.chunkModeActive = settings.value("chunkModeActive", false).toBool();
+        cam.enabledChunks = settings.value("enabledChunks").toStringList();
         cam.temperature = 0.0; // Runtime value
         cameras.push_back(cam);
     }
@@ -176,6 +187,17 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("defaultGateway", cam.defaultGateway);
         settings.setValue("fps", cam.fps);
         settings.setValue("enableAcquisitionFps", cam.enableAcquisitionFps);
+        settings.setValue("width", cam.width);
+        settings.setValue("height", cam.height);
+        settings.setValue("offsetX", cam.offsetX);
+        settings.setValue("offsetY", cam.offsetY);
+        settings.setValue("pixelFormat", cam.pixelFormat);
+        settings.setValue("exposureTimeAbs", cam.exposureTimeAbs);
+        settings.setValue("enableExposureTimeBase", cam.enableExposureTimeBase);
+        settings.setValue("exposureTimeBaseAbs", cam.exposureTimeBaseAbs);
+        settings.setValue("exposureTimeRaw", cam.exposureTimeRaw);
+        settings.setValue("chunkModeActive", cam.chunkModeActive);
+        settings.setValue("enabledChunks", cam.enabledChunks);
     }
     settings.endArray();
 }
@@ -187,38 +209,60 @@ void CameraConfig::ensureDefaultCameras() {
     
     if (count > 0) return;
     
-    std::vector<CameraInfo> defaults = {
-        {
-            1,  // ID starts from 1
-            1,  // source (1 = Real Camera)
-            "DRYER 1", // name
+     std::vector<CameraInfo> defaults = {
+         {
+             1,  // ID starts from 1
+             1,  // source (1 = Real Camera)
+             "DRYER 1", // name
             "CYLINDER 13", // location
             "OPERATOR SIDE", // side
             16600, // machinePosition
             "172.20.2.1", // ipAddress
             "", // macAddress
-            "255.255.255.0", // subnetMask
-            "0.0.0.0", // defaultGateway
-            50, // fps
-            false, // enableAcquisitionFps
-            0.0 // temperature
-        },
-        {
-            2,
-            1,  // source (1 = Real Camera)
+             "255.255.255.0", // subnetMask
+             "0.0.0.0", // defaultGateway
+             50, // fps
+             false, // enableAcquisitionFps
+             780, // width
+             580, // height
+             0, // offsetX
+             0, // offsetY
+             "Mono8", // pixelFormat
+             40880.0, // exposureTimeAbs
+             false, // enableExposureTimeBase
+             20.0, // exposureTimeBaseAbs
+             2044, // exposureTimeRaw
+             false, // chunkModeActive
+             {}, // enabledChunks
+             0.0 // temperature
+         },
+         {
+             2,
+             1,  // source (1 = Real Camera)
             "DRYER 2",
             "CYLINDER 14",
             "DRIVE SIDE",
             17200,
             "172.20.2.2",
             "",
-            "255.255.255.0",
-            "0.0.0.0",
-            50, // fps
-            false, // enableAcquisitionFps
-            0.0 // temperature
-        }
-    };
+             "255.255.255.0",
+             "0.0.0.0",
+             50, // fps
+             false, // enableAcquisitionFps
+             780, // width
+             580, // height
+             0, // offsetX
+             0, // offsetY
+             "Mono8", // pixelFormat
+             40880.0, // exposureTimeAbs
+             false, // enableExposureTimeBase
+             20.0, // exposureTimeBaseAbs
+             2044, // exposureTimeRaw
+             false, // chunkModeActive
+             {}, // enabledChunks
+             0.0 // temperature
+         }
+     };
     saveCameras(defaults);
 }
 

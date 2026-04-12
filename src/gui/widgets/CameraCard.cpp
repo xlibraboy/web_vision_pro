@@ -11,16 +11,20 @@
 #include <QCheckBox>
 #include <QToolButton>
 #include <QGroupBox>
+#include <QStandardItemModel>
+#include <QStandardItem>
 #include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
 #include <QParallelAnimationGroup>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QPainter>
 #include <QStyleOption>
 #include "IconManager.h"
 
 CameraCard::CameraCard(const CameraInfo& info, QWidget* parent)
     : QFrame(parent)
+    , cameraInfo_(info)
     , cameraId_(info.id)
     , isExpanded_(true)
     , isHovered_(false)
@@ -34,6 +38,12 @@ CameraCard::CameraCard(const CameraInfo& info, QWidget* parent)
     setupAnimations();
     setupStyleSheet();
     updateSmartState();
+}
+
+QSize CameraCard::sizeHint() const {
+    const int expandedHeight = 450;
+    const int collapsedHeight = 92;
+    return QSize(isExpanded_ ? 0 : 0, isExpanded_ ? expandedHeight : collapsedHeight);
 }
 
 CameraCard::~CameraCard() {
@@ -59,33 +69,47 @@ void CameraCard::setupUI(const CameraInfo& info) {
     // Create content area
     contentWidget_ = new QWidget(this);
     contentLayout_ = new QVBoxLayout(contentWidget_);
-    contentLayout_->setSpacing(10);
-    contentLayout_->setContentsMargins(14, 10, 14, 14);
+    contentLayout_->setSpacing(14);
+    contentLayout_->setContentsMargins(16, 12, 16, 16);
 
     createContent(info);
 
     mainLayout_->addWidget(contentWidget_);
 
-    // Set initial state
-    setExpanded(true, false);
+    // Start compact so larger camera counts remain scannable.
+    setExpanded(false, false);
 }
 
 void CameraCard::createHeader() {
     headerLayout_ = new QHBoxLayout();
-    headerLayout_->setSpacing(12);
-    headerLayout_->setContentsMargins(16, 12, 16, 12);
+    headerLayout_->setSpacing(10);
+    headerLayout_->setContentsMargins(16, 14, 16, 14);
 
     // Camera icon
     cameraIcon_ = new QLabel(this);
     cameraIcon_->setPixmap(IconManager::instance().camera(24).pixmap(24, 24));
-    headerLayout_->addWidget(cameraIcon_);
+    headerLayout_->addWidget(cameraIcon_, 0, Qt::AlignTop);
 
-    // Camera title
+    QWidget* titleBlock = new QWidget(this);
+    QVBoxLayout* titleLayout = new QVBoxLayout(titleBlock);
+    titleLayout->setSpacing(4);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
+
     cameraTitle_ = new QLabel(this);
     cameraTitle_->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
-    headerLayout_->addWidget(cameraTitle_);
+    titleLayout->addWidget(cameraTitle_);
 
-    headerLayout_->addStretch();
+    cameraMetaLabel_ = new QLabel(this);
+    cameraMetaLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    cameraMetaLabel_->setWordWrap(true);
+    titleLayout->addWidget(cameraMetaLabel_);
+
+    headerLayout_->addWidget(titleBlock, 1);
+
+    QWidget* headerActions = new QWidget(this);
+    QHBoxLayout* actionLayout = new QHBoxLayout(headerActions);
+    actionLayout->setSpacing(8);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
 
     // Status label
     statusLabel_ = new QLabel("Pending", this);
@@ -94,7 +118,15 @@ void CameraCard::createHeader() {
         "border-radius: 12px; background-color: rgba(136, 136, 136, 0.2); "
         "color: #888888;"
     );
-    headerLayout_->addWidget(statusLabel_);
+    actionLayout->addWidget(statusLabel_, 0, Qt::AlignVCenter);
+
+    editCheck_ = new QCheckBox("Edit", this);
+    editCheck_->setStyleSheet(
+        "QCheckBox { color: #E3E3E3; font-size: 12px; spacing: 6px; padding-left: 2px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; }"
+    );
+    connect(editCheck_, &QCheckBox::toggled, this, &CameraCard::editToggled);
+    actionLayout->addWidget(editCheck_, 0, Qt::AlignVCenter);
 
     // Expand/collapse button
     expandButton_ = new QToolButton(this);
@@ -106,16 +138,7 @@ void CameraCard::createHeader() {
     connect(expandButton_, &QToolButton::clicked, this, [this]() {
         setExpanded(!isExpanded_);
     });
-    headerLayout_->addWidget(expandButton_);
-
-    // Edit checkbox
-    editCheck_ = new QCheckBox("Edit", this);
-    editCheck_->setStyleSheet(
-        "QCheckBox { color: #E3E3E3; font-size: 12px; spacing: 6px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; }"
-    );
-    connect(editCheck_, &QCheckBox::toggled, this, &CameraCard::editToggled);
-    headerLayout_->addWidget(editCheck_);
+    actionLayout->addWidget(expandButton_);
 
     // Remove button
     removeButton_ = new QToolButton(this);
@@ -125,7 +148,9 @@ void CameraCard::createHeader() {
         "QToolButton:hover { background-color: rgba(255, 90, 90, 0.2); border-radius: 4px; }"
     );
     connect(removeButton_, &QToolButton::clicked, this, &CameraCard::removeClicked);
-    headerLayout_->addWidget(removeButton_);
+    actionLayout->addWidget(removeButton_);
+
+    headerLayout_->addWidget(headerActions, 0, Qt::AlignTop);
 
     // Add header layout to main layout
     QWidget* headerWidget = new QWidget(this);
@@ -140,38 +165,58 @@ void CameraCard::createHeader() {
 
 void CameraCard::updateHeader(const CameraInfo& info) {
     cameraTitle_->setText(QString("Camera %1: %2").arg(info.id).arg(info.name));
+    cameraMetaLabel_->setText(QString("%1 | %2 | %3 mm | %4")
+        .arg(info.location)
+        .arg(info.side)
+        .arg(info.machinePosition)
+        .arg(info.pixelFormat));
 }
 
 void CameraCard::createContent(const CameraInfo& info) {
+    const int labelColumnMinWidth = 92;
+
     const QString groupStyle =
         "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; "
         "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 12px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }";
 
     const QString fieldStyle =
-        "QComboBox, QLineEdit, QSpinBox, QLabel { "
+        "QComboBox, QLineEdit, QSpinBox { "
         "background-color: #1C2128; border: 1px solid #30363D; "
         "border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
         "QComboBox:hover, QLineEdit:hover { border-color: #00E5FF; }"
         "QComboBox:focus, QLineEdit:focus { border-color: #00E5FF; }"
-        "QSpinBox { padding-right: 0; }";
+        "QSpinBox { padding-right: 0; min-width: 84px; }"
+        "QLineEdit { min-width: 0; }"
+        "QComboBox { min-width: 0; }";
+
+    const QString infoValueStyle =
+        "QLabel { "
+        "  background-color: transparent; "
+        "  border: 1px solid #30363D; "
+        "  border-radius: 6px; "
+        "  padding: 6px 8px; "
+        "  color: #E3E3E3; "
+        "  font-size: 12px; "
+        "}";
 
     // Basic Info Group
     basicInfoGroup_ = new QGroupBox("Basic Info", contentWidget_);
     basicInfoGroup_->setStyleSheet(groupStyle);
 
     basicFieldsLayout_ = new QGridLayout(basicInfoGroup_);
-    basicFieldsLayout_->setHorizontalSpacing(10);
-    basicFieldsLayout_->setVerticalSpacing(8);
-    basicFieldsLayout_->setContentsMargins(12, 14, 12, 10);
+    basicFieldsLayout_->setHorizontalSpacing(14);
+    basicFieldsLayout_->setVerticalSpacing(10);
+    basicFieldsLayout_->setContentsMargins(14, 16, 14, 14);
+    basicFieldsLayout_->setColumnStretch(1, 1);
 
     int basicRow = 0;
 
     // Helper lambda to add field
     auto addField = [&](QGroupBox* group, QGridLayout* layout, int& row, const QString& label, QWidget* widget) {
         QLabel* lbl = new QLabel(label, group);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px;");
-        widget->setStyleSheet(fieldStyle);
+        lbl->setStyleSheet("color: #8B949E; font-size: 11px; font-weight: 500;");
+        lbl->setMinimumWidth(labelColumnMinWidth);
         layout->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
         layout->addWidget(widget, row, 1);
         row++;
@@ -183,16 +228,19 @@ void CameraCard::createContent(const CameraInfo& info) {
     sourceCombo_->addItem("Real", 1);
     sourceCombo_->addItem("Disabled", 2);
     sourceCombo_->setCurrentIndex(sourceCombo_->findData(info.source));
+    sourceCombo_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Source:", sourceCombo_);
     connect(sourceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &CameraCard::sourceChanged);
 
     // Name
     nameEdit_ = new QLineEdit(info.name, basicInfoGroup_);
+    nameEdit_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Name:", nameEdit_);
 
     // Location
     locationEdit_ = new QLineEdit(info.location, basicInfoGroup_);
+    locationEdit_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Location:", locationEdit_);
 
     // Side
@@ -200,6 +248,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     sideCombo_->addItem("DRIVE SIDE");
     sideCombo_->addItem("OPERATOR SIDE");
     sideCombo_->setCurrentText(info.side);
+    sideCombo_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Side:", sideCombo_);
 
     // Position
@@ -207,6 +256,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     positionSpin_->setRange(0, 500000);
     positionSpin_->setSuffix(" mm");
     positionSpin_->setValue(info.machinePosition);
+    positionSpin_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Position:", positionSpin_);
 
     contentLayout_->addWidget(basicInfoGroup_);
@@ -216,36 +266,42 @@ void CameraCard::createContent(const CameraInfo& info) {
     networkInfoGroup_->setStyleSheet(groupStyle);
 
     networkFieldsLayout_ = new QGridLayout(networkInfoGroup_);
-    networkFieldsLayout_->setHorizontalSpacing(10);
-    networkFieldsLayout_->setVerticalSpacing(8);
-    networkFieldsLayout_->setContentsMargins(12, 14, 12, 10);
+    networkFieldsLayout_->setHorizontalSpacing(14);
+    networkFieldsLayout_->setVerticalSpacing(10);
+    networkFieldsLayout_->setContentsMargins(14, 16, 14, 14);
+    networkFieldsLayout_->setColumnStretch(1, 1);
 
     int networkRow = 0;
 
-    // IP Address (Read Only)
+    // Configured IP (Read Only)
     ipLabel_ = new QLabel(info.ipAddress, networkInfoGroup_);
-    ipLabel_->setStyleSheet("font-family: 'SF Mono', Monaco, monospace; color: #00E5FF;");
-    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "IP Address:", ipLabel_);
+    ipLabel_->setStyleSheet(infoValueStyle + " QLabel { font-family: 'SF Mono', Monaco, monospace; color: #00E5FF; }");
+    ipLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Configured IP:", ipLabel_);
 
     // Detected IP (Read Only)
     detectedIpLabel_ = new QLabel("Offline", networkInfoGroup_);
-    detectedIpLabel_->setStyleSheet("font-family: 'SF Mono', Monaco, monospace; color: #8B949E;");
-    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Current Camera IP:", detectedIpLabel_);
+    detectedIpLabel_->setStyleSheet(infoValueStyle + " QLabel { font-family: 'SF Mono', Monaco, monospace; color: #8B949E; }");
+    detectedIpLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Detected IP:", detectedIpLabel_);
 
     // MAC Address
     macCombo_ = new QComboBox(networkInfoGroup_);
     macCombo_->addItem("None / Auto");
     macCombo_->setEditable(true);
     macCombo_->setCurrentText(info.macAddress);
+    macCombo_->setStyleSheet(fieldStyle);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "MAC Address:", macCombo_);
     connect(macCombo_, &QComboBox::currentTextChanged, this, &CameraCard::macChanged);
 
     // Subnet Mask
     subnetEdit_ = new QLineEdit(info.subnetMask, networkInfoGroup_);
+    subnetEdit_->setStyleSheet(fieldStyle);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Subnet Mask:", subnetEdit_);
 
     // Gateway
     gatewayEdit_ = new QLineEdit(info.defaultGateway, networkInfoGroup_);
+    gatewayEdit_->setStyleSheet(fieldStyle);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Gateway:", gatewayEdit_);
 
     // Write IP Button
@@ -259,44 +315,19 @@ void CameraCard::createContent(const CameraInfo& info) {
         "QPushButton:disabled { background-color: #30363D; color: #8B949E; }"
     );
     connect(writeIpBtn_, &QPushButton::clicked, this, &CameraCard::writeIpClicked);
-    networkFieldsLayout_->addWidget(writeIpBtn_, networkRow, 0, 1, 2);
+    networkFieldsLayout_->addWidget(writeIpBtn_, networkRow, 1, 1, 1, Qt::AlignLeft);
 
     contentLayout_->addWidget(networkInfoGroup_);
 
-    acquisitionGroup_ = new QGroupBox("Acquisition", contentWidget_);
-    acquisitionGroup_->setStyleSheet(groupStyle);
-    QGridLayout* acquisitionLayout = new QGridLayout(acquisitionGroup_);
-    acquisitionLayout->setHorizontalSpacing(10);
-    acquisitionLayout->setVerticalSpacing(8);
-    acquisitionLayout->setContentsMargins(12, 14, 12, 10);
-
-    // FPS with Enable checkbox
-    enableFpsCheck_ = new QCheckBox("Enable Acquisition Frame Rate", acquisitionGroup_);
-    enableFpsCheck_->setChecked(info.enableAcquisitionFps);
-    enableFpsCheck_->setStyleSheet("color: #E3E3E3; font-size: 11px;");
-
-    fpsSpin_ = new QSpinBox(acquisitionGroup_);
-    fpsSpin_->setRange(1, 200);
-    fpsSpin_->setValue(info.fps);
-    fpsSpin_->setEnabled(info.enableAcquisitionFps);
-    fpsSpin_->setStyleSheet(fieldStyle);
-
-    QWidget* fpsWidget = new QWidget(acquisitionGroup_);
-    QHBoxLayout* fpsLayout = new QHBoxLayout(fpsWidget);
-    fpsLayout->setContentsMargins(0, 0, 0, 0);
-    fpsLayout->setSpacing(10);
-    fpsLayout->addWidget(enableFpsCheck_);
-    fpsLayout->addWidget(fpsSpin_);
-    fpsLayout->addStretch();
-
-    QLabel* fpsLabel = new QLabel("Frame Rate:", acquisitionGroup_);
-    fpsLabel->setStyleSheet("color: #8B949E; font-size: 11px;");
-    acquisitionLayout->addWidget(fpsLabel, 0, 0, Qt::AlignRight | Qt::AlignTop);
-    acquisitionLayout->addWidget(fpsWidget, 0, 1);
-
-    connect(enableFpsCheck_, &QCheckBox::toggled, this, &CameraCard::onFpsEnabledToggled);
-
-    contentLayout_->addWidget(acquisitionGroup_);
+    deviceSettingsBtn_ = new QPushButton("Device Settings...", contentWidget_);
+    deviceSettingsBtn_->setIcon(IconManager::instance().settings(16));
+    deviceSettingsBtn_->setStyleSheet(
+        "QPushButton { background-color: transparent; color: #00E5FF; border: 1px solid #30363D; border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 500; }"
+        "QPushButton:hover { background-color: rgba(0, 229, 255, 0.08); border-color: #00E5FF; }"
+        "QPushButton:disabled { color: #6E7681; border-color: #30363D; }"
+    );
+    connect(deviceSettingsBtn_, &QPushButton::clicked, this, &CameraCard::deviceSettingsClicked);
+    contentLayout_->addWidget(deviceSettingsBtn_, 0, Qt::AlignLeft);
     contentLayout_->addStretch();
 
     // Set initial editable state
@@ -358,6 +389,8 @@ void CameraCard::setExpanded(bool expanded, bool animate) {
         contentWidget_->setVisible(isExpanded_);
     }
 
+    updateGeometry();
+
     emit expansionChanged(isExpanded_);
 }
 
@@ -370,13 +403,7 @@ void CameraCard::collapseWithAnimation() {
 }
 
 void CameraCard::updateSmartState() {
-    // Auto-expand cards with issues, collapse healthy ones
-    bool hasIssue = (statusColor_ == QColor("#FF5A5A") || statusColor_ == QColor("#E0A800"));
-
-    if (hasIssue != hasIssues_) {
-        hasIssues_ = hasIssue;
-        setExpanded(hasIssues_);
-    }
+    hasIssues_ = (statusColor_ == QColor("#FF5A5A") || statusColor_ == QColor("#E0A800"));
 }
 
 void CameraCard::setEditable(bool editable) {
@@ -389,12 +416,18 @@ void CameraCard::setEditable(bool editable) {
     subnetEdit_->setEnabled(editable);
     gatewayEdit_->setEnabled(editable);
     writeIpBtn_->setEnabled(editable);
-    enableFpsCheck_->setEnabled(editable);
-    fpsSpin_->setEnabled(editable && enableFpsCheck_->isChecked());
+    deviceSettingsBtn_->setEnabled(editable);
 }
 
 void CameraCard::setDetectedIp(const QString& ip) {
     detectedIpLabel_->setText(ip.isEmpty() ? "Offline" : ip);
+
+    const QString liveIp = ip.isEmpty() ? "Offline" : ip;
+    cameraMetaLabel_->setText(QString("%1 | %2 | %3 | %4")
+        .arg(location())
+        .arg(side())
+        .arg(liveIp)
+        .arg(cameraInfo_.pixelFormat));
 }
 
 void CameraCard::setStatus(const QString& text, const QColor& color) {
@@ -425,29 +458,99 @@ void CameraCard::setStatus(const QString& text, const QColor& color) {
 
     // Update smart state
     updateSmartState();
+
+    const QString ipSummary = detectedIpLabel_ ? detectedIpLabel_->text() : QString("Offline");
+    cameraMetaLabel_->setText(QString("%1 | %2 | %3 | %4 | %5")
+        .arg(location())
+        .arg(side())
+        .arg(position())
+        .arg(ipSummary)
+        .arg(cameraInfo_.pixelFormat)
+        .arg(text));
 }
 
 QColor CameraCard::statusColor() const {
     return statusColor_;
 }
 
-void CameraCard::updateMacCombo(const QStringList& macs, const QString& current) {
-    macCombo_->blockSignals(true);
-    macCombo_->clear();
-    macCombo_->addItem("None / Auto");
-    macCombo_->addItems(macs);
-
-    QString normalized = current.toUpper().remove(':');
-    if (normalized.isEmpty()) {
-        macCombo_->setCurrentText("None / Auto");
-    } else {
-        macCombo_->setCurrentText(current);
-    }
-    macCombo_->blockSignals(false);
+QString CameraCard::statusText() const {
+    return statusLabel_ ? statusLabel_->text() : QString();
 }
 
-void CameraCard::onFpsEnabledToggled(bool checked) {
-    fpsSpin_->setEnabled(checked && editCheck_->isChecked());
+QString CameraCard::currentMacValue() const {
+    const QString dataValue = macCombo_->currentData().toString();
+    if (!dataValue.isEmpty()) {
+        return dataValue;
+    }
+
+    const QString text = macCombo_->currentText().trimmed();
+    if (text == "None / Auto") {
+        return QString();
+    }
+
+    const int separator = text.indexOf(" | ");
+    return separator >= 0 ? text.left(separator).trimmed() : text;
+}
+
+void CameraCard::updateMacCombo(const std::vector<GigEDeviceInfo>& devices, const QString& current,
+                                const QSet<QString>& reservedMacs) {
+    macCombo_->blockSignals(true);
+    macCombo_->clear();
+
+    QStandardItemModel* model = qobject_cast<QStandardItemModel*>(macCombo_->model());
+    if (!model) {
+        model = new QStandardItemModel(macCombo_);
+        macCombo_->setModel(model);
+    }
+    model->clear();
+
+    QStandardItem* autoItem = new QStandardItem("None / Auto");
+    autoItem->setData(QString(), Qt::UserRole);
+    model->appendRow(autoItem);
+
+    const QString normalizedCurrent = current.toUpper().remove(':');
+
+    for (const auto& dev : devices) {
+        const QString mac = QString::fromStdString(dev.macAddress).trimmed();
+        const QString ip = QString::fromStdString(dev.ipAddress).trimmed();
+        const QString normalizedMac = mac.toUpper().remove(':');
+        const bool reservedByOtherCamera = reservedMacs.contains(normalizedMac) && normalizedMac != normalizedCurrent;
+
+        QString label = mac;
+        if (!ip.isEmpty()) {
+            label += QString(" | %1").arg(ip);
+        }
+        if (reservedByOtherCamera) {
+            label += "  (Used)";
+        }
+
+        QStandardItem* item = new QStandardItem(label);
+        item->setData(mac, Qt::UserRole);
+        if (reservedByOtherCamera) {
+            item->setEnabled(false);
+            item->setForeground(QBrush(QColor("#6E7681")));
+        }
+        model->appendRow(item);
+    }
+
+    if (normalizedCurrent.isEmpty()) {
+        macCombo_->setCurrentIndex(0);
+    } else {
+        bool found = false;
+        for (int i = 0; i < macCombo_->count(); ++i) {
+            if (macCombo_->itemData(i, Qt::UserRole).toString().toUpper().remove(':') == normalizedCurrent) {
+                macCombo_->setCurrentIndex(i);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            macCombo_->setEditText(current);
+        }
+    }
+
+    macCombo_->blockSignals(false);
 }
 
 void CameraCard::enterEvent(QEvent* event) {
@@ -536,6 +639,26 @@ void CameraCard::setShadowColor(const QColor& color) {
 }
 
 // Data getters
+CameraInfo CameraCard::cameraInfo() const {
+    CameraInfo info = cameraInfo_;
+    info.id = cameraId();
+    info.source = sourceType();
+    info.name = name();
+    info.location = location();
+    info.side = side();
+    info.machinePosition = position();
+    info.ipAddress = ipAddress();
+    info.macAddress = macAddress();
+    info.subnetMask = subnetMask();
+    info.defaultGateway = gateway();
+    return info;
+}
+
+void CameraCard::setCameraInfo(const CameraInfo& info) {
+    cameraInfo_ = info;
+    updateHeader(cameraInfo());
+}
+
 int CameraCard::sourceType() const {
     return sourceCombo_->currentData().toInt();
 }
@@ -560,8 +683,12 @@ QString CameraCard::ipAddress() const {
     return ipLabel_->text();
 }
 
+QString CameraCard::detectedIp() const {
+    return detectedIpLabel_ ? detectedIpLabel_->text() : QString();
+}
+
 QString CameraCard::macAddress() const {
-    return macCombo_->currentText();
+    return currentMacValue();
 }
 
 QString CameraCard::subnetMask() const {
@@ -570,12 +697,4 @@ QString CameraCard::subnetMask() const {
 
 QString CameraCard::gateway() const {
     return gatewayEdit_->text();
-}
-
-int CameraCard::fps() const {
-    return fpsSpin_->value();
-}
-
-bool CameraCard::isAcquisitionFpsEnabled() const {
-    return enableFpsCheck_->isChecked();
 }

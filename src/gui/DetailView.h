@@ -20,6 +20,7 @@ public:
     ~DetailView();
 
     void setCamera(int cameraId, const CameraInfo& info, CameraWidget* videoSource);
+    void clearCamera();
     void setAdminMode(bool isAdmin);
     // Update temperature display live (from background monitor thread via MainWindow)
     void updateTemperature(double temp);
@@ -86,5 +87,4 @@ private:
     bool isAdmin_;
     int currentCameraId_ = -1;
 };
-
 

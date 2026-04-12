@@ -2,10 +2,14 @@
 
 #include <QWidget>
 #include <QFrame>
+#include <QSize>
 #include <QPropertyAnimation>
 #include <QParallelAnimationGroup>
 #include <QGraphicsDropShadowEffect>
+#include <QSet>
+#include <vector>
 #include "../../config/CameraConfig.h"
+#include "../../core/CameraManager.h"
 #include "IconManager.h"
 
 // Forward declarations
@@ -20,6 +24,7 @@ class QHBoxLayout;
 class QGridLayout;
 class QGroupBox;
 class QToolButton;
+class QSize;
 
 /**
  * @brief CameraCard - Premium camera configuration card widget
@@ -52,9 +57,10 @@ public:
     QString macAddress() const;
     QString subnetMask() const;
     QString gateway() const;
-    int fps() const;
-    bool isAcquisitionFpsEnabled() const;
     QString detectedIp() const;
+    QSize sizeHint() const override;
+    CameraInfo cameraInfo() const;
+    void setCameraInfo(const CameraInfo& info);
 
     // Status
     QString statusText() const;
@@ -64,7 +70,8 @@ public:
     void setDetectedIp(const QString& ip);
     void setStatus(const QString& text, const QColor& color);
     void setEditable(bool editable);
-    void updateMacCombo(const QStringList& macs, const QString& current);
+    void updateMacCombo(const std::vector<GigEDeviceInfo>& devices, const QString& current,
+                        const QSet<QString>& reservedMacs);
 
     // Animation
     void setExpanded(bool expanded, bool animate = true);
@@ -84,10 +91,8 @@ signals:
     void macChanged(const QString& mac);
     void writeIpClicked();
     void removeClicked();
+    void deviceSettingsClicked();
     void expansionChanged(bool expanded);
-
-public slots:
-    void onFpsEnabledToggled(bool checked);
 
 protected:
     void enterEvent(QEvent* event) override;
@@ -103,6 +108,7 @@ private:
     void updateHeader(const CameraInfo& info);
     void createStatusIndicator();
     void updateElevation(bool hovered);
+    QString currentMacValue() const;
 
     // Animation properties
     int contentHeight() const { return contentHeight_; }
@@ -121,6 +127,7 @@ private:
     // Header widgets
     QLabel* cameraIcon_;
     QLabel* cameraTitle_;
+    QLabel* cameraMetaLabel_;
     QLabel* statusLabel_;
     QToolButton* expandButton_;
     QCheckBox* editCheck_;
@@ -129,7 +136,6 @@ private:
     // Content widgets
     QGroupBox* basicInfoGroup_;
     QGroupBox* networkInfoGroup_;
-    QGroupBox* acquisitionGroup_;
     QGridLayout* basicFieldsLayout_;
     QGridLayout* networkFieldsLayout_;
 
@@ -145,8 +151,7 @@ private:
     QLineEdit* subnetEdit_;
     QLineEdit* gatewayEdit_;
     QPushButton* writeIpBtn_;
-    QCheckBox* enableFpsCheck_;
-    QSpinBox* fpsSpin_;
+    QPushButton* deviceSettingsBtn_;
 
     // Data
     int cameraId_;
@@ -165,7 +170,8 @@ private:
     QColor statusColor_;
     QColor primaryColor_;
     QColor accentColor_;
+    CameraInfo cameraInfo_;
     static constexpr int ANIMATION_DURATION = 250; // ms
-    static constexpr int CARD_MIN_WIDTH = 400;
-    static constexpr int CARD_MAX_WIDTH = 800;
+    static constexpr int CARD_MIN_WIDTH = 0;
+    static constexpr int CARD_MAX_WIDTH = 16777215;
 };

@@ -23,12 +23,42 @@ std::string normalizeMacAddress(const std::string& mac) {
     }
     return normalized;
 }
+
+int clampNodeValue(GenApi::CIntegerPtr node, int requested, const char* nodeName) {
+    if (!node || !IsWritable(node)) {
+        return requested;
+    }
+
+    const int minValue = static_cast<int>(node->GetMin());
+    const int maxValue = static_cast<int>(node->GetMax());
+    const int increment = std::max(1, static_cast<int>(node->GetInc()));
+
+    int clamped = std::clamp(requested, minValue, maxValue);
+    if (increment > 1) {
+        clamped = minValue + ((clamped - minValue) / increment) * increment;
+        clamped = std::clamp(clamped, minValue, maxValue);
+    }
+
+    if (clamped != requested) {
+        std::cout << "[CameraManager] Adjusted " << nodeName << " from " << requested
+                  << " to supported value " << clamped << std::endl;
+    }
+
+    node->SetValue(clamped);
+    return clamped;
+}
 }
 
 // DeviceRemovalHandler Implementation
 void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
     try {
         if (!manager_) return;
+
+        // During intentional shutdown/restart, camera teardown can trigger removal
+        // callbacks. Ignore them to avoid racing with stopAcquisition() cleanup.
+        if (manager_->shuttingDown_) {
+            return;
+        }
 
         std::cout << "[CameraManager] DEVICE REMOVAL EVENT: camera context="
                   << camera.GetCameraContext() << std::endl;
@@ -56,9 +86,8 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
         // 3. Launch the background recovery thread to wait for the camera to reappear and
         //    rebuild only the missing slot.  If a recovery is already running, it will
         //    handle the newly-disconnected camera on its next poll cycle.
-        if (!manager_->recovering_) {
-            if (manager_->recoveryThread_.joinable()) manager_->recoveryThread_.join();
-            manager_->recoveryThread_ = std::thread(&CameraManager::recoveryLoop, manager_);
+        if (!manager_->shuttingDown_) {
+            manager_->startRecoveryThreadIfNeeded();
         }
     } catch (const std::exception& e) {
         std::cerr << "[CameraManager] Exception in DeviceRemovalHandler: " << e.what() << std::endl;
@@ -68,7 +97,7 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
 }
 
 CameraManager::CameraManager(int numCameras) 
-    : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(782), height_(582), fps_(10.0), 
+    : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
       defectDetectionEnabled_(false) {
     prevTempStatus_.assign(numCameras, TemperatureStatus::Unknown);
     // Pylon requires initialization
@@ -98,6 +127,7 @@ CameraManager::CameraManager(int numCameras)
         swContrast_.push_back(1.0);
         lutCache_.push_back(cv::Mat());
         lutValid_.push_back(false);
+        softwareFrameCounters_.emplace_back(0);
     }
     cameraRuntimes_.resize(numCameras_);
 }
@@ -108,6 +138,33 @@ CameraManager::~CameraManager() {
         PylonTerminate();
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] Failed to terminate Pylon: " << e.GetDescription() << std::endl;
+    }
+}
+
+void CameraManager::startRecoveryThreadIfNeeded() {
+    if (shuttingDown_ || recovering_) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(recoveryThreadMutex_);
+    if (shuttingDown_ || recovering_) {
+        return;
+    }
+
+    // Mark as running before thread launch to avoid races where multiple callers
+    // observe recovering_ == false and spawn/join competing recovery threads.
+    recovering_ = true;
+
+    if (recoveryThread_.joinable()) {
+        recoveryThread_.join();
+    }
+    recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+}
+
+void CameraManager::joinRecoveryThread() {
+    std::lock_guard<std::mutex> lock(recoveryThreadMutex_);
+    if (recoveryThread_.joinable()) {
+        recoveryThread_.join();
     }
 }
 
@@ -234,13 +291,109 @@ bool CameraManager::isCameraConnected(int configArrayIndex) const {
     return cameraRuntimes_[configArrayIndex].connected && cameraRuntimes_[configArrayIndex].camera != nullptr;
 }
 
+bool CameraManager::isCameraOpen(int configArrayIndex) const {
+    const auto* camera = getCameraByConfigIndex(configArrayIndex);
+    return camera && camera->IsPylonDeviceAttached() && camera->IsOpen();
+}
+
+bool CameraManager::isCameraRunning(int configArrayIndex) const {
+    const auto* camera = getCameraByConfigIndex(configArrayIndex);
+    return cameraRuntimes_.size() > static_cast<size_t>(configArrayIndex)
+        && configArrayIndex >= 0
+        && cameraRuntimes_[configArrayIndex].connected
+        && camera
+        && camera->IsPylonDeviceAttached()
+        && camera->IsOpen()
+        && camera->IsGrabbing();
+}
+
+bool CameraManager::stopCamera(int configArrayIndex) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return false;
+    }
+
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
+        return false;
+    }
+
+    try {
+        if (camera->IsGrabbing()) {
+            camera->StopGrabbing();
+        }
+        if (cameraRuntimes_[configArrayIndex].grabThread.joinable()) {
+            cameraRuntimes_[configArrayIndex].grabThread.join();
+        }
+        cameraRuntimes_[configArrayIndex].connected = true;
+        return true;
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] Failed to stop camera " << configArrayIndex << ": "
+                  << e.GetDescription() << std::endl;
+        return false;
+    }
+}
+
+bool CameraManager::startCamera(int configArrayIndex, const CameraInfo& config) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return false;
+    }
+
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
+        return false;
+    }
+
+    try {
+        if (!camera->IsOpen()) {
+            camera->Open();
+        }
+        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        if (!camera->IsGrabbing()) {
+            camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
+        }
+        cameraRuntimes_[configArrayIndex].connected = true;
+        if (!cameraRuntimes_[configArrayIndex].grabThread.joinable()) {
+            cameraRuntimes_[configArrayIndex].grabThread = std::thread(&CameraManager::acquisitionLoop, this, configArrayIndex);
+        }
+        setCameraFrameRate(configArrayIndex, config.fps, config.enableAcquisitionFps);
+        return true;
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] Failed to start camera " << configArrayIndex << ": "
+                  << e.GetDescription() << std::endl;
+        return false;
+    }
+}
+
+bool CameraManager::applyCameraDeviceSettings(int configArrayIndex, const CameraInfo& config) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return false;
+    }
+
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !camera->IsPylonDeviceAttached()) {
+        return false;
+    }
+
+    try {
+        if (!camera->IsOpen()) {
+            camera->Open();
+        }
+        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        setCameraFrameRate(configArrayIndex, config.fps, config.enableAcquisitionFps);
+        return true;
+    } catch (const GenericException& e) {
+        std::cerr << "[CameraManager] Failed to apply device settings for camera " << configArrayIndex << ": "
+                  << e.GetDescription() << std::endl;
+        return false;
+    }
+}
+
 void CameraManager::stopCameraRuntime(int configArrayIndex) {
     if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
         return;
     }
 
     CameraRuntime& runtime = cameraRuntimes_[configArrayIndex];
-    runtime.connected = false;
 
     // Stop the stream first so the grab loop can exit, but do not destroy the
     // camera object until the worker thread has fully joined.
@@ -257,20 +410,20 @@ void CameraManager::stopCameraRuntime(int configArrayIndex) {
     }
 
     try {
-        if (runtime.camera) {
-            if (runtime.camera->IsOpen()) {
-                runtime.camera->Close();
-            }
-            if (runtime.camera->IsPylonDeviceAttached()) {
-                runtime.camera->DestroyDevice();
-            }
+        if (runtime.camera && runtime.camera->IsOpen()) {
+            runtime.camera->Close();
         }
     } catch (const GenericException& e) {
         std::cerr << "[CameraManager] stopCameraRuntime warning: " << e.GetDescription() << std::endl;
     }
 
+    runtime.connected = false;
     runtime.camera.reset();
-    configArrayIndexToPylonIndex_[configArrayIndex] = -1;
+    // Guard: configArrayIndexToPylonIndex_ may be empty if initialize() was never
+    // called (e.g. stopAcquisition() is called before a successful initialize()).
+    if (configArrayIndex < static_cast<int>(configArrayIndexToPylonIndex_.size())) {
+        configArrayIndexToPylonIndex_[configArrayIndex] = -1;
+    }
 }
 
 bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
@@ -291,19 +444,45 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
 
         // Get configured cameras from CameraConfig
         std::vector<CameraInfo> configuredCams = CameraConfig::getCameras();
+        numCameras_ = static_cast<int>(configuredCams.size());
         
         std::cout << "[CameraManager] Loaded " << configuredCams.size() << " Camera configs." << std::endl;
         for (const auto& c : configuredCams) {
             std::cout << "[CameraManager] Config - ID: " << c.id << " Source: " << c.source << " MAC: " << c.macAddress.toStdString() << std::endl;
         }
         
-        if (cameraRuntimes_.size() < configuredCams.size()) {
-            cameraRuntimes_.resize(configuredCams.size());
+        // Resize all per-camera vectors to match the new camera count.
+        // This is critical: initialize() can be called after config changes (e.g.
+        // assigning a MAC in System Configuration). Without resizing here, the
+        // acquisition loop accesses swGain_/swGamma_/etc. out-of-bounds → crash.
+        const size_t newCount = configuredCams.size();
+        cameraRuntimes_.resize(newCount);
+
+        auto resizeAndFill = [&](auto& vec, auto defaultVal) {
+            vec.resize(newCount, defaultVal);
+        };
+        resizeAndFill(cameraLabels_,    std::string("Cam"));
+        resizeAndFill(modelNames_,      std::string("Unknown Model"));
+        resizeAndFill(snapshotRequests_, false);
+        resizeAndFill(swGain_,          1.0);
+        resizeAndFill(swGamma_,         1.0);
+        resizeAndFill(swContrast_,      1.0);
+        resizeAndFill(lutCache_,        cv::Mat());
+        resizeAndFill(lutValid_,        false);
+        prevTempStatus_.resize(newCount, TemperatureStatus::Unknown);
+
+        // softwareFrameCounters_ is a plain int64_t vector (one slot per camera,
+        // each slot written only by its own acquisition thread). Resize like others.
+        softwareFrameCounters_.resize(newCount, 0);
+
+        // Refresh camera labels from config
+        for (size_t i = 0; i < newCount; ++i) {
+            cameraLabels_[i] = CameraConfig::getCameraLabel(static_cast<int>(i)).toStdString();
         }
 
-        cameraIndexToConfigId_.assign(configuredCams.size(), -1);
-        configArrayIndexToPylonIndex_.assign(configuredCams.size(), -1);
-        pylonIndexToConfigArrayIndex_.assign(configuredCams.size(), -1);
+        cameraIndexToConfigId_.assign(newCount, -1);
+        configArrayIndexToPylonIndex_.assign(newCount, -1);
+        pylonIndexToConfigArrayIndex_.assign(newCount, -1);
 
         std::set<int> claimedDeviceIndices;
         for (int cfgArrayIdx = 0; cfgArrayIdx < static_cast<int>(configuredCams.size()); ++cfgArrayIdx) {
@@ -347,6 +526,7 @@ void CameraManager::setCameraGain(int cameraIndex, double gain) {
 }
 
 void CameraManager::setCameraExposure(int cameraIndex, double exposureUs) {
+    std::lock_guard<std::mutex> lock(paramMutex_);
     auto* camera = getCameraByConfigIndex(cameraIndex);
     if (!camera) {
         std::cerr << "[CameraManager] setCameraExposure: invalid cameraIndex " << cameraIndex << std::endl;
@@ -390,28 +570,74 @@ void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
 }
 
 CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex) {
-    CameraParams p{0.0, 5000.0, 1.0, 1.0, 0.0};
+    CameraParams p;
     auto* camera = getCameraByConfigIndex(configArrayIndex);
     if (!camera || !(camera->IsPylonDeviceAttached() && camera->IsOpen()))
         return p;
     try {
         GenApi::INodeMap& nm = camera->GetNodeMap();
+
+        // Gain
         GenApi::CFloatPtr g(nm.GetNode("Gain"));
         if (g && IsReadable(g)) p.gain = g->GetValue();
 
+        // Exposure / Shutter
         GenApi::CFloatPtr e(nm.GetNode("ExposureTimeAbs"));
         if (!e || !IsReadable(e)) e = GenApi::CFloatPtr(nm.GetNode("ExposureTime"));
         if (e && IsReadable(e)) p.exposureUs = e->GetValue();
 
+        // Gamma
         GenApi::CFloatPtr gm(nm.GetNode("Gamma"));
         if (gm && IsReadable(gm)) p.gamma = gm->GetValue();
 
+        // Contrast (Basler-specific)
         GenApi::CFloatPtr ct(nm.GetNode("BslContrast"));
         if (ct && IsReadable(ct)) p.contrast = ct->GetValue();
 
+        // Resulting FPS
         GenApi::CFloatPtr fps(nm.GetNode("ResultingFrameRateAbs"));
         if (!fps || !IsReadable(fps)) fps = GenApi::CFloatPtr(nm.GetNode("ResultingFrameRate"));
         if (fps && IsReadable(fps)) p.fps = fps->GetValue();
+
+        // WDR — BslDualGain nodes (optional, camera-family dependent)
+        try {
+            GenApi::CFloatPtr wdrH(nm.GetNode("BslDualGainHigh"));
+            if (wdrH && IsReadable(wdrH)) p.wdrHigh = wdrH->GetValue();
+        } catch (...) {}
+        try {
+            GenApi::CFloatPtr wdrL(nm.GetNode("BslDualGainLow"));
+            if (wdrL && IsReadable(wdrL)) p.wdrLow = wdrL->GetValue();
+        } catch (...) {}
+
+        // Live output queue depth (frames queued in Pylon's internal buffer ring)
+        try {
+            if (camera->OutputQueueSize.IsReadable())
+                p.outputQueueDepth = static_cast<int>(camera->OutputQueueSize.GetValue());
+        } catch (...) {}
+
+        // Resolution (for MB calculation: outputQueueDepth × W × H × bpp)
+        try {
+            GenApi::CIntegerPtr w(nm.GetNode("Width"));
+            GenApi::CIntegerPtr h(nm.GetNode("Height"));
+            if (w && IsReadable(w)) p.width  = static_cast<int>(w->GetValue());
+            if (h && IsReadable(h)) p.height = static_cast<int>(h->GetValue());
+        } catch (...) {}
+
+        // Bytes per pixel — derive from PixelFormat node if available
+        try {
+            GenApi::CEnumerationPtr pf(nm.GetNode("PixelFormat"));
+            if (pf && IsReadable(pf)) {
+                std::string fmt = pf->GetCurrentEntry()->GetSymbolic().c_str();
+                // Mono8, BayerXX8 → 1 byte; Mono12/16, BayerXX12/16 → 2 bytes; RGB8 → 3 bytes
+                if (fmt.find("12") != std::string::npos || fmt.find("16") != std::string::npos)
+                    p.bpp = 2;
+                else if (fmt.find("RGB") != std::string::npos || fmt.find("BGR") != std::string::npos)
+                    p.bpp = 3;
+                else
+                    p.bpp = 1;
+            }
+        } catch (...) {}
+
     } catch (...) {}
     return p;
 }
@@ -528,9 +754,61 @@ void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras)
     }
 }
 
-void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation) {
+void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation) {
     try {
         // GenApi::INodeMap& nodemap = device->GetNodeMap(); // Removed, passed directly
+
+        const auto setEnumIfWritable = [&nodemap](const char* nodeName, const QString& value) {
+            if (value.trimmed().isEmpty()) {
+                return;
+            }
+
+            try {
+                GenApi::CEnumerationPtr node(nodemap.GetNode(nodeName));
+                if (node && IsWritable(node)) {
+                    node->FromString(value.toStdString().c_str());
+                }
+            } catch (const GenericException& e) {
+                std::cout << "[CameraManager] Config warning: failed to set " << nodeName
+                          << " to " << value.toStdString() << ": " << e.GetDescription() << std::endl;
+            }
+        };
+
+        const auto setBoolIfWritable = [&nodemap](const char* nodeName, bool value) {
+            try {
+                GenApi::CBooleanPtr node(nodemap.GetNode(nodeName));
+                if (node && IsWritable(node)) {
+                    node->SetValue(value);
+                }
+            } catch (const GenericException& e) {
+                std::cout << "[CameraManager] Config warning: failed to set " << nodeName
+                          << ": " << e.GetDescription() << std::endl;
+            }
+        };
+
+        const auto setFloatIfWritable = [&nodemap](const char* nodeName, double value) {
+            try {
+                GenApi::CFloatPtr node(nodemap.GetNode(nodeName));
+                if (node && IsWritable(node)) {
+                    node->SetValue(value);
+                }
+            } catch (const GenericException& e) {
+                std::cout << "[CameraManager] Config warning: failed to set " << nodeName
+                          << ": " << e.GetDescription() << std::endl;
+            }
+        };
+
+        const auto setIntIfWritable = [&nodemap](const char* nodeName, int value) {
+            try {
+                GenApi::CIntegerPtr node(nodemap.GetNode(nodeName));
+                if (node && IsWritable(node)) {
+                    node->SetValue(value);
+                }
+            } catch (const GenericException& e) {
+                std::cout << "[CameraManager] Config warning: failed to set " << nodeName
+                          << ": " << e.GetDescription() << std::endl;
+            }
+        };
 
         // --- CHUNK DATA CONFIGURATION (Moved to top for verification) ---
         // 4. Enable Chunk Data (Timestamp, FrameCounter, CRC)
@@ -539,10 +817,11 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
             GenApi::CBooleanPtr ptrChunkModeActive(nodemap.GetNode("ChunkModeActive"));
             if (ptrChunkModeActive.IsValid()) {
                  if (IsWritable(ptrChunkModeActive)) {
-                    ptrChunkModeActive->SetValue(true);
-                    std::cout << "[CameraManager] Chunk Mode Enabled." << std::endl;
+                    ptrChunkModeActive->SetValue(config.chunkModeActive);
+                    std::cout << "[CameraManager] Chunk Mode "
+                              << (config.chunkModeActive ? "Enabled" : "Disabled") << "." << std::endl;
                  } else {
-                    std::cout << "[CameraManager] ChunkModeActive found but NOT Writable." << std::endl;
+                     std::cout << "[CameraManager] ChunkModeActive found but NOT Writable." << std::endl;
                  }
             } else {
                  std::cout << "[CameraManager] ChunkModeActive Node NOT FOUND." << std::endl;
@@ -552,20 +831,27 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
             GenApi::CBooleanPtr ptrChunkEnable(nodemap.GetNode("ChunkEnable"));
 
             if (IsWritable(ptrChunkSelector) && IsWritable(ptrChunkEnable)) {
-                // Enable Timestamp
-                if (GenApi::IsAvailable(ptrChunkSelector->GetEntryByName("Timestamp"))) {
-                    ptrChunkSelector->FromString("Timestamp");
-                    ptrChunkEnable->SetValue(true);
-                }
-                // Enable Framecounter
-                if (GenApi::IsAvailable(ptrChunkSelector->GetEntryByName("Framecounter"))) {
-                    ptrChunkSelector->FromString("Framecounter");
-                    ptrChunkEnable->SetValue(true);
-                }
-                // Enable CRC
-                if (GenApi::IsAvailable(ptrChunkSelector->GetEntryByName("PayloadCRC16"))) {
-                    ptrChunkSelector->FromString("PayloadCRC16");
-                    ptrChunkEnable->SetValue(true);
+                const QStringList chunkOptions = {
+                    "Image",
+                    "OffsetX",
+                    "OffsetY",
+                    "Width",
+                    "Height",
+                    "PixelFormat",
+                    "DynamicRangeMax",
+                    "DynamicRangeMin",
+                    "Timestamp",
+                    "Framecounter",
+                    "PayloadCRC16"
+                };
+
+                for (const QString& chunk : chunkOptions) {
+                    if (!GenApi::IsAvailable(ptrChunkSelector->GetEntryByName(chunk.toStdString().c_str()))) {
+                        continue;
+                    }
+
+                    ptrChunkSelector->FromString(chunk.toStdString().c_str());
+                    ptrChunkEnable->SetValue(config.chunkModeActive && config.enabledChunks.contains(chunk));
                 }
             }
         } else {
@@ -573,11 +859,25 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
         }
         // ---------------------------------------------------------------
         
-        // 0. Set Resolution and Pixel Format for scA780 emulation
-        // Note: For emulation, this requires the emulated device to support these values.
-        GenApi::CIntegerPtr(nodemap.GetNode("Width"))->SetValue(782);
-        GenApi::CIntegerPtr(nodemap.GetNode("Height"))->SetValue(582);
-        GenApi::CEnumerationPtr(nodemap.GetNode("PixelFormat"))->FromString("Mono8");
+        // 0. Apply requested image geometry and pixel format within the camera's supported range.
+        setEnumIfWritable("PixelFormat", config.pixelFormat);
+
+        GenApi::CIntegerPtr offsetXNode(nodemap.GetNode("OffsetX"));
+        GenApi::CIntegerPtr offsetYNode(nodemap.GetNode("OffsetY"));
+        clampNodeValue(offsetXNode, config.offsetX, "OffsetX");
+        clampNodeValue(offsetYNode, config.offsetY, "OffsetY");
+
+        GenApi::CIntegerPtr widthNode(nodemap.GetNode("Width"));
+        GenApi::CIntegerPtr heightNode(nodemap.GetNode("Height"));
+        width_ = clampNodeValue(widthNode, config.width, "Width");
+        height_ = clampNodeValue(heightNode, config.height, "Height");
+
+        setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
+        setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
+        setFloatIfWritable("ExposureTimeAbs", config.exposureTimeAbs);
+        setFloatIfWritable("ExposureTime", config.exposureTimeAbs);
+        setFloatIfWritable("ExposureTimeBaseAbs", config.exposureTimeBaseAbs);
+        setIntIfWritable("ExposureTimeRaw", config.exposureTimeRaw);
 
         // 1. Enable PTP (IEEE 1588)
         // Note: Emulated cameras might not support this, check for existence
@@ -587,19 +887,16 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
             std::cout << "[CameraManager] PTP Enabled." << std::endl;
         }
 
-        // 2. Set Jumbo Frames (MTU 9000)
-        // Ideally 9000 -> 8192 payload + headers
-        GenApi::CIntegerPtr ptrPacketSize(nodemap.GetNode("GevSCPSPacketSize"));
-        if (IsWritable(ptrPacketSize)) {
-            ptrPacketSize->SetValue(8192); // typical value for 9000 MTU
-            std::cout << "[CameraManager] Packet Size set to 8192." << std::endl;
-        }
-        
-        // 3. Persistent IP (Fixed IP)
+        // 2. Persistent IP (Fixed IP)
         GenApi::CBooleanPtr ptrCurrentIpConfigPersistent(nodemap.GetNode("GevCurrentIPConfigurationPersistentIP"));
         if (IsWritable(ptrCurrentIpConfigPersistent)) {
             ptrCurrentIpConfigPersistent->SetValue(true);
         }
+
+        setBoolIfWritable("AcquisitionFrameRateEnable", config.enableAcquisitionFps);
+        setBoolIfWritable("AcquisitionFrameRateEnabled", config.enableAcquisitionFps);
+        setFloatIfWritable("AcquisitionFrameRateAbs", config.fps);
+        setFloatIfWritable("AcquisitionFrameRate", config.fps);
 
 
     } catch (const GenericException& e) {
@@ -611,10 +908,57 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, bool isEmulation)
 void CameraManager::startAcquisition() {
     if (acquiring_) return;
 
+    shuttingDown_ = false;
+
     try {
+        std::vector<CameraInfo> configuredCams = CameraConfig::getCameras();
+        numCameras_ = static_cast<int>(configuredCams.size());
+
+        // Defensive: keep all per-camera runtime containers aligned with persisted
+        // configuration size. startAcquisition() may be called outside initialize().
+        const size_t newCount = configuredCams.size();
+        if (cameraRuntimes_.size() != newCount
+            || cameraLabels_.size() != newCount
+            || modelNames_.size() != newCount
+            || snapshotRequests_.size() != newCount
+            || swGain_.size() != newCount
+            || swGamma_.size() != newCount
+            || swContrast_.size() != newCount
+            || lutCache_.size() != newCount
+            || lutValid_.size() != newCount
+            || softwareFrameCounters_.size() != newCount) {
+            std::cout << "[CameraManager] Resyncing per-camera runtime vectors in startAcquisition. configured="
+                      << newCount << " runtimes=" << cameraRuntimes_.size() << std::endl;
+
+            cameraRuntimes_.resize(newCount);
+
+            auto resizeAndFill = [&](auto& vec, auto defaultVal) {
+                vec.resize(newCount, defaultVal);
+            };
+
+            resizeAndFill(cameraLabels_, std::string("Cam"));
+            resizeAndFill(modelNames_, std::string("Unknown Model"));
+            resizeAndFill(snapshotRequests_, false);
+            resizeAndFill(swGain_, 1.0);
+            resizeAndFill(swGamma_, 1.0);
+            resizeAndFill(swContrast_, 1.0);
+            resizeAndFill(lutCache_, cv::Mat());
+            resizeAndFill(lutValid_, false);
+            prevTempStatus_.resize(newCount, TemperatureStatus::Unknown);
+            softwareFrameCounters_.resize(newCount, 0);
+
+            cameraIndexToConfigId_.assign(newCount, -1);
+            configArrayIndexToPylonIndex_.assign(newCount, -1);
+            pylonIndexToConfigArrayIndex_.assign(newCount, -1);
+
+            for (size_t i = 0; i < newCount; ++i) {
+                cameraLabels_[i] = CameraConfig::getCameraLabel(static_cast<int>(i)).toStdString();
+            }
+        }
+
         bufferPools_.clear();
-        for (int i = 0; i < numCameras_; ++i) {
-            bufferPools_.push_back(std::make_unique<BufferPool>(3, width_, height_, CV_8UC1));
+        for (const auto& cam : configuredCams) {
+            bufferPools_.push_back(std::make_unique<BufferPool>(3, cam.width, cam.height, CV_8UC1));
         }
 
         {
@@ -627,7 +971,10 @@ void CameraManager::startAcquisition() {
             latestFrames_.assign(numCameras_, cv::Mat());
         }
 
-        EventController::instance().initialize(100, 10.0, 50);
+        // NOTE: EventController::initialize() must NOT be called here.
+        // It is called from the GUI thread (MainWindow) with the correct user-configured
+        // pre/post trigger values. Calling it again from this worker thread (QtConcurrent)
+        // causes a data race on EventController internals and crashes the app.
 
         bool anyConnected = false;
         for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
@@ -636,10 +983,17 @@ void CameraManager::startAcquisition() {
                 continue;
             }
 
+            if (i < 0 || i >= static_cast<int>(configuredCams.size())) {
+                std::cerr << "[CameraManager] Skipping runtime slot without matching config index: " << i << std::endl;
+                continue;
+            }
+
             try {
                 if (!camera->IsOpen()) {
                     camera->Open();
                 }
+
+                const CameraInfo& camConfig = configuredCams[i];
 
                 if (!anyConnected) {
                     GenApi::CIntegerPtr ptrWidth(camera->GetNodeMap().GetNode("Width"));
@@ -651,8 +1005,7 @@ void CameraManager::startAcquisition() {
                     }
                 }
 
-                configureCamera(camera->GetNodeMap(), camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
-                camera->MaxNumBuffer.SetValue(5);
+                configureCamera(camera->GetNodeMap(), camConfig, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
                 camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
                 anyConnected = true;
 
@@ -714,10 +1067,9 @@ void CameraManager::startAcquisition() {
             std::cout << "[CameraManager] Started per-camera acquisition loops." << std::endl;
         } else {
             std::cout << "[CameraManager] Skipped acquisition loop (0 cameras attached)." << std::endl;
-            if (!recovering_) {
+            if (!shuttingDown_) {
                 std::cout << "[CameraManager] Bootstrapping recovery thread to poll for cameras..." << std::endl;
-                if (recoveryThread_.joinable()) recoveryThread_.join();
-                recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                startRecoveryThreadIfNeeded();
             }
         }
     } catch (const GenericException& e) {
@@ -727,26 +1079,31 @@ void CameraManager::startAcquisition() {
 }
 
 void CameraManager::stopAcquisition() {
+    std::cout << "[CameraManager] stopAcquisition begin" << std::endl;
+    shuttingDown_ = true;
     acquiring_ = false;
 
     // Stop recovery thread first — it may try to restart acquisition
     recovering_ = false;
-    if (recoveryThread_.joinable()) {
-        recoveryThread_.join();
-    }
+    std::cout << "[CameraManager] stopAcquisition joining recovery thread" << std::endl;
+    joinRecoveryThread();
 
     // Stop temperature monitor thread
     tempMonitorRunning_ = false;
     if (tempMonitorThread_.joinable()) {
+        std::cout << "[CameraManager] stopAcquisition joining temperature thread" << std::endl;
         tempMonitorThread_.join();
     }
 
+    std::cout << "[CameraManager] stopAcquisition stopping runtimes count=" << cameraRuntimes_.size() << std::endl;
     for (int i = 0; i < static_cast<int>(cameraRuntimes_.size()); ++i) {
+        std::cout << "[CameraManager] stopAcquisition stop runtime " << i << std::endl;
         stopCameraRuntime(i);
     }
     
     // Clear buffer pools
     bufferPools_.clear();
+    std::cout << "[CameraManager] stopAcquisition complete" << std::endl;
 }
 
 void CameraManager::pauseGrabbing(bool pause) {
@@ -759,6 +1116,10 @@ bool CameraManager::isGrabbingPaused() const {
 }
 
 bool CameraManager::tryReconnectCamera(int configArrayIndex) {
+    if (shuttingDown_) {
+        return false;
+    }
+
     auto configuredCams = CameraConfig::getCameras();
     if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(configuredCams.size())) {
         return false;
@@ -802,12 +1163,19 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
     }
 
     try {
+        if (shuttingDown_) {
+            return false;
+        }
+
         if (!camera->IsOpen()) {
             camera->Open();
         }
-        configureCamera(camera->GetNodeMap(), camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
-        camera->MaxNumBuffer.SetValue(5);
+        configureCamera(camera->GetNodeMap(), configuredCams[configArrayIndex], camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
         camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
+        if (shuttingDown_) {
+            stopCameraRuntime(configArrayIndex);
+            return false;
+        }
         cameraRuntimes_[configArrayIndex].connected = true;
         cameraRuntimes_[configArrayIndex].grabThread = std::thread(&CameraManager::acquisitionLoop, this, configArrayIndex);
         setCameraFrameRate(configArrayIndex, configuredCams[configArrayIndex].fps, configuredCams[configArrayIndex].enableAcquisitionFps);
@@ -820,10 +1188,9 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
 }
 
 void CameraManager::recoveryLoop() {
-    recovering_ = true;
     std::cout << "[CameraManager] --- RECOVERY LOOP STARTED ---" << std::endl;
 
-    while (recovering_) {
+    while (recovering_ && !shuttingDown_) {
         std::vector<int> disconnected;
         {
             std::lock_guard<std::mutex> lock(disconnectedMutex_);
@@ -832,6 +1199,9 @@ void CameraManager::recoveryLoop() {
 
         bool anyRecovered = false;
         for (int configIdx : disconnected) {
+            if (shuttingDown_ || !recovering_) {
+                break;
+            }
             if (tryReconnectCamera(configIdx)) {
                 anyRecovered = true;
                 std::lock_guard<std::mutex> lock(disconnectedMutex_);
@@ -848,6 +1218,10 @@ void CameraManager::recoveryLoop() {
             }
         }
 
+        if (shuttingDown_ || !recovering_) {
+            break;
+        }
+
         if (!acquiring_) {
             bool anyConnected = false;
             for (const auto& runtime : cameraRuntimes_) {
@@ -862,6 +1236,7 @@ void CameraManager::recoveryLoop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(anyRecovered ? 100 : 500));
     }
 
+    recovering_ = false;
     std::cout << "[CameraManager] --- RECOVERY LOOP COMPLETED ---" << std::endl;
 }
 
@@ -1102,6 +1477,11 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
         return;
     }
 
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        std::cerr << "[CameraManager] acquisitionLoop called with invalid slot " << configArrayIndex << std::endl;
+        return;
+    }
+
     std::cout << "[CameraManager] Entering acquisition loop for slot " << configArrayIndex << std::endl;
     CGrabResultPtr ptrGrabResult;
     CImageFormatConverter formatConverter;
@@ -1109,7 +1489,17 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
 
     CPylonImage pylonImage; 
 
-    while (acquiring_ && cameraRuntimes_[configArrayIndex].connected && camera->IsGrabbing()) {
+    while (acquiring_) {
+        if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+            std::cerr << "[CameraManager] acquisitionLoop exiting due to runtime resize for slot "
+                      << configArrayIndex << std::endl;
+            break;
+        }
+
+        if (!cameraRuntimes_[configArrayIndex].connected || !camera->IsGrabbing()) {
+            break;
+        }
+
         try {
             if (camera->RetrieveResult(5000, ptrGrabResult, TimeoutHandling_Return)) {
                 if (!ptrGrabResult) continue;  
@@ -1161,9 +1551,12 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                         auto duration = now.time_since_epoch();
                         timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
                         
-                        // Increment frame counter manually (per camera)
-                        static std::map<int, int64_t> softwareCounters;
-                        frameCounter = ++softwareCounters[cameraIndex];
+                        // Increment frame counter per camera using the member vector.
+                        // Each slot is written exclusively by its own acquisition thread
+                        // so plain int64_t is safe (no mutex or atomic needed).
+                        if (cameraIndex < softwareFrameCounters_.size()) {
+                            frameCounter = ++softwareFrameCounters_[cameraIndex];
+                        }
                     }
 
                     // 2. IMAGE CONVERSION
@@ -1259,9 +1652,8 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                             std::lock_guard<std::mutex> lock(callbackMutex_);
                             if (callback_) callback_(configArrayIdx, cv::Mat());
                         }
-                        if (!recovering_) {
-                            if (recoveryThread_.joinable()) recoveryThread_.join();
-                            recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                        if (!shuttingDown_) {
+                            startRecoveryThreadIfNeeded();
                         }
                         break;
                     }
@@ -1307,9 +1699,8 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     }
                     cameraRuntimes_[configArrayIndex].connected = false;
                     clearCameraTile(configArrayIndex);
-                    if (!recovering_) {
-                        if (recoveryThread_.joinable()) recoveryThread_.join();
-                        recoveryThread_ = std::thread(&CameraManager::recoveryLoop, this);
+                    if (!shuttingDown_) {
+                        startRecoveryThreadIfNeeded();
                     }
                     break;
                 }

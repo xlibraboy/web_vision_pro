@@ -248,6 +248,24 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     sliderContrast_->blockSignals(false);
 }
 
+void DetailView::clearCamera() {
+    currentCameraId_ = -1;
+    cameraWidget_->setCameraId(-1);
+    cameraWidget_->clearFrame();
+
+    lblId_->setText("-");
+    lblLocation_->setText("-");
+    lblSide_->setText("-");
+    lblDescription_->setText("-");
+    lblModel_->setText("-");
+    lblIP_->setText("-");
+    lblImageSize_->setText("-");
+    lblFPS_->setText("-");
+    lblDisplayFps_->setText("-");
+    lblTemp_->setText("-");
+    lblTemp_->setStyleSheet("");
+}
+
 void DetailView::updateTemperature(double temp) {
     if (!lblTemp_) return;
 

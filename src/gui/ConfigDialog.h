@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QTextEdit>
 #include <QMessageBox>
@@ -20,6 +21,7 @@
 class CameraCard;
 class NetworkSummaryHeader;
 class DeleteConfirmationDialog;
+class CameraDeviceSettingsDialog;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -49,12 +51,14 @@ private slots:
     void onCameraCardSourceChanged(int source);
     void onCameraCardMacChanged(const QString& mac);
     void onCameraCardWriteIpClicked();
+    void onCameraCardDeviceSettingsClicked();
 
 private:
     void setupUI();
     void loadSettings();
     void createCameraWidgetBlock(const CameraInfo& cam);
     void refreshNetworkStatus();
+    void relayoutCameraCards();
     bool validateConfiguration(QStringList* errors) const;
     bool eventFilter(QObject* obj, QEvent* event) override;
 
@@ -80,7 +84,7 @@ private:
 
     QScrollArea* cameraScrollArea_;
     QWidget* cameraScrollWidget_;
-    QVBoxLayout* cameraListLayout_;
+    QGridLayout* cameraListLayout_;
     QLabel* networkSummaryLabel_;
 
     // New camera cards (replacing CameraConfigWidgets)

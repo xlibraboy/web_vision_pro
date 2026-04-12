@@ -49,6 +49,7 @@ private:
     void applyGlobalTheme();
     void startCameraLifecycleAsync(bool restart, const QString& reason);
     bool validateSavedCameraConfiguration(QStringList* errors) const;
+    void closeConfigTab();
 
     // GUI
     QTabWidget* mainTabWidget_;
@@ -69,6 +70,7 @@ private:
     
     // Windows
     ConfigDialog* configWindow_ = nullptr;
+    int configTabIndex_ = -1;
 
     // State
     std::atomic<bool> framePending_[16]; // Throttle flags per camera for GUI updates

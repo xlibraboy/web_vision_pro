@@ -25,10 +25,14 @@
 #include <QProgressDialog>
 #include <QtConcurrent>
 #include <QDateTime>
+#include <QTimer>
 #include <vector>
 #include <deque>
+#include <cmath>
 #include <opencv2/opencv.hpp>
 #include <pylon/PylonIncludes.h>
+
+#include "../core/CameraManager.h"
 
 class AnalysisVideoWidget;
 
@@ -69,6 +73,7 @@ public slots:
     void setDeleteEnabled(bool enabled); // Toggle delete mode
     void setAdminMode(bool isAdmin); // Expose to MainWindow
     void updateTheme(); // Dynamically update widget theme colors
+    void setCameraManager(CameraManager* manager); // Wire live camera data for Diagnostic tab
     
 private slots:
     void onServerButtonClicked();
@@ -96,6 +101,10 @@ private slots:
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
 
+    // Diagnostic tab refresh slots
+    void refreshDiagTable();
+    void onDiagAutoRefreshToggled(bool enabled);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
@@ -107,6 +116,7 @@ private:
     void setupMainArea();
     void setupPlaybackControls();
     void setupCameraGrid(QWidget* container);
+    void setupDiagnosticTab();   // Build the all-camera diagnostics table
     void updateDynamicTab(int cameraId);
     void updatePlaybackControlsState(); // Enable/disable controls based on data availability
     void updateSliderZeroMarker();  // Position the zero marker on the slider
@@ -132,6 +142,15 @@ private:
     QWidget* allCameraTab_;
     QWidget* singleCameraTab_;
     QWidget* diagnosticTab_;
+
+    // Diagnostic tab — all-camera live data table
+    QTableWidget* diagTable_         = nullptr;
+    QTimer*       diagRefreshTimer_  = nullptr;
+    QPushButton*  diagRefreshBtn_    = nullptr;
+    QCheckBox*    diagAutoRefreshChk_= nullptr;
+
+    // CameraManager pointer (set from MainWindow after construction)
+    CameraManager* cameraManager_ = nullptr;
 
 
     

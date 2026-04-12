@@ -49,11 +49,6 @@ MainWindow::~MainWindow() {
     if (cameraLifecycleWatcher_) {
         cameraLifecycleWatcher_->waitForFinished();
     }
-
-    // Enable clean UI shutdown for child dialogs not parented correctly
-    if (configWindow_) {
-        configWindow_->close();
-    }
     
     // Stop camera before destruction
     if (cameraManager_) {
@@ -72,10 +67,6 @@ void MainWindow::raiseAndActivate() {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    if (configWindow_) {
-        configWindow_->close();
-    }
-
     QMainWindow::closeEvent(event);
 }
 
@@ -132,12 +123,21 @@ bool MainWindow::validateSavedCameraConfiguration(QStringList* errors) const {
 }
 
 void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) {
+    qInfo() << "[MainWindow] startCameraLifecycleAsync called"
+            << "restart=" << restart
+            << "reason=" << reason
+            << "inProgress=" << cameraLifecycleInProgress_;
+
     if (!cameraManager_ || cameraLifecycleInProgress_) {
+        qWarning() << "[MainWindow] Camera lifecycle request ignored"
+                   << "cameraManager=" << (cameraManager_ != nullptr)
+                   << "inProgress=" << cameraLifecycleInProgress_;
         return;
     }
 
     QStringList validationErrors;
     if (!validateSavedCameraConfiguration(&validationErrors)) {
+        qWarning() << "[MainWindow] Saved camera configuration invalid:" << validationErrors;
         const QString message = QString("Camera startup blocked due to invalid configuration:\n%1").arg(validationErrors.join("\n"));
         statusBar()->showMessage("Camera startup blocked by invalid network configuration.", 5000);
         QMessageBox::warning(this, "Invalid Camera Configuration", message);
@@ -154,6 +154,10 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
             cameraLifecycleInProgress_ = false;
 
             const bool success = cameraLifecycleWatcher_->result();
+            qInfo() << "[MainWindow] Camera lifecycle finished. success=" << success;
+
+            // Guard: configWindow_ may have been closed/deleted (e.g. admin logout)
+            // while the async camera restart was in progress. Always null-check before use.
             if (success) {
                 statusBar()->showMessage("Acquisition running", 3000);
                 pauseBtn_->setEnabled(true);
@@ -180,26 +184,34 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
     statusBar()->showMessage(reason, 0);
 
     cameraLifecycleWatcher_->setFuture(QtConcurrent::run([manager = cameraManager_.get(), restart]() {
+        qInfo() << "[MainWindow] Camera lifecycle worker started. restart=" << restart;
         if (!manager) {
+            qWarning() << "[MainWindow] Camera lifecycle worker missing manager";
             return false;
         }
 
         if (restart) {
+            qInfo() << "[MainWindow] Worker stopping acquisition";
             manager->stopAcquisition();
         }
 
+        qInfo() << "[MainWindow] Worker initializing cameras";
         if (!manager->initialize()) {
+            qWarning() << "[MainWindow] Worker failed to initialize cameras";
             return false;
         }
 
+        qInfo() << "[MainWindow] Worker starting acquisition";
         manager->startAcquisition();
 
         const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+        qInfo() << "[MainWindow] Worker applying frame rates for" << cams.size() << "cameras";
         for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
             manager->setCameraFrameRate(i, cams[i].fps, cams[i].enableAcquisitionFps);
         }
 
         manager->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
+        qInfo() << "[MainWindow] Worker completed successfully";
         return true;
     }));
 }
@@ -236,8 +248,13 @@ void MainWindow::setupUi() {
     connect(snapshotBtn_, &QPushButton::clicked, this, [this]() {
         if (stackedWidget_->currentWidget() == detailView_) {
             if (cameraManager_) {
-                cameraManager_->triggerSnapshot(detailView_->videoWidget()->cameraId());
-                statusBar()->showMessage("Snapshot triggered.", 2000);
+                const int cameraId = detailView_->videoWidget()->cameraId();
+                if (cameraId >= 0 && cameraId < CameraConfig::getCameraCount()) {
+                    cameraManager_->triggerSnapshot(cameraId);
+                    statusBar()->showMessage("Snapshot triggered.", 2000);
+                } else {
+                    statusBar()->showMessage("No valid camera selected.", 2000);
+                }
             }
         } else {
             QMessageBox::information(this, "Snapshot", "Snapshots can only be taken from the Detail View.");
@@ -331,8 +348,10 @@ void MainWindow::setupUi() {
             statusBar()->showMessage(QString("Live View - Grid %1x%2")
                 .arg(liveDashboard_->getCurrentRows())
                 .arg(liveDashboard_->getCurrentCols()));
-        } else {
+        } else if (index == 1) {
             statusBar()->showMessage("Analysis View");
+        } else if (configWindow_ && index == mainTabWidget_->indexOf(configWindow_)) {
+            statusBar()->showMessage("System Configuration");
         }
     });
 
@@ -369,53 +388,73 @@ void MainWindow::setupUi() {
     settingsMenu->addSeparator();
     
     // Configuration Window
-    configAction_ = settingsMenu->addAction("Configuration...");
+    configAction_ = settingsMenu->addAction("System Configuration");
     configAction_->setEnabled(isAdmin_); // Grayed out until Admin login
     connect(configAction_, &QAction::triggered, [this]() {
         if (!configWindow_) {
-            configWindow_ = new ConfigDialog(cameraManager_.get(), this);
+            configWindow_ = new ConfigDialog(cameraManager_.get(), mainTabWidget_);
             connect(configWindow_, &ConfigDialog::configUpdated, [this](bool requiresCameraRestart) {
+                qInfo() << "[MainWindow] configUpdated received. requiresCameraRestart=" << requiresCameraRestart;
+
                 // Update camera counts in views to handle newly added cameras
                 int newCamCount = CameraConfig::getCameraCount();
+                qInfo() << "[MainWindow] Applying updated camera count" << newCamCount;
                 if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
                 if (analysisView_) analysisView_->setCameraCount(newCamCount);
+
+                if (detailView_ && detailView_->videoWidget()) {
+                    const int selectedCameraId = detailView_->videoWidget()->cameraId();
+                    if (selectedCameraId >= newCamCount) {
+                        qInfo() << "[MainWindow] Clearing stale detail selection for removed camera" << selectedCameraId;
+                        detailView_->clearCamera();
+                        if (stackedWidget_ && stackedWidget_->currentWidget() == detailView_) {
+                            showGrid();
+                        }
+                    }
+                }
                 
                 // Redraw UI to remove empty placeholders for newly configured cameras
                 if (liveDashboard_) {
                     liveDashboard_->setGridDimensions(liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
                 }
                 
-                // Update global tracking configurations
-                EventController::instance().initialize(
-                    CameraConfig::getPreTriggerSeconds() * 10,  // fallback base rate
-                    10, 
-                    CameraConfig::getPostTriggerSeconds() * 10
-                );
+                // Re-initialize EventController with updated user-configured values.
+                // Must be called here (GUI thread) — NOT inside the QtConcurrent worker
+                // in startCameraLifecycleAsync, to avoid a data race on EventController
+                // internals that causes a crash.
+                const double configuredFps = static_cast<double>(CameraConfig::getFps());
+                const int preTriggerFrames  = CameraConfig::getPreTriggerSeconds()  * static_cast<int>(configuredFps);
+                const int postTriggerFrames = CameraConfig::getPostTriggerSeconds() * static_cast<int>(configuredFps);
+                EventController::instance().initialize(preTriggerFrames, configuredFps, postTriggerFrames);
 
                 if (requiresCameraRestart) {
+                    qInfo() << "[MainWindow] Starting async camera restart after save";
                     startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
                 } else {
+                    qInfo() << "[MainWindow] Save did not require camera restart";
                     statusBar()->showMessage("Settings saved", 3000);
                 }
                  
                 // Reload UI Theme Globally
+                qInfo() << "[MainWindow] Reapplying global theme after save";
                 this->applyGlobalTheme();
             });
             // Handle cleanup if window is destroyed
             connect(configWindow_, &QObject::destroyed, [this]() {
+                configTabIndex_ = -1;
                 configWindow_ = nullptr;
             });
+
+            configTabIndex_ = mainTabWidget_->addTab(configWindow_, "System Configuration");
+            mainTabWidget_->setTabToolTip(configTabIndex_, "System configuration and camera setup");
         }
         
         // Push admin state to config window before showing
         configWindow_->setAdminMode(isAdmin_);
-        
-        // Show and bring to front
-        if (configWindow_->isHidden()) {
-            configWindow_->show();
+
+        if (configTabIndex_ >= 0) {
+            mainTabWidget_->setCurrentIndex(configTabIndex_);
         }
-        configWindow_->raise();
-        configWindow_->activateWindow();
     });
 
     // Help Menu
@@ -493,6 +532,10 @@ void MainWindow::setupCore() {
             }, Qt::QueuedConnection);
         }
     );
+
+    // Wire CameraManager into AnalysisView so the Diagnostic tab can poll live data
+    if (analysisView_)
+        analysisView_->setCameraManager(cameraManager_.get());
 }
 
 void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
@@ -541,6 +584,11 @@ void MainWindow::toggleView() {
 
 void MainWindow::showDetail(int cameraId) {
     qDebug() << "Showing detail for camera" << cameraId;
+
+    if (cameraId < 0 || cameraId >= CameraConfig::getCameraCount()) {
+        qWarning() << "[MainWindow] Ignoring invalid detail camera selection" << cameraId;
+        return;
+    }
     
     // MEMORY OPTIMIZATION: Switch tab to ensure live stack logic
     if (mainTabWidget_->currentIndex() == 1) {
@@ -600,6 +648,8 @@ void MainWindow::showGrid() {
 void MainWindow::toggleAdmin() {
     if (isAdmin_) {
         // Logout
+        closeConfigTab();
+
         isAdmin_ = false;
         adminLoginAction_->setText("Administrator Login");
         statusBar()->showMessage("Administrator Logged Out");
@@ -643,6 +693,26 @@ void MainWindow::toggleAdmin() {
     if (detailView_) {
         detailView_->setAdminMode(isAdmin_);
     }
+}
+
+void MainWindow::closeConfigTab() {
+    if (!configWindow_) {
+        configTabIndex_ = -1;
+        return;
+    }
+
+    const int tabIndex = mainTabWidget_ ? mainTabWidget_->indexOf(configWindow_) : -1;
+    if (mainTabWidget_ && tabIndex >= 0) {
+        const int fallbackIndex = 0;
+        if (mainTabWidget_->currentIndex() == tabIndex) {
+            mainTabWidget_->setCurrentIndex(fallbackIndex);
+        }
+        mainTabWidget_->removeTab(tabIndex);
+    }
+
+    configTabIndex_ = -1;
+    configWindow_->deleteLater();
+    configWindow_ = nullptr;
 }
 
 void MainWindow::changeLayout(int rows, int cols) {

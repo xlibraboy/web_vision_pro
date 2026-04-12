@@ -28,8 +28,45 @@ NetworkSummaryHeader::NetworkSummaryHeader(QWidget* parent)
 NetworkSummaryHeader::~NetworkSummaryHeader() = default;
 
 void NetworkSummaryHeader::setupUI() {
+    const QString secondaryButtonStyle =
+        "QPushButton { "
+        "  background-color: #21262D; "
+        "  color: #E3E3E3; "
+        "  border: 1px solid #30363D; "
+        "  border-radius: 8px; "
+        "  padding: 8px 14px; "
+        "  font-size: 13px; "
+        "  font-weight: 500; "
+        "  min-height: 18px; "
+        "} "
+        "QPushButton:hover { "
+        "  background-color: #30363D; "
+        "  border-color: #00E5FF; "
+        "} "
+        "QPushButton:pressed { "
+        "  background-color: #1C2128; "
+        "}";
+
+    const QString primaryButtonStyle =
+        "QPushButton { "
+        "  background-color: #238636; "
+        "  color: white; "
+        "  border: none; "
+        "  border-radius: 8px; "
+        "  padding: 8px 14px; "
+        "  font-size: 13px; "
+        "  font-weight: 600; "
+        "  min-height: 18px; "
+        "} "
+        "QPushButton:hover { "
+        "  background-color: #2EA043; "
+        "} "
+        "QPushButton:pressed { "
+        "  background-color: #238636; "
+        "}";
+
     setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
-    setMinimumHeight(100);
+    setMinimumHeight(112);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
     // Shadow effect
@@ -42,133 +79,69 @@ void NetworkSummaryHeader::setupUI() {
     // Main layout
     mainLayout_ = new QVBoxLayout(this);
     mainLayout_->setSpacing(12);
-    mainLayout_->setContentsMargins(20, 16, 20, 16);
+    mainLayout_->setContentsMargins(18, 16, 18, 16);
 
     // Header row
     headerLayout_ = new QHBoxLayout();
-    headerLayout_->setSpacing(16);
+    headerLayout_->setSpacing(12);
 
     // Network icon
     networkIcon_ = new QLabel(this);
     networkIcon_->setPixmap(IconManager::instance().network(28).pixmap(28, 28));
     headerLayout_->addWidget(networkIcon_);
 
-    // Title
-    titleLabel_ = new QLabel("Network Status", this);
-    titleLabel_->setStyleSheet("font-size: 18px; font-weight: 700; color: #E3E3E3;");
-    headerLayout_->addWidget(titleLabel_);
+    QWidget* titleBlock = new QWidget(this);
+    QVBoxLayout* titleLayout = new QVBoxLayout(titleBlock);
+    titleLayout->setSpacing(2);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
 
-    headerLayout_->addStretch();
+    titleLabel_ = new QLabel("Network Status", this);
+    titleLabel_->setStyleSheet("font-size: 17px; font-weight: 700; color: #E3E3E3;");
+    titleLayout->addWidget(titleLabel_);
+
+    summaryLabel_ = new QLabel("Review camera connectivity and assignment before saving.", this);
+    summaryLabel_->setStyleSheet("font-size: 12px; color: #8B949E;");
+    titleLayout->addWidget(summaryLabel_);
+
+    headerLayout_->addWidget(titleBlock, 1);
+
+    QWidget* actionRow = new QWidget(this);
+    QHBoxLayout* actionLayout = new QHBoxLayout(actionRow);
+    actionLayout->setSpacing(10);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
 
     // Refresh button
     refreshBtn_ = new QPushButton("Refresh", this);
     refreshBtn_->setIcon(IconManager::instance().refresh(16));
     refreshBtn_->setCursor(Qt::PointingHandCursor);
-    refreshBtn_->setStyleSheet(
-        "QPushButton { "
-        "  background-color: #21262D; "
-        "  color: #E3E3E3; "
-        "  border: 1px solid #30363D; "
-        "  border-radius: 6px; "
-        "  padding: 8px 16px; "
-        "  font-size: 13px; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #30363D; "
-        "  border-color: #00E5FF; "
-        "} "
-        "QPushButton:pressed { "
-        "  background-color: #1C2128; "
-        "}"
-    );
+    refreshBtn_->setStyleSheet(secondaryButtonStyle);
     connect(refreshBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::refreshRequested);
-    headerLayout_->addWidget(refreshBtn_);
-
-    // Clear logs button
-    clearBtn_ = new QPushButton("Clear Logs", this);
-    clearBtn_->setIcon(IconManager::instance().close(16));
-    clearBtn_->setCursor(Qt::PointingHandCursor);
-    clearBtn_->setStyleSheet(
-        "QPushButton { "
-        "  background-color: #21262D; "
-        "  color: #E3E3E3; "
-        "  border: 1px solid #30363D; "
-        "  border-radius: 6px; "
-        "  padding: 8px 16px; "
-        "  font-size: 13px; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #30363D; "
-        "  border-color: #00E5FF; "
-        "} "
-        "QPushButton:pressed { "
-        "  background-color: #1C2128; "
-        "}"
-    );
-    connect(clearBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::clearLogsRequested);
-    headerLayout_->addWidget(clearBtn_);
-
-    // Toggle logs button
-    toggleLogsBtn_ = new QPushButton("View Diagnostics", this);
-    toggleLogsBtn_->setCursor(Qt::PointingHandCursor);
-    toggleLogsBtn_->setStyleSheet(
-        "QPushButton { "
-        "  background-color: transparent; "
-        "  color: #E3E3E3; "
-        "  border: 1px solid #30363D; "
-        "  border-radius: 6px; "
-        "  padding: 8px 16px; "
-        "  font-size: 13px; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #30363D; "
-        "  border-color: #00E5FF; "
-        "}"
-    );
-    connect(toggleLogsBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::toggleLogsRequested);
-    headerLayout_->addWidget(toggleLogsBtn_);
+    actionLayout->addWidget(refreshBtn_);
 
     // Add button
     addBtn_ = new QPushButton("Add Camera", this);
     addBtn_->setIcon(IconManager::instance().add(16));
     addBtn_->setCursor(Qt::PointingHandCursor);
-    addBtn_->setStyleSheet(
-        "QPushButton { "
-        "  background-color: #238636; "
-        "  color: white; "
-        "  border: none; "
-        "  border-radius: 6px; "
-        "  padding: 8px 16px; "
-        "  font-size: 13px; "
-        "  font-weight: 600; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #2EA043; "
-        "} "
-        "QPushButton:pressed { "
-        "  background-color: #238636; "
-        "}"
-    );
+    addBtn_->setStyleSheet(primaryButtonStyle);
     connect(addBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::addCameraRequested);
-    headerLayout_->addWidget(addBtn_);
+    actionLayout->addWidget(addBtn_);
+
+    headerLayout_->addWidget(actionRow, 0, Qt::AlignRight | Qt::AlignTop);
 
     mainLayout_->addLayout(headerLayout_);
 
     // Status row
     statusLayout_ = new QHBoxLayout();
-    statusLayout_->setSpacing(16);
+    statusLayout_->setSpacing(12);
 
     // Status indicator
     statusLabel_ = new QLabel("Scanning network...", this);
     statusLabel_->setStyleSheet(
         "font-size: 14px; font-weight: 500; color: #8B949E;"
     );
-    statusLayout_->addWidget(statusLabel_);
+    statusLayout_->addWidget(statusLabel_, 1);
 
-    statusLayout_->addStretch();
+    statusLayout_->addSpacing(8);
 
     // Camera count indicators
     indicatorsWidget_ = new QWidget(this);
@@ -180,7 +153,7 @@ void NetworkSummaryHeader::setupUI() {
         QLabel* indicator = new QLabel(QString("%1: 0").arg(label), indicatorsWidget_);
         indicator->setStyleSheet(QString(
             "font-size: 12px; font-weight: 500; "
-            "padding: 4px 12px; border-radius: 12px; "
+            "padding: 5px 10px; border-radius: 12px; "
             "background-color: %1; color: white;"
         ).arg(color.name()));
         indicatorsLayout->addWidget(indicator);
@@ -269,7 +242,6 @@ void NetworkSummaryHeader::applyTheme(const QColor& primaryColor, const QColor& 
     // Refresh icons
     networkIcon_->setPixmap(IconManager::instance().network(28).pixmap(28, 28));
     refreshBtn_->setIcon(IconManager::instance().refresh(16));
-    clearBtn_->setIcon(IconManager::instance().close(16));
     addBtn_->setIcon(IconManager::instance().add(16));
 }
 

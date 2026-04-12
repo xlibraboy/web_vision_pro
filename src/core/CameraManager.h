@@ -11,6 +11,7 @@
 #include <chrono>
 #include <set>
 #include <unordered_map>
+#include <limits>
 
 // Pylon Includes
 #include <pylon/PylonIncludes.h>
@@ -109,6 +110,14 @@ public:
     
     // Get Specific Camera Resulting FPS
     double getCameraFps(int index);
+
+    // Connection state for live diagnostic coloring
+    bool isCameraConnected(int configArrayIndex) const;
+    bool isCameraOpen(int configArrayIndex) const;
+    bool isCameraRunning(int configArrayIndex) const;
+    bool stopCamera(int configArrayIndex);
+    bool startCamera(int configArrayIndex, const CameraInfo& config);
+    bool applyCameraDeviceSettings(int configArrayIndex, const CameraInfo& config);
     
     // Defect Detection Control
     void setDefectDetectionEnabled(bool enabled);
@@ -129,7 +138,19 @@ public:
     void setCameraContrast(int cameraIndex, double contrast);
 
     // Pylon Feature Persistence (Save/Load .pfs per camera)
-    struct CameraParams { double gain; double exposureUs; double gamma; double contrast; double fps; };
+    struct CameraParams {
+        double gain        = 0.0;
+        double exposureUs  = 5000.0;
+        double gamma       = 1.0;
+        double contrast    = 1.0;
+        double fps         = 0.0;
+        double wdrHigh     = std::numeric_limits<double>::quiet_NaN(); // BslDualGainHigh (NaN = not available)
+        double wdrLow      = std::numeric_limits<double>::quiet_NaN(); // BslDualGainLow  (NaN = not available)
+        int    outputQueueDepth = 0;   // Pylon OutputQueueSize (live queued frames)
+        int    width       = 0;        // sensor width in pixels (for MB calc)
+        int    height      = 0;        // sensor height in pixels
+        int    bpp         = 1;        // bytes per pixel
+    };
     CameraParams getCameraParams(int configArrayIndex);
     bool saveParameters(int configArrayIndex);
     bool loadParameters(int configArrayIndex);
@@ -149,9 +170,8 @@ private:
         bool connected = false;
     };
 
-    // Helper to configure camera parameters (PTP, Packet Size)
-    // Helper to configure camera parameters (PTP, Packet Size)
-    void configureCamera(GenApi::INodeMap& nodemap, bool isEmulation);
+    // Helper to configure camera parameters (resolution, PTP, transport tuning)
+    void configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation);
     
     // Vision Pipeline (Blur -> Threshold -> Canny)
     void processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex);
@@ -167,8 +187,6 @@ private:
     void clearCameraTile(int configArrayIndex);
     Pylon::CInstantCamera* getCameraByConfigIndex(int configArrayIndex);
     const Pylon::CInstantCamera* getCameraByConfigIndex(int configArrayIndex) const;
-    bool isCameraConnected(int configArrayIndex) const;
-
     // Snapshot Control
 
 
@@ -180,6 +198,8 @@ private:
     std::atomic<bool> recovering_;
     std::thread recoveryThread_;
     void recoveryLoop();
+    void startRecoveryThreadIfNeeded();
+    void joinRecoveryThread();
 
     // Temperature monitor
     std::atomic<bool> tempMonitorRunning_{false};
@@ -235,7 +255,9 @@ private:
     // Protected by disconnectedMutex_.
     std::set<uint32_t> disconnectedCameras_;
     std::mutex disconnectedMutex_;
-    
+    std::mutex recoveryThreadMutex_;
+    std::atomic<bool> shuttingDown_{false};
+
     // Preallocated buffer pools (one per camera)
     std::vector<std::unique_ptr<BufferPool>> bufferPools_;
     
@@ -251,5 +273,11 @@ private:
     
     // Mutex protecting software parameter data (swGain/swGamma/swContrast/lutValid/lutCache)
     // Guards against race between UI thread (writer) and acquisition thread (reader)
-     std::mutex paramMutex_;
+    std::mutex paramMutex_;
+
+    // Per-camera software frame counters (fallback when chunk data is unavailable).
+    // Each slot is written exclusively by its own acquisition thread, so no
+    // additional mutex is needed. Protected by snapshotMutex_ during resize in
+    // initialize() which always runs while acquisition threads are stopped.
+    std::vector<int64_t> softwareFrameCounters_;
 };

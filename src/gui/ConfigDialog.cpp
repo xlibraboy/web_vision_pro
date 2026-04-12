@@ -1,5 +1,6 @@
 #include "ConfigDialog.h"
 #include "widgets/CameraCard.h"
+#include "widgets/CameraDeviceSettingsDialog.h"
 #include "widgets/NetworkSummaryHeader.h"
 #include "widgets/DeleteConfirmationDialog.h"
 #include "widgets/IconManager.h"
@@ -21,6 +22,7 @@
 #include <QFrame>
 #include <QEvent>
 #include <QDateTime>
+#include <QDebug>
 #include <QMap>
 #include <QSet>
 #include <QGridLayout>
@@ -54,7 +56,18 @@ namespace {
             && normalizeIp(lhs.subnetMask) == normalizeIp(rhs.subnetMask)
             && normalizeIp(lhs.defaultGateway) == normalizeIp(rhs.defaultGateway)
             && lhs.fps == rhs.fps
-            && lhs.enableAcquisitionFps == rhs.enableAcquisitionFps;
+            && lhs.enableAcquisitionFps == rhs.enableAcquisitionFps
+            && lhs.width == rhs.width
+            && lhs.height == rhs.height
+            && lhs.offsetX == rhs.offsetX
+            && lhs.offsetY == rhs.offsetY
+            && lhs.pixelFormat == rhs.pixelFormat
+            && lhs.exposureTimeAbs == rhs.exposureTimeAbs
+            && lhs.enableExposureTimeBase == rhs.enableExposureTimeBase
+            && lhs.exposureTimeBaseAbs == rhs.exposureTimeBaseAbs
+            && lhs.exposureTimeRaw == rhs.exposureTimeRaw
+            && lhs.chunkModeActive == rhs.chunkModeActive
+            && lhs.enabledChunks == rhs.enabledChunks;
     }
 
     bool cameraConfigListEqual(const std::vector<CameraInfo>& lhs, const std::vector<CameraInfo>& rhs) {
@@ -97,6 +110,10 @@ namespace {
 }
 
 bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == cameraScrollWidget_ && event->type() == QEvent::Resize) {
+        relayoutCameraCards();
+    }
+
     if (event->type() == QEvent::Wheel && qobject_cast<QSpinBox*>(obj)) {
         event->ignore();
         return true;
@@ -113,8 +130,7 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     , accentColor_("#00E5FF") {
 
     setWindowTitle("System Configuration");
-    setWindowFlags(Qt::Window);
-    resize(780, 820);
+    resize(920, 860);
 
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
 
@@ -125,15 +141,20 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
 ConfigDialog::~ConfigDialog() = default;
 
 void ConfigDialog::setupUI() {
+    constexpr int kPageMargin = 16;
+    constexpr int kSectionSpacing = 16;
+    constexpr int kControlSpacing = 12;
+    constexpr int kSidebarWidth = 184;
+
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(14);
-    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(kSectionSpacing);
+    mainLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
 
     ThemeColors tc = CameraConfig::getThemeColors();
     
     // Create list widget for sidebar navigation
     QListWidget* sidebar = new QListWidget(this);
-    sidebar->setFixedWidth(196);
+    sidebar->setFixedWidth(kSidebarWidth);
     sidebar->setStyleSheet(QString(
         "QListWidget { "
         "  background-color: %1; "
@@ -156,10 +177,13 @@ void ConfigDialog::setupUI() {
         "  background-color: %4; "
         "}"
     ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary));
-    
+
     QStackedWidget* stackedWidget = new QStackedWidget(this);
-    
+    stackedWidget->setStyleSheet("QStackedWidget { background: transparent; }");
+
     QHBoxLayout* contentLayout = new QHBoxLayout();
+    contentLayout->setSpacing(kSectionSpacing);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->addWidget(sidebar);
     contentLayout->addWidget(stackedWidget, 1);
 
@@ -167,17 +191,14 @@ void ConfigDialog::setupUI() {
     // Camera Configuration Tab
     QWidget* camSetupGroup = new QWidget(this);
     QVBoxLayout* camSetupLayout = new QVBoxLayout(camSetupGroup);
-    camSetupLayout->setSpacing(16);
-    camSetupLayout->setContentsMargins(16, 16, 16, 16);
+    camSetupLayout->setSpacing(kSectionSpacing);
+    camSetupLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
 
     // Premium Network Summary Header
     networkSummaryHeader_ = new NetworkSummaryHeader(this);
     connect(networkSummaryHeader_, &NetworkSummaryHeader::refreshRequested,
             this, &ConfigDialog::onRefreshLogsClicked);
-    connect(networkSummaryHeader_, &NetworkSummaryHeader::clearLogsRequested,
-            this, &ConfigDialog::onClearLogsClicked);
-    connect(networkSummaryHeader_, &NetworkSummaryHeader::toggleLogsRequested,
-            this, &ConfigDialog::onToggleLogsClicked);
+    // Removed clear/toggle signals as they belong to diagnostics tab now
     connect(networkSummaryHeader_, &NetworkSummaryHeader::addCameraRequested,
             this, &ConfigDialog::onAddCameraConfigClicked);
     camSetupLayout->addWidget(networkSummaryHeader_);
@@ -207,44 +228,14 @@ void ConfigDialog::setupUI() {
     ).arg(tc.bg, tc.btnBg, tc.primary));
 
     cameraScrollWidget_ = new QWidget();
-    cameraListLayout_ = new QVBoxLayout(cameraScrollWidget_);
-    cameraListLayout_->setSpacing(16);
+    cameraListLayout_ = new QGridLayout(cameraScrollWidget_);
+    cameraListLayout_->setSpacing(kSectionSpacing);
+    cameraListLayout_->setContentsMargins(0, 0, 8, 0);
     cameraListLayout_->setAlignment(Qt::AlignTop);
-    cameraListLayout_->setContentsMargins(0, 8, 12, 8);
+    cameraScrollWidget_->installEventFilter(this);
 
     cameraScrollArea_->setWidget(cameraScrollWidget_);
     camSetupLayout->addWidget(cameraScrollArea_, 1);
-
-    // Camera Connection Logs
-    logsGroup_ = new QGroupBox("Camera Connection Logs", this);
-    logsGroup_->setStyleSheet(QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 12px; padding-top: 8px; font-size: 12px; } "
-        "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 8px; }"
-    ).arg(tc.primary, tc.border));
-    QVBoxLayout* logsLayout = new QVBoxLayout(logsGroup_);
-    logsLayout->setContentsMargins(12, 16, 12, 12);
-
-    connectionLogsBrowser_ = new QTextEdit(this);
-    connectionLogsBrowser_->setReadOnly(true);
-    connectionLogsBrowser_->setMinimumHeight(120);
-    connectionLogsBrowser_->setStyleSheet(QString(
-        "QTextEdit { "
-        "  background-color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 6px; "
-        "  color: %3; "
-        "  font-family: 'SF Mono', Monaco, Consolas, monospace; "
-        "  font-size: 12px; "
-        "  padding: 8px; "
-        "}"
-    ).arg(tc.bg, tc.border, tc.text));
-    logsLayout->addWidget(connectionLogsBrowser_);
-    
-    // Hide logs group by default
-    logsGroup_->setVisible(false);
-    
-    camSetupLayout->addWidget(logsGroup_, 0);
 
     QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
     sidebar->addItem(camSetupItem);
@@ -253,8 +244,8 @@ void ConfigDialog::setupUI() {
     // Recording & Triggers Tab
     QWidget* bufferGroup = new QWidget(this);
     QVBoxLayout* bufferLayout = new QVBoxLayout(bufferGroup);
-    bufferLayout->setSpacing(12);
-    bufferLayout->setContentsMargins(12, 12, 12, 12);
+    bufferLayout->setSpacing(kSectionSpacing);
+    bufferLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
 
     const QString sectionStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
@@ -266,8 +257,9 @@ void ConfigDialog::setupUI() {
         QGroupBox* group = new QGroupBox(title, bufferGroup);
         group->setStyleSheet(sectionStyle);
         QFormLayout* form = new QFormLayout(group);
-        form->setSpacing(10);
-        form->setContentsMargins(12, 16, 12, 12);
+        form->setSpacing(kControlSpacing);
+        form->setContentsMargins(14, 18, 14, 14);
+        form->setHorizontalSpacing(kSectionSpacing);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         bufferLayout->addWidget(group);
         return form;
@@ -331,8 +323,10 @@ void ConfigDialog::setupUI() {
     // UI Preferences Tab
     QWidget* uiGroup = new QWidget(this);
     QFormLayout* uiLayout = new QFormLayout(uiGroup);
-    uiLayout->setSpacing(10);
-    uiLayout->setContentsMargins(12, 12, 12, 12);
+    uiLayout->setSpacing(kControlSpacing);
+    uiLayout->setHorizontalSpacing(kSectionSpacing);
+    uiLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    uiLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     themeCombo_ = new QComboBox(uiGroup);
     themeCombo_->addItem("Industrial Dark - Cyan", 0);
@@ -363,6 +357,84 @@ void ConfigDialog::setupUI() {
     sidebar->addItem(uiGroupItem);
     stackedWidget->addWidget(uiGroup);
 
+    // Diagnostics Tab
+    QWidget* diagnosticsGroup = new QWidget(this);
+    QVBoxLayout* diagnosticsLayout = new QVBoxLayout(diagnosticsGroup);
+    diagnosticsLayout->setSpacing(kSectionSpacing);
+    diagnosticsLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+
+    QGroupBox* diagLogsGroup = new QGroupBox("Connection Diagnostics", diagnosticsGroup);
+    diagLogsGroup->setStyleSheet(QString(
+        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: 12px; } "
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+    ).arg(tc.primary, tc.border));
+    
+    QVBoxLayout* diagLogsLayout = new QVBoxLayout(diagLogsGroup);
+    diagLogsLayout->setSpacing(kControlSpacing);
+    diagLogsLayout->setContentsMargins(14, 18, 14, 14);
+    
+    connectionLogsBrowser_ = new QTextEdit(diagLogsGroup);
+    connectionLogsBrowser_->setReadOnly(true);
+    connectionLogsBrowser_->setStyleSheet(QString(
+        "QTextEdit { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  color: %3; "
+        "  font-family: 'SF Mono', Monaco, Consolas, monospace; "
+        "  font-size: 12px; "
+        "  padding: 8px; "
+        "}"
+    ).arg(tc.bg, tc.border, tc.text));
+    diagLogsLayout->addWidget(connectionLogsBrowser_);
+    
+    QHBoxLayout* diagBtnsLayout = new QHBoxLayout();
+    diagBtnsLayout->setSpacing(kControlSpacing);
+    
+    QPushButton* diagRefreshBtn = new QPushButton("Refresh Network", diagLogsGroup);
+    diagRefreshBtn->setIcon(IconManager::instance().refresh(16));
+    diagRefreshBtn->setStyleSheet(QString(
+        "QPushButton { "
+        "  background-color: %1; "
+        "  color: %2; "
+        "  border: none; "
+        "  border-radius: 6px; "
+        "  padding: 6px 12px; "
+        "  font-size: 12px; "
+        "  font-weight: 500; "
+        "} "
+        "QPushButton:hover { background-color: %3; }"
+    ).arg(tc.primary, tc.bg, tc.btnHover));
+    connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
+    
+    QPushButton* diagClearBtn = new QPushButton("Clear Logs", diagLogsGroup);
+    diagClearBtn->setIcon(IconManager::instance().trash(16));
+    diagClearBtn->setStyleSheet(QString(
+        "QPushButton { "
+        "  background-color: transparent; "
+        "  color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  padding: 6px 12px; "
+        "  font-size: 12px; "
+        "  font-weight: 500; "
+        "} "
+        "QPushButton:hover { background-color: rgba(255, 90, 90, 0.1); border-color: #FF5A5A; color: #FF5A5A; }"
+    ).arg(tc.text, tc.border));
+    connect(diagClearBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
+    
+    diagBtnsLayout->addWidget(diagRefreshBtn);
+    diagBtnsLayout->addWidget(diagClearBtn);
+    diagBtnsLayout->addStretch();
+    diagLogsLayout->addLayout(diagBtnsLayout);
+    
+    diagnosticsLayout->addWidget(diagLogsGroup);
+    
+    QListWidgetItem* diagnosticsItem = new QListWidgetItem(IconManager::instance().info(20), "Diagnostics");
+    sidebar->addItem(diagnosticsItem);
+    stackedWidget->addWidget(diagnosticsGroup);
+
     mainLayout->addLayout(contentLayout, 1);
     
     connect(sidebar, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex);
@@ -370,7 +442,8 @@ void ConfigDialog::setupUI() {
 
     // Bottom buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    btnLayout->setSpacing(12);
+    btnLayout->setSpacing(kControlSpacing);
+    btnLayout->setContentsMargins(0, 0, 0, 0);
     btnLayout->addStretch();
 
     QPushButton* closeBtn = new QPushButton("Close", this);
@@ -445,8 +518,41 @@ void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     CameraCard* card = new CameraCard(cam, cameraScrollWidget_);
     connectCameraCardSignals(card);
 
-    cameraListLayout_->addWidget(card);
     cameraCards_.push_back(card);
+    relayoutCameraCards();
+}
+
+void ConfigDialog::relayoutCameraCards() {
+    if (!cameraListLayout_ || !cameraScrollWidget_) {
+        return;
+    }
+
+    while (QLayoutItem* item = cameraListLayout_->takeAt(0)) {
+        if (item->widget()) {
+            item->widget()->setParent(cameraScrollWidget_);
+        }
+        delete item;
+    }
+
+    const int availableWidth = cameraScrollArea_ ? cameraScrollArea_->viewport()->width() : cameraScrollWidget_->width();
+    const int columnCount = availableWidth >= 1280 ? 2 : 1;
+
+    for (int i = 0; i < columnCount; ++i) {
+        cameraListLayout_->setColumnStretch(i, 1);
+        cameraListLayout_->setColumnMinimumWidth(i, columnCount == 2 ? 0 : 720);
+    }
+
+    for (int index = columnCount; index < 4; ++index) {
+        cameraListLayout_->setColumnStretch(index, 0);
+        cameraListLayout_->setColumnMinimumWidth(index, 0);
+    }
+
+    for (int index = 0; index < static_cast<int>(cameraCards_.size()); ++index) {
+        CameraCard* card = cameraCards_[index];
+        const int row = index / columnCount;
+        const int column = index % columnCount;
+        cameraListLayout_->addWidget(card, row, column, Qt::AlignTop);
+    }
 }
 
 void ConfigDialog::connectCameraCardSignals(CameraCard* card) {
@@ -455,6 +561,7 @@ void ConfigDialog::connectCameraCardSignals(CameraCard* card) {
     connect(card, &CameraCard::sourceChanged, this, &ConfigDialog::onCameraCardSourceChanged);
     connect(card, &CameraCard::macChanged, this, &ConfigDialog::onCameraCardMacChanged);
     connect(card, &CameraCard::writeIpClicked, this, &ConfigDialog::onCameraCardWriteIpClicked);
+    connect(card, &CameraCard::deviceSettingsClicked, this, &ConfigDialog::onCameraCardDeviceSettingsClicked);
 }
 
 CameraCard* ConfigDialog::findCameraCard(int cameraId) const {
@@ -500,6 +607,8 @@ void ConfigDialog::onCameraCardRemoveClicked() {
         cameraListLayout_->removeWidget(card);
         delete card;
 
+        relayoutCameraCards();
+
         // Update network status
         refreshNetworkStatus();
     }
@@ -510,6 +619,18 @@ void ConfigDialog::onCameraCardSourceChanged(int) {
 }
 
 void ConfigDialog::onCameraCardMacChanged(const QString&) {
+    QSet<QString> reservedMacs;
+    for (auto* card : cameraCards_) {
+        const QString configuredMac = normalizeMac(card->macAddress());
+        if (!configuredMac.isEmpty() && configuredMac != "NONE/AUTO") {
+            reservedMacs.insert(configuredMac);
+        }
+    }
+
+    for (auto* card : cameraCards_) {
+        card->updateMacCombo(currentGigEDevices_, card->macAddress(), reservedMacs);
+    }
+
     refreshNetworkStatus();
 }
 
@@ -623,6 +744,17 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cam.defaultGateway = "0.0.0.0";
     cam.fps = 50;
     cam.enableAcquisitionFps = false;
+    cam.width = 780;
+    cam.height = 580;
+    cam.offsetX = 0;
+    cam.offsetY = 0;
+    cam.pixelFormat = "Mono8";
+    cam.exposureTimeAbs = 40880.0;
+    cam.enableExposureTimeBase = false;
+    cam.exposureTimeBaseAbs = 20.0;
+    cam.exposureTimeRaw = 2044;
+    cam.chunkModeActive = false;
+    cam.enabledChunks = QStringList() << "Timestamp" << "Framecounter";
     cam.temperature = 0.0;
 
     createCameraWidgetBlock(cam);
@@ -631,13 +763,33 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cameraScrollArea_->ensureWidgetVisible(cameraCards_.back());
 }
 
+void ConfigDialog::onCameraCardDeviceSettingsClicked() {
+    CameraCard* card = findCameraCard(sender());
+    if (!card) return;
+
+    const auto it = std::find(cameraCards_.begin(), cameraCards_.end(), card);
+    const int cameraIndex = it == cameraCards_.end()
+        ? 0
+        : static_cast<int>(std::distance(cameraCards_.begin(), it));
+
+    CameraDeviceSettingsDialog dialog(cameraIndex, card->cameraInfo(), cameraManager_, isAdminMode_, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    card->setCameraInfo(dialog.updatedInfo());
+}
+
 void ConfigDialog::onRemoveCameraConfigClicked() {
     // Handled by CameraCard signals
 }
 
 void ConfigDialog::saveAndApply() {
+    qInfo() << "[ConfigDialog] Save requested. cardCount=" << cameraCards_.size();
+
     QStringList validationErrors;
     if (!validateConfiguration(&validationErrors)) {
+        qWarning() << "[ConfigDialog] Validation failed:" << validationErrors;
         QMessageBox::warning(this, "Invalid Camera Configuration", validationErrors.join("\n"));
         return;
     }
@@ -647,7 +799,7 @@ void ConfigDialog::saveAndApply() {
     // Gather all camera configs
     std::vector<CameraInfo> newCameras;
     for (auto* card : cameraCards_) {
-        CameraInfo cam;
+        CameraInfo cam = card->cameraInfo();
         cam.id = card->cameraId();
         cam.source = card->sourceType();
         cam.name = card->name();
@@ -659,15 +811,30 @@ void ConfigDialog::saveAndApply() {
         if (cam.macAddress.isEmpty()) cam.macAddress = "";
         cam.subnetMask = card->subnetMask();
         cam.defaultGateway = card->gateway();
-        cam.fps = card->fps();
-        cam.enableAcquisitionFps = card->isAcquisitionFpsEnabled();
         cam.temperature = 0.0;
+        qInfo() << "[ConfigDialog] Camera to save"
+                << "id=" << cam.id
+                << "source=" << cam.source
+                << "name=" << cam.name
+                << "ip=" << cam.ipAddress
+                << "mac=" << cam.macAddress
+                << "pixelFormat=" << cam.pixelFormat
+                << "fps=" << cam.fps
+                << "size=" << QString("%1x%2").arg(cam.width).arg(cam.height)
+                << "offset=" << QString("%1,%2").arg(cam.offsetX).arg(cam.offsetY);
         newCameras.push_back(cam);
     }
 
+    qInfo() << "[ConfigDialog] Persisting camera configuration";
     CameraConfig::saveCameras(newCameras);
 
     // Save global configs
+    qInfo() << "[ConfigDialog] Persisting global settings"
+            << "globalFps=" << globalFpsSpin_->value()
+            << "preTrigger=" << preTriggerSpin_->value()
+            << "postTrigger=" << postTriggerSpin_->value()
+            << "retention=" << eventRetentionSpin_->value()
+            << "theme=" << themeCombo_->currentData().toInt();
     CameraConfig::setFps(globalFpsSpin_->value());
     CameraConfig::setPreTriggerSeconds(preTriggerSpin_->value());
     CameraConfig::setPostTriggerSeconds(postTriggerSpin_->value());
@@ -675,11 +842,13 @@ void ConfigDialog::saveAndApply() {
     CameraConfig::setThemePreset(themeCombo_->currentData().toInt());
 
     const bool requiresCameraRestart = !cameraConfigListEqual(previousCameras, newCameras);
+    qInfo() << "[ConfigDialog] Save complete. requiresCameraRestart=" << requiresCameraRestart;
 
     // Let the main window restart/reapply after the dialog save completes.
     // Avoid touching live camera node maps here because Save may also change
     // camera topology/network configuration in the same action.
     QMetaObject::invokeMethod(this, [this, requiresCameraRestart]() {
+        qInfo() << "[ConfigDialog] Emitting configUpdated" << requiresCameraRestart;
         emit configUpdated(requiresCameraRestart);
     }, Qt::QueuedConnection);
 }
@@ -737,14 +906,16 @@ void ConfigDialog::onRefreshLogsClicked() {
         connectionLogsBrowser_->append(QString("[%1] No online Real cameras detected.").arg(emptyTs));
     }
 
-    // Update MAC Address dropdowns in camera cards
-    QStringList availableMacs;
-    for (const auto& dev : currentGigEDevices_) {
-        availableMacs.append(QString::fromStdString(dev.macAddress));
+    QSet<QString> reservedMacs;
+    for (auto* card : cameraCards_) {
+        const QString configuredMac = normalizeMac(card->macAddress());
+        if (!configuredMac.isEmpty() && configuredMac != "NONE/AUTO") {
+            reservedMacs.insert(configuredMac);
+        }
     }
 
     for (auto* card : cameraCards_) {
-        card->updateMacCombo(availableMacs, card->macAddress());
+        card->updateMacCombo(currentGigEDevices_, card->macAddress(), reservedMacs);
     }
 
     refreshNetworkStatus();
@@ -756,7 +927,7 @@ void ConfigDialog::onClearLogsClicked() {
 }
 
 void ConfigDialog::onToggleLogsClicked() {
-    logsGroup_->setVisible(!logsGroup_->isVisible());
+    // Left empty or we can remove the slot. Currently not used as logs are always visible in Diagnostics tab.
 }
 
 void ConfigDialog::onOpenIpConfiguratorClicked() {

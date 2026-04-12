@@ -374,19 +374,9 @@ void AnalysisView::setupMainArea() {
     singleLayout->addWidget(selectedCameraWidget_);
     tabWidget_->addTab(singleCameraTab_, "Camera");
     
-    // Tab 3: Diagnostic (Camera Details)
+    // Tab 3: Diagnostic — all-camera live data table (built once)
     diagnosticTab_ = new QWidget();
-    auto diagLayout = new QVBoxLayout(diagnosticTab_);
-    diagLayout->setContentsMargins(20, 20, 20, 20);
-    diagLayout->setAlignment(Qt::AlignTop);
-    
-    // Default content
-    auto diagLabel = new QLabel("Select a camera to view details", diagnosticTab_);
-    diagLabel->setAlignment(Qt::AlignCenter);
-    diagLabel->setStyleSheet(QString("color: %1; font-size: 16px;").arg(tc.border));
-    diagLabel->setObjectName("diagLabel"); // Access by name
-    diagLayout->addWidget(diagLabel);
-    
+    setupDiagnosticTab();
     tabWidget_->addTab(diagnosticTab_, "Diagnostic");
 
     // Tab 4: Configuration - REMOVED (Moved to System Settings Dialog)
@@ -472,6 +462,15 @@ void AnalysisView::setCameraCount(int count) {
     for (int i = 0; i < cols; ++i) layout->setColumnStretch(i, 1);
     
     numCameras_ = count;
+
+    if (selectedCameraId_ >= numCameras_) {
+        selectedCameraId_ = -1;
+    }
+
+    if (diagTable_) {
+        diagTable_->setRowCount(numCameras_);
+        refreshDiagTable();
+    }
 }
 
 void AnalysisView::setupPlaybackControls() {
@@ -769,6 +768,15 @@ void AnalysisView::onCameraClicked(int cameraId) {
 }
 
 void AnalysisView::updateDynamicTab(int cameraId) {
+    if (cameraId < 0 || cameraId >= numCameras_) {
+        tabWidget_->setTabText(1, "Camera");
+        if (selectedCameraWidget_) {
+            delete selectedCameraWidget_;
+            selectedCameraWidget_ = nullptr;
+        }
+        return;
+    }
+
     QString label = CameraConfig::getCameraLabel(cameraId);
     tabWidget_->setTabText(1, label);
     
@@ -781,62 +789,19 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     if (layout) {
         layout->addWidget(selectedCameraWidget_);
     }
-    
-    // Update Details Tab (Diagnostic)
-    if (diagnosticTab_) {
-        // Clear existing layout
-        qDeleteAll(diagnosticTab_->findChildren<QWidget*>("", Qt::FindDirectChildrenOnly));
-        delete diagnosticTab_->layout();
-        
-        auto diagLayout = new QVBoxLayout(diagnosticTab_);
-        diagLayout->setContentsMargins(20, 20, 20, 20);
-        diagLayout->setSpacing(10);
-        diagLayout->setAlignment(Qt::AlignTop);
-        
-        // Get Camera Info
-        CameraInfo info = CameraConfig::getCameraInfo(cameraId);
-        ThemeColors tc = CameraConfig::getThemeColors();
-        
-        auto createDetailRow = [&tc](const QString& label, const QString& value) {
-            auto row = new QWidget();
-            auto rowLayout = new QHBoxLayout(row);
-            rowLayout->setContentsMargins(0, 5, 0, 5);
-            
-            auto lbl = new QLabel(label, row);
-            lbl->setStyleSheet(QString("color: %1; font-weight: bold; min-width: 120px;").arg(tc.border));
-            
-            auto val = new QLabel(value, row);
-            val->setStyleSheet(QString("color: %1;").arg(tc.text));
-            val->setWordWrap(true);
-            
-            rowLayout->addWidget(lbl);
-            rowLayout->addWidget(val);
-            rowLayout->addStretch();
-            return row;
-        };
-        
-        // Title
-        auto title = new QLabel("Camera Details", diagnosticTab_);
-        title->setStyleSheet(QString("color: %1; font-size: 18px; font-weight: bold; margin-bottom: 10px;").arg(tc.primary));
-        diagLayout->addWidget(title);
-        
-        // Details
-        diagLayout->addWidget(createDetailRow("ID:", QString::number(info.id)));
-        diagLayout->addWidget(createDetailRow("Name:", info.name));
-        diagLayout->addWidget(createDetailRow("Model:", info.model));
-        diagLayout->addWidget(createDetailRow("IP Address:", info.ipAddress));
-        diagLayout->addWidget(createDetailRow("Location:", info.location));
-        diagLayout->addWidget(createDetailRow("Side:", info.side));
-        diagLayout->addWidget(createDetailRow("Resolution:", info.imageSize));
-        diagLayout->addWidget(createDetailRow("Frame Rate:", QString::number(info.fps) + " fps"));
-        diagLayout->addWidget(createDetailRow("Temperature:", QString::number(info.temperature) + " °C"));
-        
-        diagLayout->addStretch();
-    }
+    // Diagnostic tab is now a standalone all-camera table; no per-camera rebuild needed.
 }
 
 void AnalysisView::onTabChanged(int index) {
-    Q_UNUSED(index);
+    // Diagnostic tab is index 2 — start/stop timer to save resources
+    if (diagRefreshTimer_ && diagAutoRefreshChk_) {
+        if (index == 2 && diagAutoRefreshChk_->isChecked()) {
+            refreshDiagTable();        // immediate refresh on switch
+            diagRefreshTimer_->start();
+        } else {
+            diagRefreshTimer_->stop();
+        }
+    }
     // Force update of the view when switching tabs to ensure the new widget is painted
     if (isReviewMode_) {
         // Use current slider value to trigger update
@@ -1652,7 +1617,7 @@ void AnalysisView::updateTheme() {
     }
     
     if (diagnosticTab_) {
-        // Re-trigger dynamic tab update to reconstruct diagnostic view with new colors
+        // Rebuild the single-camera tab only when a valid camera is selected.
         updateDynamicTab(selectedCameraId_);
     }
     
@@ -1948,4 +1913,281 @@ void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidg
     }
     sortLogTable(sourceTable);
     sortLogTable(targetTable);
+}
+
+// ---------------------------------------------------------------------------
+// setCameraManager — called from MainWindow after construction
+// ---------------------------------------------------------------------------
+void AnalysisView::setCameraManager(CameraManager* manager) {
+    cameraManager_ = manager;
+
+    if (diagTable_) {
+        refreshDiagTable();
+    }
+
+    if (diagRefreshTimer_ && diagAutoRefreshChk_ && diagAutoRefreshChk_->isChecked()
+        && tabWidget_ && tabWidget_->currentIndex() == 2) {
+        diagRefreshTimer_->start();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// setupDiagnosticTab — build the all-camera live data table once at startup
+// ---------------------------------------------------------------------------
+void AnalysisView::setupDiagnosticTab() {
+    ThemeColors tc = CameraConfig::getThemeColors();
+
+    auto* rootLayout = new QVBoxLayout(diagnosticTab_);
+    rootLayout->setContentsMargins(12, 12, 12, 12);
+    rootLayout->setSpacing(8);
+
+    // --- Control bar (title + buttons) ---
+    auto* controlBar = new QHBoxLayout();
+    controlBar->setSpacing(8);
+
+    auto* titleLabel = new QLabel("Camera Diagnostics", diagnosticTab_);
+    titleLabel->setStyleSheet(QString(
+        "color: %1; font-size: 16px; font-weight: bold;").arg(tc.primary));
+    controlBar->addWidget(titleLabel);
+    controlBar->addStretch();
+
+    diagAutoRefreshChk_ = new QCheckBox("Auto (3 s)", diagnosticTab_);
+    diagAutoRefreshChk_->setChecked(true);
+    diagAutoRefreshChk_->setStyleSheet(QString(
+        "QCheckBox { color: %1; font-size: 12px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background: %3; }"
+        "QCheckBox::indicator:checked { background: %4; border-color: %4; }").arg(
+            tc.text, tc.border, tc.btnBg, tc.primary));
+    controlBar->addWidget(diagAutoRefreshChk_);
+
+    diagRefreshBtn_ = new QPushButton("Refresh", diagnosticTab_);
+    diagRefreshBtn_->setFixedHeight(28);
+    diagRefreshBtn_->setStyleSheet(QString(
+        "QPushButton { background: %1; color: %2; border: none; border-radius: 6px;"
+        "  padding: 0 14px; font-size: 12px; font-weight: 600; }"
+        "QPushButton:hover { background: %3; }"
+        "QPushButton:pressed { background: %4; }").arg(
+            tc.primary, tc.bg, tc.btnHover, tc.border));
+    controlBar->addWidget(diagRefreshBtn_);
+    rootLayout->addLayout(controlBar);
+
+    // --- Table ---
+    const QStringList headers = {
+        "ID", "Name", "Temp (C)", "FPS", "Shutter [us]",
+        "Gain", "Gamma", "WDR High", "WDR Low",
+        "Buf Frames", "Buf [MB]"
+    };
+
+    diagTable_ = new QTableWidget(0, headers.size(), diagnosticTab_);
+    diagTable_->setHorizontalHeaderLabels(headers);
+    diagTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    diagTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    diagTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    diagTable_->verticalHeader()->setVisible(false);
+    diagTable_->setAlternatingRowColors(true);
+    diagTable_->setSortingEnabled(false);
+    diagTable_->setShowGrid(true);
+    diagTable_->setWordWrap(false);
+
+    // Column widths
+    diagTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    diagTable_->setColumnWidth(0, 40);   // ID
+    diagTable_->setColumnWidth(1, 130);  // Name
+    diagTable_->setColumnWidth(2, 90);   // Temp
+    diagTable_->setColumnWidth(3, 70);   // FPS
+    diagTable_->setColumnWidth(4, 95);   // Shutter
+    diagTable_->setColumnWidth(5, 65);   // Gain
+    diagTable_->setColumnWidth(6, 65);   // Gamma
+    diagTable_->setColumnWidth(7, 80);   // WDR High
+    diagTable_->setColumnWidth(8, 80);   // WDR Low
+    diagTable_->setColumnWidth(9, 85);   // Buf Frames
+    diagTable_->setColumnWidth(10, 80);  // Buf MB
+    diagTable_->horizontalHeader()->setStretchLastSection(true);
+
+    // Stylesheet (re-use project table style)
+    diagTable_->setStyleSheet(makeTableStyle(tc, false));
+
+    rootLayout->addWidget(diagTable_, 1);
+
+    // --- Timer ---
+    diagRefreshTimer_ = new QTimer(this);
+    diagRefreshTimer_->setInterval(3000);
+    connect(diagRefreshTimer_, &QTimer::timeout, this, &AnalysisView::refreshDiagTable);
+    connect(diagRefreshBtn_, &QPushButton::clicked, this, &AnalysisView::refreshDiagTable);
+    connect(diagAutoRefreshChk_, &QCheckBox::toggled, this, &AnalysisView::onDiagAutoRefreshToggled);
+
+    // Start auto-refresh by default (timer activates when tab is shown)
+    // First populate with static data immediately
+    refreshDiagTable();
+}
+
+// ---------------------------------------------------------------------------
+// onDiagAutoRefreshToggled — start/stop the 3-second refresh timer
+// ---------------------------------------------------------------------------
+void AnalysisView::onDiagAutoRefreshToggled(bool enabled) {
+    if (!diagRefreshTimer_) return;
+    if (enabled)
+        diagRefreshTimer_->start();
+    else
+        diagRefreshTimer_->stop();
+}
+
+// ---------------------------------------------------------------------------
+// refreshDiagTable — poll all cameras and update table rows
+// ---------------------------------------------------------------------------
+void AnalysisView::refreshDiagTable() {
+    if (!diagTable_) return;
+
+    ThemeColors tc = CameraConfig::getThemeColors();
+    int camCount = CameraConfig::getCameraCount();
+
+    // Resize rows if camera count changed
+    if (diagTable_->rowCount() != camCount)
+        diagTable_->setRowCount(camCount);
+
+    // Helper: create a centered, non-editable item
+    auto makeItem = [](const QString& text) {
+        auto* item = new QTableWidgetItem(text);
+        item->setTextAlignment(Qt::AlignCenter);
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        return item;
+    };
+    // Helper: ASCII placeholder item
+    auto makeNA = [&tc]() {
+        auto* item = new QTableWidgetItem("N/A");
+        item->setTextAlignment(Qt::AlignCenter);
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        item->setForeground(QColor(tc.border));
+        return item;
+    };
+
+    auto applyRowColors = [&](int row, const QColor& background, const QColor& foreground) {
+        for (int col = 0; col < diagTable_->columnCount(); ++col) {
+            QTableWidgetItem* item = diagTable_->item(row, col);
+            if (!item) continue;
+            item->setBackground(background);
+            item->setForeground(foreground);
+        }
+    };
+
+    std::vector<CameraInfo> cameras;
+    cameras.reserve(camCount);
+    for (int idx = 0; idx < camCount; ++idx) {
+        cameras.push_back(CameraConfig::getCameraInfo(idx));
+    }
+    std::sort(cameras.begin(), cameras.end(), [](const CameraInfo& lhs, const CameraInfo& rhs) {
+        return lhs.id < rhs.id;
+    });
+
+    for (int row = 0; row < camCount; ++row) {
+        const CameraInfo& info = cameras[row];
+        const int configIndex = info.id - 1;
+
+        // Disabled cameras: show ID + Name, everything else as N/A.
+        if (info.source == 2) {
+            diagTable_->setItem(row, 0,  makeItem(QString::number(info.id)));
+            diagTable_->setItem(row, 1,  makeItem(info.name));
+            for (int col = 2; col <= 10; ++col)
+                diagTable_->setItem(row, col, makeNA());
+            applyRowColors(row, QColor(55, 55, 55, 140), QColor(tc.border));
+            continue;
+        }
+
+        // --- Live data from CameraManager (if available) ---
+        double temperature = std::numeric_limits<double>::quiet_NaN();
+        double fps   = 0.0;
+        CameraManager::CameraParams p;
+        bool isConnected = false;
+
+        if (cameraManager_) {
+            isConnected  = cameraManager_->isCameraConnected(configIndex);
+            if (isConnected) {
+                temperature = cameraManager_->getTemperature(configIndex);
+                fps         = cameraManager_->getCameraFps(configIndex);
+                p           = cameraManager_->getCameraParams(configIndex);
+            }
+        } else {
+            // Fallback: static config values
+            fps = info.fps;
+        }
+
+        // Col 0: ID
+        diagTable_->setItem(row, 0, makeItem(QString::number(info.id)));
+
+        // Col 1: Name
+        diagTable_->setItem(row, 1, makeItem(info.name));
+
+        // Col 2: Temperature
+        {
+            QString tempStr = std::isnan(temperature)
+                ? QString("N/A")
+                : QString::number(temperature, 'f', 1);
+            auto* item = makeItem(tempStr);
+            diagTable_->setItem(row, 2, item);
+        }
+
+        // Col 3: FPS
+        diagTable_->setItem(row, 3, makeItem(
+            fps > 0.0 ? QString::number(fps, 'f', 1) : QString("N/A")));
+
+        // Col 4: Shutter [µs]
+        diagTable_->setItem(row, 4, cameraManager_
+            ? makeItem(QString::number(p.exposureUs, 'f', 0))
+            : makeNA());
+
+        // Col 5: Gain
+        diagTable_->setItem(row, 5, cameraManager_
+            ? makeItem(QString::number(p.gain, 'f', 2))
+            : makeNA());
+
+        // Col 6: Gamma
+        diagTable_->setItem(row, 6, cameraManager_
+            ? makeItem(QString::number(p.gamma, 'f', 2))
+            : makeNA());
+
+        // Col 7: WDR High
+        diagTable_->setItem(row, 7, (cameraManager_ && !std::isnan(p.wdrHigh))
+            ? makeItem(QString::number(p.wdrHigh, 'f', 2))
+            : makeNA());
+
+        // Col 8: WDR Low
+        diagTable_->setItem(row, 8, (cameraManager_ && !std::isnan(p.wdrLow))
+            ? makeItem(QString::number(p.wdrLow, 'f', 2))
+            : makeNA());
+
+        // Col 9: Buffer Frames (live Pylon output queue depth)
+        diagTable_->setItem(row, 9, cameraManager_
+            ? makeItem(QString::number(p.outputQueueDepth))
+            : makeNA());
+
+        // Col 10: Buffer [MB] — outputQueueDepth × W × H × bpp / 1 048 576
+        if (cameraManager_ && p.width > 0 && p.height > 0) {
+            double mb = static_cast<double>(p.outputQueueDepth)
+                      * p.width * p.height * p.bpp
+                      / (1024.0 * 1024.0);
+            diagTable_->setItem(row, 10, makeItem(QString::number(mb, 'f', 2)));
+        } else {
+            diagTable_->setItem(row, 10, makeNA());
+        }
+
+        if (cameraManager_) {
+            if (isConnected) {
+                applyRowColors(row, QColor(20, 70, 40, 90), QColor(tc.text));
+            } else {
+                applyRowColors(row, QColor(90, 35, 35, 90), QColor("#F2C2C2"));
+            }
+        }
+
+        // Keep temperature severity as the strongest visual signal.
+        if (!std::isnan(temperature)) {
+            QTableWidgetItem* tempItem = diagTable_->item(row, 2);
+            if (tempItem) {
+                CameraManager::TemperatureStatus st = CameraManager::classifyTemperature(temperature);
+                if (st == CameraManager::TS_Error)
+                    tempItem->setBackground(QColor(0xFF, 0x40, 0x40, 160));
+                else if (st == CameraManager::TS_Critical)
+                    tempItem->setBackground(QColor(0xFF, 0xAA, 0x00, 160));
+            }
+        }
+    }
 }
