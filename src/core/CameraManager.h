@@ -108,6 +108,9 @@ public:
     // Get Specific Camera Resolution
     cv::Size getCameraResolution(int index);
     
+    // Get specific camera acquisition frame rate in Hz.
+    double getCameraAcquisitionFps(int index);
+
     // Get Specific Camera Resulting FPS
     double getCameraFps(int index);
 

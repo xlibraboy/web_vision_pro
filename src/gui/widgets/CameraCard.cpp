@@ -69,8 +69,8 @@ void CameraCard::setupUI(const CameraInfo& info) {
     // Create content area
     contentWidget_ = new QWidget(this);
     contentLayout_ = new QVBoxLayout(contentWidget_);
-    contentLayout_->setSpacing(14);
-    contentLayout_->setContentsMargins(16, 12, 16, 16);
+    contentLayout_->setSpacing(10);
+    contentLayout_->setContentsMargins(12, 10, 12, 12);
 
     createContent(info);
 
@@ -82,8 +82,8 @@ void CameraCard::setupUI(const CameraInfo& info) {
 
 void CameraCard::createHeader() {
     headerLayout_ = new QHBoxLayout();
-    headerLayout_->setSpacing(10);
-    headerLayout_->setContentsMargins(16, 14, 16, 14);
+    headerLayout_->setSpacing(8);
+    headerLayout_->setContentsMargins(12, 10, 12, 10);
 
     // Camera icon
     cameraIcon_ = new QLabel(this);
@@ -92,15 +92,15 @@ void CameraCard::createHeader() {
 
     QWidget* titleBlock = new QWidget(this);
     QVBoxLayout* titleLayout = new QVBoxLayout(titleBlock);
-    titleLayout->setSpacing(4);
+    titleLayout->setSpacing(2);
     titleLayout->setContentsMargins(0, 0, 0, 0);
 
     cameraTitle_ = new QLabel(this);
-    cameraTitle_->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    cameraTitle_->setStyleSheet("font-size: 13px; font-weight: 600; color: #E3E3E3;");
     titleLayout->addWidget(cameraTitle_);
 
     cameraMetaLabel_ = new QLabel(this);
-    cameraMetaLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    cameraMetaLabel_->setStyleSheet("font-size: 10px; color: #8B949E;");
     cameraMetaLabel_->setWordWrap(true);
     titleLayout->addWidget(cameraMetaLabel_);
 
@@ -108,22 +108,22 @@ void CameraCard::createHeader() {
 
     QWidget* headerActions = new QWidget(this);
     QHBoxLayout* actionLayout = new QHBoxLayout(headerActions);
-    actionLayout->setSpacing(8);
+    actionLayout->setSpacing(6);
     actionLayout->setContentsMargins(0, 0, 0, 0);
 
     // Status label
     statusLabel_ = new QLabel("Pending", this);
     statusLabel_->setStyleSheet(
-        "font-size: 12px; font-weight: 500; padding: 4px 10px; "
-        "border-radius: 12px; background-color: rgba(136, 136, 136, 0.2); "
+        "font-size: 11px; font-weight: 500; padding: 3px 8px; "
+        "border-radius: 10px; background-color: rgba(136, 136, 136, 0.2); "
         "color: #888888;"
     );
     actionLayout->addWidget(statusLabel_, 0, Qt::AlignVCenter);
 
     editCheck_ = new QCheckBox("Edit", this);
     editCheck_->setStyleSheet(
-        "QCheckBox { color: #E3E3E3; font-size: 12px; spacing: 6px; padding-left: 2px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; }"
+        "QCheckBox { color: #E3E3E3; font-size: 11px; spacing: 4px; padding-left: 2px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; }"
     );
     connect(editCheck_, &QCheckBox::toggled, this, &CameraCard::editToggled);
     actionLayout->addWidget(editCheck_, 0, Qt::AlignVCenter);
@@ -173,20 +173,20 @@ void CameraCard::updateHeader(const CameraInfo& info) {
 }
 
 void CameraCard::createContent(const CameraInfo& info) {
-    const int labelColumnMinWidth = 92;
+    const int labelColumnMinWidth = 82;
 
     const QString groupStyle =
         "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; "
-        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 12px; }"
+        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 11px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }";
 
     const QString fieldStyle =
         "QComboBox, QLineEdit, QSpinBox { "
         "background-color: #1C2128; border: 1px solid #30363D; "
-        "border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+        "border-radius: 6px; padding: 5px 7px; color: #E3E3E3; font-size: 11px; }"
         "QComboBox:hover, QLineEdit:hover { border-color: #00E5FF; }"
         "QComboBox:focus, QLineEdit:focus { border-color: #00E5FF; }"
-        "QSpinBox { padding-right: 0; min-width: 84px; }"
+        "QSpinBox { padding-right: 0; min-width: 72px; }"
         "QLineEdit { min-width: 0; }"
         "QComboBox { min-width: 0; }";
 
@@ -195,9 +195,9 @@ void CameraCard::createContent(const CameraInfo& info) {
         "  background-color: transparent; "
         "  border: 1px solid #30363D; "
         "  border-radius: 6px; "
-        "  padding: 6px 8px; "
+        "  padding: 5px 7px; "
         "  color: #E3E3E3; "
-        "  font-size: 12px; "
+        "  font-size: 11px; "
         "}";
 
     // Basic Info Group
@@ -205,9 +205,9 @@ void CameraCard::createContent(const CameraInfo& info) {
     basicInfoGroup_->setStyleSheet(groupStyle);
 
     basicFieldsLayout_ = new QGridLayout(basicInfoGroup_);
-    basicFieldsLayout_->setHorizontalSpacing(14);
-    basicFieldsLayout_->setVerticalSpacing(10);
-    basicFieldsLayout_->setContentsMargins(14, 16, 14, 14);
+    basicFieldsLayout_->setHorizontalSpacing(10);
+    basicFieldsLayout_->setVerticalSpacing(8);
+    basicFieldsLayout_->setContentsMargins(12, 14, 12, 12);
     basicFieldsLayout_->setColumnStretch(1, 1);
 
     int basicRow = 0;
@@ -215,7 +215,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     // Helper lambda to add field
     auto addField = [&](QGroupBox* group, QGridLayout* layout, int& row, const QString& label, QWidget* widget) {
         QLabel* lbl = new QLabel(label, group);
-        lbl->setStyleSheet("color: #8B949E; font-size: 11px; font-weight: 500;");
+        lbl->setStyleSheet("color: #8B949E; font-size: 10px; font-weight: 500;");
         lbl->setMinimumWidth(labelColumnMinWidth);
         layout->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
         layout->addWidget(widget, row, 1);
@@ -266,9 +266,9 @@ void CameraCard::createContent(const CameraInfo& info) {
     networkInfoGroup_->setStyleSheet(groupStyle);
 
     networkFieldsLayout_ = new QGridLayout(networkInfoGroup_);
-    networkFieldsLayout_->setHorizontalSpacing(14);
-    networkFieldsLayout_->setVerticalSpacing(10);
-    networkFieldsLayout_->setContentsMargins(14, 16, 14, 14);
+    networkFieldsLayout_->setHorizontalSpacing(10);
+    networkFieldsLayout_->setVerticalSpacing(8);
+    networkFieldsLayout_->setContentsMargins(12, 14, 12, 12);
     networkFieldsLayout_->setColumnStretch(1, 1);
 
     int networkRow = 0;
@@ -309,8 +309,8 @@ void CameraCard::createContent(const CameraInfo& info) {
     writeIpBtn_->setIcon(IconManager::instance().save(16));
     writeIpBtn_->setStyleSheet(
         "QPushButton { background-color: #238636; color: white; "
-        "border: none; border-radius: 6px; padding: 8px 16px; "
-        "font-size: 12px; font-weight: 500; }"
+        "border: none; border-radius: 6px; padding: 7px 12px; "
+        "font-size: 11px; font-weight: 500; }"
         "QPushButton:hover { background-color: #2EA043; }"
         "QPushButton:disabled { background-color: #30363D; color: #8B949E; }"
     );
@@ -322,7 +322,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     deviceSettingsBtn_ = new QPushButton("Device Settings...", contentWidget_);
     deviceSettingsBtn_->setIcon(IconManager::instance().settings(16));
     deviceSettingsBtn_->setStyleSheet(
-        "QPushButton { background-color: transparent; color: #00E5FF; border: 1px solid #30363D; border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 500; }"
+        "QPushButton { background-color: transparent; color: #00E5FF; border: 1px solid #30363D; border-radius: 6px; padding: 7px 12px; font-size: 11px; font-weight: 500; }"
         "QPushButton:hover { background-color: rgba(0, 229, 255, 0.08); border-color: #00E5FF; }"
         "QPushButton:disabled { color: #6E7681; border-color: #30363D; }"
     );
@@ -436,8 +436,8 @@ void CameraCard::setStatus(const QString& text, const QColor& color) {
 
     // Update status label style
     QString style = QString(
-        "font-size: 12px; font-weight: 600; padding: 4px 12px; "
-        "border-radius: 12px; background-color: %1; color: %2;"
+        "font-size: 11px; font-weight: 600; padding: 3px 10px; "
+        "border-radius: 10px; background-color: %1; color: %2;"
     ).arg(color.name()).arg("#FFFFFF");
 
     statusLabel_->setStyleSheet(style);

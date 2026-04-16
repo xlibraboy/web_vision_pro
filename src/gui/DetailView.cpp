@@ -41,7 +41,7 @@ void DetailView::setupUi() {
     infoLayout->addRow("IP Address:", lblIP_);
     infoLayout->addRow("Image Size:", lblImageSize_);
     infoLayout->addRow("Acquisition FPS:", lblFPS_);
-    infoLayout->addRow("Display FPS:", lblDisplayFps_);
+    infoLayout->addRow("Resulting Framerate (Abs) [Hz]:", lblDisplayFps_);
     infoLayout->addRow("Temperature °C:", lblTemp_);
 
     // Parameters Group (Below Camera Info)
@@ -387,6 +387,14 @@ void DetailView::setDisplayFps(double fps) {
     if (fps < 0) {
         lblDisplayFps_->setText("N/A");
     } else {
-        lblDisplayFps_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
+        lblDisplayFps_->setText(QString::number(fps, 'f', 1));
+    }
+}
+
+void DetailView::setAcquisitionFps(double fps) {
+    if (fps < 0) {
+        lblFPS_->setText("N/A");
+    } else {
+        lblFPS_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
     }
 }

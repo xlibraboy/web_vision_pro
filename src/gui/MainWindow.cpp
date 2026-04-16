@@ -40,7 +40,17 @@ MainWindow::MainWindow(QWidget *parent)
         currentFps_ = frameCount_ * 2.0; // Called every 500ms
         frameCount_ = 0;
         liveDashboard_->updateStatus(currentFps_, false); // Need to update this to support Status per view?
-        // If in detail view, maybe update detail view stats?
+
+        if (stackedWidget_ && detailView_ && stackedWidget_->currentWidget() == detailView_ && cameraManager_) {
+            const int cameraId = detailView_->videoWidget()->cameraId();
+            if (cameraId >= 0) {
+                detailView_->setAcquisitionFps(cameraManager_->getCameraAcquisitionFps(cameraId));
+                detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraId));
+            } else {
+                detailView_->setAcquisitionFps(-1.0);
+                detailView_->setDisplayFps(-1.0);
+            }
+        }
     });
     fpsTimer_.start(500);
 }
@@ -612,8 +622,8 @@ void MainWindow::showDetail(int cameraId) {
         info.ipAddress = QString::fromStdString(cameraManager_->getIpAddress(cameraId));
         cv::Size res = cameraManager_->getCameraResolution(cameraId);
         info.imageSize = QString("%1 x %2").arg(res.width).arg(res.height);
-        double f = cameraManager_->getCameraFps(cameraId);
-        if (f > 0) info.fps = f; // only override if readable
+        double acquisitionFps = cameraManager_->getCameraAcquisitionFps(cameraId);
+        if (acquisitionFps > 0) info.fps = acquisitionFps; // only override if readable
         info.temperature = cameraManager_->getTemperature(cameraId);
 
         // Read actual live camera parameters (Gain, Exposure, Gamma) directly from the camera
@@ -625,10 +635,13 @@ void MainWindow::showDetail(int cameraId) {
         detailView_->setCamera(cameraId, info, nullptr);
     }
     
-    // Query Display FPS from the CameraWidget's ring buffer
-    CameraWidget* widget = liveDashboard_->getCameraWidget(cameraId);
-    if (widget) {
-        detailView_->setDisplayFps(widget->getActualDisplayFps());
+    // Show the camera's resulting frame rate on the second info row as requested.
+    if (cameraManager_) {
+        detailView_->setAcquisitionFps(cameraManager_->getCameraAcquisitionFps(cameraId));
+        detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraId));
+    } else {
+        detailView_->setAcquisitionFps(-1.0);
+        detailView_->setDisplayFps(-1.0);
     }
     stackedWidget_->setCurrentWidget(detailView_);
     

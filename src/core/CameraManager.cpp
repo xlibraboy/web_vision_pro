@@ -1353,6 +1353,30 @@ cv::Size CameraManager::getCameraResolution(int configArrayIndex) {
     return cv::Size(0, 0);
 }
 
+double CameraManager::getCameraAcquisitionFps(int configArrayIndex) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera) {
+        return 0.0;
+    }
+
+    try {
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
+            GenApi::CFloatPtr ptrFpsAbs(nodemap.GetNode("AcquisitionFrameRateAbs"));
+            if (GenApi::IsReadable(ptrFpsAbs)) {
+                return ptrFpsAbs->GetValue();
+            }
+
+            GenApi::CFloatPtr ptrFps(nodemap.GetNode("AcquisitionFrameRate"));
+            if (GenApi::IsReadable(ptrFps)) {
+                return ptrFps->GetValue();
+            }
+        }
+    } catch (...) {}
+
+    return 0.0;
+}
+
 double CameraManager::getCameraFps(int configArrayIndex) {
     auto* camera = getCameraByConfigIndex(configArrayIndex);
     if (!camera) {

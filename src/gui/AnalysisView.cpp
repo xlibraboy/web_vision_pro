@@ -28,12 +28,12 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
     QString selDelete  = "QTableWidget::item:selected { background-color: #D32F2F; color: white; }";
     return QString(
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
-        "gridline-color: #2a2a2a; font-size: 12px; font-family: sans-serif; border: none; outline: none; }"
-        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 4px; border: none; border-bottom: 1px solid #2a2a2a; text-align: left; font-size: 12px; font-family: sans-serif; }"
+        "gridline-color: #2a2a2a; font-size: 11px; font-family: sans-serif; border: none; outline: none; }"
+        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 3px 4px; border: none; border-bottom: 1px solid #2a2a2a; text-align: left; font-size: 11px; font-family: sans-serif; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
         "{ background-color: %1; color: #E0E0E0; }"
-        "QTableWidget::item { padding: 4px; border: none; color: #E0E0E0; font-size: 12px; font-family: sans-serif; }"
+        "QTableWidget::item { padding: 1px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: sans-serif; }"
     ).arg(tc.bg, tc.btnBg)
      + (deleteMode ? selDelete : selNormal);
 }
@@ -220,7 +220,7 @@ void AnalysisView::setupLeftSidebar() {
     auto layout = new QVBoxLayout(leftSidebar_);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->setSpacing(8);
-    
+
     // Server Controls Group
     auto controlsGroup = new QGroupBox("Control Panel", leftSidebar_);
     controlsGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
@@ -278,6 +278,7 @@ void AnalysisView::setupLeftSidebar() {
     logGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
     auto logLayout = new QVBoxLayout(logGroup);
     logLayout->setContentsMargins(4, 8, 4, 4);
+    logLayout->setSpacing(4);
     
     paperBreakTable_ = createLogTable(logGroup, false);
     permanentPaperBreakTable_ = createLogTable(logGroup, false);
@@ -297,17 +298,20 @@ void AnalysisView::setupLeftSidebar() {
     connect(togglePermanentTableButton_, &QPushButton::toggled, this, [this](bool checked) {
         permanentSectionWidget_->setVisible(checked);
         togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
+        permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, checked ? QSizePolicy::Expanding : QSizePolicy::Preferred);
+        leftSidebar_->updateGeometry();
     });
     logLayout->addWidget(togglePermanentTableButton_);
 
     permanentSectionWidget_ = new QWidget(logGroup);
+    permanentSectionWidget_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto permanentLayout = new QVBoxLayout(permanentSectionWidget_);
     permanentLayout->setContentsMargins(0, 0, 0, 0);
-    permanentLayout->setSpacing(4);
+    permanentLayout->setSpacing(2);
     auto permanentLabel = new QLabel("Permanent Storage", permanentSectionWidget_);
     permanentLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.primary));
     permanentLayout->addWidget(permanentLabel);
-    permanentLayout->addWidget(permanentPaperBreakTable_);
+    permanentLayout->addWidget(permanentPaperBreakTable_, 1);
     permanentSectionWidget_->setVisible(false);
     logLayout->addWidget(permanentSectionWidget_);
     
@@ -339,6 +343,10 @@ void AnalysisView::setupLeftSidebar() {
     buttonRow->addWidget(deleteButton_);
     logLayout->addLayout(buttonRow);
     
+    paperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    logLayout->setStretch(1, 3);
+    logLayout->setStretch(3, 2);
     layout->addWidget(logGroup, 1);  // Stretches to fill remaining space
     
     // No hidden columns
@@ -1791,7 +1799,7 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setSortIndicatorShown(true);
     table->horizontalHeader()->setSectionsClickable(true);
     table->verticalHeader()->setVisible(false);
-    table->verticalHeader()->setDefaultSectionSize(30);
+    table->verticalHeader()->setDefaultSectionSize(20);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(deleteMode ? QAbstractItemView::MultiSelection : QAbstractItemView::SingleSelection);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);

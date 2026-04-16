@@ -130,7 +130,7 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     , accentColor_("#00E5FF") {
 
     setWindowTitle("System Configuration");
-    resize(920, 860);
+    resize(1440, 860);
 
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
 
@@ -535,11 +535,21 @@ void ConfigDialog::relayoutCameraCards() {
     }
 
     const int availableWidth = cameraScrollArea_ ? cameraScrollArea_->viewport()->width() : cameraScrollWidget_->width();
-    const int columnCount = availableWidth >= 1280 ? 2 : 1;
+
+    int columnCount = 1;
+    int columnMinWidth = 720;
+
+    if (availableWidth >= 1400) {
+        columnCount = 3;
+        columnMinWidth = 420;
+    } else if (availableWidth >= 980) {
+        columnCount = 2;
+        columnMinWidth = 0;
+    }
 
     for (int i = 0; i < columnCount; ++i) {
         cameraListLayout_->setColumnStretch(i, 1);
-        cameraListLayout_->setColumnMinimumWidth(i, columnCount == 2 ? 0 : 720);
+        cameraListLayout_->setColumnMinimumWidth(i, columnMinWidth);
     }
 
     for (int index = columnCount; index < 4; ++index) {
