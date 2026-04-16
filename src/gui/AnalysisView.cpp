@@ -20,6 +20,29 @@
 #include <QShortcut>
 #include <QMenu>
 #include <QKeySequence>
+#include <QPainter>
+#include <QStyledItemDelegate>
+
+class LogSelectionDelegate : public QStyledItemDelegate {
+public:
+    explicit LogSelectionDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        QStyledItemDelegate::paint(painter, opt, index);
+
+        if (!(option.state & QStyle::State_Selected) || index.column() != 0) {
+            return;
+        }
+
+        ThemeColors tc = CameraConfig::getThemeColors();
+        painter->save();
+        painter->fillRect(QRect(option.rect.left(), option.rect.top() + 1, 3, option.rect.height() - 2), QColor(tc.primary));
+        painter->restore();
+    }
+};
 
 // Helper: build paperBreakTable stylesheet from theme colors
 static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
@@ -28,12 +51,12 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
     QString selDelete  = "QTableWidget::item:selected { background-color: #D32F2F; color: white; }";
     return QString(
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
-        "gridline-color: #2a2a2a; font-size: 11px; font-family: sans-serif; border: none; outline: none; }"
-        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 3px 4px; border: none; border-bottom: 1px solid #2a2a2a; text-align: left; font-size: 11px; font-family: sans-serif; }"
+        "gridline-color: #2a2a2a; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; border: none; outline: none; }"
+        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 2px 4px; border: none; border-bottom: 1px solid #2a2a2a; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 600; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
         "{ background-color: %1; color: #E0E0E0; }"
-        "QTableWidget::item { padding: 1px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: sans-serif; }"
+        "QTableWidget::item { padding: 0px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
     ).arg(tc.bg, tc.btnBg)
      + (deleteMode ? selDelete : selNormal);
 }
@@ -225,8 +248,8 @@ void AnalysisView::setupLeftSidebar() {
     auto controlsGroup = new QGroupBox("Control Panel", leftSidebar_);
     controlsGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
     auto controlsLayout = new QHBoxLayout(controlsGroup); // Changed to horizontal
-    controlsLayout->setSpacing(4);
-    controlsLayout->setContentsMargins(4, 8, 4, 4);
+    controlsLayout->setSpacing(3);
+    controlsLayout->setContentsMargins(4, 6, 4, 4);
     
     ThemeColors tc = CameraConfig::getThemeColors();
 
@@ -277,8 +300,8 @@ void AnalysisView::setupLeftSidebar() {
     auto logGroup = new QGroupBox("Paper Break Log", leftSidebar_);
     logGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
     auto logLayout = new QVBoxLayout(logGroup);
-    logLayout->setContentsMargins(4, 8, 4, 4);
-    logLayout->setSpacing(4);
+    logLayout->setContentsMargins(4, 6, 4, 4);
+    logLayout->setSpacing(3);
     
     paperBreakTable_ = createLogTable(logGroup, false);
     permanentPaperBreakTable_ = createLogTable(logGroup, false);
@@ -291,7 +314,7 @@ void AnalysisView::setupLeftSidebar() {
     togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
     togglePermanentTableButton_->setCheckable(true);
     togglePermanentTableButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px; font-weight: 600; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 4px; font-weight: 600; font-size: 10px; }"
         "QPushButton:hover { background-color: %4; }"
         "QPushButton:checked { background-color: %4; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
@@ -307,7 +330,7 @@ void AnalysisView::setupLeftSidebar() {
     permanentSectionWidget_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto permanentLayout = new QVBoxLayout(permanentSectionWidget_);
     permanentLayout->setContentsMargins(0, 0, 0, 0);
-    permanentLayout->setSpacing(2);
+    permanentLayout->setSpacing(1);
     auto permanentLabel = new QLabel("Permanent Storage", permanentSectionWidget_);
     permanentLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.primary));
     permanentLayout->addWidget(permanentLabel);
@@ -320,7 +343,7 @@ void AnalysisView::setupLeftSidebar() {
 
     permanentButton_ = new QPushButton("Mark Permanent", logGroup);
     permanentButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 6px; border-radius: 4px; border: 1px solid %3; }"
+        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 4px; border-radius: 4px; border: 1px solid %3; font-size: 10px; }"
         "QPushButton:hover { background-color: %4; }"
         "QPushButton:pressed { background-color: %1; }"
         "QPushButton:disabled { background-color: %5; color: %3; }"
@@ -331,7 +354,7 @@ void AnalysisView::setupLeftSidebar() {
 
     deleteButton_ = new QPushButton("Delete Selected", logGroup);
     deleteButton_->setStyleSheet(QString(
-        "QPushButton { background-color: #D32F2F; color: white; font-weight: bold; padding: 6px; border-radius: 4px; }"
+        "QPushButton { background-color: #D32F2F; color: white; font-weight: bold; padding: 4px; border-radius: 4px; font-size: 10px; }"
         "QPushButton:hover { background-color: #E53935; }"
         "QPushButton:pressed { background-color: #C62828; }"
         "QPushButton:disabled { background-color: %1; color: %2; }"
@@ -745,6 +768,21 @@ void AnalysisView::onLogSelected(int row, int col) {
     }
     QTableWidgetItem* item = sourceTable->item(row, 0);
     if (!item) return;
+
+    if (!suppressNewEventIndicatorClear_ && item->data(Qt::UserRole + 3).toBool()) {
+        item->setIcon(QIcon());
+        item->setData(Qt::UserRole + 3, false);
+        QFont timeFont = item->font();
+        timeFont.setBold(false);
+        item->setFont(timeFont);
+        if (QTableWidgetItem* reasonItem = sourceTable->item(row, 1)) {
+            reasonItem->setData(Qt::UserRole + 3, false);
+            QFont reasonFont = reasonItem->font();
+            reasonFont.setBold(false);
+            reasonItem->setFont(reasonFont);
+        }
+        latestAddedEventTimestamp_.clear();
+    }
     
     QString timestamp = item->data(Qt::UserRole).toString();
     
@@ -1384,6 +1422,7 @@ void AnalysisView::onPlaybackTick() {
 
 void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {
     QString rawTs = QString::fromStdString(timestamp);
+    latestAddedEventTimestamp_ = rawTs;
     reloadEventTables();
     selectLatestEvent();
     
@@ -1398,11 +1437,32 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     const int row = targetTable->rowCount();
     targetTable->insertRow(row);
 
+    const bool isNewRecentEvent = !permanent && !latestAddedEventTimestamp_.isEmpty() && timestamp == latestAddedEventTimestamp_;
     QTableWidgetItem* timeItem = new QTableWidgetItem(formatTimestamp(timestamp));
     QTableWidgetItem* reasonItem = new QTableWidgetItem(reason);
     timeItem->setData(Qt::UserRole, timestamp);
     timeItem->setData(Qt::UserRole + 2, permanent);
+    timeItem->setData(Qt::UserRole + 3, isNewRecentEvent);
     reasonItem->setData(Qt::UserRole + 2, permanent);
+    reasonItem->setData(Qt::UserRole + 3, isNewRecentEvent);
+
+    if (isNewRecentEvent) {
+        ThemeColors tc = CameraConfig::getThemeColors();
+        QPixmap dotPixmap(6, 6);
+        dotPixmap.fill(Qt::transparent);
+        QPainter painter(&dotPixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(tc.primary));
+        painter.drawEllipse(0, 0, 5, 5);
+        painter.end();
+        timeItem->setIcon(QIcon(dotPixmap));
+
+        QFont newEventFont = timeItem->font();
+        newEventFont.setBold(true);
+        timeItem->setFont(newEventFont);
+        reasonItem->setFont(newEventFont);
+    }
 
     targetTable->setItem(row, 0, timeItem);
     targetTable->setItem(row, 1, reasonItem);
@@ -1779,6 +1839,7 @@ void AnalysisView::updatePermanentButtonLabel() {
 QTableWidget* AnalysisView::createLogTable(QWidget* parent, bool deleteMode) {
     QTableWidget* table = new QTableWidget(0, 2, parent);
     table->setHorizontalHeaderLabels({"Trigger Time", "Reason"});
+    table->setItemDelegate(new LogSelectionDelegate(table));
     configureLogTable(table, deleteMode);
     connectLogTable(table);
     return table;
@@ -1799,7 +1860,7 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setSortIndicatorShown(true);
     table->horizontalHeader()->setSectionsClickable(true);
     table->verticalHeader()->setVisible(false);
-    table->verticalHeader()->setDefaultSectionSize(20);
+    table->verticalHeader()->setDefaultSectionSize(18);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(deleteMode ? QAbstractItemView::MultiSelection : QAbstractItemView::SingleSelection);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -1897,7 +1958,9 @@ void AnalysisView::selectLatestEvent() {
     }
     latestTable->selectRow(0);
     latestTable->scrollToItem(latestTable->item(0, 0));
+    suppressNewEventIndicatorClear_ = true;
     onLogSelected(0, 1);
+    suppressNewEventIndicatorClear_ = false;
 }
 
 void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent) {

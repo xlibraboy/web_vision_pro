@@ -228,6 +228,8 @@ private:
     void sortLogTable(QTableWidget* table);
     void selectLatestEvent();
     void moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent);
+    QString latestAddedEventTimestamp_;
+    bool suppressNewEventIndicatorClear_ = false;
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
