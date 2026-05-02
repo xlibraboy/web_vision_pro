@@ -98,6 +98,7 @@ protected:
     void enterEvent(QEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
     void setupUI(const CameraInfo& info);
@@ -129,6 +130,7 @@ private:
     QLabel* cameraTitle_;
     QLabel* cameraMetaLabel_;
     QLabel* statusLabel_;
+    QWidget* headerWidget_;
     QToolButton* expandButton_;
     QCheckBox* editCheck_;
     QToolButton* removeButton_;

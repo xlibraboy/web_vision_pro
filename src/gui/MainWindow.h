@@ -4,6 +4,7 @@
 #include <QCloseEvent>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QLabel>
 #include <QPushButton>
 #include <QTimer>
 #include <QMutex>
@@ -49,7 +50,10 @@ private:
     void applyGlobalTheme();
     void startCameraLifecycleAsync(bool restart, const QString& reason);
     bool validateSavedCameraConfiguration(QStringList* errors) const;
-    void closeConfigTab();
+    bool promptAdminLogin();
+    void ensureConfigTab();
+    void updateConfigTabAccess();
+    void updateAdminStatusIndicator();
 
     // GUI
     QTabWidget* mainTabWidget_;
@@ -63,6 +67,7 @@ private:
     QPushButton* snapshotBtn_;
     QPushButton* pauseBtn_;
     ToggleSwitch* defectDetectionCheck_;
+    QLabel* adminStatusLabel_ = nullptr;
     QAction* adminLoginAction_; // Login toggle
     QAction* customLayoutAction_;
     QAction* configAction_;
@@ -98,6 +103,7 @@ private slots:
     void toggleRecording(bool recording);
     void showDetail(int cameraId);
     void showGrid();
+    void openSystemConfiguration();
     void toggleAdmin();
     void changeLayout(int rows, int cols);
     void promptCustomLayout();

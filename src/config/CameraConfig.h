@@ -19,6 +19,26 @@ struct ThemeColors {
     QString text;      // Primary text color
 };
 
+struct LiveViewCardStyle {
+    QString gridTitleFontFamily;
+    int gridTitleFontSize;
+    QString detailTitleFontFamily;
+    int detailTitleFontSize;
+    QString detailSectionFontFamily;
+    int detailSectionFontSize;
+    QString backgroundStyle;
+};
+
+struct AnalysisViewStyle {
+    QString videoTitleFontFamily;
+    int videoTitleFontSize;
+    QString timestampFontFamily;
+    int timestampFontSize;
+    QString tabFontFamily;
+    int tabFontSize;
+    QString playbackSurfaceStyle;
+};
+
 /**
  * Centralized camera configuration - single source of truth for all camera information
  */
@@ -66,6 +86,11 @@ public:
     static int getEventRetentionCount();
     static void setEventRetentionCount(int count);
 
+    // Root folder used for event save/load operations.
+    static QString getDefaultEventStoragePath();
+    static QString getEventStoragePath();
+    static void setEventStoragePath(const QString& path);
+
     // Pre-Trigger Duration (Seconds)
     static int getPreTriggerSeconds();
     static void setPreTriggerSeconds(int seconds);
@@ -80,6 +105,17 @@ public:
 
     // Returns the full set of color tokens for the current theme preset.
     static ThemeColors getThemeColors();
+    static ThemeColors getThemeColors(int themePreset);
+
+    // Live View camera tile typography/background settings.
+    static LiveViewCardStyle getDefaultLiveViewCardStyle();
+    static LiveViewCardStyle getLiveViewCardStyle();
+    static void setLiveViewCardStyle(const LiveViewCardStyle& style);
+
+    // Analysis View typography/playback surface settings.
+    static AnalysisViewStyle getDefaultAnalysisViewStyle();
+    static AnalysisViewStyle getAnalysisViewStyle();
+    static void setAnalysisViewStyle(const AnalysisViewStyle& style);
 
     // Initialize default cameras if empty
     static void ensureDefaultCameras();

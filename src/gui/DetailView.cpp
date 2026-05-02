@@ -5,6 +5,7 @@
 #include <QVBoxLayout>
 #include <QGroupBox>
 #include <QDebug>
+#include <QFont>
 
 DetailView::DetailView(QWidget *parent) : QWidget(parent), isAdmin_(false) {
     setupUi();
@@ -19,8 +20,8 @@ void DetailView::setupUi() {
     QVBoxLayout* leftPanelLayout = new QVBoxLayout();
 
     // Camera Info Group
-    QGroupBox* infoGroup = new QGroupBox("Camera Information", this);
-    QFormLayout* infoLayout = new QFormLayout(infoGroup);
+    infoGroup_ = new QGroupBox("Camera Information", this);
+    QFormLayout* infoLayout = new QFormLayout(infoGroup_);
     
     lblId_ = new QLabel("-", this);
     lblLocation_ = new QLabel("-", this);
@@ -157,7 +158,7 @@ void DetailView::setupUi() {
     btnLayout->addWidget(btnSave_);
     controlLayout->addLayout(btnLayout);
 
-    leftPanelLayout->addWidget(infoGroup);
+    leftPanelLayout->addWidget(infoGroup_);
     leftPanelLayout->addWidget(controlGroup_);
     leftPanelLayout->addStretch(); // Push content to top
 
@@ -176,6 +177,7 @@ void DetailView::setupUi() {
     mainLayout->addLayout(leftPanelLayout, 1);
     mainLayout->addLayout(centerLayout, 3); 
 
+    applyLiveViewTypography();
     setAdminMode(false); // Default state
 }
 
@@ -198,6 +200,7 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     
     // Set overlay text to match LiveDashboard
     cameraWidget_->setOverlayText(CameraConfig::getCameraLabel(cameraId));
+    applyLiveViewTypography();
     
     // --- Clamp Exposure Time based on FPS (max exposure = 1,000,000 / fps µs) ---
     // This ensures exposure is always within a range that does not cause frame drops.
@@ -391,10 +394,42 @@ void DetailView::setDisplayFps(double fps) {
     }
 }
 
+void DetailView::updateTheme() {
+    applyLiveViewTypography();
+
+    if (cameraWidget_) {
+        cameraWidget_->update();
+    }
+}
+
 void DetailView::setAcquisitionFps(double fps) {
     if (fps < 0) {
         lblFPS_->setText("N/A");
     } else {
         lblFPS_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
+    }
+}
+
+void DetailView::applyLiveViewTypography() {
+    const LiveViewCardStyle style = CameraConfig::getLiveViewCardStyle();
+
+    auto makeFont = [](const QString& family, int pixelSize, bool bold) {
+        QFont font(family);
+        font.setPixelSize(pixelSize);
+        font.setBold(bold);
+        return font;
+    };
+
+    const QFont detailTitleFont = makeFont(style.detailTitleFontFamily, style.detailTitleFontSize, true);
+    const QFont sectionFont = makeFont(style.detailSectionFontFamily, style.detailSectionFontSize, true);
+
+    if (cameraWidget_) {
+        cameraWidget_->setOverlayFont(detailTitleFont);
+    }
+    if (infoGroup_) {
+        infoGroup_->setFont(sectionFont);
+    }
+    if (controlGroup_) {
+        controlGroup_->setFont(sectionFont);
     }
 }

@@ -46,8 +46,10 @@ public:
 
 // Helper: build paperBreakTable stylesheet from theme colors
 static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
+    QColor selectedBg(tc.btnHover);
+    selectedBg = selectedBg.lightness() < 128 ? selectedBg.lighter(125) : selectedBg.darker(115);
     QString selNormal  = QString("QTableWidget::item:selected { background-color: %1; color: white; }")
-                         .arg(tc.btnHover);
+                         .arg(selectedBg.name());
     QString selDelete  = "QTableWidget::item:selected { background-color: #D32F2F; color: white; }";
     return QString(
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
@@ -59,6 +61,10 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
         "QTableWidget::item { padding: 0px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
     ).arg(tc.bg, tc.btnBg)
      + (deleteMode ? selDelete : selNormal);
+}
+
+static QString analysisSurfaceColor(const QString& surfaceStyle) {
+    return surfaceStyle == "light" ? QStringLiteral("#F2F2F2") : QStringLiteral("#000000");
 }
 
 AnalysisView::AnalysisView(int numCameras, QWidget *parent) 
@@ -76,7 +82,7 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     setupUI();
     
     // Initialize EventDatabase and load historical events
-    EventDatabase::instance().initialize("../data");
+    EventDatabase::instance().initialize(CameraConfig::getEventStoragePath());
     reloadEventTables();
     selectLatestEvent();
     
@@ -135,6 +141,7 @@ void AnalysisView::setupUI() {
     
     // Initialize controls to disabled state (no data yet)
     updatePlaybackControlsState();
+    applyAnalysisViewStyle();
 }
 
 void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerIndex) {
@@ -427,6 +434,48 @@ void AnalysisView::setupMainArea() {
     // or loops during playback.
 
     connect(tabWidget_, &QTabWidget::currentChanged, this, &AnalysisView::onTabChanged);
+}
+
+void AnalysisView::applyAnalysisViewStyle() {
+    if (!tabWidget_ || !playbackPanel_ || !frameInput_) {
+        return;
+    }
+
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const AnalysisViewStyle style = CameraConfig::getAnalysisViewStyle();
+    const QString playbackSurface = analysisSurfaceColor(style.playbackSurfaceStyle);
+
+    tabWidget_->setStyleSheet(QString(
+        "QTabWidget::pane { border: 1px solid %1; background: %2; }"
+        "QTabBar::tab { background: %3; color: %4; padding: 8px 16px; margin-right: 2px; font-family: '%7'; font-size: %8px; }"
+        "QTabBar::tab:selected { background: %2; color: %5; border-bottom: 2px solid %6; }"
+        "QTabBar::tab:hover { background: %3; }"
+    ).arg(tc.border, tc.bg, tc.btnBg, tc.text, tc.text, tc.primary,
+          style.tabFontFamily, QString::number(style.tabFontSize)));
+
+    playbackPanel_->setStyleSheet(QString(
+        "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
+    ).arg(playbackSurface, tc.border));
+
+    frameInput_->setStyleSheet(QString(
+        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 0px; font-family: '%4'; font-size: %5px;}"
+    ).arg(tc.bg, tc.text, tc.border, style.timestampFontFamily, QString::number(style.timestampFontSize)));
+
+    if (QLabel* frameLabel = playbackPanel_->findChild<QLabel*>("frameLabel")) {
+        frameLabel->setStyleSheet(QString(
+            "color: %1; font-family: '%2'; font-size: %3px; margin-right: 2px;"
+        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
+    }
+
+    for (AnalysisVideoWidget* widget : cameraWidgets_) {
+        if (widget) {
+            widget->update();
+        }
+    }
+
+    if (selectedCameraWidget_) {
+        selectedCameraWidget_->update();
+    }
 }
 
 void AnalysisView::setupCameraGrid(QWidget* container) {
@@ -764,7 +813,19 @@ void AnalysisView::onLogSelected(int row, int col) {
     // Get event timestamp from table item data
     QTableWidget* sourceTable = qobject_cast<QTableWidget*>(sender());
     if (!sourceTable) {
-        sourceTable = paperBreakTable_->hasFocus() ? paperBreakTable_ : permanentPaperBreakTable_;
+        if (row >= 0 && row < paperBreakTable_->rowCount() && paperBreakTable_->item(row, 0)
+            && paperBreakTable_->item(row, 0)->isSelected()) {
+            sourceTable = paperBreakTable_;
+        } else if (row >= 0 && row < permanentPaperBreakTable_->rowCount() && permanentPaperBreakTable_->item(row, 0)
+                   && permanentPaperBreakTable_->item(row, 0)->isSelected()) {
+            sourceTable = permanentPaperBreakTable_;
+        } else if (paperBreakTable_->currentRow() == row && row >= 0 && row < paperBreakTable_->rowCount()) {
+            sourceTable = paperBreakTable_;
+        } else if (permanentPaperBreakTable_->currentRow() == row && row >= 0 && row < permanentPaperBreakTable_->rowCount()) {
+            sourceTable = permanentPaperBreakTable_;
+        } else {
+            sourceTable = paperBreakTable_->rowCount() > 0 ? paperBreakTable_ : permanentPaperBreakTable_;
+        }
     }
     QTableWidgetItem* item = sourceTable->item(row, 0);
     if (!item) return;
@@ -814,12 +875,21 @@ void AnalysisView::onCameraClicked(int cameraId) {
 }
 
 void AnalysisView::updateDynamicTab(int cameraId) {
+    auto* layout = qobject_cast<QVBoxLayout*>(singleCameraTab_->layout());
+    auto removeSelectedCameraWidget = [&]() {
+        if (!selectedCameraWidget_) {
+            return;
+        }
+        if (layout) {
+            layout->removeWidget(selectedCameraWidget_);
+        }
+        selectedCameraWidget_->deleteLater();
+        selectedCameraWidget_ = nullptr;
+    };
+
     if (cameraId < 0 || cameraId >= numCameras_) {
         tabWidget_->setTabText(1, "Camera");
-        if (selectedCameraWidget_) {
-            delete selectedCameraWidget_;
-            selectedCameraWidget_ = nullptr;
-        }
+        removeSelectedCameraWidget();
         return;
     }
 
@@ -827,11 +897,8 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     tabWidget_->setTabText(1, label);
     
     // Update the single camera view
-    if (selectedCameraWidget_) {
-        delete selectedCameraWidget_;
-    }
+    removeSelectedCameraWidget();
     selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, label, singleCameraTab_);
-    auto layout = qobject_cast<QVBoxLayout*>(singleCameraTab_->layout());
     if (layout) {
         layout->addWidget(selectedCameraWidget_);
     }
@@ -1427,7 +1494,7 @@ void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerI
     selectLatestEvent();
     
     // Load RAW BINARY from disk (using new per-camera format base)
-    QString binPath = QString("../data/event_%1_cam1.bin").arg(rawTs);
+    QString binPath = QDir(CameraConfig::getEventStoragePath()).filePath(QString("event_%1_cam1.bin").arg(rawTs));
     startReviewFromFile(binPath, triggerIndex);
     
 }
@@ -1498,6 +1565,12 @@ void AnalysisView::reloadEventTables() {
 
     sortLogTable(paperBreakTable_);
     sortLogTable(permanentPaperBreakTable_);
+}
+
+void AnalysisView::reloadEventStorage() {
+    EventDatabase::instance().initialize(CameraConfig::getEventStoragePath());
+    reloadEventTables();
+    selectLatestEvent();
 }
 
 
@@ -1645,15 +1718,7 @@ void AnalysisView::updateTheme() {
         "QPushButton:disabled { background-color: %5; color: %3; }"
     ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.bg));
     
-    // 2. Tab Widget
-    tabWidget_->setStyleSheet(QString(
-        "QTabWidget::pane { border: 1px solid %1; background: %2; }"
-        "QTabBar::tab { background: %3; color: %4; padding: 8px 16px; margin-right: 2px; }"
-        "QTabBar::tab:selected { background: %2; color: %5; border-bottom: 2px solid %6; }"
-        "QTabBar::tab:hover { background: %3; }"
-    ).arg(tc.border, tc.bg, tc.btnBg, tc.text, tc.text, tc.primary));
-
-    // 3. Playback Panel
+    // 2. Playback and tab surface/typography
     // First, ensure the current disabled/enabled state uses the new colors
     updatePlaybackControlsState();
     
@@ -1675,14 +1740,7 @@ void AnalysisView::updateTheme() {
         "QPushButton:hover { background-color: %4; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
     
-    frameInput_->setStyleSheet(QString(
-        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 0px;}"
-    ).arg(tc.bg, tc.text, tc.border));
-    
-    // 6. Labels
-    if (QLabel* frameLabel = playbackPanel_->findChild<QLabel*>("frameLabel")) {
-        frameLabel->setStyleSheet(QString("color: %1; font-size: 13px; margin-right: 2px;").arg(tc.text));
-    }
+    applyAnalysisViewStyle();
     
     if (diagnosticTab_) {
         // Rebuild the single-camera tab only when a valid camera is selected.
@@ -1957,6 +2015,7 @@ void AnalysisView::selectLatestEvent() {
         }
     }
     latestTable->selectRow(0);
+    latestTable->setCurrentCell(0, 0);
     latestTable->scrollToItem(latestTable->item(0, 0));
     suppressNewEventIndicatorClear_ = true;
     onLogSelected(0, 1);
@@ -2087,9 +2146,9 @@ void AnalysisView::setupDiagnosticTab() {
     connect(diagRefreshBtn_, &QPushButton::clicked, this, &AnalysisView::refreshDiagTable);
     connect(diagAutoRefreshChk_, &QCheckBox::toggled, this, &AnalysisView::onDiagAutoRefreshToggled);
 
-    // Start auto-refresh by default (timer activates when tab is shown)
-    // First populate with static data immediately
-    refreshDiagTable();
+    // Start auto-refresh by default once CameraManager is attached and the tab is shown.
+    // Avoid live camera polling during widget construction because startup camera state
+    // may still be changing in the background.
 }
 
 // ---------------------------------------------------------------------------
@@ -2170,7 +2229,7 @@ void AnalysisView::refreshDiagTable() {
         CameraManager::CameraParams p;
         bool isConnected = false;
 
-        if (cameraManager_) {
+        if (cameraManager_ && configIndex >= 0) {
             isConnected  = cameraManager_->isCameraConnected(configIndex);
             if (isConnected) {
                 temperature = cameraManager_->getTemperature(configIndex);
@@ -2202,37 +2261,37 @@ void AnalysisView::refreshDiagTable() {
             fps > 0.0 ? QString::number(fps, 'f', 1) : QString("N/A")));
 
         // Col 4: Shutter [µs]
-        diagTable_->setItem(row, 4, cameraManager_
+        diagTable_->setItem(row, 4, (cameraManager_ && isConnected)
             ? makeItem(QString::number(p.exposureUs, 'f', 0))
             : makeNA());
 
         // Col 5: Gain
-        diagTable_->setItem(row, 5, cameraManager_
+        diagTable_->setItem(row, 5, (cameraManager_ && isConnected)
             ? makeItem(QString::number(p.gain, 'f', 2))
             : makeNA());
 
         // Col 6: Gamma
-        diagTable_->setItem(row, 6, cameraManager_
+        diagTable_->setItem(row, 6, (cameraManager_ && isConnected)
             ? makeItem(QString::number(p.gamma, 'f', 2))
             : makeNA());
 
         // Col 7: WDR High
-        diagTable_->setItem(row, 7, (cameraManager_ && !std::isnan(p.wdrHigh))
+        diagTable_->setItem(row, 7, (cameraManager_ && isConnected && !std::isnan(p.wdrHigh))
             ? makeItem(QString::number(p.wdrHigh, 'f', 2))
             : makeNA());
 
         // Col 8: WDR Low
-        diagTable_->setItem(row, 8, (cameraManager_ && !std::isnan(p.wdrLow))
+        diagTable_->setItem(row, 8, (cameraManager_ && isConnected && !std::isnan(p.wdrLow))
             ? makeItem(QString::number(p.wdrLow, 'f', 2))
             : makeNA());
 
         // Col 9: Buffer Frames (live Pylon output queue depth)
-        diagTable_->setItem(row, 9, cameraManager_
+        diagTable_->setItem(row, 9, (cameraManager_ && isConnected)
             ? makeItem(QString::number(p.outputQueueDepth))
             : makeNA());
 
         // Col 10: Buffer [MB] — outputQueueDepth × W × H × bpp / 1 048 576
-        if (cameraManager_ && p.width > 0 && p.height > 0) {
+        if (cameraManager_ && isConnected && p.width > 0 && p.height > 0) {
             double mb = static_cast<double>(p.outputQueueDepth)
                       * p.width * p.height * p.bpp
                       / (1024.0 * 1024.0);

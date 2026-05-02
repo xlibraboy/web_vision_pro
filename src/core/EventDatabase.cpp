@@ -243,7 +243,7 @@ bool EventDatabase::deleteEvent(const QString& timestamp) {
     
     // Delete video files for all cameras (looping up to an arbitrary reasonable max, like 16)
     for (int i = 1; i <= 16; ++i) {
-        QString camPath = QString("../data/event_%1_cam%2.bin").arg(timestamp).arg(i);
+        QString camPath = QDir(dataPath_).filePath(QString("event_%1_cam%2.bin").arg(timestamp).arg(i));
         if (QFile::exists(camPath)) {
             QFile::remove(camPath);
         }

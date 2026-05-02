@@ -11,16 +11,18 @@ services:
     network_mode: "host" # Required for GigE cameras discovery
     environment:
       - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.docker.xauth
       - QT_X11_NO_MITSHM=1
       - PYLON_ROOT=/opt/pylon
       - LD_LIBRARY_PATH=/opt/pylon/lib:$LD_LIBRARY_PATH
     volumes:
       - ../:/app
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY}:/tmp/.docker.xauth:ro
       - ../data:/app/data
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     working_dir: /app
-    command: /bin/bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j$(nproc) && chmod 755 /app/build/PaperVision_App && /app/build/PaperVision_App"
+    command: /bin/bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j$(nproc) && cp /app/build/PaperVision_App /app/build/PaperVision_App.run && chmod 755 /app/build/PaperVision_App.run && exec /app/build/PaperVision_App.run"
     stdin_open: true
     tty: true

@@ -74,6 +74,7 @@ public slots:
     void setAdminMode(bool isAdmin); // Expose to MainWindow
     void updateTheme(); // Dynamically update widget theme colors
     void setCameraManager(CameraManager* manager); // Wire live camera data for Diagnostic tab
+    void reloadEventStorage();
     
 private slots:
     void onServerButtonClicked();
@@ -112,6 +113,7 @@ protected:
 
 private:
     void setupUI();
+    void applyAnalysisViewStyle();
     void setupLeftSidebar();
     void setupMainArea();
     void setupPlaybackControls();

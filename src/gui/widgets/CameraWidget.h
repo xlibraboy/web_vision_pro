@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QFont>
 #include <QImage>
 #include <QMutex>
 #include <chrono>
@@ -51,10 +52,20 @@ private:
 
 public:
     void setOverlayText(const QString& text);
+    void setOverlayFont(const QFont& font);
     void setTemperatureStatus(double temp, TempStatus::Status status);
+    void setPreviewThemeColors(const ThemeColors& themeColors);
+    void clearPreviewThemeColors();
+    void setPreviewBackgroundStyle(const QString& backgroundStyle);
+    void clearPreviewBackgroundStyle();
     double getActualDisplayFps();
 
 private:
+    QFont overlayFont_;
+    bool hasPreviewThemeOverride_ = false;
+    ThemeColors previewThemeOverride_;
+    bool hasPreviewBackgroundOverride_ = false;
+    QString previewBackgroundStyleOverride_;
     static constexpr int DISPLAY_FPS_WINDOW = 30;
     std::vector<int64_t> displayTimestamps_;
     int displayTimestampIndex_ = 0;

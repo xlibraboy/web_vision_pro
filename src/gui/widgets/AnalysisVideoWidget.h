@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QVBoxLayout>
+#include "../../config/CameraConfig.h"
 
 /**
  * Custom video widget for Analysis View
@@ -18,6 +19,10 @@ public:
     void setTimestamp(const QString& timestamp, const QString& tooltip = "");
     void setFrame(const QImage& frame);
     void clear(); // Clear frame and reset to "No Signal" state
+    void setPreviewThemeColors(const ThemeColors& themeColors);
+    void clearPreviewThemeColors();
+    void setPreviewStyle(const AnalysisViewStyle& style);
+    void clearPreviewStyle();
     int getCameraId() const { return cameraId_; }
 
 signals:
@@ -32,6 +37,10 @@ private:
     QString title_;
     QString timestamp_;
     QImage currentFrame_;
+    bool hasPreviewThemeOverride_ = false;
+    ThemeColors previewThemeOverride_;
+    bool hasPreviewStyleOverride_ = false;
+    AnalysisViewStyle previewStyleOverride_;
     QLabel* titleLabel_;
     QLabel* timestampLabel_;
 };

@@ -2,6 +2,17 @@
 #include "../config/CameraConfig.h"
 #include <QVBoxLayout>
 #include <QGridLayout>
+#include <QFont>
+
+namespace {
+QFont liveViewGridTitleFont() {
+    const LiveViewCardStyle style = CameraConfig::getLiveViewCardStyle();
+    QFont font(style.gridTitleFontFamily);
+    font.setPixelSize(style.gridTitleFontSize);
+    font.setBold(true);
+    return font;
+}
+}
 
 LiveDashboard::LiveDashboard(int numCameras, QWidget *parent) 
     : QWidget(parent), numCameras_(numCameras) {
@@ -30,6 +41,7 @@ LiveDashboard::LiveDashboard(int numCameras, QWidget *parent)
         CameraWidget* cam = new CameraWidget(this);
         cam->setCameraId(i);
         cam->setOverlayText(labelText); // Set overlay text locally
+        cam->setOverlayFont(liveViewGridTitleFont());
         
         // Connect DOUBLE click signal for detail view
         connect(cam, &CameraWidget::doubleClicked, this, &LiveDashboard::cameraSelected);
@@ -77,6 +89,7 @@ void LiveDashboard::setCameraCount(int count) {
             CameraWidget* cam = new CameraWidget(this);
             cam->setCameraId(i);
             cam->setOverlayText(labelText);
+            cam->setOverlayFont(liveViewGridTitleFont());
             
             connect(cam, &CameraWidget::doubleClicked, this, &LiveDashboard::cameraSelected);
             cellLayout->addWidget(cam, 1);
@@ -196,5 +209,12 @@ void LiveDashboard::updateTheme() {
     
     for (QWidget* cell : emptyCells_) {
         cell->setStyleSheet(emptyStyle);
+    }
+
+    for (CameraWidget* widget : cameraWidgets_) {
+        if (widget) {
+            widget->setOverlayFont(liveViewGridTitleFont());
+            widget->update();
+        }
     }
 }

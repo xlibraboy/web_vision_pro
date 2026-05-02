@@ -39,12 +39,14 @@ bool VideoStreamReader::open(const QString& filepath) {
         RawFileHeader header;
         if (std::fread(&header, sizeof(header), 1, fileHandle_) != 1) {
             std::cerr << "[VideoStreamReader] Failed to read RAW header!" << std::endl;
+            close();
             return false;
         }
         
         // Validate magic
         if (std::memcmp(header.magic, RAW_FILE_MAGIC, 4) != 0) {
             std::cerr << "[VideoStreamReader] Invalid RAW magic number!" << std::endl;
+            close();
             return false;
         }
         
@@ -132,8 +134,7 @@ cv::Mat VideoStreamReader::loadFrameFromDisk(int frameIndex) {
         // 0 = Mono8 (1 byte), 1 = BGR8 (3 bytes), 2 = RGB8 (3 bytes)
         int bytesPerPixel = (pixelFormat_ == 0) ? 1 : 3;
         
-        // Calculate offset
-        // Header + (FrameSize + MetadataSize) * index
+        // Raw files are written as: [header][frame pixels][frame metadata]...
         long frameSize = width_ * height_ * bytesPerPixel; 
         long entrySize = frameSize + sizeof(FrameMetadata);
         long offset = sizeof(RawFileHeader) + (frameIndex * entrySize);
@@ -152,12 +153,18 @@ cv::Mat VideoStreamReader::loadFrameFromDisk(int frameIndex) {
             frame = cv::Mat(height_, width_, CV_8UC3);
         }
         
-        if (std::fread(frame.data, frameSize, 1, fileHandle_) != 1) {
+        if (std::fread(frame.data, 1, frameSize, fileHandle_) != static_cast<size_t>(frameSize)) {
+            std::cerr << "[VideoStreamReader] Failed to read RAW frame " << frameIndex
+                      << " from " << filepath_.toStdString() << std::endl;
             return cv::Mat();
         }
-        
-        // Note: We skip the metadata chunk here for image display, 
-        // but it's available on disk if needed for analysis.
+
+        FrameMetadata meta;
+        if (std::fread(&meta, sizeof(meta), 1, fileHandle_) != 1) {
+            std::cerr << "[VideoStreamReader] Failed to read RAW metadata for frame " << frameIndex
+                      << " from " << filepath_.toStdString() << std::endl;
+            return cv::Mat();
+        }
         
         return frame;
         

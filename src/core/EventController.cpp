@@ -1,6 +1,7 @@
 #include "EventController.h"
 #include "EventDatabase.h"
 #include "RawFormat.h"
+#include "../config/CameraConfig.h"
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -187,8 +188,10 @@ void EventController::saveWorker() {
             
             QString baseName = QString::fromStdString(currentTimestamp_);
             
+            const QString eventStoragePath = CameraConfig::getEventStoragePath();
+
             // Ensure directory exists
-            QDir().mkpath("../data");
+            QDir().mkpath(eventStoragePath);
             
             int primaryCameraId = 1; 
             int primaryFramesCount = 0;
@@ -216,7 +219,7 @@ void EventController::saveWorker() {
                     primaryTriggerIndex = triggerIndex;
                     primaryWidth = frames[0].image.cols;
                     primaryHeight = frames[0].image.rows;
-                    primaryFilename = QString("../data/event_%1_cam%2.bin").arg(baseName).arg(cameraId);
+                    primaryFilename = QDir(eventStoragePath).filePath(QString("event_%1_cam%2.bin").arg(baseName).arg(cameraId));
                     primarySaved = true;
                     primaryCameraId = cameraId;
                 }
@@ -250,7 +253,8 @@ void EventController::saveWorker() {
 void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId) {
     if (frames.empty()) return;
 
-    QString filename = QString("../data/event_%1_cam%2.bin").arg(baseName).arg(cameraId);
+    QString filename = QDir(CameraConfig::getEventStoragePath()).filePath(
+        QString("event_%1_cam%2.bin").arg(baseName).arg(cameraId));
     std::ofstream outFile(filename.toStdString(), std::ios::binary);
     
     if (!outFile) {

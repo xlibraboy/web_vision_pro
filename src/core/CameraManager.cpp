@@ -7,6 +7,7 @@
 #include <memory>
 #include <pylon/gige/GigETransportLayer.h>
 #include <pylon/gige/BaslerGigEInstantCamera.h>
+#include <QDateTime>
 #include <QDir>
 
 // Use Pylon namespace
@@ -1697,11 +1698,12 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     try {
                         auto now = std::chrono::system_clock::now();
                         auto time_t = std::chrono::system_clock::to_time_t(now);
-                        std::stringstream ss;
-                        ss << "../data/Snapshot_Cam" << cameraIndex << "_" << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << ".png";
-                        std::string filename = ss.str();
-                        std::cout << "[CameraManager] Saving snapshot to: " << filename << std::endl;
-                        CImagePersistence::Save(ImageFileFormat_Png, filename.c_str(), ptrGrabResult);
+                        const QString filename = QDir(CameraConfig::getEventStoragePath()).filePath(
+                            QString("Snapshot_Cam%1_%2.png")
+                                .arg(cameraIndex)
+                                .arg(QDateTime::fromSecsSinceEpoch(time_t).toString("yyyyMMdd_HHmmss")));
+                        std::cout << "[CameraManager] Saving snapshot to: " << filename.toStdString() << std::endl;
+                        CImagePersistence::Save(ImageFileFormat_Png, filename.toStdString().c_str(), ptrGrabResult);
                     } catch (const GenericException& e) {
                          std::cerr << "[CameraManager] Failed to save snapshot: " << e.GetDescription() << std::endl;
                     }

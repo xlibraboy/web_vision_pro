@@ -32,7 +32,8 @@ CameraCard::CameraCard(const CameraInfo& info, QWidget* parent)
     , contentHeight_(0)
     , statusColor_("#888888")
     , primaryColor_("#E3E3E3")
-    , accentColor_("#00E5FF") {
+    , accentColor_("#00E5FF")
+    , headerWidget_(nullptr) {
 
     setupUI(info);
     setupAnimations();
@@ -48,6 +49,18 @@ QSize CameraCard::sizeHint() const {
 
 CameraCard::~CameraCard() {
     // Animations are automatically cleaned up by parent
+}
+
+bool CameraCard::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == headerWidget_ && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            setExpanded(!isExpanded_);
+            return true;
+        }
+    }
+
+    return QFrame::eventFilter(obj, event);
 }
 
 void CameraCard::setupUI(const CameraInfo& info) {
@@ -153,14 +166,14 @@ void CameraCard::createHeader() {
     headerLayout_->addWidget(headerActions, 0, Qt::AlignTop);
 
     // Add header layout to main layout
-    QWidget* headerWidget = new QWidget(this);
-    headerWidget->setLayout(headerLayout_);
-    headerWidget->setCursor(Qt::PointingHandCursor);
-    headerWidget->setMouseTracking(true);
-    mainLayout_->addWidget(headerWidget);
+    headerWidget_ = new QWidget(this);
+    headerWidget_->setLayout(headerLayout_);
+    headerWidget_->setCursor(Qt::PointingHandCursor);
+    headerWidget_->setMouseTracking(true);
+    mainLayout_->addWidget(headerWidget_);
 
     // Make header clickable for expand/collapse
-    headerWidget->installEventFilter(this);
+    headerWidget_->installEventFilter(this);
 }
 
 void CameraCard::updateHeader(const CameraInfo& info) {
@@ -332,6 +345,7 @@ void CameraCard::createContent(const CameraInfo& info) {
 
     // Set initial editable state
     setEditable(false);
+
 }
 
 void CameraCard::setupAnimations() {
@@ -460,7 +474,7 @@ void CameraCard::setStatus(const QString& text, const QColor& color) {
     updateSmartState();
 
     const QString ipSummary = detectedIpLabel_ ? detectedIpLabel_->text() : QString("Offline");
-    cameraMetaLabel_->setText(QString("%1 | %2 | %3 | %4 | %5")
+    cameraMetaLabel_->setText(QString("%1 | %2 | %3 | %4 | %5 | %6")
         .arg(location())
         .arg(side())
         .arg(position())

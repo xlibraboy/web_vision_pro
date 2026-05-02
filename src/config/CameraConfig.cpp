@@ -1,6 +1,8 @@
 #include "CameraConfig.h"
 #include <QString>
 #include <QStringList>
+#include <QDir>
+#include <QCoreApplication>
 #include <QSettings>
 
 namespace {
@@ -10,6 +12,14 @@ QString defaultCameraIp(int id) {
 
 bool isLegacyCameraIp(const QString& ip, int id) {
     return ip.trimmed() == QString("172.17.2.%1").arg(id);
+}
+
+QString defaultEventStoragePath() {
+    QDir baseDir(QCoreApplication::applicationDirPath());
+    if (baseDir.dirName() == "build") {
+        baseDir.cdUp();
+    }
+    return QDir::cleanPath(baseDir.filePath("data"));
 }
 }
 
@@ -56,6 +66,20 @@ void CameraConfig::setEventRetentionCount(int count) {
     settings.setValue("EventRetentionCount", count);
 }
 
+QString CameraConfig::getEventStoragePath() {
+    QSettings settings("PaperVision", "SystemConfig");
+    return QDir::cleanPath(settings.value("EventStoragePath", defaultEventStoragePath()).toString());
+}
+
+QString CameraConfig::getDefaultEventStoragePath() {
+    return defaultEventStoragePath();
+}
+
+void CameraConfig::setEventStoragePath(const QString& path) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("EventStoragePath", QDir::cleanPath(path));
+}
+
 int CameraConfig::getPreTriggerSeconds() {
     QSettings settings("PaperVision", "SystemConfig");
     return settings.value("PreTriggerSeconds", 10).toInt(); // Default 10s
@@ -87,8 +111,12 @@ void CameraConfig::setThemePreset(int themeIndex) {
 }
 
 ThemeColors CameraConfig::getThemeColors() {
+    return getThemeColors(getThemePreset());
+}
+
+ThemeColors CameraConfig::getThemeColors(int themePreset) {
     ThemeColors c;
-    switch(getThemePreset()) {
+    switch(themePreset) {
         case 1: // Classic Dark - Blue
             c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
             c.primary = "#0078D4"; c.sliderBg = "#0A84FF"; c.handle = "#FFFFFF"; c.text = "#E3E3E3";
@@ -113,6 +141,10 @@ ThemeColors CameraConfig::getThemeColors() {
             c.bg = "#1A0F0F"; c.border = "#331818"; c.btnBg = "#241313"; c.btnHover = "#3D1F1F";
             c.primary = "#FF2A2A"; c.sliderBg = "#FF4040"; c.handle = "#FFFFFF"; c.text = "#F2E6E6";
             break;
+        case 7: // Contrast Mono - Black & White
+            c.bg = "#111111"; c.border = "#555555"; c.btnBg = "#1A1A1A"; c.btnHover = "#333333";
+            c.primary = "#FFFFFF"; c.sliderBg = "#CCCCCC"; c.handle = "#FFFFFF"; c.text = "#FFFFFF";
+            break;
         case 0: // Industrial Dark - Cyan
         default:
             c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
@@ -120,6 +152,80 @@ ThemeColors CameraConfig::getThemeColors() {
             break;
     }
     return c;
+}
+
+LiveViewCardStyle CameraConfig::getLiveViewCardStyle() {
+    QSettings settings("PaperVision", "SystemConfig");
+    LiveViewCardStyle style = getDefaultLiveViewCardStyle();
+    const QString legacyFontFamily = settings.value("LiveViewCard/FontFamily", style.gridTitleFontFamily).toString();
+    const int legacyFontSize = settings.value("LiveViewCard/FontSize", style.gridTitleFontSize).toInt();
+    style.gridTitleFontFamily = settings.value("LiveViewCard/GridTitleFontFamily", legacyFontFamily).toString();
+    style.gridTitleFontSize = settings.value("LiveViewCard/GridTitleFontSize", legacyFontSize).toInt();
+    style.detailTitleFontFamily = settings.value("LiveViewCard/DetailTitleFontFamily", style.gridTitleFontFamily).toString();
+    style.detailTitleFontSize = settings.value("LiveViewCard/DetailTitleFontSize", style.gridTitleFontSize).toInt();
+    style.detailSectionFontFamily = settings.value("LiveViewCard/DetailSectionFontFamily", style.detailTitleFontFamily).toString();
+    style.detailSectionFontSize = settings.value("LiveViewCard/DetailSectionFontSize", style.detailSectionFontSize).toInt();
+    style.backgroundStyle = settings.value("LiveViewCard/BackgroundStyle", style.backgroundStyle).toString();
+    return style;
+}
+
+LiveViewCardStyle CameraConfig::getDefaultLiveViewCardStyle() {
+    return {
+        QStringLiteral("Noto Sans"),
+        14,
+        QStringLiteral("Noto Sans"),
+        14,
+        QStringLiteral("Noto Sans"),
+        13,
+        QStringLiteral("black")
+    };
+}
+
+void CameraConfig::setLiveViewCardStyle(const LiveViewCardStyle& style) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("LiveViewCard/GridTitleFontFamily", style.gridTitleFontFamily);
+    settings.setValue("LiveViewCard/GridTitleFontSize", style.gridTitleFontSize);
+    settings.setValue("LiveViewCard/DetailTitleFontFamily", style.detailTitleFontFamily);
+    settings.setValue("LiveViewCard/DetailTitleFontSize", style.detailTitleFontSize);
+    settings.setValue("LiveViewCard/DetailSectionFontFamily", style.detailSectionFontFamily);
+    settings.setValue("LiveViewCard/DetailSectionFontSize", style.detailSectionFontSize);
+    settings.setValue("LiveViewCard/BackgroundStyle", style.backgroundStyle);
+}
+
+AnalysisViewStyle CameraConfig::getAnalysisViewStyle() {
+    QSettings settings("PaperVision", "SystemConfig");
+    AnalysisViewStyle style = getDefaultAnalysisViewStyle();
+    style.videoTitleFontFamily = settings.value("AnalysisView/VideoTitleFontFamily", style.videoTitleFontFamily).toString();
+    style.videoTitleFontSize = settings.value("AnalysisView/VideoTitleFontSize", style.videoTitleFontSize).toInt();
+    style.timestampFontFamily = settings.value("AnalysisView/TimestampFontFamily", style.timestampFontFamily).toString();
+    style.timestampFontSize = settings.value("AnalysisView/TimestampFontSize", style.timestampFontSize).toInt();
+    style.tabFontFamily = settings.value("AnalysisView/TabFontFamily", style.tabFontFamily).toString();
+    style.tabFontSize = settings.value("AnalysisView/TabFontSize", style.tabFontSize).toInt();
+    style.playbackSurfaceStyle = settings.value("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle).toString();
+    return style;
+}
+
+AnalysisViewStyle CameraConfig::getDefaultAnalysisViewStyle() {
+    return {
+        QStringLiteral("Noto Sans"),
+        10,
+        QStringLiteral("Consolas"),
+        8,
+        QStringLiteral("Noto Sans"),
+        12,
+        QStringLiteral("dark")
+    };
+}
+
+void CameraConfig::setAnalysisViewStyle(const AnalysisViewStyle& style) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("AnalysisView/VideoTitleFontFamily", style.videoTitleFontFamily);
+    settings.setValue("AnalysisView/VideoTitleFontSize", style.videoTitleFontSize);
+    settings.setValue("AnalysisView/TimestampFontFamily", style.timestampFontFamily);
+    settings.setValue("AnalysisView/TimestampFontSize", style.timestampFontSize);
+    settings.setValue("AnalysisView/TabFontFamily", style.tabFontFamily);
+    settings.setValue("AnalysisView/TabFontSize", style.tabFontSize);
+    settings.setValue("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle);
 }
 
 std::vector<CameraInfo> CameraConfig::getCameras() {

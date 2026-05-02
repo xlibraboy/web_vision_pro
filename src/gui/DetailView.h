@@ -29,6 +29,7 @@ public:
     void setAcquisitionFps(double fps);
     // Update Display FPS label (called when user selects a camera)
     void setDisplayFps(double fps);
+    void updateTheme();
 
 signals:
     void backRequested();
@@ -50,8 +51,10 @@ private slots:
 
 private:
     void setupUi();
+    void applyLiveViewTypography();
 
     CameraWidget* cameraWidget_;
+    QGroupBox* infoGroup_ = nullptr;
     
     // Camera Info Labels
     QLabel* lblId_;

@@ -13,6 +13,9 @@
 #include <QMessageBox>
 #include <QDesktopWidget>
 #include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QWindow>
 #include <QtConcurrent>
 #include <QMap>
 #include <QSet>
@@ -227,9 +230,12 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
 }
 
 void MainWindow::setupUi() {
-    QRect screenGeometry = QApplication::desktop()->availableGeometry(this);
-    setGeometry(screenGeometry);
-    setWindowState(Qt::WindowMaximized);
+    QScreen* targetScreen = windowHandle() ? windowHandle()->screen() : QGuiApplication::primaryScreen();
+    if (targetScreen) {
+        const QRect screenGeometry = targetScreen->availableGeometry();
+        setGeometry(screenGeometry);
+    }
+    showMaximized();
     setWindowTitle("PaperVision System - Industrial Monitor");
     qInfo() << "Setting up UI...";
     
@@ -247,14 +253,17 @@ void MainWindow::setupUi() {
     QVBoxLayout* liveLayout = new QVBoxLayout(liveTab);
     liveLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Live Controls (Trigger, Snapshot) at the top of Live View Tab
+    // Live controls in a single horizontal row to preserve Live View height.
     QHBoxLayout* liveControlsLayout = new QHBoxLayout();
     liveControlsLayout->setContentsMargins(8, 8, 8, 8);
-    
-    triggerBtn_ = new QPushButton("Trigger Record (S)");
+    liveControlsLayout->setSpacing(8);
+
+    triggerBtn_ = new QPushButton("Trigger");
+    triggerBtn_->setToolTip("Trigger record (S)");
     connect(triggerBtn_, &QPushButton::clicked, this, &MainWindow::manualTrigger);
     
-    snapshotBtn_ = new QPushButton("Take Snapshot");
+    snapshotBtn_ = new QPushButton("Snapshot");
+    snapshotBtn_->setToolTip("Capture snapshot from Detail View");
     connect(snapshotBtn_, &QPushButton::clicked, this, [this]() {
         if (stackedWidget_->currentWidget() == detailView_) {
             if (cameraManager_) {
@@ -274,13 +283,11 @@ void MainWindow::setupUi() {
     liveControlsLayout->addWidget(triggerBtn_);
     liveControlsLayout->addWidget(snapshotBtn_);
     
-    pauseBtn_ = new QPushButton("Pause Grab");
+    pauseBtn_ = new QPushButton("Pause");
+    pauseBtn_->setToolTip("Pause camera grabbing");
     connect(pauseBtn_, &QPushButton::clicked, this, &MainWindow::togglePauseGrab);
     liveControlsLayout->addWidget(pauseBtn_);
-    
-    // Add spacer before check
-    liveControlsLayout->addStretch();
-    
+     
     QLabel* defectLabel = new QLabel("Trigger on Defect:");
     liveControlsLayout->addWidget(defectLabel);
     
@@ -293,6 +300,7 @@ void MainWindow::setupUi() {
         }
     });
     liveControlsLayout->addWidget(defectDetectionCheck_);
+    liveControlsLayout->addStretch();
     
     liveLayout->addLayout(liveControlsLayout);
 
@@ -365,6 +373,9 @@ void MainWindow::setupUi() {
         }
     });
 
+    ensureConfigTab();
+    updateConfigTabAccess();
+
     // --- Menu Bar (Create AFTER central widget) ---
     QMenuBar* menu = menuBar();
     menu->setNativeMenuBar(false); // Force menu bar to appear in window, not system menu
@@ -399,78 +410,17 @@ void MainWindow::setupUi() {
     
     // Configuration Window
     configAction_ = settingsMenu->addAction("System Configuration");
-    configAction_->setEnabled(isAdmin_); // Grayed out until Admin login
-    connect(configAction_, &QAction::triggered, [this]() {
-        if (!configWindow_) {
-            configWindow_ = new ConfigDialog(cameraManager_.get(), mainTabWidget_);
-            connect(configWindow_, &ConfigDialog::configUpdated, [this](bool requiresCameraRestart) {
-                qInfo() << "[MainWindow] configUpdated received. requiresCameraRestart=" << requiresCameraRestart;
-
-                // Update camera counts in views to handle newly added cameras
-                int newCamCount = CameraConfig::getCameraCount();
-                qInfo() << "[MainWindow] Applying updated camera count" << newCamCount;
-                if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
-                if (analysisView_) analysisView_->setCameraCount(newCamCount);
-
-                if (detailView_ && detailView_->videoWidget()) {
-                    const int selectedCameraId = detailView_->videoWidget()->cameraId();
-                    if (selectedCameraId >= newCamCount) {
-                        qInfo() << "[MainWindow] Clearing stale detail selection for removed camera" << selectedCameraId;
-                        detailView_->clearCamera();
-                        if (stackedWidget_ && stackedWidget_->currentWidget() == detailView_) {
-                            showGrid();
-                        }
-                    }
-                }
-                
-                // Redraw UI to remove empty placeholders for newly configured cameras
-                if (liveDashboard_) {
-                    liveDashboard_->setGridDimensions(liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
-                }
-                
-                // Re-initialize EventController with updated user-configured values.
-                // Must be called here (GUI thread) — NOT inside the QtConcurrent worker
-                // in startCameraLifecycleAsync, to avoid a data race on EventController
-                // internals that causes a crash.
-                const double configuredFps = static_cast<double>(CameraConfig::getFps());
-                const int preTriggerFrames  = CameraConfig::getPreTriggerSeconds()  * static_cast<int>(configuredFps);
-                const int postTriggerFrames = CameraConfig::getPostTriggerSeconds() * static_cast<int>(configuredFps);
-                EventController::instance().initialize(preTriggerFrames, configuredFps, postTriggerFrames);
-
-                if (requiresCameraRestart) {
-                    qInfo() << "[MainWindow] Starting async camera restart after save";
-                    startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
-                } else {
-                    qInfo() << "[MainWindow] Save did not require camera restart";
-                    statusBar()->showMessage("Settings saved", 3000);
-                }
-                 
-                // Reload UI Theme Globally
-                qInfo() << "[MainWindow] Reapplying global theme after save";
-                this->applyGlobalTheme();
-            });
-            // Handle cleanup if window is destroyed
-            connect(configWindow_, &QObject::destroyed, [this]() {
-                configTabIndex_ = -1;
-                configWindow_ = nullptr;
-            });
-
-            configTabIndex_ = mainTabWidget_->addTab(configWindow_, "System Configuration");
-            mainTabWidget_->setTabToolTip(configTabIndex_, "System configuration and camera setup");
-        }
-        
-        // Push admin state to config window before showing
-        configWindow_->setAdminMode(isAdmin_);
-
-        if (configTabIndex_ >= 0) {
-            mainTabWidget_->setCurrentIndex(configTabIndex_);
-        }
-    });
+    connect(configAction_, &QAction::triggered, this, &MainWindow::openSystemConfiguration);
 
     // Help Menu
     QMenu* helpMenu = menu->addMenu("Help");
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
+
+    adminStatusLabel_ = new QLabel(this);
+    adminStatusLabel_->setObjectName("adminStatusLabel");
+    statusBar()->addPermanentWidget(adminStatusLabel_);
+    updateAdminStatusIndicator();
 
     // Initial Status
     statusBar()->showMessage("System Initialized");
@@ -661,7 +611,12 @@ void MainWindow::showGrid() {
 void MainWindow::toggleAdmin() {
     if (isAdmin_) {
         // Logout
-        closeConfigTab();
+        if (mainTabWidget_ && configWindow_) {
+            const int configIndex = mainTabWidget_->indexOf(configWindow_);
+            if (configIndex >= 0 && mainTabWidget_->currentIndex() == configIndex) {
+                switchView(ViewMode::Live);
+            }
+        }
 
         isAdmin_ = false;
         adminLoginAction_->setText("Administrator Login");
@@ -674,58 +629,150 @@ void MainWindow::toggleAdmin() {
         if (analysisView_) {
             analysisView_->setAdminMode(false);
         }
-        if (configAction_) {
-            configAction_->setEnabled(false);
-        }
     } else {
-        // Login
-        bool ok;
-        QString text = QInputDialog::getText(this, "Admin Login",
-                                             "Password:", QLineEdit::Password,
-                                             "", &ok);
-        if (ok && text == "admin") { // Simple password
-            isAdmin_ = true;
-            adminLoginAction_->setText("Logout Administrator");
-            statusBar()->showMessage("Administrator Logged In");
-            
-            if (defectDetectionCheck_) {
-                defectDetectionCheck_->setEnabled(true);
-            }
-            if (analysisView_) {
-                analysisView_->setAdminMode(true);
-            }
-            // Enable Configuration
-            if (configAction_) {
-                configAction_->setEnabled(true);
-            }
-        } else if (ok) {
-            QMessageBox::warning(this, "Login Failed", "Incorrect Password");
-        }
+        promptAdminLogin();
     }
     
     if (detailView_) {
         detailView_->setAdminMode(isAdmin_);
     }
+
+    updateConfigTabAccess();
+    updateAdminStatusIndicator();
 }
 
-void MainWindow::closeConfigTab() {
-    if (!configWindow_) {
-        configTabIndex_ = -1;
+bool MainWindow::promptAdminLogin() {
+    if (isAdmin_) {
+        return true;
+    }
+
+    bool ok = false;
+    const QString text = QInputDialog::getText(this, "Admin Login",
+                                               "Password:", QLineEdit::Password,
+                                               "", &ok);
+    if (!ok) {
+        return false;
+    }
+
+    if (text != "admin") {
+        QMessageBox::warning(this, "Login Failed", "Incorrect Password");
+        return false;
+    }
+
+    isAdmin_ = true;
+    adminLoginAction_->setText("Logout Administrator");
+    statusBar()->showMessage("Administrator Logged In");
+
+    if (defectDetectionCheck_) {
+        defectDetectionCheck_->setEnabled(true);
+    }
+    if (analysisView_) {
+        analysisView_->setAdminMode(true);
+    }
+    if (detailView_) {
+        detailView_->setAdminMode(true);
+    }
+
+    updateConfigTabAccess();
+    updateAdminStatusIndicator();
+    return true;
+}
+
+void MainWindow::updateAdminStatusIndicator() {
+    if (!adminStatusLabel_) {
         return;
     }
 
-    const int tabIndex = mainTabWidget_ ? mainTabWidget_->indexOf(configWindow_) : -1;
-    if (mainTabWidget_ && tabIndex >= 0) {
-        const int fallbackIndex = 0;
-        if (mainTabWidget_->currentIndex() == tabIndex) {
-            mainTabWidget_->setCurrentIndex(fallbackIndex);
-        }
-        mainTabWidget_->removeTab(tabIndex);
+    adminStatusLabel_->setText(isAdmin_ ? "Admin: On" : "Admin: Off");
+    adminStatusLabel_->setToolTip(isAdmin_ ? "Administrator mode enabled" : "Administrator mode disabled");
+    adminStatusLabel_->setProperty("adminActive", isAdmin_);
+    adminStatusLabel_->style()->unpolish(adminStatusLabel_);
+    adminStatusLabel_->style()->polish(adminStatusLabel_);
+}
+
+void MainWindow::ensureConfigTab() {
+    if (!mainTabWidget_) {
+        return;
     }
 
-    configTabIndex_ = -1;
-    configWindow_->deleteLater();
-    configWindow_ = nullptr;
+    if (!configWindow_) {
+        configWindow_ = new ConfigDialog(cameraManager_.get(), mainTabWidget_);
+        connect(configWindow_, &ConfigDialog::configUpdated, [this](bool requiresCameraRestart) {
+            qInfo() << "[MainWindow] configUpdated received. requiresCameraRestart=" << requiresCameraRestart;
+
+            // Update camera counts in views to handle newly added cameras
+            int newCamCount = CameraConfig::getCameraCount();
+            qInfo() << "[MainWindow] Applying updated camera count" << newCamCount;
+            if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
+            if (analysisView_) analysisView_->setCameraCount(newCamCount);
+
+            if (detailView_ && detailView_->videoWidget()) {
+                const int selectedCameraId = detailView_->videoWidget()->cameraId();
+                if (selectedCameraId >= newCamCount) {
+                    qInfo() << "[MainWindow] Clearing stale detail selection for removed camera" << selectedCameraId;
+                    detailView_->clearCamera();
+                    if (stackedWidget_ && stackedWidget_->currentWidget() == detailView_) {
+                        showGrid();
+                    }
+                }
+            }
+
+            // Redraw UI to remove empty placeholders for newly configured cameras
+            if (liveDashboard_) {
+                liveDashboard_->setGridDimensions(liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
+            }
+
+            // Re-initialize EventController with updated user-configured values.
+            // Must be called here (GUI thread), not inside the QtConcurrent worker.
+            const double configuredFps = static_cast<double>(CameraConfig::getFps());
+            const int preTriggerFrames  = CameraConfig::getPreTriggerSeconds()  * static_cast<int>(configuredFps);
+            const int postTriggerFrames = CameraConfig::getPostTriggerSeconds() * static_cast<int>(configuredFps);
+            EventController::instance().initialize(preTriggerFrames, configuredFps, postTriggerFrames);
+
+            if (requiresCameraRestart) {
+                qInfo() << "[MainWindow] Starting async camera restart after save";
+                startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
+            } else {
+                qInfo() << "[MainWindow] Save did not require camera restart";
+                statusBar()->showMessage("Settings saved", 3000);
+            }
+
+            qInfo() << "[MainWindow] Reapplying global theme after save";
+            applyGlobalTheme();
+
+            if (analysisView_) {
+                qInfo() << "[MainWindow] Reloading analysis event storage after save";
+                analysisView_->reloadEventStorage();
+            }
+        });
+
+        connect(configWindow_, &QObject::destroyed, [this]() {
+            configTabIndex_ = -1;
+            configWindow_ = nullptr;
+        });
+    }
+
+    configTabIndex_ = mainTabWidget_->indexOf(configWindow_);
+    if (configTabIndex_ < 0) {
+        configTabIndex_ = mainTabWidget_->addTab(configWindow_, "System Configuration");
+        mainTabWidget_->setTabToolTip(configTabIndex_, "System configuration and camera setup");
+    }
+}
+
+void MainWindow::updateConfigTabAccess() {
+    if (!mainTabWidget_ || !configWindow_) {
+        return;
+    }
+
+    const int tabIndex = mainTabWidget_->indexOf(configWindow_);
+    configTabIndex_ = tabIndex;
+    if (tabIndex < 0) {
+        return;
+    }
+
+    mainTabWidget_->setTabEnabled(tabIndex, isAdmin_);
+    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? palette().color(QPalette::WindowText) : QColor("#777777"));
+    configWindow_->setAdminMode(isAdmin_);
 }
 
 void MainWindow::changeLayout(int rows, int cols) {
@@ -792,6 +839,20 @@ void MainWindow::showAbout() {
                        "Built with Qt 5, OpenCV 4, and Basler Pylon 6.");
 }
 
+void MainWindow::openSystemConfiguration() {
+    if (!promptAdminLogin()) {
+        statusBar()->showMessage("Administrator login required for System Configuration.", 3000);
+        return;
+    }
+
+    ensureConfigTab();
+    updateConfigTabAccess();
+
+    if (configTabIndex_ >= 0) {
+        mainTabWidget_->setCurrentIndex(configTabIndex_);
+    }
+}
+
 void MainWindow::switchView(ViewMode mode) {
     switch (mode) {
         case ViewMode::Live:
@@ -835,13 +896,15 @@ void MainWindow::togglePauseGrab() {
     cameraManager_->pauseGrabbing(!isPaused);
     
     if (!isPaused) {
-        pauseBtn_->setText("Resume Grab");
+        pauseBtn_->setText("Resume");
+        pauseBtn_->setToolTip("Resume camera grabbing");
         // Apply a visual warning tint (light red) to signify paused state. 
         // This takes precedence over global stylesheet.
         pauseBtn_->setStyleSheet("background-color: #ffaaaa; color: #880000;");
         statusBar()->showMessage("Camera Grabbing PAUSED", 3000);
     } else {
-        pauseBtn_->setText("Pause Grab");
+        pauseBtn_->setText("Pause");
+        pauseBtn_->setToolTip("Pause camera grabbing");
         // Clear local style to revert to global theme
         pauseBtn_->setStyleSheet("");
         statusBar()->showMessage("Camera Grabbing RESUMED", 3000);
@@ -864,6 +927,8 @@ void MainWindow::applyGlobalTheme() {
         // Base Window & Widget backgrounds
         "QMainWindow, QDialog, QWidget { background-color: %1; color: %8; }"
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: #888888; }"
+        "QLabel#adminStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
+        "QLabel#adminStatusLabel[adminActive='true'] { color: %5; }"
         // Toolbars and Borders
         "QToolBar, QMenuBar { background-color: %3; border-bottom: 1px solid %2; color: %8; }"
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"
@@ -911,5 +976,6 @@ void MainWindow::applyGlobalTheme() {
     
     // Sub-components that manage their own local stylesheets using theme variables
     if (liveDashboard_) liveDashboard_->updateTheme();
+    if (detailView_) detailView_->updateTheme();
     if (analysisView_) analysisView_->updateTheme();
 }
