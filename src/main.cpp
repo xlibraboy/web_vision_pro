@@ -1,5 +1,8 @@
 #include <QApplication>
+#include <QAbstractSpinBox>
+#include <QComboBox>
 #include <QDir>
+#include <QEvent>
 #include <QLockFile>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -9,10 +12,36 @@
 
 #include <iostream>
 
+namespace {
+class WheelInputGuard : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        if (event->type() == QEvent::Wheel) {
+            if (QAbstractSpinBox* spinBox = qobject_cast<QAbstractSpinBox*>(obj)) {
+                event->ignore();
+                return true;
+            }
+
+            if (QComboBox* comboBox = qobject_cast<QComboBox*>(obj)) {
+                event->ignore();
+                return true;
+            }
+        }
+
+        return QObject::eventFilter(obj, event);
+    }
+};
+}
+
 int main(int argc, char *argv[]) {
     try {
         Pylon::PylonAutoInitTerm autoInitTerm;
         QApplication app(argc, argv);
+        WheelInputGuard wheelInputGuard;
+        app.installEventFilter(&wheelInputGuard);
         const QString serverName = "papervision_instance_server";
 
         // Prevent duplicate windows if the desktop launcher is clicked twice.
