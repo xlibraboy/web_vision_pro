@@ -36,6 +36,8 @@
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
+#include <QResizeEvent>
+#include <QShowEvent>
 #include <utility>
 #include <algorithm>
 
@@ -77,6 +79,18 @@ namespace {
         }
         const QVariant family = combo->currentData();
         return family.isValid() ? family.toString() : QStringLiteral("Aptos");
+    }
+
+    QString settingsTooltip(const QString& text) {
+        return QString(
+            "<div style=\""
+            "white-space: nowrap; "
+            "color: #6A5B1F; "
+            "font-family: Noto Sans, Arial, sans-serif; "
+            "font-size: 9pt; "
+            "font-weight: 400; "
+            "line-height: 18px;\">%1</div>"
+        ).arg(text.toHtmlEscaped());
     }
 
     void updateFontPreviewLabel(QLabel* label, const QString& family, int pixelSize, const QString& sampleText) {
@@ -254,6 +268,16 @@ bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
     return QWidget::eventFilter(obj, event);
 }
 
+void ConfigDialog::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    relayoutUiPreferencePanels();
+}
+
+void ConfigDialog::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    relayoutUiPreferencePanels();
+}
+
 ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     : QWidget(parent)
     , cameraManager_(cameraManager)
@@ -263,7 +287,6 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     , accentColor_("#00E5FF") {
 
     setWindowTitle("System Configuration");
-    resize(1440, 860);
 
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
 
@@ -309,13 +332,28 @@ void ConfigDialog::setupUI() {
     };
 
     auto createTypographyRow = [this, &tc, &createPillStyle](QWidget* parent, QComboBox* fontCombo, QSpinBox* sizeSpin,
-            int presetS, int presetM, int presetL, PresetButtonGroup& presets) {
+            const QString& tooltip, int presetS, int presetM, int presetL, PresetButtonGroup& presets) {
+        const QString formattedTooltip = settingsTooltip(tooltip);
         QWidget* row = new QWidget(parent);
-        QHBoxLayout* rowLayout = new QHBoxLayout(row);
+        QVBoxLayout* rowLayout = new QVBoxLayout(row);
         rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->setSpacing(6);
-        rowLayout->addWidget(fontCombo, 1);
-        rowLayout->addWidget(sizeSpin);
+        rowLayout->setSpacing(4);
+        row->setToolTip(formattedTooltip);
+
+        QHBoxLayout* controlsLayout = new QHBoxLayout();
+        controlsLayout->setContentsMargins(0, 0, 0, 0);
+        controlsLayout->setSpacing(8);
+        fontCombo->setToolTip(formattedTooltip);
+        sizeSpin->setToolTip(formattedTooltip);
+        controlsLayout->addWidget(fontCombo, 1);
+        controlsLayout->addWidget(sizeSpin);
+        rowLayout->addLayout(controlsLayout);
+
+        QHBoxLayout* presetsLayout = new QHBoxLayout();
+        presetsLayout->setContentsMargins(0, 0, 0, 0);
+        presetsLayout->setSpacing(6);
+        presetsLayout->addStretch();
+        rowLayout->addLayout(presetsLayout);
 
         const QString inactiveStyle = createPillStyle(false);
 
@@ -326,12 +364,12 @@ void ConfigDialog::setupUI() {
         presets.inactiveStyle = inactiveStyle;
         presets.activeStyle = createPillStyle(true);
 
-        const auto addPill = [row, rowLayout, sizeSpin, &presets](const QString& label, int preset) {
+        const auto addPill = [row, presetsLayout, sizeSpin, &presets](const QString& label, int preset) {
             QPushButton* btn = new QPushButton(label, row);
-            btn->setFixedSize(24, 20);
+            btn->setFixedSize(28, 22);
             btn->setCursor(Qt::PointingHandCursor);
-            btn->setToolTip(QString("%1: %2 px").arg(label, QString::number(preset)));
-            rowLayout->addWidget(btn);
+            btn->setToolTip(settingsTooltip(QString("%1: %2 px").arg(label, QString::number(preset))));
+            presetsLayout->addWidget(btn);
             QObject::connect(btn, &QPushButton::clicked, [sizeSpin, preset]() {
                 sizeSpin->setValue(preset);
             });
@@ -539,77 +577,50 @@ void ConfigDialog::setupUI() {
     // UI Preferences Tab
     QWidget* uiGroup = new QWidget(this);
     QVBoxLayout* uiPageLayout = new QVBoxLayout(uiGroup);
-    uiPageLayout->setContentsMargins(0, 0, 0, 0);
-    uiPageLayout->setSpacing(0);
+    uiPageLayout->setContentsMargins(16, 8, 16, 6);
+    uiPageLayout->setSpacing(5);
 
-    uiPreferencesScrollArea_ = new QScrollArea(uiGroup);
-    uiPreferencesScrollArea_->setWidgetResizable(true);
-    uiPreferencesScrollArea_->setFrameShape(QFrame::NoFrame);
-    uiPreferencesScrollArea_->viewport()->installEventFilter(this);
-    uiPreferencesScrollArea_->setStyleSheet(QString(
-        "QScrollArea { border: none; background: transparent; } "
-        "QScrollBar:vertical { "
-        "  background-color: %1; "
-        "  width: 12px; "
-        "  border-radius: 6px; "
-        "} "
-        "QScrollBar::handle:vertical { "
-        "  background-color: %2; "
-        "  border-radius: 6px; "
-        "  min-height: 30px; "
-        "} "
-        "QScrollBar::handle:vertical:hover { "
-        "  background-color: %3; "
-        "} "
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
-        "  height: 0px; "
-        "}"
-    ).arg(tc.bg, tc.btnBg, tc.primary));
-    uiPageLayout->addWidget(uiPreferencesScrollArea_);
-
-    QWidget* uiScrollContent = new QWidget(uiPreferencesScrollArea_);
-    QVBoxLayout* uiOuterLayout = new QVBoxLayout(uiScrollContent);
-    uiOuterLayout->setContentsMargins(16, 16, 16, 16);
-    uiOuterLayout->setSpacing(12);
-    uiPreferencesScrollArea_->setWidget(uiScrollContent);
+    uiPreferencesScrollArea_ = nullptr;
 
     // Header section
     QLabel* uiHeaderLabel = new QLabel("UI Preferences", uiGroup);
     uiHeaderLabel->setStyleSheet(QString(
-        "color: %1; font-size: 22px; font-weight: 700; padding-bottom: 4px;"
+        "color: %1; font-size: 17px; font-weight: 700;"
     ).arg(tc.primary));
-    uiOuterLayout->addWidget(uiHeaderLabel);
+    uiPageLayout->addWidget(uiHeaderLabel);
 
     QLabel* uiDescriptionLabel = new QLabel(
-        "Customize the appearance, typography, and data storage settings for the application.", uiGroup);
+        "Customize storage, theme, and screen typography.", uiGroup);
     uiDescriptionLabel->setWordWrap(true);
     uiDescriptionLabel->setStyleSheet(QString(
-        "color: %1; font-size: 12px; padding-bottom: 8px;"
+        "color: %1; font-size: 11px; padding-bottom: 2px;"
     ).arg(tc.text));
-    uiOuterLayout->addWidget(uiDescriptionLabel);
+    uiPageLayout->addWidget(uiDescriptionLabel);
 
     // Separator line
     QFrame* uiSeparator = new QFrame(uiGroup);
     uiSeparator->setFrameShape(QFrame::HLine);
     uiSeparator->setFrameShadow(QFrame::Plain);
+    uiSeparator->setFixedHeight(1);
     uiSeparator->setStyleSheet(QString(
-        "color: %1; border-top: 1px solid %2;"
-    ).arg(tc.border, tc.border));
-    uiOuterLayout->addWidget(uiSeparator);
+        "background-color: %1; border: none;"
+    ).arg(tc.border));
+    uiPageLayout->addWidget(uiSeparator);
 
     QWidget* uiPanel = new QWidget(uiGroup);
     QGridLayout* uiPanelLayout = new QGridLayout(uiPanel);
     uiPanelLayout->setContentsMargins(0, 0, 0, 0);
-    uiPanelLayout->setHorizontalSpacing(14);
-    uiPanelLayout->setVerticalSpacing(10);
+    uiPanelLayout->setHorizontalSpacing(8);
+    uiPanelLayout->setVerticalSpacing(3);
     uiPanelLayout->setColumnStretch(0, 1);
     uiPanelLayout->setColumnStretch(1, 1);
+    uiPanelLayout->setRowStretch(0, 0);
     uiPanelLayout->setRowStretch(1, 1);
 
     const QString uiSectionStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "background-color: rgba(255, 255, 255, 0.02); border-radius: 10px; margin-top: 10px; padding-top: 10px; font-size: 12px; } "
-        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }"
+        "background-color: rgba(255, 255, 255, 0.02); border-radius: 10px; margin-top: 12px; padding: 12px 10px 7px 10px; font-size: 12px; } "
+        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 6px; top: 2px; }"
     ).arg(tc.primary, tc.border);
 
     int uiSectionIndex = 0;
@@ -617,9 +628,9 @@ void ConfigDialog::setupUI() {
         QGroupBox* group = new QGroupBox(title, uiPanel);
         group->setStyleSheet(uiSectionStyle);
         QFormLayout* form = new QFormLayout(group);
-        form->setSpacing(8);
-        form->setHorizontalSpacing(14);
-        form->setContentsMargins(14, 16, 14, 12);
+        form->setSpacing(6);
+        form->setHorizontalSpacing(10);
+        form->setContentsMargins(10, 14, 10, 8);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         uiPanelLayout->addWidget(group, uiSectionIndex / 2, uiSectionIndex % 2);
         ++uiSectionIndex;
@@ -632,10 +643,10 @@ void ConfigDialog::setupUI() {
     QTabWidget* uiDetailTabs = new QTabWidget(uiPanel);
     uiDetailTabs->setDocumentMode(true);
     uiDetailTabs->setStyleSheet(QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 12px; top: -1px; background-color: rgba(255, 255, 255, 0.01); } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 8px 16px; min-width: 128px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; } "
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
         "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
-        "QTabBar::tab:!selected { margin-top: 4px; color: %5; } "
+        "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
         "QTabBar::tab:hover { color: %4; }"
     ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text));
     uiPanelLayout->addWidget(uiDetailTabs, 1, 0, 1, 2);
@@ -643,54 +654,67 @@ void ConfigDialog::setupUI() {
     QWidget* liveViewTab = new QWidget(uiDetailTabs);
     QVBoxLayout* liveViewTabLayout = new QVBoxLayout(liveViewTab);
     liveViewTabLayout->setContentsMargins(10, 10, 10, 10);
-    liveViewTabLayout->setSpacing(8);
+    liveViewTabLayout->setSpacing(10);
 
     QWidget* liveViewGroup = new QWidget(liveViewTab);
     QVBoxLayout* liveViewGroupLayout = new QVBoxLayout(liveViewGroup);
     liveViewGroupLayout->setContentsMargins(0, 0, 0, 0);
-    liveViewGroupLayout->setSpacing(8);
-    liveViewTabLayout->addWidget(liveViewGroup);
+    liveViewGroupLayout->setSpacing(10);
+    liveViewTabLayout->addWidget(liveViewGroup, 0);
+    liveViewTabLayout->addStretch(1);
 
-    QLabel* liveViewSectionTitle = new QLabel("Live View Card", liveViewGroup);
-    liveViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 15px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    QLabel* liveViewSectionTitle = new QLabel("Live View", liveViewGroup);
+    liveViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
     liveViewGroupLayout->addWidget(liveViewSectionTitle);
 
     QWidget* liveViewContent = new QWidget(liveViewGroup);
     liveViewContentLayout_ = new QHBoxLayout(liveViewContent);
     liveViewContentLayout_->setContentsMargins(0, 0, 0, 0);
-    liveViewContentLayout_->setSpacing(14);
+    liveViewContentLayout_->setSpacing(16);
+    liveViewContentLayout_->setAlignment(Qt::AlignTop);
     liveViewGroupLayout->addWidget(liveViewContent);
 
     QWidget* liveViewSettingsPanel = new QWidget(liveViewContent);
     QVBoxLayout* liveViewSettingsLayout = new QVBoxLayout(liveViewSettingsPanel);
     liveViewSettingsLayout->setContentsMargins(0, 0, 0, 0);
-    liveViewSettingsLayout->setSpacing(8);
-    liveViewContentLayout_->addWidget(liveViewSettingsPanel, 3);
+    liveViewSettingsLayout->setSpacing(12);
+    liveViewSettingsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    liveViewContentLayout_->addWidget(liveViewSettingsPanel, 5, Qt::AlignTop);
 
-    const int kRowSpacing = 8;
+    const QString settingsCardStyle = QString(
+        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 10px; margin-top: 8px; "
+        "background-color: rgba(255, 255, 255, 0.02); padding: 10px; font-size: 12px; } "
+        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+    ).arg(tc.primary, tc.border);
+
+    QGroupBox* liveSettingsCard = new QGroupBox("Live View Appearance", liveViewSettingsPanel);
+    liveSettingsCard->setStyleSheet(settingsCardStyle);
+    QVBoxLayout* liveSettingsCardLayout = new QVBoxLayout(liveSettingsCard);
+    liveSettingsCardLayout->setContentsMargins(12, 16, 12, 12);
+    liveSettingsCardLayout->setSpacing(10);
+    liveViewSettingsLayout->addWidget(liveSettingsCard);
+
+    const int kRowSpacing = 10;
 
     QFormLayout* liveViewForm = new QFormLayout();
     liveViewForm->setSpacing(kRowSpacing);
-    liveViewForm->setHorizontalSpacing(14);
+    liveViewForm->setHorizontalSpacing(16);
     liveViewForm->setContentsMargins(0, 0, 0, 0);
     liveViewForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignTop);
     liveViewForm->setFormAlignment(Qt::AlignTop);
 
     auto createLiveViewRowLabel = [&](const QString& title, const QString& detail) {
+        const QString formattedTooltip = settingsTooltip(detail);
         QWidget* labelWidget = new QWidget(liveViewGroup);
         QVBoxLayout* labelLayout = new QVBoxLayout(labelWidget);
-        labelLayout->setContentsMargins(0, 0, 0, 0);
-        labelLayout->setSpacing(1);
+        labelLayout->setContentsMargins(0, 1, 0, 0);
+        labelLayout->setSpacing(0);
 
         QLabel* titleLabel = new QLabel(title, labelWidget);
         titleLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 600;").arg(tc.text));
+        titleLabel->setToolTip(formattedTooltip);
         labelLayout->addWidget(titleLabel);
-
-        QLabel* detailLabel = new QLabel(detail, labelWidget);
-        detailLabel->setWordWrap(true);
-        detailLabel->setStyleSheet(QString("color: %1; font-size: 9px;").arg(tc.text));
-        detailLabel->setMaximumWidth(150);
-        labelLayout->addWidget(detailLabel);
+        labelWidget->setToolTip(formattedTooltip);
 
         return labelWidget;
     };
@@ -698,19 +722,19 @@ void ConfigDialog::setupUI() {
     QWidget* eventStorageRowWidget = new QWidget(uiGroup);
     QHBoxLayout* eventStorageRowLayout = new QHBoxLayout(eventStorageRowWidget);
     eventStorageRowLayout->setContentsMargins(0, 0, 0, 0);
-    eventStorageRowLayout->setSpacing(kControlSpacing);
+    eventStorageRowLayout->setSpacing(8);
 
     eventStoragePathEdit_ = new QLineEdit(eventStorageRowWidget);
     eventStoragePathEdit_->setReadOnly(true);
     eventStoragePathEdit_->setStyleSheet(QString(
-        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; }"
+        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: 11px; }"
     ).arg(tc.btnBg, tc.text, tc.border));
     eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
 
-    browseEventStorageBtn_ = new QPushButton("Browse...", eventStorageRowWidget);
+    browseEventStorageBtn_ = new QPushButton("Browse", eventStorageRowWidget);
     browseEventStorageBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; } "
-        "QPushButton:hover { border-color: %4; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 500; } "
+        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
     browseEventStorageBtn_->setToolTip("Choose a different folder for event storage.");
     connect(browseEventStorageBtn_, &QPushButton::clicked, this, [this]() {
@@ -724,7 +748,7 @@ void ConfigDialog::setupUI() {
     });
     eventStorageRowLayout->addWidget(browseEventStorageBtn_);
 
-    resetEventStorageBtn_ = new QPushButton("Reset Default", eventStorageRowWidget);
+    resetEventStorageBtn_ = new QPushButton("Default", eventStorageRowWidget);
     resetEventStorageBtn_->setStyleSheet(browseEventStorageBtn_->styleSheet());
     resetEventStorageBtn_->setToolTip("Restore the default event storage path.");
     connect(resetEventStorageBtn_, &QPushButton::clicked, this, [this]() {
@@ -738,21 +762,26 @@ void ConfigDialog::setupUI() {
 
     eventStoragePathEdit_->setToolTip("Directory where event recordings and metadata are saved.");
 
-    QLabel* eventStorageNote = new QLabel("Used for both saving new events and loading historical event data.", uiGroup);
+    QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", uiGroup);
     eventStorageNote->setWordWrap(true);
-    eventStorageNote->setStyleSheet(QString("color: %1;").arg(tc.text));
-    storageForm->addRow("Note:", eventStorageNote);
+    eventStorageNote->setStyleSheet(QString("color: %1; font-size: 11px; font-style: italic;").arg(tc.text));
+    storageForm->addRow("", eventStorageNote);
 
-    // Theme selection grid
-    themeGridWidget_ = new QWidget(uiGroup);
-    themeGridWidget_->setToolTip("Click a theme to preview and select it.");
-    themeGridLayout_ = new QGridLayout(themeGridWidget_);
-    themeGridLayout_->setContentsMargins(0, 0, 0, 0);
-    themeGridLayout_->setHorizontalSpacing(10);
-    themeGridLayout_->setVerticalSpacing(10);
+    // Theme selection dropdown
+    themeGridWidget_ = nullptr;
+    themeGridLayout_ = nullptr;
+    themeButtonGroup_ = nullptr;
 
-    themeButtonGroup_ = new QButtonGroup(uiGroup);
-    themeButtonGroup_->setExclusive(true);
+    QComboBox* themeCombo = new QComboBox(uiGroup);
+    themeCombo_ = themeCombo;
+    themeCombo->setStyleSheet(QString(
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 8px; } "
+        "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; selection-background-color: %5; padding: 4px; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary, tc.bg));
+    themeCombo->setToolTip("Select a color theme for the application.");
 
     const struct { const char* name; int index; } themeEntries[] = {
         {"Industrial Dark - Cyan", 0},
@@ -769,92 +798,63 @@ void ConfigDialog::setupUI() {
         const auto& entry = themeEntries[i];
         const ThemeColors entryColors = CameraConfig::getThemeColors(entry.index);
 
-        QPushButton* card = new QPushButton(themeGridWidget_);
-        card->setCursor(Qt::PointingHandCursor);
-        card->setMinimumSize(128, 88);
-        card->setMaximumWidth(156);
-        card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        card->setFlat(true);
+        // Create a color swatch icon
+        QPixmap swatch(20, 20);
+        swatch.fill(Qt::transparent);
+        QPainter painter(&swatch);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setBrush(QColor(entryColors.bg));
+        painter.setPen(QPen(QColor(entryColors.border), 1));
+        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
+        // Draw accent bar
+        painter.setBrush(QColor(entryColors.primary));
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(4, 8, 12, 4, 2, 2);
+        painter.end();
 
-        QVBoxLayout* cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(8, 8, 8, 8);
-        cardLayout->setSpacing(4);
-
-        // Background color frame
-        QFrame* bgFrame = new QFrame(card);
-        bgFrame->setStyleSheet(QString(
-            "QFrame { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
-        ).arg(entryColors.bg, entryColors.border));
-        bgFrame->setFixedHeight(52);
-
-        QVBoxLayout* bgLayout = new QVBoxLayout(bgFrame);
-        bgLayout->setContentsMargins(6, 6, 6, 6);
-        bgLayout->setSpacing(4);
-
-        // Accent bar showing primary color
-        QFrame* accentBar = new QFrame(bgFrame);
-        accentBar->setFixedHeight(4);
-        accentBar->setStyleSheet(QString(
-            "QFrame { background-color: %1; border: none; border-radius: 2px; }"
-        ).arg(entryColors.primary));
-        bgLayout->addWidget(accentBar);
-
-        bgLayout->addStretch();
-        cardLayout->addWidget(bgFrame);
-        cardLayout->addStretch();
-
-        // Theme name label
-        QLabel* themeNameLabel = new QLabel(entry.name, card);
-        themeNameLabel->setWordWrap(true);
-        themeNameLabel->setAlignment(Qt::AlignCenter);
-        themeNameLabel->setStyleSheet(QString(
-            "QLabel { color: %1; font-size: 10px; font-weight: 600; background: transparent; }"
-        ).arg(entryColors.text));
-        cardLayout->addWidget(themeNameLabel);
-
-        card->setStyleSheet(QString(
-            "QPushButton { background-color: rgba(255, 255, 255, 0.02); border: 1px solid %1; border-radius: 10px; padding: 0px; }"
-            "QPushButton:hover { border: 1px solid %2; background-color: rgba(255, 255, 255, 0.05); }"
-        ).arg(entryColors.border, entryColors.primary));
-
-        themeCards_[i] = card;
-        themeButtonGroup_->addButton(card, entry.index);
+        themeCombo->addItem(QIcon(swatch), entry.name, entry.index);
     }
 
     selectedThemeIndex_ = CameraConfig::getThemePreset();
+    themeCombo->setCurrentIndex(selectedThemeIndex_);
 
-    auto selectTheme = [this](int index) {
-        const int previous = this->selectedThemeIndex_;
-        this->selectedThemeIndex_ = index;
-        for (int i = 0; i < 8; ++i) {
-            QPushButton* btn = qobject_cast<QPushButton*>(this->themeCards_[i]);
-            if (!btn) continue;
-            const ThemeColors c = CameraConfig::getThemeColors(i);
-            if (i == index) {
-                btn->setStyleSheet(QString(
-                    "QPushButton { background-color: rgba(255, 255, 255, 0.06); border: 2px solid %1; border-radius: 10px; padding: 0px; }"
-                ).arg(c.primary));
-            } else {
-                btn->setStyleSheet(QString(
-                    "QPushButton { background-color: rgba(255, 255, 255, 0.02); border: 1px solid %1; border-radius: 10px; padding: 0px; }"
-                    "QPushButton:hover { border: 1px solid %2; background-color: rgba(255, 255, 255, 0.05); }"
-                ).arg(c.border, c.primary));
-            }
-        }
+    // Store null in themeCards_ since we no longer use card buttons
+    for (int i = 0; i < 8; ++i) {
+        themeCards_[i] = nullptr;
+    }
+
+    connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, themeCombo](int index) {
+        this->selectedThemeIndex_ = themeCombo->currentData().toInt();
+        // Update combo text color to match selected theme
+        const ThemeColors selectedColors = CameraConfig::getThemeColors(this->selectedThemeIndex_);
+        themeCombo->setStyleSheet(QString(
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 8px; } "
+            "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %5; selection-background-color: %6; padding: 4px; }"
+        ).arg(selectedColors.btnBg, selectedColors.border, selectedColors.primary, selectedColors.primary, selectedColors.text, selectedColors.bg));
         emit this->themeSelectionChanged();
-    };
+    });
 
-    selectTheme(selectedThemeIndex_);
+    // Apply initial theme color to combo
+    {
+        const ThemeColors initColors = CameraConfig::getThemeColors(selectedThemeIndex_);
+        themeCombo->setStyleSheet(QString(
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 8px; } "
+            "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %5; selection-background-color: %6; padding: 4px; }"
+        ).arg(initColors.btnBg, initColors.border, initColors.primary, initColors.primary, initColors.text, initColors.bg));
+    }
 
-    connect(themeButtonGroup_, QOverload<int>::of(&QButtonGroup::buttonClicked), this, selectTheme);
-    relayoutUiPreferencePanels();
+    themeForm->addRow("Color Theme:", themeCombo);
 
-    themeForm->addRow("Color Theme:", themeGridWidget_);
-
-    QLabel* liveViewDescription = new QLabel("Adjust the visible parts of the Live View card.", uiGroup);
+    QLabel* liveViewDescription = new QLabel("Tune card surface, title, and section typography.", uiGroup);
     liveViewDescription->setWordWrap(true);
-    liveViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 4px;").arg(tc.text));
-    liveViewSettingsLayout->addWidget(liveViewDescription);
+    liveViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 2px;").arg(tc.text));
+    liveSettingsCardLayout->addWidget(liveViewDescription);
 
     liveViewBackgroundStyleCombo_ = new QComboBox(uiGroup);
     liveViewBackgroundStyleCombo_->addItem("Black", "black");
@@ -862,12 +862,13 @@ void ConfigDialog::setupUI() {
     liveViewBackgroundStyleCombo_->addItem("Textured Mesh", "textured_mesh");
     liveViewBackgroundStyleCombo_->addItem("White Textured Mesh", "white_textured_mesh");
     liveViewBackgroundStyleCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewBackgroundStyleCombo_->setToolTip("Choose the background appearance for live view cards.");
-    liveViewBackgroundStyleCombo_->setMinimumWidth(220);
+    liveViewBackgroundStyleCombo_->setToolTip(settingsTooltip("Background for the card body."));
+    liveViewBackgroundStyleCombo_->setFixedWidth(160);
     liveViewForm->addRow(
         createLiveViewRowLabel("Card Surface", "Background for the card body."),
         liveViewBackgroundStyleCombo_);
@@ -875,103 +876,116 @@ void ConfigDialog::setupUI() {
     liveViewGridTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewGridTitleFontCombo_);
     liveViewGridTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewGridTitleFontCombo_->setToolTip("Font for camera titles in the grid overview.");
+    liveViewGridTitleFontCombo_->setToolTip("Camera title shown on each grid tile.");
 
     liveViewGridTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewGridTitleSizeSpin_->setRange(10, 40);
     liveViewGridTitleSizeSpin_->setSuffix(" px");
     liveViewGridTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     liveViewGridTitleSizeSpin_->setFixedWidth(100);
-    liveViewGridTitleSizeSpin_->setToolTip("Font size for grid camera titles.");
+    liveViewGridTitleSizeSpin_->setToolTip("Camera title shown on each grid tile.");
     liveViewGridTitleSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
         createLiveViewRowLabel("Grid Title", "Camera title shown on each grid tile."),
-        createTypographyRow(liveViewGroup, liveViewGridTitleFontCombo_, liveViewGridTitleSizeSpin_, 10, 14, 18, liveViewGridTitlePresets_));
+        createTypographyRow(liveViewGroup, liveViewGridTitleFontCombo_, liveViewGridTitleSizeSpin_, "Camera title shown on each grid tile.", 10, 14, 18, liveViewGridTitlePresets_));
 
     liveViewDetailTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailTitleFontCombo_);
     liveViewDetailTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewDetailTitleFontCombo_->setToolTip("Font for the detail view card title.");
+    liveViewDetailTitleFontCombo_->setToolTip("Primary camera title in the detail card.");
 
     liveViewDetailTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailTitleSizeSpin_->setRange(10, 40);
     liveViewDetailTitleSizeSpin_->setSuffix(" px");
     liveViewDetailTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     
-    liveViewDetailTitleSizeSpin_->setToolTip("Font size for the detail card title.");
+    liveViewDetailTitleSizeSpin_->setToolTip("Primary camera title in the detail card.");
     liveViewDetailTitleSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
         createLiveViewRowLabel("Detail Title", "Primary camera title in the detail card."),
-        createTypographyRow(liveViewGroup, liveViewDetailTitleFontCombo_, liveViewDetailTitleSizeSpin_, 10, 14, 18, liveViewDetailTitlePresets_));
+        createTypographyRow(liveViewGroup, liveViewDetailTitleFontCombo_, liveViewDetailTitleSizeSpin_, "Primary camera title in the detail card.", 10, 14, 18, liveViewDetailTitlePresets_));
 
     liveViewDetailSectionFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailSectionFontCombo_);
     liveViewDetailSectionFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewDetailSectionFontCombo_->setToolTip("Font for detail card section headers.");
+    liveViewDetailSectionFontCombo_->setToolTip("Group titles inside the detail card.");
 
     liveViewDetailSectionSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailSectionSizeSpin_->setRange(9, 32);
     liveViewDetailSectionSizeSpin_->setSuffix(" px");
     liveViewDetailSectionSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
 
-    liveViewDetailSectionSizeSpin_->setToolTip("Font size for section headers.");
+    liveViewDetailSectionSizeSpin_->setToolTip("Group titles inside the detail card.");
     liveViewDetailSectionSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
         createLiveViewRowLabel("Section Header", "Group titles inside the detail card."),
-        createTypographyRow(liveViewGroup, liveViewDetailSectionFontCombo_, liveViewDetailSectionSizeSpin_, 11, 13, 16, liveViewDetailSectionPresets_));
+        createTypographyRow(liveViewGroup, liveViewDetailSectionFontCombo_, liveViewDetailSectionSizeSpin_, "Group titles inside the detail card.", 11, 13, 16, liveViewDetailSectionPresets_));
 
-    liveViewSettingsLayout->addLayout(liveViewForm);
+    liveSettingsCardLayout->addLayout(liveViewForm);
+    liveSettingsCardLayout->addSpacing(2);
 
     QWidget* analysisViewTab = new QWidget(uiDetailTabs);
     QVBoxLayout* analysisViewTabLayout = new QVBoxLayout(analysisViewTab);
     analysisViewTabLayout->setContentsMargins(10, 10, 10, 10);
-    analysisViewTabLayout->setSpacing(8);
+    analysisViewTabLayout->setSpacing(10);
 
     QWidget* analysisViewGroup = new QWidget(analysisViewTab);
     QVBoxLayout* analysisViewGroupLayout = new QVBoxLayout(analysisViewGroup);
     analysisViewGroupLayout->setContentsMargins(0, 0, 0, 0);
-    analysisViewGroupLayout->setSpacing(8);
-    analysisViewTabLayout->addWidget(analysisViewGroup);
+    analysisViewGroupLayout->setSpacing(10);
+    analysisViewTabLayout->addWidget(analysisViewGroup, 0);
+    analysisViewTabLayout->addStretch(1);
 
     QLabel* analysisViewSectionTitle = new QLabel("Analysis View", analysisViewGroup);
-    analysisViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 15px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    analysisViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
     analysisViewGroupLayout->addWidget(analysisViewSectionTitle);
 
     QWidget* analysisViewContent = new QWidget(analysisViewGroup);
     analysisViewContentLayout_ = new QHBoxLayout(analysisViewContent);
     analysisViewContentLayout_->setContentsMargins(0, 0, 0, 0);
-    analysisViewContentLayout_->setSpacing(14);
+    analysisViewContentLayout_->setSpacing(16);
+    analysisViewContentLayout_->setAlignment(Qt::AlignTop);
     analysisViewGroupLayout->addWidget(analysisViewContent);
 
     QWidget* analysisSettingsPanel = new QWidget(analysisViewContent);
     QVBoxLayout* analysisSettingsLayout = new QVBoxLayout(analysisSettingsPanel);
     analysisSettingsLayout->setContentsMargins(0, 0, 0, 0);
-    analysisSettingsLayout->setSpacing(8);
-    analysisViewContentLayout_->addWidget(analysisSettingsPanel, 3);
+    analysisSettingsLayout->setSpacing(12);
+    analysisViewContentLayout_->addWidget(analysisSettingsPanel, 4, Qt::AlignTop);
 
-    QLabel* analysisViewDescription = new QLabel("Adjust the visible typography and playback surface used in Analysis View.", uiGroup);
+    QGroupBox* analysisSettingsCard = new QGroupBox("Analysis View Appearance", analysisSettingsPanel);
+    analysisSettingsCard->setStyleSheet(settingsCardStyle);
+    QVBoxLayout* analysisSettingsCardLayout = new QVBoxLayout(analysisSettingsCard);
+    analysisSettingsCardLayout->setContentsMargins(12, 16, 12, 12);
+    analysisSettingsCardLayout->setSpacing(10);
+    analysisSettingsLayout->addWidget(analysisSettingsCard);
+
+    QLabel* analysisViewDescription = new QLabel("Tune video titles, timestamps, tabs, and playback surface.", uiGroup);
     analysisViewDescription->setWordWrap(true);
-    analysisViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 4px;").arg(tc.text));
-    analysisSettingsLayout->addWidget(analysisViewDescription);
+    analysisViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 2px;").arg(tc.text));
+    analysisSettingsCardLayout->addWidget(analysisViewDescription);
 
     QFormLayout* analysisViewForm = new QFormLayout();
     analysisViewForm->setSpacing(kRowSpacing);
-    analysisViewForm->setHorizontalSpacing(14);
+    analysisViewForm->setHorizontalSpacing(12);
     analysisViewForm->setContentsMargins(0, 0, 0, 0);
     analysisViewForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignTop);
     analysisViewForm->setFormAlignment(Qt::AlignTop);
@@ -979,108 +993,109 @@ void ConfigDialog::setupUI() {
     analysisVideoTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisVideoTitleFontCombo_);
     analysisVideoTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisVideoTitleFontCombo_->setToolTip("Font for video tile titles in Analysis View.");
+    analysisVideoTitleFontCombo_->setToolTip("Title overlay on analysis video tiles.");
     analysisVideoTitleSizeSpin_ = new QSpinBox(uiGroup);
     analysisVideoTitleSizeSpin_->setRange(8, 24);
     analysisVideoTitleSizeSpin_->setSuffix(" px");
     analysisVideoTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisVideoTitleSizeSpin_->setFixedWidth(72);
-    analysisVideoTitleSizeSpin_->setToolTip("Font size for analysis video titles.");
+    analysisVideoTitleSizeSpin_->setToolTip("Title overlay on analysis video tiles.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Video Title", "Title overlay on analysis video tiles."),
-        createTypographyRow(analysisViewGroup, analysisVideoTitleFontCombo_, analysisVideoTitleSizeSpin_, 8, 10, 14, analysisVideoTitlePresets_));
+        createTypographyRow(analysisViewGroup, analysisVideoTitleFontCombo_, analysisVideoTitleSizeSpin_, "Title overlay on analysis video tiles.", 8, 10, 14, analysisVideoTitlePresets_));
 
     analysisTimestampFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTimestampFontCombo_);
     analysisTimestampFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisTimestampFontCombo_->setToolTip("Font for timestamps on analysis video tiles.");
+    analysisTimestampFontCombo_->setToolTip("Timecode shown on the analysis video footer.");
     analysisTimestampSizeSpin_ = new QSpinBox(uiGroup);
     analysisTimestampSizeSpin_->setRange(7, 20);
     analysisTimestampSizeSpin_->setSuffix(" px");
     analysisTimestampSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisTimestampSizeSpin_->setFixedWidth(72);
-    analysisTimestampSizeSpin_->setToolTip("Font size for analysis timestamps.");
+    analysisTimestampSizeSpin_->setToolTip("Timecode shown on the analysis video footer.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Timestamp", "Timecode shown on the analysis video footer."),
-        createTypographyRow(analysisViewGroup, analysisTimestampFontCombo_, analysisTimestampSizeSpin_, 7, 8, 12, analysisTimestampPresets_));
+        createTypographyRow(analysisViewGroup, analysisTimestampFontCombo_, analysisTimestampSizeSpin_, "Timecode shown on the analysis video footer.", 7, 8, 12, analysisTimestampPresets_));
 
     analysisTabFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTabFontCombo_);
     analysisTabFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisTabFontCombo_->setToolTip("Font for tab labels in Analysis View.");
+    analysisTabFontCombo_->setToolTip("Tabs and playback label typography.");
     analysisTabSizeSpin_ = new QSpinBox(uiGroup);
     analysisTabSizeSpin_->setRange(10, 24);
     analysisTabSizeSpin_->setSuffix(" px");
     analysisTabSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisTabSizeSpin_->setFixedWidth(72);
-    analysisTabSizeSpin_->setToolTip("Font size for tab labels.");
+    analysisTabSizeSpin_->setToolTip("Tabs and playback label typography.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Tab Label", "Tabs and playback label typography."),
-        createTypographyRow(analysisViewGroup, analysisTabFontCombo_, analysisTabSizeSpin_, 10, 12, 16, analysisTabPresets_));
+        createTypographyRow(analysisViewGroup, analysisTabFontCombo_, analysisTabSizeSpin_, "Tabs and playback label typography.", 10, 12, 16, analysisTabPresets_));
 
     analysisPlaybackSurfaceCombo_ = new QComboBox(uiGroup);
     analysisPlaybackSurfaceCombo_->addItem("Dark", "dark");
     analysisPlaybackSurfaceCombo_->addItem("Light", "light");
     analysisPlaybackSurfaceCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 6px 10px; color: %3; min-width: 200px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
         "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; }"
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisPlaybackSurfaceCombo_->setToolTip("Background style for the playback bar.");
-    analysisPlaybackSurfaceCombo_->setMinimumWidth(220);
+    analysisPlaybackSurfaceCombo_->setToolTip(settingsTooltip("Background used by the analysis playback bar and video blank surface."));
+    analysisPlaybackSurfaceCombo_->setFixedWidth(160);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface."),
         analysisPlaybackSurfaceCombo_);
 
-    analysisSettingsLayout->addLayout(analysisViewForm);
+    analysisSettingsCardLayout->addLayout(analysisViewForm);
 
     QHBoxLayout* liveViewActionsLayout = new QHBoxLayout();
-    liveViewActionsLayout->setContentsMargins(0, 4, 0, 0);
+    liveViewActionsLayout->setContentsMargins(0, 6, 0, 0);
     liveViewActionsLayout->addStretch();
 
     const QString secondaryActionButtonStyle = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; } "
-        "QPushButton:hover { border-color: %4; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 14px; font-size: 11px; font-weight: 600; } "
+        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
 
-    liveViewResetBtn_ = new QPushButton("Reset Live View Card", uiGroup);
+    liveViewResetBtn_ = new QPushButton("Reset Live View", uiGroup);
     liveViewResetBtn_->setToolTip("Restore all Live View card settings to defaults.");
     liveViewResetBtn_->setStyleSheet(secondaryActionButtonStyle);
     connect(liveViewResetBtn_, &QPushButton::clicked, this, &ConfigDialog::resetLiveViewCardSettings);
     liveViewActionsLayout->addWidget(liveViewResetBtn_);
-    liveViewSettingsLayout->addLayout(liveViewActionsLayout);
+    liveSettingsCardLayout->addLayout(liveViewActionsLayout);
 
     QHBoxLayout* analysisActionsLayout = new QHBoxLayout();
-    analysisActionsLayout->setContentsMargins(0, 4, 0, 0);
+    analysisActionsLayout->setContentsMargins(0, 6, 0, 0);
     analysisActionsLayout->addStretch();
     analysisResetBtn_ = new QPushButton("Reset Analysis View", uiGroup);
     analysisResetBtn_->setToolTip("Restore all Analysis View settings to defaults.");
     analysisResetBtn_->setStyleSheet(secondaryActionButtonStyle);
     connect(analysisResetBtn_, &QPushButton::clicked, this, &ConfigDialog::resetAnalysisViewSettings);
     analysisActionsLayout->addWidget(analysisResetBtn_);
-    analysisSettingsLayout->addLayout(analysisActionsLayout);
+    analysisSettingsCardLayout->addLayout(analysisActionsLayout);
 
     auto refreshTypographyPreviews = [this]() {
-        if (!liveViewGridPreviewWidget_ ||
-            !liveViewDetailPreviewWidget_ ||
+        if (!liveViewDetailPreviewWidget_ ||
             !liveViewCardPreviewFrame_ ||
             !liveViewCardPreviewTitleLabel_ ||
             !liveViewCardPreviewMetaLabel_ ||
-            !liveViewCardPreviewStatusLabel_ ||
-            !liveViewCardPreviewInfoGroup_ ||
-            !liveViewCardPreviewControlGroup_) {
+            !liveViewCardPreviewStatusLabel_) {
             return;
         }
 
@@ -1101,15 +1116,6 @@ void ConfigDialog::setupUI() {
         const QColor statusBackgroundColor = themePrimaryColor;
         const QColor detailPanelBackground(themePanelColor.red(), themePanelColor.green(), themePanelColor.blue(), 224);
 
-        QFont gridPreviewFont(currentCuratedFontFamily(liveViewGridTitleFontCombo_));
-        gridPreviewFont.setPixelSize(liveViewGridTitleSizeSpin_->value());
-        gridPreviewFont.setBold(true);
-        liveViewGridPreviewWidget_->setPreviewThemeColors(previewThemeColors);
-        liveViewGridPreviewWidget_->setPreviewBackgroundStyle(backgroundStyle);
-        liveViewGridPreviewWidget_->setOverlayFont(gridPreviewFont);
-        liveViewGridPreviewWidget_->setOverlayText("CAM-01: DRYER");
-        liveViewGridPreviewWidget_->setTemperatureStatus(86.0, TempStatus::Critical);
-
         QFont detailPreviewFont(currentCuratedFontFamily(liveViewDetailTitleFontCombo_));
         detailPreviewFont.setPixelSize(liveViewDetailTitleSizeSpin_->value());
         detailPreviewFont.setBold(true);
@@ -1118,7 +1124,6 @@ void ConfigDialog::setupUI() {
         liveViewDetailPreviewWidget_->setOverlayFont(detailPreviewFont);
         liveViewDetailPreviewWidget_->setOverlayText("CAM-01: DRYER");
         liveViewDetailPreviewWidget_->setTemperatureStatus(-1.0, TempStatus::Unknown);
-        liveViewGridPreviewWidget_->update();
         liveViewDetailPreviewWidget_->update();
 
         QPalette previewPalette = liveViewCardPreviewFrame_->palette();
@@ -1127,7 +1132,7 @@ void ConfigDialog::setupUI() {
         liveViewCardPreviewFrame_->setAutoFillBackground(true);
         liveViewCardPreviewFrame_->setPalette(previewPalette);
         liveViewCardPreviewFrame_->setStyleSheet(QString(
-            "QFrame { border: 1px solid %1; border-radius: 12px; }"
+            "QFrame#liveViewCardPreview { border: 1px solid %1; border-radius: 12px; }"
         ).arg(borderColor.name()));
 
         updateFontPreviewLabel(
@@ -1154,16 +1159,19 @@ void ConfigDialog::setupUI() {
         QFont sectionPreviewFont(currentCuratedFontFamily(liveViewDetailSectionFontCombo_));
         sectionPreviewFont.setPixelSize(liveViewDetailSectionSizeSpin_->value());
         sectionPreviewFont.setBold(true);
-        liveViewCardPreviewInfoGroup_->setFont(sectionPreviewFont);
-        liveViewCardPreviewControlGroup_->setFont(sectionPreviewFont);
-
         const QString groupStyle = QString(
-            "QGroupBox { color: %1; border: 1px solid %2; border-radius: 8px; margin-top: 8px; padding-top: 8px; background-color: %4; } "
-            "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; } "
+            "QGroupBox { color: %1; border: 1px solid %2; border-radius: 8px; margin-top: 10px; padding-top: 10px; background-color: %4; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; } "
             "QLabel { color: %3; background: transparent; }"
         ).arg(groupTextColor.name(), groupBorderColor.name(), subtitleColor.name(), detailPanelBackground.name(QColor::HexArgb));
-        liveViewCardPreviewInfoGroup_->setStyleSheet(groupStyle);
-        liveViewCardPreviewControlGroup_->setStyleSheet(groupStyle);
+        if (liveViewCardPreviewInfoGroup_) {
+            liveViewCardPreviewInfoGroup_->setFont(sectionPreviewFont);
+            liveViewCardPreviewInfoGroup_->setStyleSheet(groupStyle);
+        }
+        if (liveViewCardPreviewControlGroup_) {
+            liveViewCardPreviewControlGroup_->setFont(sectionPreviewFont);
+            liveViewCardPreviewControlGroup_->setStyleSheet(groupStyle);
+        }
 
         liveViewCardPreviewFrame_->update();
     };
@@ -1209,7 +1217,7 @@ void ConfigDialog::setupUI() {
         analysisPreviewFrame_->setAutoFillBackground(true);
         analysisPreviewFrame_->setPalette(analysisPalette);
         analysisPreviewFrame_->setStyleSheet(QString(
-            "QFrame { border: 1px solid %1; border-radius: 12px; }"
+            "QFrame#analysisPreviewFrame { border: 1px solid %1; border-radius: 12px; }"
         ).arg(borderColor.name()));
 
         QFont sectionFont(style.tabFontFamily);
@@ -1243,58 +1251,45 @@ void ConfigDialog::setupUI() {
     QFrame* livePreviewContainer = new QFrame(liveViewGroup);
     livePreviewContainer_ = livePreviewContainer;
     livePreviewContainer->setFrameShape(QFrame::NoFrame);
+    livePreviewContainer->setObjectName("livePreviewContainer");
     livePreviewContainer->setStyleSheet(QString(
-        "QFrame { background-color: %1; border: 1px solid %2; border-radius: 16px; }"
+        "QFrame#livePreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(tc.btnBg, tc.border));
-    livePreviewContainer->setMinimumWidth(0);
-    livePreviewContainer->setMaximumWidth(320);
+    livePreviewContainer->setMinimumWidth(360);
+    livePreviewContainer->setMaximumWidth(390);
     livePreviewContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     QVBoxLayout* livePreviewPageLayout = new QVBoxLayout(livePreviewContainer);
-    livePreviewPageLayout->setContentsMargins(12, 12, 12, 12);
+    livePreviewPageLayout->setContentsMargins(10, 8, 10, 8);
     livePreviewPageLayout->setSpacing(8);
 
-    QLabel* previewTitle = new QLabel("Live Preview", livePreviewContainer);
-    previewTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; background: transparent;").arg(tc.primary));
+    QLabel* previewTitle = new QLabel("Detail Card Preview", livePreviewContainer);
+    previewTitle->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
     livePreviewPageLayout->addWidget(previewTitle);
 
-    QLabel* previewDescription = new QLabel("Uses the real live video widget styling for the grid card and mirrors the detail card structure beside it.", livePreviewContainer);
-    previewDescription->setWordWrap(true);
-    previewDescription->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent;").arg(tc.text));
-    livePreviewPageLayout->addWidget(previewDescription);
-
-    QLabel* gridPreviewLabel = new QLabel("Grid Card", livePreviewContainer);
-    gridPreviewLabel->setStyleSheet(QString(
-        "color: %1; font-size: 10px; font-weight: 700; text-transform: uppercase; background-color: %2; border: 1px solid %3; border-radius: 999px; padding: 4px 10px;"
-    ).arg(tc.primary, tc.bg, tc.border));
-    livePreviewPageLayout->addWidget(gridPreviewLabel);
-
-    liveViewGridPreviewWidget_ = new CameraWidget(livePreviewContainer);
-    liveViewGridPreviewWidget_->setCameraId(0);
-    liveViewGridPreviewWidget_->setFixedHeight(92);
-    liveViewGridPreviewWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    livePreviewPageLayout->addWidget(liveViewGridPreviewWidget_);
-
-    QLabel* detailPreviewLabel = new QLabel("Detail Card", livePreviewContainer);
-    detailPreviewLabel->setStyleSheet(QString(
-        "color: %1; font-size: 10px; font-weight: 700; text-transform: uppercase; background-color: %2; border: 1px solid %3; border-radius: 999px; padding: 4px 10px;"
-    ).arg(tc.primary, tc.bg, tc.border));
-    livePreviewPageLayout->addWidget(detailPreviewLabel);
+    QLabel* previewNote = new QLabel("The preview uses the current detail title and section styling with representative live card data.", livePreviewContainer);
+    previewNote->setWordWrap(true);
+    previewNote->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent; border: none;").arg(tc.text));
+    livePreviewPageLayout->addWidget(previewNote);
 
     liveViewCardPreviewFrame_ = new QFrame(livePreviewContainer);
     liveViewCardPreviewFrame_->setFrameShape(QFrame::NoFrame);
+    liveViewCardPreviewFrame_->setObjectName("liveViewCardPreview");
+    liveViewCardPreviewFrame_->setMinimumWidth(0);
+    liveViewCardPreviewFrame_->setMaximumWidth(QWIDGETSIZE_MAX);
+    liveViewCardPreviewFrame_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     QVBoxLayout* liveViewCardPreviewLayout = new QVBoxLayout(liveViewCardPreviewFrame_);
-    liveViewCardPreviewLayout->setContentsMargins(8, 8, 8, 8);
-    liveViewCardPreviewLayout->setSpacing(5);
+    liveViewCardPreviewLayout->setContentsMargins(12, 12, 12, 12);
+    liveViewCardPreviewLayout->setSpacing(10);
 
     liveViewDetailPreviewWidget_ = new CameraWidget(liveViewCardPreviewFrame_);
     liveViewDetailPreviewWidget_->setCameraId(0);
-    liveViewDetailPreviewWidget_->setFixedHeight(94);
+    liveViewDetailPreviewWidget_->setFixedHeight(212);
     liveViewDetailPreviewWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     liveViewCardPreviewLayout->addWidget(liveViewDetailPreviewWidget_);
 
     QHBoxLayout* liveViewCardPreviewHeaderLayout = new QHBoxLayout();
     liveViewCardPreviewHeaderLayout->setContentsMargins(0, 0, 0, 0);
-    liveViewCardPreviewHeaderLayout->setSpacing(10);
+    liveViewCardPreviewHeaderLayout->setSpacing(8);
 
     QVBoxLayout* liveViewCardPreviewTitleLayout = new QVBoxLayout();
     liveViewCardPreviewTitleLayout->setContentsMargins(0, 0, 0, 0);
@@ -1302,10 +1297,12 @@ void ConfigDialog::setupUI() {
 
     liveViewCardPreviewTitleLabel_ = new QLabel(liveViewCardPreviewFrame_);
     liveViewCardPreviewTitleLabel_->setWordWrap(true);
+    liveViewCardPreviewTitleLabel_->setMinimumHeight(18);
     liveViewCardPreviewTitleLayout->addWidget(liveViewCardPreviewTitleLabel_);
 
     liveViewCardPreviewMetaLabel_ = new QLabel(liveViewCardPreviewFrame_);
     liveViewCardPreviewMetaLabel_->setWordWrap(true);
+    liveViewCardPreviewMetaLabel_->setMinimumHeight(14);
     liveViewCardPreviewTitleLayout->addWidget(liveViewCardPreviewMetaLabel_);
 
     liveViewCardPreviewHeaderLayout->addLayout(liveViewCardPreviewTitleLayout, 1);
@@ -1313,63 +1310,64 @@ void ConfigDialog::setupUI() {
     liveViewCardPreviewStatusLabel_ = new QLabel(liveViewCardPreviewFrame_);
     liveViewCardPreviewStatusLabel_->setAlignment(Qt::AlignCenter);
     liveViewCardPreviewStatusLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    liveViewCardPreviewStatusLabel_->setMinimumWidth(96);
     liveViewCardPreviewHeaderLayout->addWidget(liveViewCardPreviewStatusLabel_, 0, Qt::AlignTop);
 
     liveViewCardPreviewLayout->addLayout(liveViewCardPreviewHeaderLayout);
 
-    liveViewCardPreviewInfoGroup_ = new QGroupBox("Camera Information", liveViewCardPreviewFrame_);
+    liveViewCardPreviewInfoGroup_ = new QGroupBox("Section Header", liveViewCardPreviewFrame_);
     QVBoxLayout* infoGroupLayout = new QVBoxLayout(liveViewCardPreviewInfoGroup_);
     infoGroupLayout->setContentsMargins(8, 12, 8, 8);
-    infoGroupLayout->setSpacing(1);
-    infoGroupLayout->addWidget(new QLabel("IP: 172.20.2.1", liveViewCardPreviewInfoGroup_));
-    infoGroupLayout->addWidget(new QLabel("Status: Connected", liveViewCardPreviewInfoGroup_));
+    infoGroupLayout->setSpacing(2);
+    infoGroupLayout->addWidget(new QLabel("Sample value text", liveViewCardPreviewInfoGroup_));
+    infoGroupLayout->addWidget(new QLabel("Secondary line", liveViewCardPreviewInfoGroup_));
     liveViewCardPreviewLayout->addWidget(liveViewCardPreviewInfoGroup_);
 
     liveViewCardPreviewControlGroup_ = new QGroupBox("Camera Parameters", liveViewCardPreviewFrame_);
     QVBoxLayout* controlGroupLayout = new QVBoxLayout(liveViewCardPreviewControlGroup_);
     controlGroupLayout->setContentsMargins(8, 12, 8, 8);
-    controlGroupLayout->setSpacing(1);
+    controlGroupLayout->setSpacing(2);
     controlGroupLayout->addWidget(new QLabel("Exposure: 40880 us", liveViewCardPreviewControlGroup_));
     controlGroupLayout->addWidget(new QLabel("Pixel Format: Mono8", liveViewCardPreviewControlGroup_));
     liveViewCardPreviewLayout->addWidget(liveViewCardPreviewControlGroup_);
 
-    livePreviewPageLayout->addWidget(liveViewCardPreviewFrame_);
+    livePreviewPageLayout->addWidget(liveViewCardPreviewFrame_, 0, Qt::AlignTop);
 
-    liveViewContentLayout_->addWidget(livePreviewContainer, 2, Qt::AlignTop);
+    liveViewContentLayout_->addWidget(livePreviewContainer, 3, Qt::AlignTop);
 
     QFrame* analysisPreviewContainer = new QFrame(analysisViewGroup);
     analysisPreviewContainer_ = analysisPreviewContainer;
     analysisPreviewContainer->setFrameShape(QFrame::NoFrame);
+    analysisPreviewContainer->setObjectName("analysisPreviewContainer");
     analysisPreviewContainer->setStyleSheet(QString(
-        "QFrame { background-color: %1; border: 1px solid %2; border-radius: 16px; }"
+        "QFrame#analysisPreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(tc.btnBg, tc.border));
-    analysisPreviewContainer->setMinimumWidth(0);
-    analysisPreviewContainer->setMaximumWidth(320);
+    analysisPreviewContainer->setMinimumWidth(360);
+    analysisPreviewContainer->setMaximumWidth(390);
     analysisPreviewContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     QVBoxLayout* analysisPreviewPageLayout = new QVBoxLayout(analysisPreviewContainer);
-    analysisPreviewPageLayout->setContentsMargins(12, 12, 12, 12);
+    analysisPreviewPageLayout->setContentsMargins(10, 8, 10, 8);
     analysisPreviewPageLayout->setSpacing(8);
 
     QLabel* analysisPreviewTitle = new QLabel("Analysis Preview", analysisPreviewContainer);
-    analysisPreviewTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; background: transparent;").arg(tc.primary));
+    analysisPreviewTitle->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
     analysisPreviewPageLayout->addWidget(analysisPreviewTitle);
 
-    QLabel* analysisPreviewDescription = new QLabel("Mirrors the analysis video tile, tab label, and playback bar treatment.", analysisPreviewContainer);
-    analysisPreviewDescription->setWordWrap(true);
-    analysisPreviewDescription->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent;").arg(tc.text));
-    analysisPreviewPageLayout->addWidget(analysisPreviewDescription);
+    QLabel* analysisPreviewNote = new QLabel("The preview uses the current title and timestamp styling with representative analysis card data.", analysisPreviewContainer);
+    analysisPreviewNote->setWordWrap(true);
+    analysisPreviewNote->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent; border: none;").arg(tc.text));
+    analysisPreviewPageLayout->addWidget(analysisPreviewNote);
 
-    QLabel* analysisPreviewLabel = new QLabel("Playback Preview", analysisPreviewContainer);
-    analysisPreviewLabel->setStyleSheet(QString(
-        "color: %1; font-size: 10px; font-weight: 700; text-transform: uppercase; background-color: %2; border: 1px solid %3; border-radius: 999px; padding: 4px 10px;"
-    ).arg(tc.primary, tc.bg, tc.border));
-    analysisPreviewPageLayout->addWidget(analysisPreviewLabel);
-
+    // Two-row layout: header row + video row
     analysisPreviewFrame_ = new QFrame(analysisPreviewContainer);
     analysisPreviewFrame_->setFrameShape(QFrame::NoFrame);
+    analysisPreviewFrame_->setObjectName("analysisPreviewFrame");
+    analysisPreviewFrame_->setMinimumWidth(0);
+    analysisPreviewFrame_->setMaximumWidth(QWIDGETSIZE_MAX);
+    analysisPreviewFrame_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     QVBoxLayout* analysisPreviewLayout = new QVBoxLayout(analysisPreviewFrame_);
-    analysisPreviewLayout->setContentsMargins(8, 8, 8, 8);
-    analysisPreviewLayout->setSpacing(5);
+    analysisPreviewLayout->setContentsMargins(12, 12, 12, 12);
+    analysisPreviewLayout->setSpacing(10);
 
     QHBoxLayout* analysisPreviewHeaderLayout = new QHBoxLayout();
     analysisPreviewHeaderLayout->setContentsMargins(0, 0, 0, 0);
@@ -1382,7 +1380,7 @@ void ConfigDialog::setupUI() {
     analysisPreviewLayout->addLayout(analysisPreviewHeaderLayout);
 
     analysisPreviewVideoWidget_ = new AnalysisVideoWidget(0, "CAM-01: DRYER", analysisPreviewFrame_);
-    analysisPreviewVideoWidget_->setFixedHeight(96);
+    analysisPreviewVideoWidget_->setFixedHeight(152);
     analysisPreviewVideoWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     analysisPreviewLayout->addWidget(analysisPreviewVideoWidget_);
 
@@ -1390,47 +1388,55 @@ void ConfigDialog::setupUI() {
     analysisPreviewLayout->addWidget(analysisPreviewFrameLabel_, 0, Qt::AlignLeft);
 
     analysisPreviewPageLayout->addWidget(analysisPreviewFrame_);
-    analysisViewContentLayout_->addWidget(analysisPreviewContainer, 2, Qt::AlignTop);
+    analysisViewContentLayout_->addWidget(analysisPreviewContainer, 3, Qt::AlignTop);
 
     uiDetailTabs->addTab(liveViewTab, "Live View");
     uiDetailTabs->addTab(analysisViewTab, "Analysis View");
 
     refreshTypographyPreviews();
     refreshAnalysisPreview();
-    relayoutUiPreferencePanels();
 
-    uiOuterLayout->addWidget(uiPanel, 1);
+    uiPageLayout->addWidget(uiPanel, 1);
+
+    QFrame* uiActionsSeparator = new QFrame(uiGroup);
+    uiActionsSeparator->setFrameShape(QFrame::HLine);
+    uiActionsSeparator->setFrameShadow(QFrame::Plain);
+    uiActionsSeparator->setFixedHeight(1);
+    uiActionsSeparator->setStyleSheet(QString(
+        "background-color: %1; border: none;"
+    ).arg(tc.border));
+    uiPageLayout->addWidget(uiActionsSeparator);
 
     QVBoxLayout* uiActionsLayout = new QVBoxLayout();
-    uiActionsLayout->setSpacing(8);
+    uiActionsLayout->setSpacing(6);
 
     uiUnsavedIndicator_ = new QLabel(uiGroup);
     uiUnsavedIndicator_->setStyleSheet(QString(
-        "color: #FF5A5A; font-size: 12px; font-weight: 600;"
+        "color: #FFB020; font-size: 11px; font-weight: 600;"
     ));
     uiUnsavedIndicator_->setText("");
     uiUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
     uiActionsLayout->addWidget(uiUnsavedIndicator_, 0, Qt::AlignRight);
 
     QHBoxLayout* uiActionButtonsLayout = new QHBoxLayout();
-    uiActionButtonsLayout->setSpacing(12);
+    uiActionButtonsLayout->setSpacing(14);
     uiActionButtonsLayout->addStretch();
 
-    uiApplyBtn_ = new QPushButton("Apply", uiGroup);
+    uiApplyBtn_ = new QPushButton("Apply Now", uiGroup);
     uiApplyBtn_->setToolTip("Apply changes without closing this section.");
     uiApplyBtn_->setStyleSheet(secondaryActionButtonStyle);
     uiApplyBtn_->setEnabled(false);
     connect(uiApplyBtn_, &QPushButton::clicked, this, &ConfigDialog::applyUiSettings);
     uiActionButtonsLayout->addWidget(uiApplyBtn_);
 
-    uiSaveBtn_ = new QPushButton("Save UI Preferences", uiGroup);
+    uiSaveBtn_ = new QPushButton("Save", uiGroup);
     uiSaveBtn_->setToolTip("Save all UI preferences and apply changes.");
     uiSaveBtn_->setIcon(IconManager::instance().save(16));
     stylePrimaryActionButton(uiSaveBtn_, tc);
     connect(uiSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveUiSettings);
     uiActionButtonsLayout->addWidget(uiSaveBtn_);
     uiActionsLayout->addLayout(uiActionButtonsLayout);
-    uiOuterLayout->addLayout(uiActionsLayout);
+    uiPageLayout->addLayout(uiActionsLayout);
 
     QListWidgetItem* uiGroupItem = new QListWidgetItem(IconManager::instance().settings(20), "UI Preferences");
     sidebar->addItem(uiGroupItem);
@@ -1517,6 +1523,9 @@ void ConfigDialog::setupUI() {
     mainLayout->addLayout(contentLayout, 1);
     
     connect(sidebar, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex);
+    connect(sidebar, &QListWidget::currentRowChanged, this, [this]() {
+        relayoutUiPreferencePanels();
+    });
     sidebar->setCurrentRow(0);
 
     // Initialize logs
@@ -1538,12 +1547,22 @@ void ConfigDialog::loadSettings() {
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
     selectedThemeIndex_ = CameraConfig::getThemePreset();
     const int savedThemeIdx = selectedThemeIndex_;
+    if (themeCombo_) {
+        themeCombo_->setCurrentIndex(savedThemeIdx);
+    }
     for (int i = 0; i < 8; ++i) {
         if (themeCards_[i]) {
             const ThemeColors c = CameraConfig::getThemeColors(i);
-            themeCards_[i]->setStyleSheet(QString(
-                "QFrame { background-color: %1; border: 2px solid %2; border-radius: 8px; }"
-            ).arg(c.bg, (i == savedThemeIdx ? c.primary : c.border)));
+            if (i == savedThemeIdx) {
+                themeCards_[i]->setStyleSheet(QString(
+                    "QPushButton { background-color: rgba(255, 255, 255, 0.06); border: 2px solid %1; border-radius: 10px; padding: 0px; }"
+                ).arg(c.primary));
+            } else {
+                themeCards_[i]->setStyleSheet(QString(
+                    "QPushButton { background-color: rgba(255, 255, 255, 0.02); border: 1px solid %1; border-radius: 10px; padding: 0px; }"
+                    "QPushButton:hover { border: 1.5px solid %2; background-color: rgba(255, 255, 255, 0.05); }"
+                ).arg(c.border, c.primary));
+            }
         }
     }
     const LiveViewCardStyle liveViewStyle = CameraConfig::getLiveViewCardStyle();
@@ -1625,10 +1644,10 @@ ConfigDialog::UiSettingsSnapshot ConfigDialog::captureCurrentSettings() const {
 void ConfigDialog::checkUiSettingsModified() {
     bool modified = (captureCurrentSettings() != originalValues_);
     if (uiUnsavedIndicator_) {
-        uiUnsavedIndicator_->setText(modified ? "Unsaved changes" : "");
+        uiUnsavedIndicator_->setText(modified ? "Unsaved changes - apply or save" : "");
     }
     if (uiApplyBtn_) {
-        uiApplyBtn_->setEnabled(modified);
+        uiApplyBtn_->setEnabled(isAdminMode_ && modified);
     }
 }
 
@@ -1684,33 +1703,52 @@ void ConfigDialog::relayoutCameraCards() {
 }
 
 void ConfigDialog::relayoutUiPreferencePanels() {
+    if (!isVisible()) {
+        return;
+    }
+
     const int availableWidth = uiPreferencesScrollArea_ && uiPreferencesScrollArea_->viewport()
         ? uiPreferencesScrollArea_->viewport()->width()
         : width();
-    const bool stackPreviewPanels = availableWidth < 1180;
+    if (availableWidth <= 0) {
+        return;
+    }
+    const bool stackLivePreview = availableWidth < 1040;
+    const bool stackAnalysisPreview = availableWidth < 1040;
     const int themeGridWidth = themeGridWidget_ ? themeGridWidget_->width() : availableWidth;
 
     if (liveViewContentLayout_) {
-        liveViewContentLayout_->setDirection(stackPreviewPanels ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
-        liveViewContentLayout_->setSpacing(stackPreviewPanels ? 12 : 14);
+        liveViewContentLayout_->setDirection(stackLivePreview ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        liveViewContentLayout_->setSpacing(stackLivePreview ? 12 : 16);
     }
 
     if (analysisViewContentLayout_) {
-        analysisViewContentLayout_->setDirection(stackPreviewPanels ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
-        analysisViewContentLayout_->setSpacing(stackPreviewPanels ? 12 : 14);
+        analysisViewContentLayout_->setDirection(stackAnalysisPreview ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        analysisViewContentLayout_->setSpacing(stackAnalysisPreview ? 12 : 16);
     }
 
-    const int previewMaxWidth = stackPreviewPanels ? QWIDGETSIZE_MAX : 320;
-    const QSizePolicy::Policy previewHorizontalPolicy = stackPreviewPanels ? QSizePolicy::Expanding : QSizePolicy::Preferred;
+    const int livePreviewMinWidth = stackLivePreview ? 0 : 360;
+    const int livePreviewMaxWidth = stackLivePreview ? QWIDGETSIZE_MAX : 390;
+    const int analysisPreviewMinWidth = stackAnalysisPreview ? 0 : 360;
+    const int analysisPreviewMaxWidth = stackAnalysisPreview ? QWIDGETSIZE_MAX : 390;
+    const QSizePolicy::Policy livePreviewHorizontalPolicy = stackLivePreview ? QSizePolicy::Expanding : QSizePolicy::Preferred;
+    const QSizePolicy::Policy analysisPreviewHorizontalPolicy = stackAnalysisPreview ? QSizePolicy::Expanding : QSizePolicy::Preferred;
 
     if (livePreviewContainer_) {
-        livePreviewContainer_->setMaximumWidth(previewMaxWidth);
-        livePreviewContainer_->setSizePolicy(previewHorizontalPolicy, QSizePolicy::Maximum);
+        livePreviewContainer_->setMinimumWidth(livePreviewMinWidth);
+        livePreviewContainer_->setMaximumWidth(livePreviewMaxWidth);
+        livePreviewContainer_->setSizePolicy(livePreviewHorizontalPolicy, QSizePolicy::Maximum);
+    }
+
+    if (liveViewCardPreviewFrame_) {
+        liveViewCardPreviewFrame_->setMinimumWidth(livePreviewMinWidth);
+        liveViewCardPreviewFrame_->setMaximumWidth(livePreviewMaxWidth);
     }
 
     if (analysisPreviewContainer_) {
-        analysisPreviewContainer_->setMaximumWidth(previewMaxWidth);
-        analysisPreviewContainer_->setSizePolicy(previewHorizontalPolicy, QSizePolicy::Maximum);
+        analysisPreviewContainer_->setMinimumWidth(analysisPreviewMinWidth);
+        analysisPreviewContainer_->setMaximumWidth(analysisPreviewMaxWidth);
+        analysisPreviewContainer_->setSizePolicy(analysisPreviewHorizontalPolicy, QSizePolicy::Maximum);
     }
 
     if (themeGridLayout_) {
@@ -1719,11 +1757,9 @@ void ConfigDialog::relayoutUiPreferencePanels() {
         }
 
         int columnCount = 4;
-        if (themeGridWidth < 380) {
-            columnCount = 1;
-        } else if (themeGridWidth < 560) {
+        if (themeGridWidth < 300) {
             columnCount = 2;
-        } else if (themeGridWidth < 760) {
+        } else if (themeGridWidth < 450) {
             columnCount = 3;
         }
 
@@ -1748,6 +1784,8 @@ void ConfigDialog::relayoutUiPreferencePanels() {
             themeGridLayout_->addWidget(card, row, column);
         }
     }
+
+    updateGeometry();
 }
 
 void ConfigDialog::connectCameraCardSignals(CameraCard* card) {
@@ -2200,7 +2238,25 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     for (int i = 0; i < 8; ++i) {
         if (themeCards_[i]) themeCards_[i]->setEnabled(isAdmin);
     }
-    if (uiApplyBtn_) uiApplyBtn_->setEnabled(isAdmin);
+    if (themeCombo_) themeCombo_->setEnabled(isAdmin);
+    if (liveViewBackgroundStyleCombo_) liveViewBackgroundStyleCombo_->setEnabled(isAdmin);
+    if (liveViewGridTitleFontCombo_) liveViewGridTitleFontCombo_->setEnabled(isAdmin);
+    if (liveViewGridTitleSizeSpin_) liveViewGridTitleSizeSpin_->setEnabled(isAdmin);
+    if (liveViewDetailTitleFontCombo_) liveViewDetailTitleFontCombo_->setEnabled(isAdmin);
+    if (liveViewDetailTitleSizeSpin_) liveViewDetailTitleSizeSpin_->setEnabled(isAdmin);
+    if (liveViewDetailSectionFontCombo_) liveViewDetailSectionFontCombo_->setEnabled(isAdmin);
+    if (liveViewDetailSectionSizeSpin_) liveViewDetailSectionSizeSpin_->setEnabled(isAdmin);
+    if (analysisVideoTitleFontCombo_) analysisVideoTitleFontCombo_->setEnabled(isAdmin);
+    if (analysisVideoTitleSizeSpin_) analysisVideoTitleSizeSpin_->setEnabled(isAdmin);
+    if (analysisTimestampFontCombo_) analysisTimestampFontCombo_->setEnabled(isAdmin);
+    if (analysisTimestampSizeSpin_) analysisTimestampSizeSpin_->setEnabled(isAdmin);
+    if (analysisTabFontCombo_) analysisTabFontCombo_->setEnabled(isAdmin);
+    if (analysisTabSizeSpin_) analysisTabSizeSpin_->setEnabled(isAdmin);
+    if (analysisPlaybackSurfaceCombo_) analysisPlaybackSurfaceCombo_->setEnabled(isAdmin);
+    if (liveViewResetBtn_) liveViewResetBtn_->setEnabled(isAdmin);
+    if (analysisResetBtn_) analysisResetBtn_->setEnabled(isAdmin);
+    if (uiSaveBtn_) uiSaveBtn_->setEnabled(isAdmin);
+    if (uiApplyBtn_) uiApplyBtn_->setEnabled(isAdmin && (captureCurrentSettings() != originalValues_));
     if (uiUnsavedIndicator_) uiUnsavedIndicator_->setVisible(isAdmin);
 
     // Per-camera: only the edit checkbox is admin-gated

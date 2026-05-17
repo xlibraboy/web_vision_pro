@@ -76,6 +76,8 @@ private:
     bool validateAndPrepareEventStorage(QString* normalizedPath, QString* errorMessage) const;
     void emitConfigUpdated(bool requiresCameraRestart);
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
     void checkUiSettingsModified();
     void clearUiSettingsModified();
 
@@ -138,6 +140,7 @@ private:
     QButtonGroup* themeButtonGroup_ = nullptr;
     QPushButton* themeCards_[8] = {};
     int selectedThemeIndex_ = 0;
+    QComboBox* themeCombo_ = nullptr;
     QWidget* themeGridWidget_ = nullptr;
     QGridLayout* themeGridLayout_ = nullptr;
     QComboBox* liveViewGridTitleFontCombo_ = nullptr;

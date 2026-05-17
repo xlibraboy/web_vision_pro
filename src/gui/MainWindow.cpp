@@ -13,8 +13,10 @@
 #include <QMessageBox>
 #include <QDesktopWidget>
 #include <QApplication>
+#include <QFont>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QToolTip>
 #include <QWindow>
 #include <QtConcurrent>
 #include <QMap>
@@ -921,6 +923,26 @@ void MainWindow::applyGlobalTheme() {
     const QString& sliderBg   = tc.sliderBg;
     const QString& handleColor = tc.handle;
     const QString& textColor  = tc.text;
+    const QColor tooltipBg("#FFF7BF");
+    const QColor tooltipText("#6A5B1F");
+    const QColor tooltipBorder("#D8C96B");
+    QFont tooltipFont = qApp->font();
+    tooltipFont.setPointSize(9);
+    tooltipFont.setBold(false);
+    tooltipFont.setWeight(QFont::Normal);
+    const QString tooltipFontFamily = tooltipFont.family();
+    const QString tooltipStyle = QString(
+        "QToolTip { "
+        "background-color: %1; "
+        "color: %2; "
+        "border: 1px solid %3; "
+        "padding: 6px 8px; "
+        "min-height: 18px; "
+        "font-family: \"%4\"; "
+        "font-size: 9pt; "
+        "font-weight: 400; "
+        "}"
+    ).arg(tooltipBg.name(), tooltipText.name(), tooltipBorder.name(), tooltipFontFamily);
 
 
     QString globalStyle = QString(
@@ -939,6 +961,8 @@ void MainWindow::applyGlobalTheme() {
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %1; }"
         "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        // Tooltips
+        "%9"
         // Tables / Grids
         "QTableWidget, QTableView { background-color: %1; alternate-background-color: %3; color: %8; gridline-color: %2; border: 1px solid %2; }"
         "QHeaderView::section { background-color: %3; color: %8; padding: 4px; border: 1px solid %2; }"
@@ -970,7 +994,19 @@ void MainWindow::applyGlobalTheme() {
         "QWidget#playbackPanel QPushButton:hover { background-color: %4; border-color: %5; }"
         "QWidget#playbackPanel QPushButton[active=\"true\"] { background-color: %5; color: %1; }"
         "QWidget#playbackPanel { border-top: 1px solid %2; }"
-    ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor);
+    ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor,
+          tooltipStyle);
+
+    QPalette appPalette = qApp->palette();
+    appPalette.setColor(QPalette::Active, QPalette::ToolTipBase, tooltipBg);
+    appPalette.setColor(QPalette::Inactive, QPalette::ToolTipBase, tooltipBg);
+    appPalette.setColor(QPalette::Disabled, QPalette::ToolTipBase, tooltipBg);
+    appPalette.setColor(QPalette::Active, QPalette::ToolTipText, tooltipText);
+    appPalette.setColor(QPalette::Inactive, QPalette::ToolTipText, tooltipText);
+    appPalette.setColor(QPalette::Disabled, QPalette::ToolTipText, tooltipText);
+    qApp->setPalette(appPalette);
+    QToolTip::setPalette(appPalette);
+    QToolTip::setFont(tooltipFont);
 
     qApp->setStyleSheet(globalStyle);
     
