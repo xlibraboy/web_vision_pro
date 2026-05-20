@@ -20,6 +20,7 @@
 #include <QShortcut>
 #include <QMenu>
 #include <QKeySequence>
+#include <QFrame>
 #include <QPainter>
 #include <QStyledItemDelegate>
 
@@ -44,22 +45,228 @@ public:
     }
 };
 
+static QString makeSidebarPanelStyle(const ThemeColors& tc) {
+    const QString divider = QColor(tc.border).lighter(112).name();
+    const QString subtleText = QColor(tc.text).lighter(110).name();
+    const QString mutedText = QColor(tc.text).lighter(135).name();
+    return QString(
+        "QWidget#analysisLeftSidebar { background: transparent; }"
+        "QGroupBox#analysisSidebarCard {"
+        "  background-color: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 10px;"
+        "  margin-top: 12px;"
+        "  padding-top: 12px;"
+        "  font-size: 13px;"
+        "  font-weight: 700;"
+        "  color: %3;"
+        "}"
+        "QGroupBox#analysisSidebarCard::title {"
+        "  subcontrol-origin: margin;"
+        "  subcontrol-position: top left;"
+        "  left: 12px;"
+        "  padding: 0 4px;"
+        "  color: %3;"
+        "}"
+        "QLabel#analysisSidebarSectionLabel {"
+        "  color: %4;"
+        "  font-size: 12px;"
+        "  font-weight: 700;"
+        "  padding: 0 2px;"
+        "}"
+        "QLabel#analysisSidebarSectionLabel[accent='true'] { color: %5; }"
+        "QLabel#analysisSidebarSectionLabel[utility='true'] { color: %6; font-size: 11px; font-weight: 600; padding: 0; }"
+        "QFrame#analysisSidebarDivider {"
+        "  background-color: %7;"
+        "  min-height: 1px;"
+        "  max-height: 1px;"
+        "  border: none;"
+        "}"
+    ).arg(tc.btnBg, tc.border, tc.text, subtleText, tc.primary, mutedText, divider);
+}
+
+static QString makeSidebarStateButtonStyle(const ThemeColors& tc, bool active) {
+    const QString bg = active ? QStringLiteral("#0F6B52") : tc.bg;
+    const QString border = active ? QStringLiteral("#18A57B") : tc.border;
+    const QString hover = active ? QStringLiteral("#138362") : tc.btnHover;
+    const QString text = active ? QStringLiteral("#F5FFFC") : tc.text;
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 7px 10px;"
+        "  font-size: 12px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %5; color: %6; }"
+    ).arg(bg, text, border, hover, tc.primary, tc.bg);
+}
+
+static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %1;"
+        "  border-radius: 6px;"
+        "  padding: 7px 10px;"
+        "  font-size: 12px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: %3; border-color: %3; }"
+        "QPushButton:pressed { background-color: %4; color: %5; }"
+    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border, tc.text);
+}
+
+static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checkedHighlight = false) {
+    const QString checkedBg = checkedHighlight ? QColor(tc.primary).darker(180).name() : tc.btnHover;
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 10px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %4; }"
+        "QPushButton:checked { background-color: %6; border-color: %5; color: %5; }"
+        "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover, tc.primary, checkedBg, tc.bg);
+}
+
+static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
+    const QString quietText = QColor(tc.text).lighter(120).name();
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 10px;"
+        "  font-weight: 600;"
+        "}"
+        "QPushButton:hover { background-color: %4; color: %5; border-color: %5; }"
+        "QPushButton:pressed { background-color: %4; }"
+        "QPushButton:checked { background-color: %1; color: %5; border-color: %5; }"
+    ).arg(tc.btnBg, quietText, tc.border, tc.bg, tc.primary);
+}
+
+static QString makeSidebarActionButtonStyle(const ThemeColors& tc) {
+    const QString disabledText = QColor(tc.text).lighter(135).name();
+    const QString disabledBorder = QColor(tc.primary).darker(150).name();
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 10px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %4; }"
+        "QPushButton:disabled { background-color: %1; color: %6; border-color: %7; }"
+    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.primary, disabledText, disabledBorder);
+}
+
+static QString makeSidebarDangerButtonStyle(const ThemeColors& tc) {
+    return QString(
+        "QPushButton {"
+        "  background-color: #982B2B;"
+        "  color: #FFF5F5;"
+        "  border: 1px solid #B93A3A;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 10px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: #B93A3A; border-color: #D94A4A; }"
+        "QPushButton:pressed { background-color: #7C2020; }"
+        "QPushButton:disabled { background-color: %1; color: %2; border-color: %2; }"
+    ).arg(tc.btnBg, tc.border);
+}
+
+static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = false) {
+    const QString bg = active ? QColor(tc.primary).darker(125).name() : tc.btnBg;
+    const QString border = active ? tc.primary : tc.border;
+    const QString text = active ? tc.bg : tc.text;
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 0;"
+        "}"
+        "QPushButton:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %5; color: %6; }"
+        "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
+    ).arg(bg, text, border, tc.btnHover, tc.primary, tc.bg, tc.bg);
+}
+
+static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
+    const QString quietText = QColor(tc.text).lighter(115).name();
+    return QString(
+        "QPushButton {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
+        "  border-radius: 6px;"
+        "  padding: 0 10px;"
+        "  font-size: 12px;"
+        "  font-weight: 700;"
+        "  text-align: left;"
+        "}"
+        "QPushButton:hover { background-color: %4; border-color: %5; color: %6; }"
+        "QPushButton:pressed { background-color: %5; color: %6; }"
+        "QPushButton:menu-indicator { subcontrol-origin: padding; subcontrol-position: center right; right: 8px; }"
+        "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
+    ).arg(tc.bg, quietText, tc.border, tc.btnBg, tc.primary, tc.text, tc.bg);
+}
+
+static QString makePlaybackSliderStyle(const ThemeColors& tc) {
+    return QString(
+        "QSlider::groove:horizontal { height: 4px; background: %1; border-radius: 2px; }"
+        "QSlider::sub-page:horizontal { background: %2; border-radius: 2px; }"
+        "QSlider::add-page:horizontal { background: %3; border-radius: 2px; }"
+        "QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; background: %4; border: 1px solid %2; border-radius: 6px; }"
+        "QSlider::handle:horizontal:hover { background: %5; border-color: %5; }"
+        "QSlider::handle:horizontal:pressed { background: %5; }"
+        "QSlider::groove:horizontal:disabled { background: %6; }"
+        "QSlider::sub-page:horizontal:disabled { background: %6; }"
+        "QSlider::add-page:horizontal:disabled { background: %1; }"
+        "QSlider::handle:horizontal:disabled { background: %1; border-color: %6; }"
+    ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, QColor(tc.handle).lighter(115).name(), tc.bg);
+}
+
 // Helper: build paperBreakTable stylesheet from theme colors
 static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
     QColor selectedBg(tc.btnHover);
+    QColor divider(tc.border);
+    divider = divider.lightness() < 128 ? divider.lighter(130) : divider.darker(115);
     selectedBg = selectedBg.lightness() < 128 ? selectedBg.lighter(125) : selectedBg.darker(115);
     QString selNormal  = QString("QTableWidget::item:selected { background-color: %1; color: white; }")
                          .arg(selectedBg.name());
     QString selDelete  = "QTableWidget::item:selected { background-color: #D32F2F; color: white; }";
     return QString(
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
-        "gridline-color: #2a2a2a; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; border: none; outline: none; }"
-        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 2px 4px; border: none; border-bottom: 1px solid #2a2a2a; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 600; }"
+        "gridline-color: transparent; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; "
+        "border: 1px solid %3; border-radius: 8px; outline: none; padding: 2px; }"
+        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 6px 8px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
         "{ background-color: %1; color: #E0E0E0; }"
-        "QTableWidget::item { padding: 0px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
-    ).arg(tc.bg, tc.btnBg)
+        "QTableCornerButton::section { background-color: %1; border: none; border-bottom: 1px solid %3; }"
+        "QTableWidget::item { padding: 4px 8px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
+    ).arg(tc.bg, tc.btnBg, divider.name())
      + (deleteMode ? selDelete : selNormal);
 }
 
@@ -101,24 +308,7 @@ void AnalysisView::setupUI() {
     auto mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(4, 4, 4, 4);
     mainLayout->setSpacing(4);
-    
-    // Top Controls Layout (for Delete Enable Toggle)
-    auto topControlsLayout = new QHBoxLayout();
-    topControlsLayout->setContentsMargins(0, 0, 0, 0);
-    
-    auto deleteLabel = new QLabel("Enable Event Deletion:", this);
-    enableDeleteCheck_ = new ToggleSwitch(this);
-    enableDeleteCheck_->setEnabled(false); // Locked by default
-    connect(enableDeleteCheck_, &ToggleSwitch::toggled, this, &AnalysisView::setDeleteEnabled);
-    
-    // Add stretch on left to push it to the right, or keep it left-aligned?
-    // User mockup shows it near the top left or right depending on tabs. Let's keep it left.
-    topControlsLayout->addWidget(deleteLabel);
-    topControlsLayout->addWidget(enableDeleteCheck_);
-    topControlsLayout->addStretch();
-    
-    mainLayout->addLayout(topControlsLayout);
-    
+     
     // Create main splitter (horizontal: left sidebar | main area)
     mainSplitter_ = new QSplitter(Qt::Horizontal, this);
     mainSplitter_->setHandleWidth(3);
@@ -135,7 +325,7 @@ void AnalysisView::setupUI() {
     mainSplitter_->addWidget(mainArea_);
     mainSplitter_->setStretchFactor(0, 0);  // Left sidebar fixed
     mainSplitter_->setStretchFactor(1, 1);  // Main area stretches
-    mainSplitter_->setSizes({220, 800});    // Initial sizes
+    mainSplitter_->setSizes({304, 800});    // Initial sizes
     
     mainLayout->addWidget(mainSplitter_, 1);
     
@@ -231,9 +421,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     onSliderMoved(0);
     
     // Stop playback initially
-    isPlaying_ = false;
-    playbackTimer_->stop();
-    playPauseButton_->setText("▶");
+    setPlaybackPlaying(false);
     
     updatePlaybackControlsState();
     updateSliderZeroMarker();  // Position the zero marker
@@ -244,43 +432,36 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
 
 void AnalysisView::setupLeftSidebar() {
     leftSidebar_ = new QWidget(this);
-    leftSidebar_->setFixedWidth(280); // Fixed width as requested
-    // leftSidebar_->setMaximumWidth(280); // Removed range
+    leftSidebar_->setObjectName("analysisLeftSidebar");
+    leftSidebar_->setFixedWidth(304);
     
     auto layout = new QVBoxLayout(leftSidebar_);
-    layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(8);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(12);
 
     // Server Controls Group
     auto controlsGroup = new QGroupBox("Control Panel", leftSidebar_);
-    controlsGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
-    auto controlsLayout = new QHBoxLayout(controlsGroup); // Changed to horizontal
-    controlsLayout->setSpacing(3);
-    controlsLayout->setContentsMargins(4, 6, 4, 4);
+    controlsGroup->setObjectName("analysisSidebarCard");
+    auto controlsLayout = new QHBoxLayout(controlsGroup);
+    controlsLayout->setSpacing(8);
+    controlsLayout->setContentsMargins(10, 12, 10, 10);
     
     ThemeColors tc = CameraConfig::getThemeColors();
+    leftSidebar_->setStyleSheet(makeSidebarPanelStyle(tc));
 
     // 1. Server Toggle (FIRST - left side)
-    serverButton_ = new QPushButton("Server: OFF", controlsGroup);
+    serverButton_ = new QPushButton("Server Offline", controlsGroup);
     serverButton_->setCheckable(true);
     serverButton_->setToolTip("Toggle Server Connection");
-    serverButton_->setStyleSheet(QString(
-        "QPushButton { padding: 4px; font-size: 10px; background: %1; color: %2; border-radius: 3px; }"
-        "QPushButton:hover { background: %3; }"
-        "QPushButton:pressed { background: %4; }"
-        "QPushButton:checked { background: #4CAF50; }"
-        "QPushButton:checked:hover { background: #66BB6A; }"
-    ).arg(tc.btnBg, tc.text, tc.btnHover, tc.border));
+    serverButton_->setMinimumHeight(34);
+    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(tc, false));
     connect(serverButton_, &QPushButton::clicked, this, &AnalysisView::onServerButtonClicked);
     
     // 2. Admin Login (SECOND - right side)
     adminButton_ = new QPushButton("Login", controlsGroup);
     adminButton_->setToolTip("Admin Login");
-    adminButton_->setStyleSheet(QString(
-        "QPushButton { padding: 4px; font-size: 10px; background: %1; color: %2; border-radius: 3px; }"
-        "QPushButton:hover { background: %3; }"
-        "QPushButton:pressed { background: %4; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border));
+    adminButton_->setMinimumHeight(34);
+    adminButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
     connect(adminButton_, &QPushButton::clicked, this, &AnalysisView::onAdminButtonClicked);
     
     // Server Button Context Menu (for settings)
@@ -300,31 +481,30 @@ void AnalysisView::setupLeftSidebar() {
     // Add buttons in order: Server, Login
     controlsLayout->addWidget(serverButton_);
     controlsLayout->addWidget(adminButton_);
+    controlsLayout->setStretch(0, 1);
+    controlsLayout->setStretch(1, 1);
 
     layout->addWidget(controlsGroup);
     
     // Paper Break Log Group
     auto logGroup = new QGroupBox("Paper Break Log", leftSidebar_);
-    logGroup->setStyleSheet("QGroupBox { font-weight: bold; font-size: 11px; padding-top: 10px; }");
+    logGroup->setObjectName("analysisSidebarCard");
     auto logLayout = new QVBoxLayout(logGroup);
-    logLayout->setContentsMargins(4, 6, 4, 4);
-    logLayout->setSpacing(3);
+    logLayout->setContentsMargins(10, 12, 10, 10);
+    logLayout->setSpacing(8);
     
     paperBreakTable_ = createLogTable(logGroup, false);
     permanentPaperBreakTable_ = createLogTable(logGroup, false);
 
     auto normalLabel = new QLabel("Recent Records", logGroup);
-    normalLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.text));
+    normalLabel->setObjectName("analysisSidebarSectionLabel");
     logLayout->addWidget(normalLabel);
     logLayout->addWidget(paperBreakTable_);
 
     togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
     togglePermanentTableButton_->setCheckable(true);
-    togglePermanentTableButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 4px; font-weight: 600; font-size: 10px; }"
-        "QPushButton:hover { background-color: %4; }"
-        "QPushButton:checked { background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
+    togglePermanentTableButton_->setMinimumHeight(34);
+    togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     connect(togglePermanentTableButton_, &QPushButton::toggled, this, [this](bool checked) {
         permanentSectionWidget_->setVisible(checked);
         togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
@@ -337,40 +517,61 @@ void AnalysisView::setupLeftSidebar() {
     permanentSectionWidget_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto permanentLayout = new QVBoxLayout(permanentSectionWidget_);
     permanentLayout->setContentsMargins(0, 0, 0, 0);
-    permanentLayout->setSpacing(1);
+    permanentLayout->setSpacing(8);
     auto permanentLabel = new QLabel("Permanent Storage", permanentSectionWidget_);
-    permanentLabel->setStyleSheet(QString("color: %1; font-weight: 600;").arg(tc.primary));
+    permanentLabel->setObjectName("analysisSidebarSectionLabel");
+    permanentLabel->setProperty("accent", true);
     permanentLayout->addWidget(permanentLabel);
     permanentLayout->addWidget(permanentPaperBreakTable_, 1);
     permanentSectionWidget_->setVisible(false);
     logLayout->addWidget(permanentSectionWidget_);
+
+    auto deleteDivider = new QFrame(logGroup);
+    deleteDivider->setObjectName("analysisSidebarDivider");
+    deleteDivider->setFrameShape(QFrame::HLine);
+    deleteDivider->setFrameShadow(QFrame::Plain);
+    logLayout->addWidget(deleteDivider);
+
+    auto deleteModeRow = new QHBoxLayout();
+    deleteModeRow->setContentsMargins(0, 8, 0, 0);
+    deleteModeRow->setSpacing(8);
+
+    auto deleteLabel = new QLabel("Enable Event Deletion", logGroup);
+    deleteLabel->setObjectName("analysisSidebarSectionLabel");
+    deleteLabel->setProperty("utility", true);
+    deleteModeRow->addWidget(deleteLabel);
+    deleteModeRow->addStretch();
+
+    enableDeleteCheck_ = new ToggleSwitch(logGroup);
+    enableDeleteCheck_->setEnabled(false);
+    connect(enableDeleteCheck_, &ToggleSwitch::toggled, this, &AnalysisView::setDeleteEnabled);
+    deleteModeRow->addWidget(enableDeleteCheck_, 0, Qt::AlignVCenter);
+    logLayout->addLayout(deleteModeRow);
     
     // Delete Button (Initially Disabled/Hidden)
     auto buttonRow = new QHBoxLayout();
+    buttonRow->setContentsMargins(0, 2, 0, 0);
+    buttonRow->setSpacing(6);
 
     permanentButton_ = new QPushButton("Mark Permanent", logGroup);
-    permanentButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 4px; border-radius: 4px; border: 1px solid %3; font-size: 10px; }"
-        "QPushButton:hover { background-color: %4; }"
-        "QPushButton:pressed { background-color: %1; }"
-        "QPushButton:disabled { background-color: %5; color: %3; }"
-    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.bg));
+    permanentButton_->setMinimumHeight(34);
+    permanentButton_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    permanentButton_->setStyleSheet(makeSidebarActionButtonStyle(tc));
     permanentButton_->setEnabled(false);
     connect(permanentButton_, &QPushButton::clicked, this, &AnalysisView::onTogglePermanentClicked);
     buttonRow->addWidget(permanentButton_);
 
     deleteButton_ = new QPushButton("Delete Selected", logGroup);
-    deleteButton_->setStyleSheet(QString(
-        "QPushButton { background-color: #D32F2F; color: white; font-weight: bold; padding: 4px; border-radius: 4px; font-size: 10px; }"
-        "QPushButton:hover { background-color: #E53935; }"
-        "QPushButton:pressed { background-color: #C62828; }"
-        "QPushButton:disabled { background-color: %1; color: %2; }"
-    ).arg(tc.btnBg, tc.border));
+    deleteButton_->setMinimumHeight(34);
+    deleteButton_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    deleteButton_->setStyleSheet(makeSidebarDangerButtonStyle(tc));
     deleteButton_->setEnabled(false); // Only admin
     deleteButton_->setVisible(false); // Hide until admin mode
     connect(deleteButton_, &QPushButton::clicked, this, &AnalysisView::onDeleteClicked);
 
     buttonRow->addWidget(deleteButton_);
+    buttonRow->setStretch(0, 1);
+    buttonRow->setStretch(1, 1);
     logLayout->addLayout(buttonRow);
     
     paperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -424,15 +625,6 @@ void AnalysisView::setupMainArea() {
     // Add playback panel here (camera area)
     layout->addWidget(playbackPanel_);
 
-    // Connect slider signals
-    // sliderMoved is for dragging (continuous update)
-    connect(playbackSlider_, &QSlider::sliderMoved, this, &AnalysisView::onSliderMoved);
-    // valueChanged is for clicking (jump) and programmed updates
-    connect(playbackSlider_, &QSlider::valueChanged, this, &AnalysisView::onSliderValueChanged);
-    
-    // Note: onSliderMoved and onSliderValueChanged need to coordinate to avoid double-updates 
-    // or loops during playback.
-
     connect(tabWidget_, &QTabWidget::currentChanged, this, &AnalysisView::onTabChanged);
 }
 
@@ -458,12 +650,27 @@ void AnalysisView::applyAnalysisViewStyle() {
     ).arg(playbackSurface, tc.border));
 
     frameInput_->setStyleSheet(QString(
-        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 0px; font-family: '%4'; font-size: %5px;}"
-    ).arg(tc.bg, tc.text, tc.border, style.timestampFontFamily, QString::number(style.timestampFontSize)));
+        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 0 4px; font-family: '%4'; font-size: %5px; font-weight: 700;}"
+        "QLineEdit:focus { border-color: %6; }"
+    ).arg(tc.bg, tc.text, tc.border, style.timestampFontFamily, QString::number(std::max(12, style.timestampFontSize)), tc.primary));
+
+    playbackSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
+    speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
+    playPauseButton_->setStyleSheet(makePlaybackIconButtonStyle(tc, isPlaying_));
+    beginButton_->setStyleSheet(makePlaybackIconButtonStyle(tc));
+    prevButton_->setStyleSheet(makePlaybackIconButtonStyle(tc));
+    resetButton_->setStyleSheet(makePlaybackIconButtonStyle(tc));
+    nextButton_->setStyleSheet(makePlaybackIconButtonStyle(tc));
+    endButton_->setStyleSheet(makePlaybackIconButtonStyle(tc));
+    speedMenu_->setStyleSheet(QString(
+        "QMenu { background-color: %1; color: %2; border: 1px solid %3; }"
+        "QMenu::item { padding: 5px 20px; }"
+        "QMenu::item:selected { background-color: %4; color: %5; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover, tc.primary));
 
     if (QLabel* frameLabel = playbackPanel_->findChild<QLabel*>("frameLabel")) {
         frameLabel->setStyleSheet(QString(
-            "color: %1; font-family: '%2'; font-size: %3px; margin-right: 2px;"
+            "color: %1; font-family: '%2'; font-size: %3px; margin-right: 4px; font-weight: 600;"
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
 
@@ -556,7 +763,7 @@ void AnalysisView::setCameraCount(int count) {
 void AnalysisView::setupPlaybackControls() {
     playbackPanel_ = new QWidget(this);
     playbackPanel_->setObjectName("playbackPanel"); // For CSS specificity
-    playbackPanel_->setFixedHeight(55); 
+    playbackPanel_->setFixedHeight(60); 
     playbackPanel_->setAutoFillBackground(true); // Force paint
     // Use background-color and ensure contrast. 
     ThemeColors tc = CameraConfig::getThemeColors();
@@ -565,44 +772,39 @@ void AnalysisView::setupPlaybackControls() {
         .arg(tc.bg, tc.border));
     
     auto layout = new QVBoxLayout(playbackPanel_);
-    layout->setContentsMargins(16, 4, 16, 4);
-    layout->setSpacing(2);
+    layout->setContentsMargins(12, 6, 12, 6);
+    layout->setSpacing(0);
     
     // Playback slider (System Standard)
     // === PLAYBACK CONTROL TOOLBAR (Single Line + SVGs) ===
     auto toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setSpacing(8);
-    toolbarLayout->setContentsMargins(0, 8, 0, 4); 
-    
-    // Style for SVG buttons: Transparent background, no borders, icon scales
-    QString svgButtonStyle = QString(
-        "QPushButton { "
-        "   background: transparent; "
-        "   border: 1px solid %1; "
-        "   border-radius: 4px; "
-        "}"
-        "QPushButton:hover { "
-        "   background-color: %2; "
-        "}").arg(tc.border, tc.btnHover);
+    toolbarLayout->setSpacing(6);
+    toolbarLayout->setContentsMargins(0, 0, 0, 0); 
+
+    auto createDivider = [&]() -> QFrame* {
+        QFrame* divider = new QFrame(playbackPanel_);
+        divider->setFrameShape(QFrame::VLine);
+        divider->setFrameShadow(QFrame::Plain);
+        divider->setFixedSize(1, 20);
+        divider->setStyleSheet(QString("background-color: %1; border: none;").arg(tc.border));
+        return divider;
+    };
 
     // Helper macro for creating SVG buttons
     auto createSvgButton = [&](const QString& iconName, const QString& tooltip) -> QPushButton* {
         QPushButton* btn = new QPushButton(playbackPanel_);
         btn->setIcon(QIcon(":/assets/icons/" + iconName));
-        btn->setIconSize(QSize(24, 24));
-        btn->setFixedSize(32, 32);
+        btn->setIconSize(QSize(18, 18));
+        btn->setFixedSize(30, 30);
         btn->setToolTip(tooltip);
-        btn->setStyleSheet(svgButtonStyle);
+        btn->setStyleSheet(makePlaybackIconButtonStyle(tc));
         return btn;
     };
 
     // 1. Speed
     speedButton_ = new QPushButton("1.0x", playbackPanel_);
-    speedButton_->setFixedSize(56, 32);
-    speedButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; font-weight: bold; } "
-        "QPushButton:hover { background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
+    speedButton_->setFixedSize(64, 30);
+    speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
     speedMenu_ = new QMenu(speedButton_);
     speedMenu_->addAction("Very Slow (0.25x)")->setData(0.25);
     speedMenu_->addAction("Slow (0.5x)")->setData(0.5);
@@ -617,6 +819,9 @@ void AnalysisView::setupPlaybackControls() {
     playPauseButton_ = createSvgButton("Play.svg", "Play/Pause");
     connect(playPauseButton_, &QPushButton::clicked, this, &AnalysisView::onPlayPauseClicked);
     toolbarLayout->addWidget(playPauseButton_);
+    toolbarLayout->addSpacing(6);
+    toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
+    toolbarLayout->addSpacing(6);
 
     // 3. Go to Start
     beginButton_ = createSvgButton("Go to Start.svg", "Go to Start");
@@ -634,21 +839,27 @@ void AnalysisView::setupPlaybackControls() {
     resetButton_ = createSvgButton("Jump to Trigger.svg", "Jump to Trigger");
     connect(resetButton_, &QPushButton::clicked, this, &AnalysisView::onResetClicked);
     toolbarLayout->addWidget(resetButton_);
+    toolbarLayout->addSpacing(6);
+    toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
 
     // 6. Frame Input
     toolbarLayout->addSpacing(8);
     QLabel* frameLabel = new QLabel("Frame:", playbackPanel_);
+    frameLabel->setObjectName("frameLabel");
     frameLabel->setStyleSheet(QString("color: %1; font-size: 13px; margin-right: 2px;").arg(tc.text));
     toolbarLayout->addWidget(frameLabel);
     
     frameInput_ = new QLineEdit("0.0", playbackPanel_);
-    frameInput_->setFixedSize(50, 24);
+    frameInput_->setFixedSize(54, 24);
     frameInput_->setAlignment(Qt::AlignCenter);
     frameInput_->setStyleSheet(QString(
-        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 0px;}"
-    ).arg(tc.bg, tc.text, tc.border));
+        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 0 4px; font-size: 12px; font-weight: 700;}"
+        "QLineEdit:focus { border-color: %4; }"
+    ).arg(tc.bg, tc.text, tc.border, tc.primary));
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
     toolbarLayout->addWidget(frameInput_);
+    toolbarLayout->addSpacing(6);
+    toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
 
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
@@ -663,18 +874,19 @@ void AnalysisView::setupPlaybackControls() {
     toolbarLayout->addWidget(endButton_);
     
     // 9. Slider in the middle/end
-    toolbarLayout->addSpacing(16);
+    toolbarLayout->addSpacing(14);
     playbackSlider_ = new QSlider(Qt::Horizontal, playbackPanel_);
     playbackSlider_->setRange(0, 10000); // Deciseconds essentially (1000.0)
     connect(playbackSlider_, &QSlider::sliderMoved, this, &AnalysisView::onSliderMoved);
     connect(playbackSlider_, &QSlider::valueChanged, this, &AnalysisView::onSliderValueChanged);
+    playbackSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
     toolbarLayout->addWidget(playbackSlider_, 1); // Stretch factor 1
     
     // Zero Marker (We still track it, but attach it to layout properly later or manually position)
     sliderZeroMarker_ = new QLabel(playbackPanel_);
     QPixmap pm(":/assets/icons/Zero Marker.svg");
-    sliderZeroMarker_->setPixmap(pm.scaled(12, 12, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    sliderZeroMarker_->setFixedSize(12, 12);
+    sliderZeroMarker_->setPixmap(pm.scaled(10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    sliderZeroMarker_->setFixedSize(10, 10);
     sliderZeroMarker_->raise();
     sliderZeroMarker_->show();
     
@@ -684,7 +896,8 @@ void AnalysisView::setupPlaybackControls() {
 // Slot implementations
 void AnalysisView::onServerButtonClicked() {
     serverRunning_ = serverButton_->isChecked();
-    serverButton_->setText(serverRunning_ ? "Stop Server" : "Start Server");
+    serverButton_->setText(serverRunning_ ? "Server Online" : "Server Offline");
+    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(CameraConfig::getThemeColors(), serverRunning_));
     emit serverToggled(serverRunning_);
 }
 
@@ -1083,89 +1296,90 @@ QString AnalysisView::getMetadataTooltip(int frameIndex, double relativeFrame) {
 }
 
 void AnalysisView::onSliderValueChanged(int value) {
-    if (!isPlaying_ && abs(playbackSlider_->sliderPosition() - value) > 1) {
-        // If not playing and jump was significant (user clicked), force update
+    if (!isPlaying_ && !playbackSlider_->isSliderDown()) {
         onSliderMoved(value);
     }
 }
 
-void AnalysisView::onPlayPauseClicked() {
-    isPlaying_ = !isPlaying_;
-    
-    // Toggle SVG Icon (assume Play-Pause.svg handles state visually, or we toggle if we had separate SVGs, but we only have Play-Pause.svg)
-    // Actually, "Play-Pause.svg" is a static icon. If we want it to look "active", we'll just keep the icon but change the background style slightly if needed, or rely on hover states.
-    // The requirement is to use "Play-Pause.svg". So we just toggle the timer state without changing text.
-    
-    if (isPlaying_) {
-        playPauseButton_->setIcon(QIcon(":/assets/icons/Pause.svg"));
-        
-        int interval = static_cast<int>(33.0 / playbackSpeed_);  // 33ms = ~30fps
-        playbackTimer_->start(interval);
-    } else {
-        playPauseButton_->setIcon(QIcon(":/assets/icons/Play.svg"));
-        
-        playbackTimer_->stop();
+void AnalysisView::setPlaybackPlaying(bool playing) {
+    isPlaying_ = playing;
+
+    if (playPauseButton_) {
+        playPauseButton_->setIcon(QIcon(playing ? ":/assets/icons/Pause.svg" : ":/assets/icons/Play.svg"));
+        playPauseButton_->setStyleSheet(makePlaybackIconButtonStyle(CameraConfig::getThemeColors(), playing));
     }
+
+    if (playbackTimer_) {
+        if (playing) {
+            const int interval = std::max(1, static_cast<int>(33.0 / playbackSpeed_));
+            playbackTimer_->start(interval);
+        } else {
+            playbackTimer_->stop();
+        }
+    }
+
+    updatePlaybackControlsState();
+}
+
+void AnalysisView::seekToRelativeFrame(double relativeFrame) {
+    if (!playbackSlider_) {
+        return;
+    }
+
+    currentFrame_ = qBound(0.0, relativeFrame + triggerFrameIndex_, totalFrames_);
+    const double boundedRelative = currentFrame_ - triggerFrameIndex_;
+    const int sliderValue = static_cast<int>(std::round(boundedRelative * 10.0));
+
+    const bool sliderBlocked = playbackSlider_->blockSignals(true);
+    playbackSlider_->setValue(sliderValue);
+    playbackSlider_->blockSignals(sliderBlocked);
+
+    frameInput_->setText(QString::number(boundedRelative, 'f', 1));
+    onSliderMoved(sliderValue);
+    updatePlaybackControlsState();
+}
+
+void AnalysisView::onPlayPauseClicked() {
+    if (!playbackSlider_->isEnabled()) {
+        return;
+    }
+
+    if (!isPlaying_ && currentFrame_ >= totalFrames_) {
+        seekToRelativeFrame(-triggerFrameIndex_);
+    }
+
+    setPlaybackPlaying(!isPlaying_);
 }
 
 void AnalysisView::onBeginClicked() {
-    currentFrame_ = 0; // Go to absolute start
-    double relativeFrame = currentFrame_ - triggerFrameIndex_;
-    playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
-    onSliderMoved(static_cast<int>(relativeFrame * 10)); // Force update
+    seekToRelativeFrame(-triggerFrameIndex_);
 }
 
 void AnalysisView::onPreviousPressed() {
-    currentFrame_ = qMax(0.0, currentFrame_ - playbackSpeed_); // Step by playback speed
-    double relativeFrame = currentFrame_ - triggerFrameIndex_;
-    playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
-    onSliderMoved(static_cast<int>(relativeFrame * 10));
+    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) - 1.0);
 }
 
 void AnalysisView::onPreviousReleased() {}
 
 void AnalysisView::onResetClicked() {
-    // Reset to Trigger Point (0 relative)
-    currentFrame_ = triggerFrameIndex_;
-    playbackSlider_->setValue(0);
-    frameInput_->setText("0.0");
-    onSliderMoved(0);
+    seekToRelativeFrame(0.0);
 }
 
 void AnalysisView::onNextPressed() {
-    currentFrame_ = qMin(static_cast<double>(totalFrames_), currentFrame_ + playbackSpeed_); // Step by playback speed
-    double relativeFrame = currentFrame_ - triggerFrameIndex_;
-    playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
-    onSliderMoved(static_cast<int>(relativeFrame * 10));
+    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) + 1.0);
 }
 
 void AnalysisView::onNextReleased() {}
 
 void AnalysisView::onEndClicked() {
-    currentFrame_ = totalFrames_;
-    double relativeFrame = currentFrame_ - triggerFrameIndex_;
-    playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
-    onSliderMoved(static_cast<int>(relativeFrame * 10));
+    seekToRelativeFrame(totalFrames_ - triggerFrameIndex_);
 }
 
 void AnalysisView::onFrameInputChanged() {
     bool ok;
     double relativeValue = frameInput_->text().toDouble(&ok);
     if (ok) {
-        // Convert relative value to absolute frame
-        double absoluteFrame = relativeValue + triggerFrameIndex_;
-        currentFrame_ = qBound(0.0, absoluteFrame, totalFrames_);
-        
-        // Update slider with relative value (re-calculated from bound absolute)
-        double boundRelative = currentFrame_ - triggerFrameIndex_;
-        playbackSlider_->setValue(static_cast<int>(boundRelative * 10));
-        
-        // Force update view
-        onSliderMoved(static_cast<int>(boundRelative * 10));
+        seekToRelativeFrame(relativeValue);
     }
 }
 
@@ -1180,8 +1394,7 @@ void AnalysisView::onSpeedChanged(QAction* action) {
     
     // Update timer interval if playing
     if (isPlaying_) {
-        int interval = static_cast<int>(33.0 / playbackSpeed_);
-        playbackTimer_->start(interval);
+        setPlaybackPlaying(true);
     }
 }
 
@@ -1198,7 +1411,7 @@ void AnalysisView::startReview(const QString& path, int triggerIndex) {
         // Reset UI
         isReviewMode_ = true;
         isStreamingMode_ = false; 
-        isPlaying_ = false;
+        setPlaybackPlaying(false);
         
         // Update Video Slider bounds
         totalFrames_ = recordedSequence_.size() - 1;
@@ -1343,9 +1556,7 @@ void AnalysisView::onTiffLoadingFinished() {
     frameInput_->setText("0.0");
     
     // DON'T auto-play - start in paused state
-    isPlaying_ = false;
-    playPauseButton_->setText("▶");
-    playbackTimer_->stop();
+    setPlaybackPlaying(false);
     
     // Enable controls now that we have data
     updatePlaybackControlsState();
@@ -1358,15 +1569,18 @@ void AnalysisView::onTiffLoadingFinished() {
 
 void AnalysisView::updatePlaybackControlsState() {
     bool hasData = !recordedSequence_.empty() || isStreamingMode_;
+    const bool canPlay = hasData && totalFrames_ > 0;
+    const bool atStart = !hasData || currentFrame_ <= 0.0;
+    const bool atEnd = !hasData || currentFrame_ >= totalFrames_;
     
     // Enable/disable all playback controls
     playbackSlider_->setEnabled(hasData);
-    playPauseButton_->setEnabled(hasData);
-    beginButton_->setEnabled(hasData);
-    prevButton_->setEnabled(hasData);
+    playPauseButton_->setEnabled(canPlay);
+    beginButton_->setEnabled(hasData && !atStart);
+    prevButton_->setEnabled(hasData && !atStart);
     resetButton_->setEnabled(hasData);
-    nextButton_->setEnabled(hasData);
-    endButton_->setEnabled(hasData);
+    nextButton_->setEnabled(hasData && !atEnd);
+    endButton_->setEnabled(hasData && !atEnd);
     frameInput_->setEnabled(hasData);
     speedButton_->setEnabled(hasData);
     
@@ -1387,12 +1601,9 @@ void AnalysisView::updatePlaybackControlsState() {
 void AnalysisView::setLiveMode() {
     isReviewMode_ = false;
     isRecording_ = false;
-    isPlaying_ = false;
-    playbackTimer_->stop();
+    setPlaybackPlaying(false);
     recordedSequence_.clear();
-    
-    playPauseButton_->setText("Play");
-    
+
     // Disable controls and clear camera displays
     updatePlaybackControlsState();
     
@@ -1427,17 +1638,17 @@ void AnalysisView::updateSliderZeroMarker() {
     
     // Calculate pixel position of value=0
     // Account for slider margins and handle width
-    int handleWidth = 12;  // From stylesheet
+    int handleWidth = 12;  // From playback slider stylesheet
     int usableWidth = sliderRect.width() - handleWidth;
     int zeroValue = 0;  // The trigger frame is always at value 0
     
     // Map value to pixel position
     float ratio = static_cast<float>(zeroValue - sliderMin) / (sliderMax - sliderMin);
     int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
-    int yPos = sliderRect.y() - 12;  // Position further above the slider to avoid overlap
+    int yPos = sliderRect.y() - 11;  // Keep the marker clear of the slider handle
     
     // Position and show the marker
-    sliderZeroMarker_->move(xPos - 6, yPos);  // Center the 12px wide marker
+    sliderZeroMarker_->move(xPos - 5, yPos);  // Center the 10px wide marker
     sliderZeroMarker_->show();
 }
 
@@ -1467,24 +1678,24 @@ void AnalysisView::onPlaybackTick() {
     // Stop at end instead of looping
     if (currentFrame_ >= totalFrames_) {
         currentFrame_ = totalFrames_;
-        onPlayPauseClicked(); // Stop playback
-        
-        // Ensure final frame is shown correctly
-        onSliderMoved(playbackSlider_->value());
+        seekToRelativeFrame(currentFrame_ - triggerFrameIndex_);
+        setPlaybackPlaying(false);
         return;
     }
     
     // Update UI (Slider value is relative)
     double relativeFrame = currentFrame_ - triggerFrameIndex_;
     
-    playbackSlider_->setValue(static_cast<int>(relativeFrame * 10));
+    const bool sliderBlocked = playbackSlider_->blockSignals(true);
+    playbackSlider_->setValue(static_cast<int>(std::round(relativeFrame * 10.0)));
+    playbackSlider_->blockSignals(sliderBlocked);
     
     // Force view update:
     // In Review Mode, the valueChanged signal triggers onSliderValueChanged,
     // but onSliderValueChanged deliberately ignores updates while playing to prevent
     // slider drag interference. So we must explicitly call onSliderMoved here
     // to fetch and display the new frames.
-    onSliderMoved(static_cast<int>(relativeFrame * 10));
+    onSliderMoved(static_cast<int>(std::round(relativeFrame * 10.0)));
 }
 
 void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {
@@ -1672,7 +1883,6 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
     paperBreakTable_->clearSelection();
     permanentPaperBreakTable_->clearSelection();
     
-    ThemeColors tc = CameraConfig::getThemeColors();
     if (enabled) {
         // DELETE MODE: RED Selection, Multi-Select (Click to toggle)
         configureLogTable(paperBreakTable_, true);
@@ -1688,57 +1898,20 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
 
 void AnalysisView::updateTheme() {
     ThemeColors tc = CameraConfig::getThemeColors();
+    leftSidebar_->setStyleSheet(makeSidebarPanelStyle(tc));
     
     // 1. Sidebar Buttons
-    serverButton_->setStyleSheet(QString(
-        "QPushButton { padding: 4px; font-size: 10px; background: %1; color: %2; border-radius: 3px; }"
-        "QPushButton:hover { background: %3; }"
-        "QPushButton:pressed { background: %4; }"
-        "QPushButton:checked { background: #4CAF50; }"
-        "QPushButton:checked:hover { background: #66BB6A; }"
-    ).arg(tc.btnBg, tc.text, tc.btnHover, tc.border));
+    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(tc, serverRunning_));
     
-    adminButton_->setStyleSheet(QString(
-        "QPushButton { padding: 4px; font-size: 10px; background: %1; color: %2; border-radius: 3px; }"
-        "QPushButton:hover { background: %3; }"
-        "QPushButton:pressed { background: %4; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border));
+    adminButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
     
-    deleteButton_->setStyleSheet(QString(
-        "QPushButton { background-color: #D32F2F; color: white; font-weight: bold; padding: 6px; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #E53935; }"
-        "QPushButton:pressed { background-color: #C62828; }"
-        "QPushButton:disabled { background-color: %1; color: %2; }"
-    ).arg(tc.btnBg, tc.border));
+    deleteButton_->setStyleSheet(makeSidebarDangerButtonStyle(tc));
 
-    permanentButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; font-weight: bold; padding: 6px; border-radius: 4px; border: 1px solid %3; }"
-        "QPushButton:hover { background-color: %4; }"
-        "QPushButton:pressed { background-color: %1; }"
-        "QPushButton:disabled { background-color: %5; color: %3; }"
-    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.bg));
+    permanentButton_->setStyleSheet(makeSidebarActionButtonStyle(tc));
     
     // 2. Playback and tab surface/typography
     // First, ensure the current disabled/enabled state uses the new colors
     updatePlaybackControlsState();
-    
-    // 4. SVG Button generic styles
-    QString svgButtonStyle = QString(
-        "QPushButton { background: transparent; border: none; }"
-        "QPushButton:hover { background-color: %1; border-radius: 4px; }"
-    ).arg(tc.btnHover);
-    playPauseButton_->setStyleSheet(svgButtonStyle);
-    beginButton_->setStyleSheet(svgButtonStyle);
-    prevButton_->setStyleSheet(svgButtonStyle);
-    resetButton_->setStyleSheet(svgButtonStyle);
-    nextButton_->setStyleSheet(svgButtonStyle);
-    endButton_->setStyleSheet(svgButtonStyle);
-    
-    // 5. Speed Button & Frame Input
-    speedButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; font-weight: bold; } "
-        "QPushButton:hover { background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
     
     applyAnalysisViewStyle();
     
@@ -1747,11 +1920,7 @@ void AnalysisView::updateTheme() {
         updateDynamicTab(selectedCameraId_);
     }
     
-    togglePermanentTableButton_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px; font-weight: 600; }"
-        "QPushButton:hover { background-color: %4; }"
-        "QPushButton:checked { background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover));
+    togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
 
     setDeleteEnabled(deleteButton_->isVisible());
 }
@@ -1911,18 +2080,22 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setHighlightSections(false);
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    table->setColumnWidth(0, 160);
+    table->setColumnWidth(0, 154);
     table->horizontalHeader()->setStretchLastSection(true);
-    table->setShowGrid(true);
+    table->setShowGrid(false);
+    table->setFrameShape(QFrame::NoFrame);
     table->setSortingEnabled(false);
     table->horizontalHeader()->setSortIndicatorShown(true);
     table->horizontalHeader()->setSectionsClickable(true);
     table->verticalHeader()->setVisible(false);
-    table->verticalHeader()->setDefaultSectionSize(18);
+    table->verticalHeader()->setDefaultSectionSize(24);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(deleteMode ? QAbstractItemView::MultiSelection : QAbstractItemView::SingleSelection);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setAlternatingRowColors(true);
+    table->setFocusPolicy(Qt::NoFocus);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     table->setStyleSheet(makeTableStyle(CameraConfig::getThemeColors(), deleteMode));
 }
 

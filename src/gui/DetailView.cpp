@@ -15,9 +15,17 @@ DetailView::~DetailView() {}
 
 void DetailView::setupUi() {
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(8);
 
     // --- Left Panel: Info + Parameters (Vertical Stack) ---
-    QVBoxLayout* leftPanelLayout = new QVBoxLayout();
+    QWidget* leftPanel = new QWidget(this);
+    leftPanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    leftPanel->setMinimumWidth(360);
+    leftPanel->setMaximumWidth(480);
+    QVBoxLayout* leftPanelLayout = new QVBoxLayout(leftPanel);
+    leftPanelLayout->setContentsMargins(0, 0, 0, 0);
+    leftPanelLayout->setSpacing(8);
 
     // Camera Info Group
     infoGroup_ = new QGroupBox("Camera Information", this);
@@ -174,7 +182,7 @@ void DetailView::setupUi() {
     centerLayout->addWidget(cameraWidget_);
 
     // Layout Assembly: 25% Left Panel, 75% Video
-    mainLayout->addLayout(leftPanelLayout, 1);
+    mainLayout->addWidget(leftPanel, 0);
     mainLayout->addLayout(centerLayout, 3); 
 
     applyLiveViewTypography();

@@ -122,6 +122,8 @@ private:
     void updateDynamicTab(int cameraId);
     void updatePlaybackControlsState(); // Enable/disable controls based on data availability
     void updateSliderZeroMarker();  // Position the zero marker on the slider
+    void setPlaybackPlaying(bool playing);
+    void seekToRelativeFrame(double relativeFrame);
     
     // Main layout
     
