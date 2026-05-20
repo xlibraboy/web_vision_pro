@@ -9,5 +9,15 @@
       "vision-pipeline-opencv": "allow",
       "template": "allow"
     }
+  },
+  "mcp": {
+    "obsidian": {
+      "type": "local",
+      "command": ["npx", "-y", "obsidian-mcp"],
+      "enabled": true,
+      "env": {
+        "OBSIDIAN_API_KEY": "${OBSIDIAN_REST_API_KEY}"
+      }
+    }
   }
 }

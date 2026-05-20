@@ -82,15 +82,7 @@ namespace {
     }
 
     QString settingsTooltip(const QString& text) {
-        return QString(
-            "<div style=\""
-            "white-space: nowrap; "
-            "color: #6A5B1F; "
-            "font-family: Noto Sans, Arial, sans-serif; "
-            "font-size: 9pt; "
-            "font-weight: 400; "
-            "line-height: 18px;\">%1</div>"
-        ).arg(text.toHtmlEscaped());
+        return text;
     }
 
     void updateFontPreviewLabel(QLabel* label, const QString& family, int pixelSize, const QString& sampleText) {
@@ -308,7 +300,8 @@ void ConfigDialog::setupUI() {
     constexpr int kPageMargin = 16;
     constexpr int kSectionSpacing = 16;
     constexpr int kControlSpacing = 12;
-    constexpr int kSidebarWidth = 184;
+    constexpr int kSidebarMinWidth = 220;
+    constexpr int kSidebarContentPadding = 64;
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setSpacing(kSectionSpacing);
@@ -343,8 +336,6 @@ void ConfigDialog::setupUI() {
         QHBoxLayout* controlsLayout = new QHBoxLayout();
         controlsLayout->setContentsMargins(0, 0, 0, 0);
         controlsLayout->setSpacing(8);
-        fontCombo->setToolTip(formattedTooltip);
-        sizeSpin->setToolTip(formattedTooltip);
         controlsLayout->addWidget(fontCombo, 1);
         controlsLayout->addWidget(sizeSpin);
         rowLayout->addLayout(controlsLayout);
@@ -389,7 +380,12 @@ void ConfigDialog::setupUI() {
     
     // Create list widget for sidebar navigation
     QListWidget* sidebar = new QListWidget(this);
-    sidebar->setFixedWidth(kSidebarWidth);
+    sidebar->setIconSize(QSize(20, 20));
+    sidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    sidebar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sidebar->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sidebar->setTextElideMode(Qt::ElideNone);
+    sidebar->setFixedWidth(kSidebarMinWidth);
     sidebar->setStyleSheet(QString(
         "QListWidget { "
         "  background-color: %1; "
@@ -758,9 +754,9 @@ void ConfigDialog::setupUI() {
     });
     eventStorageRowLayout->addWidget(resetEventStorageBtn_);
 
-    storageForm->addRow("Folder:", eventStorageRowWidget);
-
-    eventStoragePathEdit_->setToolTip("Directory where event recordings and metadata are saved.");
+    QLabel* storageFolderLabel = new QLabel("Folder:", uiGroup);
+    storageFolderLabel->setToolTip("Directory where event recordings and metadata are saved.");
+    storageForm->addRow(storageFolderLabel, eventStorageRowWidget);
 
     QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", uiGroup);
     eventStorageNote->setWordWrap(true);
@@ -781,7 +777,8 @@ void ConfigDialog::setupUI() {
         "QComboBox::drop-down { border: none; padding-right: 8px; } "
         "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; selection-background-color: %5; padding: 4px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary, tc.bg));
-    themeCombo->setToolTip("Select a color theme for the application.");
+    QLabel* themeLabel = new QLabel("Color Theme:", uiGroup);
+    themeLabel->setToolTip("Select a color theme for the application.");
 
     const struct { const char* name; int index; } themeEntries[] = {
         {"Industrial Dark - Cyan", 0},
@@ -849,7 +846,7 @@ void ConfigDialog::setupUI() {
         ).arg(initColors.btnBg, initColors.border, initColors.primary, initColors.primary, initColors.text, initColors.bg));
     }
 
-    themeForm->addRow("Color Theme:", themeCombo);
+    themeForm->addRow(themeLabel, themeCombo);
 
     QLabel* liveViewDescription = new QLabel("Tune card surface, title, and section typography.", uiGroup);
     liveViewDescription->setWordWrap(true);
@@ -867,7 +864,6 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewBackgroundStyleCombo_->setToolTip(settingsTooltip("Background for the card body."));
     liveViewBackgroundStyleCombo_->setFixedWidth(160);
     liveViewForm->addRow(
         createLiveViewRowLabel("Card Surface", "Background for the card body."),
@@ -881,14 +877,12 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewGridTitleFontCombo_->setToolTip("Camera title shown on each grid tile.");
 
     liveViewGridTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewGridTitleSizeSpin_->setRange(10, 40);
     liveViewGridTitleSizeSpin_->setSuffix(" px");
     liveViewGridTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     liveViewGridTitleSizeSpin_->setFixedWidth(100);
-    liveViewGridTitleSizeSpin_->setToolTip("Camera title shown on each grid tile.");
     liveViewGridTitleSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
@@ -903,14 +897,12 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewDetailTitleFontCombo_->setToolTip("Primary camera title in the detail card.");
 
     liveViewDetailTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailTitleSizeSpin_->setRange(10, 40);
     liveViewDetailTitleSizeSpin_->setSuffix(" px");
     liveViewDetailTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     
-    liveViewDetailTitleSizeSpin_->setToolTip("Primary camera title in the detail card.");
     liveViewDetailTitleSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
@@ -925,14 +917,12 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    liveViewDetailSectionFontCombo_->setToolTip("Group titles inside the detail card.");
 
     liveViewDetailSectionSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailSectionSizeSpin_->setRange(9, 32);
     liveViewDetailSectionSizeSpin_->setSuffix(" px");
     liveViewDetailSectionSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
 
-    liveViewDetailSectionSizeSpin_->setToolTip("Group titles inside the detail card.");
     liveViewDetailSectionSizeSpin_->setFixedWidth(72);
 
     liveViewForm->addRow(
@@ -998,13 +988,11 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisVideoTitleFontCombo_->setToolTip("Title overlay on analysis video tiles.");
     analysisVideoTitleSizeSpin_ = new QSpinBox(uiGroup);
     analysisVideoTitleSizeSpin_->setRange(8, 24);
     analysisVideoTitleSizeSpin_->setSuffix(" px");
     analysisVideoTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisVideoTitleSizeSpin_->setFixedWidth(72);
-    analysisVideoTitleSizeSpin_->setToolTip("Title overlay on analysis video tiles.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Video Title", "Title overlay on analysis video tiles."),
         createTypographyRow(analysisViewGroup, analysisVideoTitleFontCombo_, analysisVideoTitleSizeSpin_, "Title overlay on analysis video tiles.", 8, 10, 14, analysisVideoTitlePresets_));
@@ -1017,13 +1005,11 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisTimestampFontCombo_->setToolTip("Timecode shown on the analysis video footer.");
     analysisTimestampSizeSpin_ = new QSpinBox(uiGroup);
     analysisTimestampSizeSpin_->setRange(7, 20);
     analysisTimestampSizeSpin_->setSuffix(" px");
     analysisTimestampSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisTimestampSizeSpin_->setFixedWidth(72);
-    analysisTimestampSizeSpin_->setToolTip("Timecode shown on the analysis video footer.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Timestamp", "Timecode shown on the analysis video footer."),
         createTypographyRow(analysisViewGroup, analysisTimestampFontCombo_, analysisTimestampSizeSpin_, "Timecode shown on the analysis video footer.", 7, 8, 12, analysisTimestampPresets_));
@@ -1036,13 +1022,11 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisTabFontCombo_->setToolTip("Tabs and playback label typography.");
     analysisTabSizeSpin_ = new QSpinBox(uiGroup);
     analysisTabSizeSpin_->setRange(10, 24);
     analysisTabSizeSpin_->setSuffix(" px");
     analysisTabSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     analysisTabSizeSpin_->setFixedWidth(72);
-    analysisTabSizeSpin_->setToolTip("Tabs and playback label typography.");
     analysisViewForm->addRow(
         createLiveViewRowLabel("Tab Label", "Tabs and playback label typography."),
         createTypographyRow(analysisViewGroup, analysisTabFontCombo_, analysisTabSizeSpin_, "Tabs and playback label typography.", 10, 12, 16, analysisTabPresets_));
@@ -1056,7 +1040,6 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
     ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
-    analysisPlaybackSurfaceCombo_->setToolTip(settingsTooltip("Background used by the analysis playback bar and video blank surface."));
     analysisPlaybackSurfaceCombo_->setFixedWidth(160);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface."),
@@ -1519,6 +1502,13 @@ void ConfigDialog::setupUI() {
     QListWidgetItem* diagnosticsItem = new QListWidgetItem(IconManager::instance().info(20), "Diagnostics");
     sidebar->addItem(diagnosticsItem);
     stackedWidget->addWidget(diagnosticsGroup);
+
+    int widestSidebarLabel = 0;
+    for (int i = 0; i < sidebar->count(); ++i) {
+        const QListWidgetItem* item = sidebar->item(i);
+        widestSidebarLabel = std::max(widestSidebarLabel, sidebar->fontMetrics().horizontalAdvance(item->text()));
+    }
+    sidebar->setFixedWidth(std::max(kSidebarMinWidth, widestSidebarLabel + kSidebarContentPadding));
 
     mainLayout->addLayout(contentLayout, 1);
     
