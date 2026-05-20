@@ -14,9 +14,16 @@
 #include <QDesktopWidget>
 #include <QApplication>
 #include <QFont>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFrame>
 #include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
 #include <QScreen>
 #include <QToolTip>
+#include <QVBoxLayout>
 #include <QWindow>
 #include <QtConcurrent>
 #include <QMap>
@@ -24,6 +31,84 @@
 
 // Register cv::Mat for signal/slot
 Q_DECLARE_METATYPE(cv::Mat)
+
+namespace {
+class AdminLoginDialog : public QDialog {
+public:
+    explicit AdminLoginDialog(QWidget* parent = nullptr)
+        : QDialog(parent) {
+        setWindowTitle("Administrator Login");
+        setModal(true);
+        setFixedWidth(360);
+
+        QVBoxLayout* rootLayout = new QVBoxLayout(this);
+        rootLayout->setContentsMargins(16, 16, 16, 16);
+        rootLayout->setSpacing(10);
+
+        QLabel* titleLabel = new QLabel("System Configuration", this);
+        QFont titleFont = titleLabel->font();
+        titleFont.setBold(true);
+        titleFont.setPointSize(titleFont.pointSize() + 1);
+        titleLabel->setFont(titleFont);
+        rootLayout->addWidget(titleLabel);
+
+        QLabel* subtitleLabel = new QLabel("Enter the administrator password to continue.", this);
+        subtitleLabel->setWordWrap(true);
+        rootLayout->addWidget(subtitleLabel);
+
+        QLabel* passwordLabel = new QLabel("Password:", this);
+        rootLayout->addWidget(passwordLabel);
+
+        passwordEdit_ = new QLineEdit(this);
+        passwordEdit_->setEchoMode(QLineEdit::Password);
+        passwordEdit_->setMinimumWidth(240);
+        rootLayout->addWidget(passwordEdit_);
+
+        errorLabel_ = new QLabel(this);
+        errorLabel_->setVisible(false);
+        errorLabel_->setWordWrap(true);
+        QPalette errorPalette = errorLabel_->palette();
+        errorPalette.setColor(QPalette::WindowText, QColor(Qt::red));
+        errorLabel_->setPalette(errorPalette);
+        rootLayout->addWidget(errorLabel_);
+
+        QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        loginButton_ = buttonBox->addButton("Login", QDialogButtonBox::AcceptRole);
+        loginButton_->setDefault(true);
+        QPushButton* okButton = buttonBox->button(QDialogButtonBox::Ok);
+        if (okButton) {
+            okButton->hide();
+        }
+        rootLayout->addWidget(buttonBox);
+
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        connect(loginButton_, &QPushButton::clicked, this, &QDialog::accept);
+
+        passwordEdit_->setFocus();
+    }
+
+    QString password() const {
+        return passwordEdit_->text();
+    }
+
+    void showInvalidPasswordState() {
+        errorLabel_->setText("Incorrect password. Please try again.");
+        errorLabel_->setVisible(true);
+        passwordEdit_->clear();
+        passwordEdit_->setFocus();
+    }
+
+    void clearInvalidPasswordState() {
+        errorLabel_->clear();
+        errorLabel_->setVisible(false);
+    }
+
+private:
+    QLineEdit* passwordEdit_ = nullptr;
+    QLabel* errorLabel_ = nullptr;
+    QPushButton* loginButton_ = nullptr;
+};
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), currentFps_(0.0), frameCount_(0), isAdmin_(false) {
@@ -648,17 +733,18 @@ bool MainWindow::promptAdminLogin() {
         return true;
     }
 
-    bool ok = false;
-    const QString text = QInputDialog::getText(this, "Admin Login",
-                                               "Password:", QLineEdit::Password,
-                                               "", &ok);
-    if (!ok) {
-        return false;
-    }
+    AdminLoginDialog loginDialog(this);
+    while (true) {
+        loginDialog.clearInvalidPasswordState();
+        if (loginDialog.exec() != QDialog::Accepted) {
+            return false;
+        }
 
-    if (text != "admin") {
-        QMessageBox::warning(this, "Login Failed", "Incorrect Password");
-        return false;
+        if (loginDialog.password() == "admin") {
+            break;
+        }
+
+        loginDialog.showInvalidPasswordState();
     }
 
     isAdmin_ = true;
