@@ -27,10 +27,12 @@ public:
 
 signals:
     void clicked(int cameraId);
+    void doubleClicked(int cameraId);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
     int cameraId_;

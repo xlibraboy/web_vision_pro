@@ -113,9 +113,14 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
 }
 
 void AnalysisVideoWidget::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton) {
-        std::cout << "[AnalysisVideoWidget] Clicked camera: " << cameraId_ << std::endl;
-        emit clicked(cameraId_);
-    }
     QWidget::mousePressEvent(event);
+}
+
+void AnalysisVideoWidget::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        std::cout << "[AnalysisVideoWidget] Double-clicked camera: " << cameraId_ << std::endl;
+        emit clicked(cameraId_);
+        emit doubleClicked(cameraId_);
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }

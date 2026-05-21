@@ -16,6 +16,7 @@
 #include <QFont>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QComboBox>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -57,6 +58,16 @@ public:
         subtitleLabel->setWordWrap(true);
         rootLayout->addWidget(subtitleLabel);
 
+        QLabel* usernameLabel = new QLabel("Username:", this);
+        rootLayout->addWidget(usernameLabel);
+
+        usernameCombo_ = new QComboBox(this);
+        usernameCombo_->setEditable(true);
+        usernameCombo_->addItem("admin");
+        usernameCombo_->setCurrentText("admin");
+        usernameCombo_->setMinimumWidth(240);
+        rootLayout->addWidget(usernameCombo_);
+
         QLabel* passwordLabel = new QLabel("Password:", this);
         rootLayout->addWidget(passwordLabel);
 
@@ -85,7 +96,11 @@ public:
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
         connect(loginButton_, &QPushButton::clicked, this, &QDialog::accept);
 
-        passwordEdit_->setFocus();
+        usernameCombo_->setFocus();
+    }
+
+    QString username() const {
+        return usernameCombo_->currentText().trimmed();
     }
 
     QString password() const {
@@ -93,7 +108,7 @@ public:
     }
 
     void showInvalidPasswordState() {
-        errorLabel_->setText("Incorrect password. Please try again.");
+        errorLabel_->setText("Incorrect username or password. Please try again.");
         errorLabel_->setVisible(true);
         passwordEdit_->clear();
         passwordEdit_->setFocus();
@@ -105,6 +120,7 @@ public:
     }
 
 private:
+    QComboBox* usernameCombo_ = nullptr;
     QLineEdit* passwordEdit_ = nullptr;
     QLabel* errorLabel_ = nullptr;
     QPushButton* loginButton_ = nullptr;
@@ -741,7 +757,7 @@ bool MainWindow::promptAdminLogin() {
             return false;
         }
 
-        if (loginDialog.password() == "admin") {
+        if (loginDialog.username() == "admin" && loginDialog.password() == "admin") {
             break;
         }
 

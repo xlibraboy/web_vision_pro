@@ -87,6 +87,7 @@ private slots:
     void onTiffLoadingFinished();
     
     void onCameraClicked(int cameraId);
+    void onSelectedCameraDoubleClicked(int cameraId);
     void onTabChanged(int index);
     void onSliderMoved(int value);
     void onSliderValueChanged(int value); // Handle click-to-seek
@@ -135,6 +136,8 @@ private:
     QPushButton* serverButton_;
     QPushButton* adminButton_;
     ToggleSwitch* enableDeleteCheck_;
+    QLabel* recentRecordsLabel_ = nullptr;
+    QLabel* permanentRecordsLabel_ = nullptr;
     QTableWidget* paperBreakTable_;
     QTableWidget* permanentPaperBreakTable_;
     QWidget* permanentSectionWidget_;
@@ -225,6 +228,7 @@ private:
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
     void addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow);
     void reloadEventTables();
+    void updateRecordCountLabel();
     void updatePermanentButtonLabel();
     QTableWidget* createLogTable(QWidget* parent, bool deleteMode);
     void configureLogTable(QTableWidget* table, bool deleteMode);

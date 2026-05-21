@@ -496,18 +496,22 @@ void AnalysisView::setupLeftSidebar() {
     paperBreakTable_ = createLogTable(logGroup, false);
     permanentPaperBreakTable_ = createLogTable(logGroup, false);
 
-    auto normalLabel = new QLabel("Recent Records", logGroup);
-    normalLabel->setObjectName("analysisSidebarSectionLabel");
-    logLayout->addWidget(normalLabel);
+    recentRecordsLabel_ = new QLabel("Recent Records (0)", logGroup);
+    recentRecordsLabel_->setObjectName("analysisSidebarSectionLabel");
+    logLayout->addWidget(recentRecordsLabel_);
+
     logLayout->addWidget(paperBreakTable_);
 
     togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
     togglePermanentTableButton_->setCheckable(true);
     togglePermanentTableButton_->setMinimumHeight(34);
+    togglePermanentTableButton_->setIcon(QIcon(":/assets/icons/arrow_down.svg"));
+    togglePermanentTableButton_->setIconSize(QSize(12, 12));
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     connect(togglePermanentTableButton_, &QPushButton::toggled, this, [this](bool checked) {
         permanentSectionWidget_->setVisible(checked);
         togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
+        togglePermanentTableButton_->setIcon(QIcon(checked ? ":/assets/icons/arrow_up.svg" : ":/assets/icons/arrow_down.svg"));
         permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, checked ? QSizePolicy::Expanding : QSizePolicy::Preferred);
         leftSidebar_->updateGeometry();
     });
@@ -518,10 +522,10 @@ void AnalysisView::setupLeftSidebar() {
     auto permanentLayout = new QVBoxLayout(permanentSectionWidget_);
     permanentLayout->setContentsMargins(0, 0, 0, 0);
     permanentLayout->setSpacing(8);
-    auto permanentLabel = new QLabel("Permanent Storage", permanentSectionWidget_);
-    permanentLabel->setObjectName("analysisSidebarSectionLabel");
-    permanentLabel->setProperty("accent", true);
-    permanentLayout->addWidget(permanentLabel);
+    permanentRecordsLabel_ = new QLabel("Permanent Storage (0)", permanentSectionWidget_);
+    permanentRecordsLabel_->setObjectName("analysisSidebarSectionLabel");
+    permanentRecordsLabel_->setProperty("accent", true);
+    permanentLayout->addWidget(permanentRecordsLabel_);
     permanentLayout->addWidget(permanentPaperBreakTable_, 1);
     permanentSectionWidget_->setVisible(false);
     logLayout->addWidget(permanentSectionWidget_);
@@ -970,6 +974,8 @@ void AnalysisView::onDeleteClicked() {
             std::cout << "[AnalysisView] Removing row " << row << std::endl;
             activeTable->removeRow(row);
         }
+
+        updateRecordCountLabel();
         
         // Clear the data view immediately
         clearData();
@@ -1087,6 +1093,12 @@ void AnalysisView::onCameraClicked(int cameraId) {
     tabWidget_->setCurrentIndex(1);  // Switch to single camera tab
 }
 
+void AnalysisView::onSelectedCameraDoubleClicked(int cameraId) {
+    std::cout << "[AnalysisView] onSelectedCameraDoubleClicked: " << cameraId << std::endl;
+    Q_UNUSED(cameraId);
+    tabWidget_->setCurrentIndex(0);
+}
+
 void AnalysisView::updateDynamicTab(int cameraId) {
     auto* layout = qobject_cast<QVBoxLayout*>(singleCameraTab_->layout());
     auto removeSelectedCameraWidget = [&]() {
@@ -1112,6 +1124,8 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     // Update the single camera view
     removeSelectedCameraWidget();
     selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, label, singleCameraTab_);
+    connect(selectedCameraWidget_, &AnalysisVideoWidget::doubleClicked,
+            this, &AnalysisView::onSelectedCameraDoubleClicked);
     if (layout) {
         layout->addWidget(selectedCameraWidget_);
     }
@@ -1776,6 +1790,17 @@ void AnalysisView::reloadEventTables() {
 
     sortLogTable(paperBreakTable_);
     sortLogTable(permanentPaperBreakTable_);
+    updateRecordCountLabel();
+}
+
+void AnalysisView::updateRecordCountLabel() {
+    if (recentRecordsLabel_) {
+        recentRecordsLabel_->setText(QString("Recent Records (%1)").arg(paperBreakTable_->rowCount()));
+    }
+
+    if (permanentRecordsLabel_) {
+        permanentRecordsLabel_->setText(QString("Permanent Storage (%1)").arg(permanentPaperBreakTable_->rowCount()));
+    }
 }
 
 void AnalysisView::reloadEventStorage() {
@@ -2081,6 +2106,7 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->setColumnWidth(0, 154);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table->horizontalHeader()->setStretchLastSection(true);
     table->setShowGrid(false);
     table->setFrameShape(QFrame::NoFrame);
@@ -2216,6 +2242,7 @@ void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidg
     }
     sortLogTable(sourceTable);
     sortLogTable(targetTable);
+    updateRecordCountLabel();
 }
 
 // ---------------------------------------------------------------------------
