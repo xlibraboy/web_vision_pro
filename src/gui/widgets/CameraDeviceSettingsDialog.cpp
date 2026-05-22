@@ -21,6 +21,7 @@
 #include <QVBoxLayout>
 
 #include "IconManager.h"
+#include "../../config/CameraConfig.h"
 #include "../../core/CameraManager.h"
 
 namespace {
@@ -30,6 +31,87 @@ QString formatReadOnlyValue(const QString& value) {
 
 QStringList defaultPixelFormats() {
     return {"Mono8", "Mono12", "Mono16"};
+}
+
+QString normalizeMacForCompare(const QString& mac) {
+    QString normalized;
+    normalized.reserve(mac.size());
+    for (const QChar ch : mac) {
+        if (ch.isLetterOrNumber()) {
+            normalized.append(ch.toUpper());
+        }
+    }
+    return normalized;
+}
+
+bool isCameraReachable(CameraManager* cameraManager, int cameraIndex, const CameraInfo& info) {
+    if (!cameraManager) {
+        return false;
+    }
+
+    if (cameraManager->isCameraConnected(cameraIndex) || cameraManager->isCameraOpen(cameraIndex)) {
+        return true;
+    }
+
+    const CameraManager::CameraParams params = cameraManager->getCameraParams(cameraIndex);
+    if (params.exposureUs > 0.0 || params.width > 0 || params.height > 0 || params.fps > 0.0) {
+        return true;
+    }
+
+    const cv::Size resolution = cameraManager->getCameraResolution(cameraIndex);
+    if (resolution.width > 0 || resolution.height > 0) {
+        return true;
+    }
+
+    const std::string model = cameraManager->getModelName(cameraIndex);
+    if (!model.empty() && model != "Not Connected" && model != "Unknown Model") {
+        return true;
+    }
+
+    const std::string ip = cameraManager->getIpAddress(cameraIndex);
+    if (!ip.empty() && ip != "Offline") {
+        return true;
+    }
+
+    const QString wantedMac = normalizeMacForCompare(info.macAddress);
+    const QString wantedIp = info.ipAddress.trimmed();
+    const auto devices = CameraManager::enumerateGigEDevices();
+    for (const auto& device : devices) {
+        const QString deviceMac = normalizeMacForCompare(QString::fromStdString(device.macAddress));
+        const QString deviceIp = QString::fromStdString(device.ipAddress).trimmed();
+        if ((!wantedMac.isEmpty() && deviceMac == wantedMac)
+                || (!wantedIp.isEmpty() && deviceIp == wantedIp)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool hasConfiguredRealDevice(const CameraInfo& info) {
+    return info.source == 1 && (!info.macAddress.trimmed().isEmpty() || !info.ipAddress.trimmed().isEmpty());
+}
+
+void persistSharedCameraSettings(int cameraIndex, const CameraInfo& info) {
+    std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(cameras.size())) {
+        return;
+    }
+
+    cameras[cameraIndex].pixelFormat = info.pixelFormat;
+    cameras[cameraIndex].width = info.width;
+    cameras[cameraIndex].height = info.height;
+    cameras[cameraIndex].offsetX = info.offsetX;
+    cameras[cameraIndex].offsetY = info.offsetY;
+    cameras[cameraIndex].exposureTimeAbs = info.exposureTimeAbs;
+    cameras[cameraIndex].enableExposureTimeBase = info.enableExposureTimeBase;
+    cameras[cameraIndex].exposureTimeBaseAbs = info.exposureTimeBaseAbs;
+    cameras[cameraIndex].exposureTimeRaw = info.exposureTimeRaw;
+    cameras[cameraIndex].fps = info.fps;
+    cameras[cameraIndex].enableAcquisitionFps = info.enableAcquisitionFps;
+    cameras[cameraIndex].chunkModeActive = info.chunkModeActive;
+    cameras[cameraIndex].enabledChunks = info.enabledChunks;
+    CameraConfig::saveCameras(cameras);
 }
 
 QLabel* createInfoValueLabel(const QString& text = QString()) {
@@ -61,6 +143,26 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
     , cameraManager_(cameraManager)
     , editable_(editable) {
     setupUi();
+    if (isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+        const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
+        const cv::Size resolution = cameraManager_->getCameraResolution(cameraIndex_);
+        const double acquisitionFps = cameraManager_->getCameraAcquisitionFps(cameraIndex_);
+
+        currentInfo_.exposureTimeAbs = params.exposureUs;
+        originalInfo_.exposureTimeAbs = params.exposureUs;
+
+        if (resolution.width > 0 && resolution.height > 0) {
+            currentInfo_.width = resolution.width;
+            currentInfo_.height = resolution.height;
+            originalInfo_.width = resolution.width;
+            originalInfo_.height = resolution.height;
+        }
+
+        if (acquisitionFps > 0.0) {
+            currentInfo_.fps = acquisitionFps;
+            originalInfo_.fps = acquisitionFps;
+        }
+    }
     populateUi();
     refreshLiveDeviceInfo();
     updateImpactBanner();
@@ -385,8 +487,20 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     ipValueLabel_->setText(formatReadOnlyValue(originalInfo_.ipAddress));
     resultingRateValueLabel_->setText(QString::number(currentInfo_.fps, 'f', 3) + " Hz");
 
-    if (!cameraManager_ || !cameraManager_->isCameraConnected(cameraIndex_)) {
+    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    const bool configuredReal = hasConfiguredRealDevice(currentInfo_);
+    if (!reachable && !configuredReal) {
         statusLabel_->setText("Camera is offline. Only general config values can be edited here.");
+        return;
+    }
+
+    if (!reachable && configuredReal) {
+        statusLabel_->setText("Camera is configured and expected online. Live runtime state is not confirmed yet; edits can still be saved here.");
+        return;
+    }
+
+    if (!cameraManager_->isCameraConnected(cameraIndex_) && !cameraManager_->isCameraOpen(cameraIndex_)) {
+        statusLabel_->setText("Camera is online on the network, but not attached to the live acquisition runtime. Save config/restart cameras to edit live device parameters.");
         return;
     }
 
@@ -405,6 +519,8 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
         sensorHeightValueLabel_->setText(QString::number(params.height));
         maxHeightValueLabel_->setText(QString::number(params.height));
     }
+
+    const double acquisitionFps = cameraManager_->getCameraAcquisitionFps(cameraIndex_);
     if (params.fps > 0.0) {
         resultingRateValueLabel_->setText(QString::number(params.fps, 'f', 3) + " Hz");
     }
@@ -546,7 +662,12 @@ void CameraDeviceSettingsDialog::closeDialog() {
 }
 
 void CameraDeviceSettingsDialog::toggleCameraRunState() {
-    if (!cameraManager_ || !cameraManager_->isCameraConnected(cameraIndex_)) {
+    if (!cameraManager_ || !isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+        return;
+    }
+
+    if (!cameraManager_->isCameraConnected(cameraIndex_) && !cameraManager_->isCameraOpen(cameraIndex_)) {
+        QMessageBox::information(this, "Camera Control", "This camera is visible on the network but is not attached to the live acquisition runtime. Save the camera configuration and restart cameras first.");
         return;
     }
 
@@ -567,9 +688,11 @@ void CameraDeviceSettingsDialog::toggleCameraRunState() {
 }
 
 void CameraDeviceSettingsDialog::updateControlAvailability() {
-    const bool connected = cameraManager_ && cameraManager_->isCameraConnected(cameraIndex_);
+    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    const bool configuredReal = hasConfiguredRealDevice(currentInfo_);
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
     const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
-    const bool baseEnabled = editable_ && connected;
+    const bool baseEnabled = editable_ && (reachable || configuredReal);
     const bool stopRequiredEditable = baseEnabled && !running;
 
     pixelFormatCombo_->setEnabled(stopRequiredEditable);
@@ -598,22 +721,29 @@ void CameraDeviceSettingsDialog::updateControlAvailability() {
 }
 
 void CameraDeviceSettingsDialog::applyImmediateChanges(bool includesStopRequiredChanges) {
-    if (!cameraManager_ || !cameraManager_->isCameraConnected(cameraIndex_)) {
-        return;
-    }
     if (!validateInputs(nullptr)) {
         return;
     }
 
-    const bool running = cameraManager_->isCameraRunning(cameraIndex_);
-    if (includesStopRequiredChanges && running) {
+    const bool reachable = cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+
+    if (!reachable) {
+        persistSharedCameraSettings(cameraIndex_, currentInfo_);
+        emit settingsApplied(currentInfo_);
         return;
     }
 
+    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
     if (includesStopRequiredChanges) {
-        cameraManager_->applyCameraDeviceSettings(cameraIndex_, currentInfo_);
+        if (!running) {
+            cameraManager_->applyCameraDeviceSettings(cameraIndex_, currentInfo_);
+        }
     } else {
         cameraManager_->setCameraExposure(cameraIndex_, currentInfo_.exposureTimeAbs);
         cameraManager_->setCameraFrameRate(cameraIndex_, currentInfo_.fps, currentInfo_.enableAcquisitionFps);
     }
+
+    persistSharedCameraSettings(cameraIndex_, currentInfo_);
+    emit settingsApplied(currentInfo_);
 }

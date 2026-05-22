@@ -22,7 +22,7 @@ struct CameraInfo {
     int offsetX = 0;         // Requested AOI X offset
     int offsetY = 0;         // Requested AOI Y offset
     QString pixelFormat = "Mono8"; // Requested camera pixel format
-    double exposureTimeAbs = 40880.0; // Exposure time in microseconds
+    double exposureTimeAbs = 5000.0; // Exposure time in microseconds
     bool enableExposureTimeBase = false; // Enables exposure time base control
     double exposureTimeBaseAbs = 20.0; // Exposure time base in microseconds
     int exposureTimeRaw = 2044; // Raw exposure value

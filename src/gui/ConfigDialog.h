@@ -41,6 +41,7 @@ signals:
     // True when camera configuration changed and acquisition should be restarted.
     void configUpdated(bool requiresCameraRestart);
     void themeSelectionChanged();
+    void cameraDeviceSettingsChanged(int cameraIndex, const CameraInfo& info);
 
 private slots:
     void saveCameraConfiguration();

@@ -144,6 +144,8 @@ public:
     struct CameraParams {
         double gain        = 0.0;
         double exposureUs  = 5000.0;
+        double exposureMinUs = 100.0;
+        double exposureMaxUs = 1000000.0;
         double gamma       = 1.0;
         double contrast    = 1.0;
         double fps         = 0.0;

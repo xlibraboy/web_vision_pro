@@ -26,6 +26,9 @@ public:
     CameraInfo updatedInfo() const;
     bool requiresRestart() const;
 
+signals:
+    void settingsApplied(const CameraInfo& info);
+
 private slots:
     void onValueChanged();
     void closeDialog();

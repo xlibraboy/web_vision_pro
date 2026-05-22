@@ -1,6 +1,7 @@
 #include "DetailView.h"
 #include "../config/CameraConfig.h"
 #include "../core/TemperatureStatus.h"
+#include <algorithm>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
@@ -86,11 +87,11 @@ void DetailView::setupUi() {
     QGroupBox* expGroup = new QGroupBox("Exposure Time", controlGroup_);
     QVBoxLayout* expLayout = new QVBoxLayout(expGroup);
     spinExposure_ = new QSpinBox(this);
-    spinExposure_->setRange(100, 100000);  // Will be constrained dynamically
+    spinExposure_->setRange(100, 1000000);  // Will be constrained dynamically
     spinExposure_->setSuffix(" µs");
     
     sliderExposure_ = new QSlider(Qt::Horizontal, this);
-    sliderExposure_->setRange(100, 100000);
+    sliderExposure_->setRange(100, 1000000);
     sliderExposure_->setValue(5000);
     
     connect(spinExposure_, QOverload<int>::of(&QSpinBox::valueChanged), 
@@ -210,17 +211,12 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     cameraWidget_->setOverlayText(CameraConfig::getCameraLabel(cameraId));
     applyLiveViewTypography();
     
-    // --- Clamp Exposure Time based on FPS (max exposure = 1,000,000 / fps µs) ---
-    // This ensures exposure is always within a range that does not cause frame drops.
-    int maxExposure = 100000;
-    if (info.fps > 0) {
-        maxExposure = static_cast<int>(1000000.0 / info.fps) - 1;
-        if (maxExposure < 100) maxExposure = 100;
-    }
+    // Exposure range is set from live camera node limits when available.
+    // Keep a broad default here until MainWindow applies the actual device range.
     spinExposure_->blockSignals(true);
     sliderExposure_->blockSignals(true);
-    spinExposure_->setRange(100, maxExposure);
-    sliderExposure_->setRange(100, maxExposure);
+    spinExposure_->setRange(100, 1000000);
+    sliderExposure_->setRange(100, 1000000);
     spinExposure_->blockSignals(false);
     sliderExposure_->blockSignals(false);
     
@@ -365,6 +361,19 @@ void DetailView::setParameterValues(double gain, double exposureUs, double gamma
     sliderContrast_->setValue(static_cast<int>(contrast * 100));
     spinContrast_->blockSignals(false);
     sliderContrast_->blockSignals(false);
+}
+
+void DetailView::setExposureRange(int minUs, int maxUs) {
+    const int safeMin = std::max(1, minUs);
+    const int safeMax = std::max(safeMin, maxUs);
+    spinExposure_->blockSignals(true);
+    sliderExposure_->blockSignals(true);
+    spinExposure_->setRange(safeMin, safeMax);
+    sliderExposure_->setRange(safeMin, safeMax);
+    spinExposure_->setValue(qBound(safeMin, spinExposure_->value(), safeMax));
+    sliderExposure_->setValue(qBound(safeMin, sliderExposure_->value(), safeMax));
+    spinExposure_->blockSignals(false);
+    sliderExposure_->blockSignals(false);
 }
 
 void DetailView::onSaveParams() {

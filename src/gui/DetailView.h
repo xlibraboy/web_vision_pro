@@ -26,6 +26,7 @@ public:
     void updateTemperature(double temp);
     // Update spinboxes/sliders from live camera readback (e.g. after PFS load)
     void setParameterValues(double gain, double exposureUs, double gamma, double contrast);
+    void setExposureRange(int minUs, int maxUs);
     void setAcquisitionFps(double fps);
     // Update Display FPS label (called when user selects a camera)
     void setDisplayFps(double fps);

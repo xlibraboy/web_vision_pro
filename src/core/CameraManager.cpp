@@ -537,8 +537,20 @@ void CameraManager::setCameraExposure(int cameraIndex, double exposureUs) {
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
-            Pylon::CFloatParameter(nodemap, "ExposureTimeAbs").SetValue(exposureUs);
-            std::cout << "[CameraManager] setCameraExposure: cam=" << cameraIndex << " exp=" << exposureUs << " OK" << std::endl;
+            GenApi::CFloatPtr exposureNode(nodemap.GetNode("ExposureTimeAbs")); // Basler scout / older SFNC
+            if (!exposureNode || !GenApi::IsWritable(exposureNode)) {
+                exposureNode = GenApi::CFloatPtr(nodemap.GetNode("ExposureTime")); // newer SFNC
+            }
+
+            if (exposureNode && GenApi::IsWritable(exposureNode)) {
+                const double clamped = std::max(exposureNode->GetMin(), std::min(exposureUs, exposureNode->GetMax()));
+                exposureNode->SetValue(clamped);
+                std::cout << "[CameraManager] setCameraExposure: cam=" << cameraIndex
+                          << " exp=" << clamped << " OK" << std::endl;
+            } else {
+                std::cerr << "[CameraManager] setCameraExposure: cam " << cameraIndex
+                          << " no writable ExposureTimeAbs/ExposureTime node" << std::endl;
+            }
         } else {
             std::cerr << "[CameraManager] setCameraExposure: cam " << cameraIndex << " camera not open" << std::endl;
         }
@@ -584,8 +596,12 @@ CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex)
 
         // Exposure / Shutter
         GenApi::CFloatPtr e(nm.GetNode("ExposureTimeAbs"));
-        if (!e || !IsReadable(e)) e = GenApi::CFloatPtr(nm.GetNode("ExposureTime"));
-        if (e && IsReadable(e)) p.exposureUs = e->GetValue();
+        if ((!e || !IsReadable(e)) && nm.GetNode("ExposureTime")) e = GenApi::CFloatPtr(nm.GetNode("ExposureTime"));
+        if (e && IsReadable(e)) {
+            p.exposureUs = e->GetValue();
+            try { p.exposureMinUs = e->GetMin(); } catch (...) {}
+            try { p.exposureMaxUs = e->GetMax(); } catch (...) {}
+        }
 
         // Gamma
         GenApi::CFloatPtr gm(nm.GetNode("Gamma"));
@@ -1863,19 +1879,30 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableF
 
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
-             GenApi::INodeMap& nodemap = camera->GetNodeMap();
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
 
-             try {
-                GenApi::CBooleanPtr enableNode = nodemap.GetNode("AcquisitionFrameRateEnable");
-                if (enableNode && GenApi::IsWritable(enableNode)) {
-                    enableNode->SetValue(enableFrameRate);
+            GenApi::CBooleanPtr enableNode(nodemap.GetNode("AcquisitionFrameRateEnable"));
+            if (!enableNode || !GenApi::IsWritable(enableNode)) {
+                enableNode = GenApi::CBooleanPtr(nodemap.GetNode("AcquisitionFrameRateEnabled"));
+            }
+            if (enableNode && GenApi::IsWritable(enableNode)) {
+                enableNode->SetValue(enableFrameRate);
+            }
+
+            if (enableFrameRate) {
+                GenApi::CFloatPtr fpsNode(nodemap.GetNode("AcquisitionFrameRateAbs")); // Basler scout / older SFNC
+                if (!fpsNode || !GenApi::IsWritable(fpsNode)) {
+                    fpsNode = GenApi::CFloatPtr(nodemap.GetNode("AcquisitionFrameRate")); // newer SFNC
                 }
-                if (enableFrameRate) {
-                    Pylon::CFloatParameter(nodemap, "AcquisitionFrameRate").SetValue(fps);
+
+                if (fpsNode && GenApi::IsWritable(fpsNode)) {
+                    const double clamped = std::max(fpsNode->GetMin(), std::min(fps, fpsNode->GetMax()));
+                    fpsNode->SetValue(clamped);
+                } else {
+                    std::cerr << "[CameraManager] Could not set AcquisitionFrameRateAbs/AcquisitionFrameRate on camera "
+                              << cameraIndex << std::endl;
                 }
-             } catch (...) {
-                std::cerr << "[CameraManager] Could not set AcquisitionFrameRate on camera " << cameraIndex << std::endl;
-             }
+            }
         }
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Pylon Error during individual FPS set: " << e.GetDescription() << std::endl;
