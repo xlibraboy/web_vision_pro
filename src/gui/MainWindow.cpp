@@ -425,10 +425,21 @@ void MainWindow::setupUi() {
     // Live parameter adjustment: forward signal to CameraManager
     connect(detailView_, &DetailView::parameterChanged, [this](int cameraId, QString param, double value) {
         if (!cameraManager_) return;
-        if (param == "Gain")          cameraManager_->setCameraGain(cameraId, value);
-        else if (param == "Exposure") cameraManager_->setCameraExposure(cameraId, value);
-        else if (param == "Gamma")    cameraManager_->setCameraGamma(cameraId, value);
-        else if (param == "Contrast") cameraManager_->setCameraContrast(cameraId, value);
+        if (param == "Gain") {
+            cameraManager_->setCameraGain(cameraId, value);
+        } else if (param == "Exposure") {
+            cameraManager_->setCameraExposure(cameraId, value);
+
+            std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+            if (cameraId >= 0 && cameraId < static_cast<int>(cameras.size())) {
+                cameras[cameraId].exposureTimeAbs = value;
+                CameraConfig::saveCameras(cameras);
+            }
+        } else if (param == "Gamma") {
+            cameraManager_->setCameraGamma(cameraId, value);
+        } else if (param == "Contrast") {
+            cameraManager_->setCameraContrast(cameraId, value);
+        }
     });
     connect(detailView_, &DetailView::saveParametersRequested, [this](int cameraId) {
         if (!cameraManager_) return;
@@ -442,7 +453,13 @@ void MainWindow::setupUi() {
         if (ok) {
             // Readback current values from Pylon nodemap and refresh UI spinboxes
             auto p = cameraManager_->getCameraParams(cameraId);
+            detailView_->setExposureRange(static_cast<int>(p.exposureMinUs), static_cast<int>(p.exposureMaxUs));
             detailView_->setParameterValues(p.gain, p.exposureUs, p.gamma, p.contrast);
+            std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+            if (cameraId >= 0 && cameraId < static_cast<int>(cameras.size())) {
+                cameras[cameraId].exposureTimeAbs = p.exposureUs;
+                CameraConfig::saveCameras(cameras);
+            }
             statusBar()->showMessage(QString("✅ Parameters loaded for Camera %1").arg(cameraId + 1), 3000);
         } else {
             statusBar()->showMessage(QString("⚠ No saved parameters found for Camera %1").arg(cameraId + 1), 3000);
@@ -684,6 +701,7 @@ void MainWindow::showDetail(int cameraId) {
         CameraManager::CameraParams liveParams = cameraManager_->getCameraParams(cameraId);
 
         detailView_->setCamera(cameraId, info, nullptr);
+        detailView_->setExposureRange(static_cast<int>(liveParams.exposureMinUs), static_cast<int>(liveParams.exposureMaxUs));
         detailView_->setParameterValues(liveParams.gain, liveParams.exposureUs, liveParams.gamma, liveParams.contrast);
     } else {
         detailView_->setCamera(cameraId, info, nullptr);
@@ -808,7 +826,10 @@ void MainWindow::ensureConfigTab() {
             // Update camera counts in views to handle newly added cameras
             int newCamCount = CameraConfig::getCameraCount();
             qInfo() << "[MainWindow] Applying updated camera count" << newCamCount;
-            if (liveDashboard_) liveDashboard_->setCameraCount(newCamCount);
+            if (liveDashboard_) {
+                liveDashboard_->setCameraCount(newCamCount);
+                liveDashboard_->refreshCameraLabels();
+            }
             if (analysisView_) analysisView_->setCameraCount(newCamCount);
 
             if (detailView_ && detailView_->videoWidget()) {
@@ -819,6 +840,8 @@ void MainWindow::ensureConfigTab() {
                     if (stackedWidget_ && stackedWidget_->currentWidget() == detailView_) {
                         showGrid();
                     }
+                } else if (selectedCameraId >= 0 && stackedWidget_ && stackedWidget_->currentWidget() == detailView_) {
+                    showDetail(selectedCameraId);
                 }
             }
 
@@ -850,6 +873,29 @@ void MainWindow::ensureConfigTab() {
                 analysisView_->reloadEventStorage();
             }
         });
+
+        connect(configWindow_, &ConfigDialog::cameraDeviceSettingsChanged, this,
+                [this](int cameraIndex, const CameraInfo& info) {
+                    if (!detailView_ || !detailView_->videoWidget()) {
+                        return;
+                    }
+
+                    if (detailView_->videoWidget()->cameraId() != cameraIndex) {
+                        return;
+                    }
+
+                    if (!cameraManager_) {
+                        return;
+                    }
+
+                    cameraManager_->setCameraExposure(cameraIndex, info.exposureTimeAbs);
+                    cameraManager_->setCameraFrameRate(cameraIndex, info.fps, info.enableAcquisitionFps);
+
+                    const CameraManager::CameraParams p = cameraManager_->getCameraParams(cameraIndex);
+                    detailView_->setParameterValues(p.gain, info.exposureTimeAbs, p.gamma, p.contrast);
+                    detailView_->setAcquisitionFps(info.fps);
+                    detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraIndex));
+                });
 
         connect(configWindow_, &QObject::destroyed, [this]() {
             configTabIndex_ = -1;

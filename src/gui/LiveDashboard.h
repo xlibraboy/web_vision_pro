@@ -41,6 +41,9 @@ public:
     int getCurrentRows() const { return currentRows_; }
     int getCurrentCols() const { return currentCols_; }
     
+    // Refresh camera numbering/titles from current configuration
+    void refreshCameraLabels();
+
     // Dynamically update theme colors
     void updateTheme();
 

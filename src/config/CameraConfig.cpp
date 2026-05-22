@@ -262,7 +262,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.offsetX = settings.value("offsetX", 0).toInt();
         cam.offsetY = settings.value("offsetY", 0).toInt();
         cam.pixelFormat = settings.value("pixelFormat", "Mono8").toString();
-        cam.exposureTimeAbs = settings.value("exposureTimeAbs", 40880.0).toDouble();
+        cam.exposureTimeAbs = settings.value("exposureTimeAbs", 5000.0).toDouble();
         cam.enableExposureTimeBase = settings.value("enableExposureTimeBase", false).toBool();
         cam.exposureTimeBaseAbs = settings.value("exposureTimeBaseAbs", 20.0).toDouble();
         cam.exposureTimeRaw = settings.value("exposureTimeRaw", 2044).toInt();
@@ -334,7 +334,7 @@ void CameraConfig::ensureDefaultCameras() {
              0, // offsetX
              0, // offsetY
              "Mono8", // pixelFormat
-             40880.0, // exposureTimeAbs
+             5000.0, // exposureTimeAbs
              false, // enableExposureTimeBase
              20.0, // exposureTimeBaseAbs
              2044, // exposureTimeRaw
@@ -360,7 +360,7 @@ void CameraConfig::ensureDefaultCameras() {
              0, // offsetX
              0, // offsetY
              "Mono8", // pixelFormat
-             40880.0, // exposureTimeAbs
+             5000.0, // exposureTimeAbs
              false, // enableExposureTimeBase
              20.0, // exposureTimeBaseAbs
              2044, // exposureTimeRaw

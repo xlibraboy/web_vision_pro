@@ -1972,7 +1972,7 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cam.offsetX = 0;
     cam.offsetY = 0;
     cam.pixelFormat = "Mono8";
-    cam.exposureTimeAbs = 40880.0;
+    cam.exposureTimeAbs = 5000.0;
     cam.enableExposureTimeBase = false;
     cam.exposureTimeBaseAbs = 20.0;
     cam.exposureTimeRaw = 2044;
@@ -1995,12 +1995,31 @@ void ConfigDialog::onCameraCardDeviceSettingsClicked() {
         ? 0
         : static_cast<int>(std::distance(cameraCards_.begin(), it));
 
-    CameraDeviceSettingsDialog dialog(cameraIndex, card->cameraInfo(), cameraManager_, isAdminMode_, this);
+    CameraInfo dialogInfo = CameraConfig::getCameraInfo(cameraIndex);
+    const CameraInfo cardInfo = card->cameraInfo();
+    dialogInfo.id = cardInfo.id;
+    dialogInfo.source = cardInfo.source;
+    dialogInfo.name = cardInfo.name;
+    dialogInfo.location = cardInfo.location;
+    dialogInfo.side = cardInfo.side;
+    dialogInfo.machinePosition = cardInfo.machinePosition;
+    dialogInfo.ipAddress = cardInfo.ipAddress;
+    dialogInfo.macAddress = cardInfo.macAddress;
+    dialogInfo.subnetMask = cardInfo.subnetMask;
+    dialogInfo.defaultGateway = cardInfo.defaultGateway;
+
+    CameraDeviceSettingsDialog dialog(cameraIndex, dialogInfo, cameraManager_, isAdminMode_, this);
+    connect(&dialog, &CameraDeviceSettingsDialog::settingsApplied, this,
+            [this, card, cameraIndex](const CameraInfo& info) {
+                card->setCameraInfo(info);
+                emit cameraDeviceSettingsChanged(cameraIndex, info);
+            });
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
     card->setCameraInfo(dialog.updatedInfo());
+    emit cameraDeviceSettingsChanged(cameraIndex, dialog.updatedInfo());
 }
 
 void ConfigDialog::onRemoveCameraConfigClicked() {

@@ -12,6 +12,16 @@ QFont liveViewGridTitleFont() {
     font.setBold(true);
     return font;
 }
+
+int cameraIndexForGridSlot(const std::vector<CameraInfo>& cameras, int gridSlot) {
+    const int displayId = gridSlot + 1;
+    for (int i = 0; i < static_cast<int>(cameras.size()); ++i) {
+        if (cameras[i].id == displayId) {
+            return i;
+        }
+    }
+    return -1;
+}
 }
 
 LiveDashboard::LiveDashboard(int numCameras, QWidget *parent) 
@@ -75,7 +85,10 @@ void LiveDashboard::setGridDimensions(int rows, int cols) {
 }
 
 void LiveDashboard::setCameraCount(int count) {
-    if (count == numCameras_) return;
+    if (count == numCameras_) {
+        refreshCameraLabels();
+        return;
+    }
     
     if (count > numCameras_) {
         // Add new camera widgets
@@ -108,6 +121,7 @@ void LiveDashboard::setCameraCount(int count) {
     }
     
     numCameras_ = count;
+    refreshCameraLabels();
     setupGrid(currentRows_, currentCols_);
 }
 
@@ -132,17 +146,19 @@ void LiveDashboard::setupGrid(int rows, int cols) {
     for (int r = 0; r < rows; ++r) gridLayout_->setRowStretch(r, 1);
     for (int c = 0; c < cols; ++c) gridLayout_->setColumnStretch(c, 1);
 
-    // Re-add camera cells and create empty placeholders
+    // Re-add camera cells by configured Camera ID, not compacted array order.
+    // Example: if Camera ID 1 is deleted and Camera ID 2 remains, it stays in grid slot 2.
     int row = 0;
     int col = 0;
     int totalSlots = rows * cols;
+    const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
     
     for (int i = 0; i < totalSlots; ++i) {
-        if (i < numCameras_) {
-            // Add actual camera cell
-            gridLayout_->addWidget(cameraCells_[i], row, col);
+        const int cameraIndex = cameraIndexForGridSlot(cameras, i);
+        if (cameraIndex >= 0 && cameraIndex < numCameras_ && cameraIndex < static_cast<int>(cameraCells_.size())) {
+            gridLayout_->addWidget(cameraCells_[cameraIndex], row, col);
         } else {
-            // Create empty placeholder with border for extra slots
+            // Create empty placeholder with border for extra/removed camera slots
             QWidget* emptyCell = new QWidget(gridContainer_);
             ThemeColors tc = CameraConfig::getThemeColors();
             emptyCell->setStyleSheet(QString(
@@ -200,6 +216,20 @@ CameraWidget* LiveDashboard::getCameraWidget(int cameraId) {
     return nullptr;
 }
 
+void LiveDashboard::refreshCameraLabels() {
+    const QFont overlayFont = liveViewGridTitleFont();
+    for (int i = 0; i < numCameras_ && i < static_cast<int>(cameraWidgets_.size()); ++i) {
+        if (!cameraWidgets_[i]) {
+            continue;
+        }
+
+        cameraWidgets_[i]->setCameraId(i);
+        cameraWidgets_[i]->setOverlayText(CameraConfig::getCameraLabel(i));
+        cameraWidgets_[i]->setOverlayFont(overlayFont);
+        cameraWidgets_[i]->update();
+    }
+}
+
 void LiveDashboard::updateTheme() {
     ThemeColors tc = CameraConfig::getThemeColors();
     QString emptyStyle = QString(
@@ -211,10 +241,5 @@ void LiveDashboard::updateTheme() {
         cell->setStyleSheet(emptyStyle);
     }
 
-    for (CameraWidget* widget : cameraWidgets_) {
-        if (widget) {
-            widget->setOverlayFont(liveViewGridTitleFont());
-            widget->update();
-        }
-    }
+    refreshCameraLabels();
 }
