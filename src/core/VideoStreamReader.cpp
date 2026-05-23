@@ -1,7 +1,6 @@
 #include "VideoStreamReader.h"
 #include <iostream>
 
-#include "RawFormat.h"
 #include <QFileInfo>
 #include <QFileInfo>
 #include <cstdio>
@@ -104,6 +103,25 @@ cv::Mat VideoStreamReader::getFrame(int frameIndex) {
     }
     
     return frame;
+}
+
+bool VideoStreamReader::getFrameMetadata(int frameIndex, FrameMetadata& metadata) {
+    if (!isRawMode_ || !fileHandle_ || frameIndex < 0 || frameIndex >= totalFrames_) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+
+    int bytesPerPixel = (pixelFormat_ == 0) ? 1 : 3;
+    long frameSize = width_ * height_ * bytesPerPixel;
+    long entrySize = frameSize + sizeof(FrameMetadata);
+    long offset = sizeof(RawFileHeader) + (frameIndex * entrySize) + frameSize;
+
+    if (std::fseek(fileHandle_, offset, SEEK_SET) != 0) {
+        return false;
+    }
+
+    return std::fread(&metadata, sizeof(metadata), 1, fileHandle_) == 1;
 }
 
 void VideoStreamReader::preloadChunk(int centerFrame, int radius) {

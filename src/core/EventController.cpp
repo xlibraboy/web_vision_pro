@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <algorithm>
 #include <QDateTime>
 #include <QDir>
 #include <opencv2/imgcodecs.hpp>
@@ -159,6 +160,24 @@ bool EventController::isSaving() const {
     return triggering_ || saveRequested_;
 }
 
+size_t EventController::getBufferedFrameCount(int cameraId) {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    auto it = cameraStates_.find(cameraId);
+    if (it == cameraStates_.end()) {
+        return 0;
+    }
+    return it->second.currentFillSize;
+}
+
+size_t EventController::getBufferCapacity(int cameraId) {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    auto it = cameraStates_.find(cameraId);
+    if (it == cameraStates_.end()) {
+        return 0;
+    }
+    return it->second.circularBuffer.size();
+}
+
 void EventController::setEventSavedCallback(EventSavedCallback callback) {
     callback_ = callback;
 }
@@ -284,7 +303,8 @@ void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
               << " (" << (frameSize * header.totalFrames / 1024 / 1024) << " MB)..." << std::endl;
 
     // 2. Write Frames
-    for (const auto& frameData : frames) {
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const auto& frameData = frames[i];
         // Pixel Data MUST be written FIRST according to VideoStreamReader
         if (frameData.image.isContinuous()) {
             outFile.write(reinterpret_cast<const char*>(frameData.image.data), frameSize);
@@ -295,9 +315,9 @@ void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
 
         // Frame Metadata MUST be written SECOND (appended after image)
         FrameMetadata meta = {};
-        meta.timestamp = 0; // The frameData.timestamp is a double now in struct FrameData, but Unix timestamp in string etc, we could pass 0 or mock it
-        meta.frameId = frameData.frameCounter;
-        meta.flags = 0;
+        meta.timestamp = static_cast<uint64_t>(std::max<int64_t>(0, frameData.timestamp));
+        meta.frameId = static_cast<uint64_t>(std::max<int64_t>(0, frameData.frameCounter));
+        meta.flags = (static_cast<int>(i) == triggerIndex) ? 1u : 0u;
         
         outFile.write(reinterpret_cast<const char*>(&meta), sizeof(FrameMetadata));
     }

@@ -34,7 +34,7 @@ struct RawFileHeader {
  * Appended immediately after each raw image frame.
  */
 struct FrameMetadata {
-    uint64_t timestamp;     // Unix timestamp (microseconds)
+    uint64_t timestamp;     // Nanoseconds. Hardware chunk timestamp converted from camera ticks, or software Unix ns fallback.
     uint64_t frameId;       // Frame counter
     uint32_t flags;         // 0 = Normal, 1 = Trigger Frame
     char reserved[44];      // Padding to exactly 64 bytes

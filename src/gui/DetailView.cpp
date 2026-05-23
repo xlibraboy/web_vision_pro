@@ -40,7 +40,9 @@ void DetailView::setupUi() {
     lblIP_ = new QLabel("-", this);
     lblImageSize_ = new QLabel("-", this);
     lblFPS_ = new QLabel("-", this);
+    lblConfiguredFramePeriod_ = new QLabel("-", this);
     lblDisplayFps_ = new QLabel("-", this);
+    lblActualFramePeriod_ = new QLabel("-", this);
     lblTemp_ = new QLabel("-", this);
 
     infoLayout->addRow("ID:", lblId_);
@@ -51,8 +53,14 @@ void DetailView::setupUi() {
     infoLayout->addRow("IP Address:", lblIP_);
     infoLayout->addRow("Image Size:", lblImageSize_);
     infoLayout->addRow("Acquisition FPS:", lblFPS_);
+    infoLayout->addRow("Configured Frame Period:", lblConfiguredFramePeriod_);
     infoLayout->addRow("Resulting Framerate (Abs) [Hz]:", lblDisplayFps_);
+    infoLayout->addRow("Actual Frame Period:", lblActualFramePeriod_);
     infoLayout->addRow("Temperature °C:", lblTemp_);
+
+    lblDisplayFps_->setToolTip("Resulting Framerate reported by the camera. If this is much lower than Acquisition FPS, the camera may be limited by exposure time, sensor readout time, AOI, or transmission bandwidth.");
+    lblActualFramePeriod_->setToolTip("Computed from Resulting Framerate: 1,000,000 / resulting FPS in microseconds.");
+    lblConfiguredFramePeriod_->setToolTip("Computed from Acquisition FPS: 1,000,000 / configured FPS in microseconds.");
 
     // Parameters Group (Below Camera Info)
     controlGroup_ = new QGroupBox("Camera Parameters", this);
@@ -268,7 +276,9 @@ void DetailView::clearCamera() {
     lblIP_->setText("-");
     lblImageSize_->setText("-");
     lblFPS_->setText("-");
+    lblConfiguredFramePeriod_->setText("-");
     lblDisplayFps_->setText("-");
+    lblActualFramePeriod_->setText("-");
     lblTemp_->setText("-");
     lblTemp_->setStyleSheet("");
 }
@@ -406,8 +416,10 @@ void DetailView::onSnapshotClicked() {
 void DetailView::setDisplayFps(double fps) {
     if (fps < 0) {
         lblDisplayFps_->setText("N/A");
+        lblActualFramePeriod_->setText("N/A");
     } else {
         lblDisplayFps_->setText(QString::number(fps, 'f', 1));
+        lblActualFramePeriod_->setText(QString::number(1000000.0 / fps, 'f', 1) + " µs");
     }
 }
 
@@ -422,8 +434,10 @@ void DetailView::updateTheme() {
 void DetailView::setAcquisitionFps(double fps) {
     if (fps < 0) {
         lblFPS_->setText("N/A");
+        lblConfiguredFramePeriod_->setText("N/A");
     } else {
         lblFPS_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
+        lblConfiguredFramePeriod_->setText(QString::number(1000000.0 / fps, 'f', 1) + " µs");
     }
 }
 

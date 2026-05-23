@@ -66,7 +66,9 @@ private:
     QLabel* lblIP_;
     QLabel* lblImageSize_;
     QLabel* lblFPS_;
+    QLabel* lblConfiguredFramePeriod_;
     QLabel* lblDisplayFps_;
+    QLabel* lblActualFramePeriod_;
     QLabel* lblTemp_;
 
     // Parameter Controls

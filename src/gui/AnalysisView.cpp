@@ -393,6 +393,44 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     if (!videoReaders_.empty()) {
         totalFrames_ = videoReaders_.begin()->second->getTotalFrames() - 1;
     }
+
+    // Parse event base time from filename: event_yyyyMMdd_HHmmss_zzz_camN.bin
+    eventBaseTime_ = QDateTime();
+    QFileInfo eventFileInfo(videoPath);
+    QString eventBaseName = eventFileInfo.baseName();
+    if (eventBaseName.startsWith("event_")) {
+        QString tsStr = eventBaseName.mid(6);
+        const int camSuffix = tsStr.lastIndexOf("_cam");
+        if (camSuffix >= 0) {
+            tsStr = tsStr.left(camSuffix);
+        }
+        eventBaseTime_ = QDateTime::fromString(tsStr, "yyyyMMdd_HHmmss_zzz");
+        if (!eventBaseTime_.isValid()) {
+            eventBaseTime_ = QDateTime::fromString(tsStr, "yyyyMMdd_HHmmss");
+        }
+    }
+
+    // Load per-frame timestamp/frame counter metadata from the first available RAW reader.
+    // New RAW layout stores pixels first and FrameMetadata second for each frame.
+    frameMetadata_.clear();
+    if (!videoReaders_.empty()) {
+        auto& primaryReader = videoReaders_.begin()->second;
+        const int frameCount = primaryReader->getTotalFrames();
+        frameMetadata_.reserve(frameCount);
+        for (int i = 0; i < frameCount; ++i) {
+            ::FrameMetadata rawMeta = {};
+            if (!primaryReader->getFrameMetadata(i, rawMeta)) {
+                break;
+            }
+            FrameMetadata meta;
+            meta.timestamp = static_cast<int64_t>(rawMeta.timestamp);
+            meta.frameCounter = static_cast<int64_t>(rawMeta.frameId);
+            meta.displayTime = QString("%1.%2 s")
+                .arg(static_cast<qulonglong>(rawMeta.timestamp / 1000000000ULL))
+                .arg(static_cast<qulonglong>(rawMeta.timestamp % 1000000000ULL), 9, 10, QChar('0'));
+            frameMetadata_.push_back(meta);
+        }
+    }
     
     // Set trigger index
     if (triggerIndex < 0 || triggerIndex > totalFrames_) {
@@ -1133,13 +1171,13 @@ void AnalysisView::updateDynamicTab(int cameraId) {
 }
 
 void AnalysisView::onTabChanged(int index) {
-    // Diagnostic tab is index 2 — start/stop timer to save resources
+    // Keep diagnostics live; force an immediate refresh when switching to the tab.
     if (diagRefreshTimer_ && diagAutoRefreshChk_) {
-        if (index == 2 && diagAutoRefreshChk_->isChecked()) {
-            refreshDiagTable();        // immediate refresh on switch
+        if (diagAutoRefreshChk_->isChecked() && !diagRefreshTimer_->isActive()) {
             diagRefreshTimer_->start();
-        } else {
-            diagRefreshTimer_->stop();
+        }
+        if (index == 2) {
+            refreshDiagTable();
         }
     }
     // Force update of the view when switching tabs to ensure the new widget is painted
@@ -2278,6 +2316,7 @@ void AnalysisView::setupDiagnosticTab() {
     auto* titleLabel = new QLabel("Camera Diagnostics", diagnosticTab_);
     titleLabel->setStyleSheet(QString(
         "color: %1; font-size: 16px; font-weight: bold;").arg(tc.primary));
+    titleLabel->setToolTip("Shows live camera health. RAM Frames are EventController ring-buffer frames currently held in host RAM. Drops/Stream Health are based on incomplete grabs. Basler guidance: tune Packet Size, Inter-Packet Delay, bandwidth, AOI, and exposure time if drops occur or resulting FPS falls below acquisition FPS.");
     controlBar->addWidget(titleLabel);
     controlBar->addStretch();
 
@@ -2305,7 +2344,7 @@ void AnalysisView::setupDiagnosticTab() {
     const QStringList headers = {
         "ID", "Name", "Temp (C)", "FPS", "Shutter [us]",
         "Gain", "Gamma", "WDR High", "WDR Low",
-        "Buf Frames", "Buf [MB]"
+        "RAM Frames", "RAM [MB]", "Drops", "Stream Health"
     };
 
     diagTable_ = new QTableWidget(0, headers.size(), diagnosticTab_);
@@ -2330,8 +2369,10 @@ void AnalysisView::setupDiagnosticTab() {
     diagTable_->setColumnWidth(6, 65);   // Gamma
     diagTable_->setColumnWidth(7, 80);   // WDR High
     diagTable_->setColumnWidth(8, 80);   // WDR Low
-    diagTable_->setColumnWidth(9, 85);   // Buf Frames
-    diagTable_->setColumnWidth(10, 80);  // Buf MB
+    diagTable_->setColumnWidth(9, 95);   // RAM Frames
+    diagTable_->setColumnWidth(10, 85);  // RAM MB
+    diagTable_->setColumnWidth(11, 90);  // Drops
+    diagTable_->setColumnWidth(12, 140); // Stream Health
     diagTable_->horizontalHeader()->setStretchLastSection(true);
 
     // Stylesheet (re-use project table style)
@@ -2346,9 +2387,10 @@ void AnalysisView::setupDiagnosticTab() {
     connect(diagRefreshBtn_, &QPushButton::clicked, this, &AnalysisView::refreshDiagTable);
     connect(diagAutoRefreshChk_, &QCheckBox::toggled, this, &AnalysisView::onDiagAutoRefreshToggled);
 
-    // Start auto-refresh by default once CameraManager is attached and the tab is shown.
-    // Avoid live camera polling during widget construction because startup camera state
-    // may still be changing in the background.
+    // Start auto-refresh by default.
+    if (diagAutoRefreshChk_->isChecked()) {
+        diagRefreshTimer_->start();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2417,7 +2459,7 @@ void AnalysisView::refreshDiagTable() {
         if (info.source == 2) {
             diagTable_->setItem(row, 0,  makeItem(QString::number(info.id)));
             diagTable_->setItem(row, 1,  makeItem(info.name));
-            for (int col = 2; col <= 10; ++col)
+            for (int col = 2; col <= 12; ++col)
                 diagTable_->setItem(row, col, makeNA());
             applyRowColors(row, QColor(55, 55, 55, 140), QColor(tc.border));
             continue;
@@ -2428,13 +2470,17 @@ void AnalysisView::refreshDiagTable() {
         double fps   = 0.0;
         CameraManager::CameraParams p;
         bool isConnected = false;
+        uint64_t dropCount = 0;
+        uint64_t consecutiveDrops = 0;
 
         if (cameraManager_ && configIndex >= 0) {
-            isConnected  = cameraManager_->isCameraConnected(configIndex);
+            isConnected  = cameraManager_->isCameraConnected(configIndex) || cameraManager_->isCameraOpen(configIndex);
             if (isConnected) {
                 temperature = cameraManager_->getTemperature(configIndex);
                 fps         = cameraManager_->getCameraFps(configIndex);
                 p           = cameraManager_->getCameraParams(configIndex);
+                dropCount   = cameraManager_->getIncompleteGrabCount(configIndex);
+                consecutiveDrops = cameraManager_->getConsecutiveIncompleteGrabCount(configIndex);
             }
         } else {
             // Fallback: static config values
@@ -2485,20 +2531,50 @@ void AnalysisView::refreshDiagTable() {
             ? makeItem(QString::number(p.wdrLow, 'f', 2))
             : makeNA());
 
-        // Col 9: Buffer Frames (live Pylon output queue depth)
-        diagTable_->setItem(row, 9, (cameraManager_ && isConnected)
-            ? makeItem(QString::number(p.outputQueueDepth))
-            : makeNA());
+        // Col 9: RAM Frames (EventController ring buffer fill/capacity)
+        const size_t ramFrames = EventController::instance().getBufferedFrameCount(info.id);
+        const size_t ramCapacity = EventController::instance().getBufferCapacity(info.id);
+        if (ramCapacity > 0) {
+            auto* ramItem = makeItem(QString("%1 / %2").arg(ramFrames).arg(ramCapacity));
+            ramItem->setToolTip("Frames currently held in host RAM ring buffer (pre/post-trigger).");
+            diagTable_->setItem(row, 9, ramItem);
+        } else {
+            diagTable_->setItem(row, 9, makeItem("0 / 0"));
+        }
 
-        // Col 10: Buffer [MB] — outputQueueDepth × W × H × bpp / 1 048 576
-        if (cameraManager_ && isConnected && p.width > 0 && p.height > 0) {
-            double mb = static_cast<double>(p.outputQueueDepth)
-                      * p.width * p.height * p.bpp
-                      / (1024.0 * 1024.0);
+        // Col 10: RAM [MB] — ramFrames × W × H × bpp / 1 048 576
+        const int width = (p.width > 0) ? p.width : info.width;
+        const int height = (p.height > 0) ? p.height : info.height;
+        int bpp = (p.bpp > 0) ? p.bpp : 1;
+        if (bpp <= 1) {
+            const QString fmt = info.pixelFormat.toUpper();
+            if (fmt.contains("12") || fmt.contains("16")) {
+                bpp = 2;
+            } else if (fmt.contains("RGB") || fmt.contains("BGR")) {
+                bpp = 3;
+            }
+        }
+
+        if (width > 0 && height > 0) {
+            double mb = static_cast<double>(ramFrames) * width * height * bpp / (1024.0 * 1024.0);
             diagTable_->setItem(row, 10, makeItem(QString::number(mb, 'f', 2)));
         } else {
             diagTable_->setItem(row, 10, makeNA());
         }
+
+        const QString dropText = (cameraManager_ && isConnected)
+            ? QString("%1 / %2").arg(dropCount).arg(consecutiveDrops)
+            : QString("N/A");
+        diagTable_->setItem(row, 11, (cameraManager_ && isConnected)
+            ? makeItem(dropText)
+            : makeNA());
+
+        const QString healthText = (cameraManager_ && isConnected)
+            ? (consecutiveDrops > 0 ? QString("WARNING") : (dropCount > 0 ? QString("Recovered") : QString("OK")))
+            : QString("Offline");
+        diagTable_->setItem(row, 12, (cameraManager_ && isConnected)
+            ? makeItem(healthText)
+            : makeItem(healthText));
 
         if (cameraManager_) {
             if (isConnected) {
@@ -2517,6 +2593,24 @@ void AnalysisView::refreshDiagTable() {
                     tempItem->setBackground(QColor(0xFF, 0x40, 0x40, 160));
                 else if (st == CameraManager::TS_Critical)
                     tempItem->setBackground(QColor(0xFF, 0xAA, 0x00, 160));
+            }
+        }
+
+        QTableWidgetItem* healthItem = diagTable_->item(row, 12);
+        if (healthItem) {
+            healthItem->setToolTip("OK: no incomplete grabs. Recovered: drops occurred earlier. WARNING: ongoing incomplete grabs (usually bandwidth/packet timing/exposure load issue).");
+            if (healthText == "WARNING") {
+                healthItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
+                healthItem->setForeground(QColor("#1A1A1A"));
+            } else if (healthText == "Recovered") {
+                healthItem->setBackground(QColor(0xFF, 0xD3, 0x6B, 140));
+                healthItem->setForeground(QColor("#2B2B2B"));
+            } else if (healthText == "OK") {
+                healthItem->setBackground(QColor(0x57, 0xD3, 0x7C, 140));
+                healthItem->setForeground(QColor("#103218"));
+            } else {
+                healthItem->setBackground(QColor(0x90, 0x35, 0x35, 120));
+                healthItem->setForeground(QColor("#F2C2C2"));
             }
         }
     }

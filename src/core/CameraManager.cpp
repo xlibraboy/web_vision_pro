@@ -297,6 +297,20 @@ bool CameraManager::isCameraOpen(int configArrayIndex) const {
     return camera && camera->IsPylonDeviceAttached() && camera->IsOpen();
 }
 
+uint64_t CameraManager::getIncompleteGrabCount(int configArrayIndex) const {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return 0;
+    }
+    return cameraRuntimes_[configArrayIndex].incompleteGrabCount;
+}
+
+uint64_t CameraManager::getConsecutiveIncompleteGrabCount(int configArrayIndex) const {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return 0;
+    }
+    return cameraRuntimes_[configArrayIndex].consecutiveIncompleteGrabCount;
+}
+
 bool CameraManager::isCameraRunning(int configArrayIndex) const {
     const auto* camera = getCameraByConfigIndex(configArrayIndex);
     return cameraRuntimes_.size() > static_cast<size_t>(configArrayIndex)
@@ -1569,10 +1583,21 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                             // Extract Metadata via NodeMap
                             GenApi::INodeMap& chunkNodeMap = ptrGrabResult->GetChunkDataNodeMap();
                             
-                            // Timestamp
+                            // Timestamp. Basler GigE chunk timestamps are camera clock ticks.
+                            // Convert to nanoseconds using GevTimestampTickFrequency when available
+                            // (scout documentation states 8 ns ticks, i.e. 125 MHz).
                             GenApi::CIntegerPtr ptrTs(chunkNodeMap.GetNode("ChunkTimestamp"));
                             if (IsReadable(ptrTs)) {
-                                timestamp = ptrTs->GetValue();
+                                const int64_t rawTimestampTicks = ptrTs->GetValue();
+                                double tickFrequencyHz = 125000000.0; // safe scout GigE fallback: 1 tick = 8 ns
+                                try {
+                                    GenApi::INodeMap& cameraNodeMap = camera->GetNodeMap();
+                                    GenApi::CIntegerPtr ptrTickFreq(cameraNodeMap.GetNode("GevTimestampTickFrequency"));
+                                    if (IsReadable(ptrTickFreq) && ptrTickFreq->GetValue() > 0) {
+                                        tickFrequencyHz = static_cast<double>(ptrTickFreq->GetValue());
+                                    }
+                                } catch (...) {}
+                                timestamp = static_cast<int64_t>((static_cast<double>(rawTimestampTicks) * 1000000000.0) / tickFrequencyHz);
                             }
                             
                             // Frame Counter
@@ -1606,6 +1631,7 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     int height = ptrGrabResult->GetHeight();
 
                     if (width > 0 && height > 0 && pImageBuffer) {
+                        cameraRuntimes_[configArrayIndex].consecutiveIncompleteGrabCount = 0;
                         cv::Mat displayFrame;
                         cv::Mat wrapper(height, width, CV_8UC1, (void*)pImageBuffer);
                         
@@ -1678,6 +1704,8 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                         std::cout << "[CameraManager] Invalid frame: " << width << "x" << height << " Buffer: " << (pImageBuffer ? "OK" : "NULL") << std::endl;
                     }
                 } else {
+                    cameraRuntimes_[configArrayIndex].incompleteGrabCount++;
+                    cameraRuntimes_[configArrayIndex].consecutiveIncompleteGrabCount++;
                     std::cerr << "[CameraManager] Grab failed: " 
                               << ptrGrabResult->GetErrorDescription() << std::endl;
                               

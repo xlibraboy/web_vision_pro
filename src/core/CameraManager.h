@@ -161,7 +161,9 @@ public:
     bool loadParameters(int configArrayIndex);
     void saveParametersForAll(const std::vector<CameraInfo>& cameras);
 
-    // GigE Network Configuration
+    // GigE Network / Stream Health
+    uint64_t getIncompleteGrabCount(int configArrayIndex) const;
+    uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
     static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
 
@@ -173,6 +175,8 @@ private:
         int configId = -1;
         int source = 2;
         bool connected = false;
+        uint64_t incompleteGrabCount = 0;
+        uint64_t consecutiveIncompleteGrabCount = 0;
     };
 
     // Helper to configure camera parameters (resolution, PTP, transport tuning)

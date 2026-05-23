@@ -39,6 +39,10 @@ public:
     // Check if currently saving
     bool isSaving() const;
 
+    // Live RAM buffer diagnostics (cameraId is 1-based config ID)
+    size_t getBufferedFrameCount(int cameraId);
+    size_t getBufferCapacity(int cameraId);
+
     // Callback for when event is saved (timestamp, triggerIndex, totalFrames)
     using EventSavedCallback = std::function<void(const std::string&, int, int)>;
     void setEventSavedCallback(EventSavedCallback callback);

@@ -4,6 +4,7 @@
 #include <QString>
 #include <map>
 #include <mutex>
+#include "RawFormat.h"
 
 /**
  * VideoStreamReader - On-demand video frame loader
@@ -28,6 +29,7 @@ public:
     double getFps() const { return fps_; }
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
+    bool getFrameMetadata(int frameIndex, FrameMetadata& metadata);
     
     // Clear cache
     void clearCache();
