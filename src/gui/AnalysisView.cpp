@@ -640,6 +640,33 @@ void AnalysisView::setupMainArea() {
         "QTabBar::tab:selected { background: %2; color: %5; border-bottom: 2px solid %6; }"
         "QTabBar::tab:hover { background: %3; }"
     ).arg(tc.border, tc.bg, tc.btnBg, tc.text, tc.text, tc.primary));
+
+    // Metadata selector lives in the tab header empty space. It is visible for
+    // All Camera and Camera detail tabs, and hidden on Diagnostic.
+    metadataHeaderWidget_ = new QWidget(tabWidget_);
+    auto metadataLayout = new QHBoxLayout(metadataHeaderWidget_);
+    metadataLayout->setContentsMargins(6, 0, 6, 0);
+    metadataLayout->setSpacing(6);
+    auto metadataLabel = new QLabel("Metadata:", metadataHeaderWidget_);
+    metadataDisplayCombo_ = new QComboBox(metadataHeaderWidget_);
+    metadataDisplayCombo_->setToolTip("Select metadata shown on camera review overlays.");
+    metadataDisplayCombo_->addItem("None", "none");
+    metadataDisplayCombo_->addItem("Standard", "standard");
+    metadataDisplayCombo_->addItem("Timestamp + Frame Counter", "full");
+    metadataDisplayCombo_->addItem("Timestamp Only", "timestamp");
+    metadataDisplayCombo_->addItem("Frame Counter Only", "framecounter");
+    metadataDisplayCombo_->addItem("Real Time Only", "realtime");
+    metadataDisplayCombo_->addItem("Relative Frame Only", "relative");
+    metadataDisplayCombo_->setCurrentIndex(0);
+    metadataDisplayCombo_->setFixedWidth(220);
+    metadataLayout->addWidget(metadataLabel);
+    metadataLayout->addWidget(metadataDisplayCombo_);
+    tabWidget_->setCornerWidget(metadataHeaderWidget_, Qt::TopRightCorner);
+    connect(metadataDisplayCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        if (isReviewMode_ && playbackSlider_) {
+            onSliderMoved(playbackSlider_->value());
+        }
+    });
     
     // Tab 1: All Camera
     allCameraTab_ = new QWidget();
@@ -728,9 +755,15 @@ void AnalysisView::applyAnalysisViewStyle() {
 }
 
 void AnalysisView::setupCameraGrid(QWidget* container) {
-    auto layout = new QGridLayout(container);
-    layout->setSpacing(4);
-    layout->setContentsMargins(4, 4, 4, 4);
+    auto rootLayout = new QVBoxLayout(container);
+    rootLayout->setContentsMargins(4, 4, 4, 4);
+    rootLayout->setSpacing(4);
+
+    auto gridContainer = new QWidget(container);
+    cameraGridLayout_ = new QGridLayout(gridContainer);
+    cameraGridLayout_->setSpacing(4);
+    cameraGridLayout_->setContentsMargins(0, 0, 0, 0);
+    rootLayout->addWidget(gridContainer, 1);
     
     // Calculate grid dimensions
     int cols = 4;
@@ -738,24 +771,24 @@ void AnalysisView::setupCameraGrid(QWidget* container) {
     
     for (int i = 0; i < numCameras_; ++i) {
         QString label = CameraConfig::getCameraLabel(i);
-        auto widget = new AnalysisVideoWidget(i, label, container);
+        auto widget = new AnalysisVideoWidget(i, label, gridContainer);
         connect(widget, &AnalysisVideoWidget::clicked, this, &AnalysisView::onCameraClicked);
         
         int row = i / cols;
         int col = i % cols;
-        layout->addWidget(widget, row, col);
+        cameraGridLayout_->addWidget(widget, row, col);
         cameraWidgets_.push_back(widget);
     }
     
     // Set equal stretch for all rows and columns
-    for (int i = 0; i < rows; ++i) layout->setRowStretch(i, 1);
-    for (int i = 0; i < cols; ++i) layout->setColumnStretch(i, 1);
+    for (int i = 0; i < rows; ++i) cameraGridLayout_->setRowStretch(i, 1);
+    for (int i = 0; i < cols; ++i) cameraGridLayout_->setColumnStretch(i, 1);
 }
 
 void AnalysisView::setCameraCount(int count) {
     if (count == numCameras_) return;
     
-    auto layout = qobject_cast<QGridLayout*>(allCameraTab_->layout());
+    auto layout = cameraGridLayout_;
     if (!layout) return;
     
     int cols = 4;
@@ -764,7 +797,7 @@ void AnalysisView::setCameraCount(int count) {
     if (count > numCameras_) {
         for (int i = numCameras_; i < count; ++i) {
             QString label = CameraConfig::getCameraLabel(i);
-            auto widget = new AnalysisVideoWidget(i, label, allCameraTab_);
+            auto widget = new AnalysisVideoWidget(i, label, layout->parentWidget());
             connect(widget, &AnalysisVideoWidget::clicked, this, &AnalysisView::onCameraClicked);
             
             int row = i / cols;
@@ -1171,6 +1204,10 @@ void AnalysisView::updateDynamicTab(int cameraId) {
 }
 
 void AnalysisView::onTabChanged(int index) {
+    if (metadataHeaderWidget_) {
+        metadataHeaderWidget_->setVisible(index == 0 || index == 1);
+    }
+
     // Keep diagnostics live; force an immediate refresh when switching to the tab.
     if (diagRefreshTimer_ && diagAutoRefreshChk_) {
         if (diagAutoRefreshChk_->isChecked() && !diagRefreshTimer_->isActive()) {
@@ -1298,26 +1335,44 @@ void AnalysisView::onSliderMoved(int value) {
 }
 
 QString AnalysisView::getMetadataOverlayText(int frameIndex, double relativeFrame) {
-    if (frameIndex < 0 || frameIndex >= (int)frameMetadata_.size()) {
-        return QString("REC: %1").arg(relativeFrame, 0, 'f', 1);
+    const QString relativeText = QString("REC: %1").arg(relativeFrame, 0, 'f', 1);
+    const QString mode = metadataDisplayCombo_ ? metadataDisplayCombo_->currentData().toString() : QString("standard");
+
+    if (mode == "none") {
+        return QString();
+    }
+
+    if (mode == "relative" || frameIndex < 0 || frameIndex >= (int)frameMetadata_.size()) {
+        return relativeText;
     }
 
     const auto& meta = frameMetadata_[frameIndex];
-    QString text = QString("REC: %1").arg(relativeFrame, 0, 'f', 1); // 1 decimal for relative
-    
-    // Add Hardware Timestamp and Frame Counter
-    text += QString("  |  TS: %1  |  FC: %2").arg(meta.displayTime).arg(meta.frameCounter);
-    
-    // Add Calculated Real-World Time if valid
+
+    QString realTimeText;
     if (eventBaseTime_.isValid() && triggerFrameIndex_ >= 0 && triggerFrameIndex_ < (int)frameMetadata_.size()) {
         int64_t triggerTs = frameMetadata_[triggerFrameIndex_].timestamp;
         int64_t currentTs = meta.timestamp;
         int64_t diffNs = currentTs - triggerTs;
-        
         QDateTime realTime = eventBaseTime_.addMSecs(diffNs / 1000000);
-        text += QString("  |  Time: %1").arg(realTime.toString("HH:mm:ss.zzz"));
+        realTimeText = realTime.toString("HH:mm:ss.zzz");
     }
-    
+
+    if (mode == "timestamp") {
+        return QString("%1  |  TS: %2").arg(relativeText, meta.displayTime);
+    }
+    if (mode == "framecounter") {
+        return QString("%1  |  FC: %2").arg(relativeText).arg(meta.frameCounter);
+    }
+    if (mode == "realtime") {
+        return realTimeText.isEmpty()
+            ? QString("%1  |  Time: N/A").arg(relativeText)
+            : QString("%1  |  Time: %2").arg(relativeText, realTimeText);
+    }
+
+    QString text = QString("%1  |  TS: %2  |  FC: %3").arg(relativeText, meta.displayTime).arg(meta.frameCounter);
+    if (!realTimeText.isEmpty()) {
+        text += QString("  |  Time: %1").arg(realTimeText);
+    }
     return text;
 }
 
@@ -2024,48 +2079,64 @@ void AnalysisView::showEvent(QShowEvent* event) {
 
 void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Clearing data to free memory..." << std::endl;
-    
+
+    std::cerr << "[AnalysisView] clearData step 1: stop playback" << std::endl;
+    isPlaying_ = false;
+    if (playbackTimer_) {
+        playbackTimer_->stop();
+    }
     isReviewMode_ = false;
     isStreamingMode_ = false;
     currentFrame_ = 0;
     triggerFrameIndex_ = 0;
-    
-    // Clear in-memory sequences
-    recordedSequence_.clear();
-    frameMetadata_.clear();
-    
-    // Clear and close video readers
-    videoReaders_.clear();
-    
-    // Reset UI
-    playbackSlider_->setValue(0);
-    isStreamingMode_ = false;
-    isReviewMode_ = false;
-    
-    // 3. Cancel any async loading
+
+    // Cancel async loading before releasing frame/video storage.
+    std::cerr << "[AnalysisView] clearData step 2: cancel async" << std::endl;
     if (tiffLoaderWatcher_ && tiffLoaderWatcher_->isRunning()) {
         tiffLoaderWatcher_->cancel();
         tiffLoaderWatcher_->waitForFinished();
     }
-    
-    // 4. Reset UI State
-    currentFrame_ = 0;
+
+    // Reset UI with slider signals blocked to avoid re-entering review rendering while
+    // readers/metadata are being released.
+    std::cerr << "[AnalysisView] clearData step 3: reset slider" << std::endl;
+    if (playbackSlider_) {
+        const bool blocked = playbackSlider_->blockSignals(true);
+        playbackSlider_->setRange(0, 10000);
+        playbackSlider_->setValue(0);
+        playbackSlider_->blockSignals(blocked);
+    }
+    if (frameInput_) {
+        frameInput_->setText("0.0");
+    }
+    if (sliderZeroMarker_) {
+        sliderZeroMarker_->hide();
+    }
+
     totalFrames_ = 1000;
-    playbackSlider_->setValue(0);
-    playbackSlider_->setRange(0, 10000);
-    frameInput_->setText("0.0");
-    
-    // Clear camera widgets
+
+    std::cerr << "[AnalysisView] clearData step 4: clear widgets" << std::endl;
+    // Clear camera widgets before closing readers so the UI no longer references review frames.
     QImage empty;
     for (auto* widget : cameraWidgets_) {
-        widget->setFrame(empty);
-        widget->setTimestamp(""); // Clear timestamp
+        if (widget) {
+            widget->setFrame(empty);
+            widget->setTimestamp("");
+        }
     }
     if (selectedCameraWidget_) {
         selectedCameraWidget_->setFrame(empty);
-        selectedCameraWidget_->setTimestamp(""); // Clear timestamp
+        selectedCameraWidget_->setTimestamp("");
     }
-    
+
+    std::cerr << "[AnalysisView] clearData step 5: clear sequences" << std::endl;
+    recordedSequence_.clear();
+    frameMetadata_.clear();
+    std::cerr << "[AnalysisView] clearData step 6: clear readers" << std::endl;
+    videoReaders_.clear();
+    std::cerr << "[AnalysisView] clearData step 7: update controls" << std::endl;
+    updatePlaybackControlsState();
+
     std::cout << "[AnalysisView] Data cleared." << std::endl;
 }
 

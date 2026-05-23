@@ -149,6 +149,9 @@ private:
     QWidget* allCameraTab_;
     QWidget* singleCameraTab_;
     QWidget* diagnosticTab_;
+    QGridLayout* cameraGridLayout_ = nullptr;
+    QWidget* metadataHeaderWidget_ = nullptr;
+    QComboBox* metadataDisplayCombo_ = nullptr;
 
     // Diagnostic tab — all-camera live data table
     QTableWidget* diagTable_         = nullptr;
