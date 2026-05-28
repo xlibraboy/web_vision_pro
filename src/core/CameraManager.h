@@ -143,6 +143,10 @@ public:
     // Pylon Feature Persistence (Save/Load .pfs per camera)
     struct CameraParams {
         double gain        = 0.0;
+        double gainMin     = 0.0;
+        double gainMax     = 24.0;
+        bool gainIsRaw     = false;
+        QString gainDisplayName = "Gain";
         double exposureUs  = 5000.0;
         double exposureMinUs = 100.0;
         double exposureMaxUs = 1000000.0;
@@ -180,7 +184,7 @@ private:
     };
 
     // Helper to configure camera parameters (resolution, PTP, transport tuning)
-    void configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation);
+    void configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation, bool preserveStartupUserSet = false);
     
     // Vision Pipeline (Blur -> Threshold -> Canny)
     void processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex);

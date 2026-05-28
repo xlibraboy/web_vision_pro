@@ -149,8 +149,13 @@ void EventController::triggerEvent() {
     // Add Milliseconds to Event ID for higher precision
     currentTimestamp_ = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz").toStdString();
     
+    currentEventCameraLabels_.clear();
     for (auto& pair : cameraStates_) {
         pair.second.postFramesRecorded = 0;
+        const int configIndex = pair.first - 1;
+        if (configIndex >= 0 && configIndex < CameraConfig::getCameraCount()) {
+            currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
+        }
     }
     
     triggering_ = true;
@@ -193,6 +198,7 @@ void EventController::saveWorker() {
             // Swap to local queues per camera
             std::map<int, std::deque<FrameData>> framesToSave;
             std::map<int, int> triggerIndices;
+            std::map<int, QString> eventCameraLabels;
             
             {
                 std::lock_guard<std::mutex> bufferLock(bufferMutex_);
@@ -200,6 +206,7 @@ void EventController::saveWorker() {
                     framesToSave[pair.first].swap(pair.second.saveQueue);
                     triggerIndices[pair.first] = pair.second.linearizedTriggerIndex;
                 }
+                eventCameraLabels = currentEventCameraLabels_;
             }
             
             saveRequested_ = false;
@@ -255,6 +262,20 @@ void EventController::saveWorker() {
                 event.fps = fps_;
                 event.width = primaryWidth;
                 event.height = primaryHeight;
+                int highestCameraId = 0;
+                for (const auto& pair : framesToSave) {
+                    if (!pair.second.empty()) {
+                        highestCameraId = std::max(highestCameraId, pair.first);
+                    }
+                }
+                if (highestCameraId > 0) {
+                    event.cameraLabels.reserve(highestCameraId);
+                    for (int cameraId = 1; cameraId <= highestCameraId; ++cameraId) {
+                        event.cameraLabels.append(eventCameraLabels.count(cameraId)
+                            ? eventCameraLabels[cameraId]
+                            : QString());
+                    }
+                }
                 
                 EventDatabase::instance().registerEvent(event);
 

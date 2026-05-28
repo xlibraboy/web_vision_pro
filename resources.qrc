@@ -12,5 +12,9 @@
     <file>assets/icons/Step Forward.svg</file>
     <file>assets/icons/Go to End.svg</file>
     <file>assets/icons/Zero Marker.svg</file>
+    <file>assets/icons/marker_pen.svg</file>
+    <file>assets/icons/marker_square.svg</file>
+    <file>assets/icons/marker_round.svg</file>
+    <file>assets/icons/marker_arrow.svg</file>
 </qresource>
 </RCC>

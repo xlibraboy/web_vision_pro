@@ -9,6 +9,7 @@
 #include <functional>
 #include <atomic>
 #include <condition_variable>
+#include <map>
 #include <QString>
 #include <cstdint>
 
@@ -83,6 +84,7 @@ private:
     std::atomic<bool> triggering_;
     
     std::string currentTimestamp_;
+    std::map<int, QString> currentEventCameraLabels_;
 
     // Threading
     std::thread saveThread_;

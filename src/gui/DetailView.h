@@ -26,6 +26,8 @@ public:
     void updateTemperature(double temp);
     // Update spinboxes/sliders from live camera readback (e.g. after PFS load)
     void setParameterValues(double gain, double exposureUs, double gamma, double contrast);
+    void setGainPresentation(const QString& title, bool isRaw);
+    void setGainRange(double minGain, double maxGain);
     void setExposureRange(int minUs, int maxUs);
     void setAcquisitionFps(double fps);
     // Update Display FPS label (called when user selects a camera)
@@ -73,6 +75,7 @@ private:
 
     // Parameter Controls
     QGroupBox* controlGroup_;
+    QGroupBox* gainGroup_ = nullptr;
     QDoubleSpinBox* spinGain_;
     QSlider* sliderGain_;
     
@@ -92,5 +95,6 @@ private:
     QPushButton* btnSnapshot_; // Added missing member
 
     bool isAdmin_;
+    bool gainIsRaw_ = false;
     int currentCameraId_ = -1;
 };

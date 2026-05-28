@@ -3,6 +3,7 @@
 #include <iostream>
 #include <chrono>
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <memory>
 #include <pylon/gige/GigETransportLayer.h>
@@ -47,6 +48,158 @@ int clampNodeValue(GenApi::CIntegerPtr node, int requested, const char* nodeName
 
     node->SetValue(clamped);
     return clamped;
+}
+
+enum class GainNodeKind {
+    None,
+    Gain,
+    GainAbs,
+    GainRaw
+};
+
+const char* gainNodeDisplayName(GainNodeKind kind) {
+    switch (kind) {
+    case GainNodeKind::Gain:
+        return "Gain";
+    case GainNodeKind::GainAbs:
+        return "Gain Abs";
+    case GainNodeKind::GainRaw:
+        return "Gain Raw";
+    default:
+        return "Gain";
+    }
+}
+
+bool tryReadGainValue(GenApi::INodeMap& nodemap, double& gain, double* minGain = nullptr, double* maxGain = nullptr, GainNodeKind* kind = nullptr) {
+    try {
+        GenApi::CFloatPtr gainNode(nodemap.GetNode("Gain"));
+        if (gainNode && IsReadable(gainNode)) {
+            gain = gainNode->GetValue();
+            if (minGain) *minGain = gainNode->GetMin();
+            if (maxGain) *maxGain = gainNode->GetMax();
+            if (kind) *kind = GainNodeKind::Gain;
+            return true;
+        }
+    } catch (...) {}
+
+    try {
+        GenApi::CFloatPtr gainAbsNode(nodemap.GetNode("GainAbs"));
+        if (gainAbsNode && IsReadable(gainAbsNode)) {
+            gain = gainAbsNode->GetValue();
+            if (minGain) *minGain = gainAbsNode->GetMin();
+            if (maxGain) *maxGain = gainAbsNode->GetMax();
+            if (kind) *kind = GainNodeKind::GainAbs;
+            return true;
+        }
+    } catch (...) {}
+
+    try {
+        GenApi::CIntegerPtr gainRawNode(nodemap.GetNode("GainRaw"));
+        if (gainRawNode && IsReadable(gainRawNode)) {
+            gain = static_cast<double>(gainRawNode->GetValue());
+            if (minGain) *minGain = static_cast<double>(gainRawNode->GetMin());
+            if (maxGain) *maxGain = static_cast<double>(gainRawNode->GetMax());
+            if (kind) *kind = GainNodeKind::GainRaw;
+            return true;
+        }
+    } catch (...) {}
+
+    return false;
+}
+
+bool tryWriteGainValue(GenApi::INodeMap& nodemap, double gain) {
+    try {
+        GenApi::CFloatPtr gainNode(nodemap.GetNode("Gain"));
+        if (gainNode && IsWritable(gainNode)) {
+            gainNode->SetValue(std::max(gainNode->GetMin(), std::min(gain, gainNode->GetMax())));
+            return true;
+        }
+    } catch (...) {}
+
+    try {
+        GenApi::CFloatPtr gainAbsNode(nodemap.GetNode("GainAbs"));
+        if (gainAbsNode && IsWritable(gainAbsNode)) {
+            gainAbsNode->SetValue(std::max(gainAbsNode->GetMin(), std::min(gain, gainAbsNode->GetMax())));
+            return true;
+        }
+    } catch (...) {}
+
+    try {
+        GenApi::CIntegerPtr gainRawNode(nodemap.GetNode("GainRaw"));
+        if (gainRawNode && IsWritable(gainRawNode)) {
+            const int requested = static_cast<int>(std::llround(gain));
+            const int minValue = static_cast<int>(gainRawNode->GetMin());
+            const int maxValue = static_cast<int>(gainRawNode->GetMax());
+            const int increment = std::max(1, static_cast<int>(gainRawNode->GetInc()));
+            int clamped = std::clamp(requested, minValue, maxValue);
+            if (increment > 1) {
+                clamped = minValue + ((clamped - minValue) / increment) * increment;
+                clamped = std::clamp(clamped, minValue, maxValue);
+            }
+            gainRawNode->SetValue(clamped);
+            return true;
+        }
+    } catch (...) {}
+
+    return false;
+}
+
+void loadCameraDefaultUserSet(Pylon::CInstantCamera& camera) {
+    try {
+        if (!camera.IsPylonDeviceAttached() || !camera.IsOpen()) {
+            return;
+        }
+
+        GenApi::INodeMap& nodemap = camera.GetNodeMap();
+
+        try {
+            GenApi::CEnumerationPtr userSetDefault(nodemap.GetNode("UserSetDefault"));
+            if (userSetDefault && IsWritable(userSetDefault)
+                && GenApi::IsAvailable(userSetDefault->GetEntryByName("Default"))) {
+                userSetDefault->FromString("Default");
+                std::cout << "[CameraManager] UserSetDefault -> Default" << std::endl;
+            }
+        } catch (...) {}
+
+        try {
+            GenApi::CEnumerationPtr userSetDefaultSelector(nodemap.GetNode("UserSetDefaultSelector"));
+            if (userSetDefaultSelector && IsWritable(userSetDefaultSelector)
+                && GenApi::IsAvailable(userSetDefaultSelector->GetEntryByName("Default"))) {
+                userSetDefaultSelector->FromString("Default");
+                std::cout << "[CameraManager] UserSetDefaultSelector -> Default" << std::endl;
+            }
+        } catch (...) {}
+
+        GenApi::CEnumerationPtr userSetSelector(nodemap.GetNode("UserSetSelector"));
+        GenApi::CCommandPtr userSetLoad(nodemap.GetNode("UserSetLoad"));
+        if (userSetSelector && IsWritable(userSetSelector)
+            && userSetLoad && IsWritable(userSetLoad)
+            && GenApi::IsAvailable(userSetSelector->GetEntryByName("Default"))) {
+            userSetSelector->FromString("Default");
+            userSetLoad->Execute();
+            std::cout << "[CameraManager] Loaded UserSet Default into active set" << std::endl;
+
+            double gainValue = 0.0;
+            double exposureValue = 0.0;
+            GainNodeKind gainKind = GainNodeKind::None;
+            if (tryReadGainValue(nodemap, gainValue, nullptr, nullptr, &gainKind)) {
+                std::cout << "[CameraManager] Startup user set " << gainNodeDisplayName(gainKind)
+                          << "=" << gainValue << std::endl;
+            }
+            try {
+                GenApi::CFloatPtr exposureNode(nodemap.GetNode("ExposureTimeAbs"));
+                if ((!exposureNode || !IsReadable(exposureNode)) && nodemap.GetNode("ExposureTime")) {
+                    exposureNode = GenApi::CFloatPtr(nodemap.GetNode("ExposureTime"));
+                }
+                if (exposureNode && IsReadable(exposureNode)) {
+                    exposureValue = exposureNode->GetValue();
+                    std::cout << "[CameraManager] Startup user set exposure=" << exposureValue << std::endl;
+                }
+            } catch (...) {}
+        }
+    } catch (const Pylon::GenericException& e) {
+        std::cout << "[CameraManager] User set default load skipped: " << e.GetDescription() << std::endl;
+    }
 }
 }
 
@@ -362,7 +515,10 @@ bool CameraManager::startCamera(int configArrayIndex, const CameraInfo& config) 
         if (!camera->IsOpen()) {
             camera->Open();
         }
-        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        if (camera->GetDeviceInfo().GetDeviceClass() != "BaslerCamEmu") {
+            loadCameraDefaultUserSet(*camera);
+        }
+        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu", true);
         if (!camera->IsGrabbing()) {
             camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
         }
@@ -393,7 +549,10 @@ bool CameraManager::applyCameraDeviceSettings(int configArrayIndex, const Camera
         if (!camera->IsOpen()) {
             camera->Open();
         }
-        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        if (camera->GetDeviceInfo().GetDeviceClass() != "BaslerCamEmu") {
+            loadCameraDefaultUserSet(*camera);
+        }
+        configureCamera(camera->GetNodeMap(), config, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu", false);
         setCameraFrameRate(configArrayIndex, config.fps, config.enableAcquisitionFps);
         return true;
     } catch (const GenericException& e) {
@@ -525,13 +684,21 @@ void CameraManager::setCameraGain(int cameraIndex, double gain) {
         return;
     }
     
-    if (cameraIndex < (int)swGain_.size()) swGain_[cameraIndex] = std::max(0.0, gain);
+    // Gain in this UI is a hardware camera parameter, not a software preview multiplier.
+    // In particular, older Basler cameras can expose GainRaw values like 320..1023.
+    // Feeding those raw values into swGain_ would behave like a 320x software gain LUT
+    // and blow the image out to white. Keep software preview gain neutral here.
+    if (cameraIndex < (int)swGain_.size()) swGain_[cameraIndex] = 1.0;
     if (cameraIndex < (int)lutValid_.size()) lutValid_[cameraIndex] = false;
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
-            Pylon::CFloatParameter(nodemap, "Gain").SetValue(gain);
-            std::cout << "[CameraManager] setCameraGain: cam=" << cameraIndex << " gain=" << gain << " OK" << std::endl;
+            if (tryWriteGainValue(nodemap, gain)) {
+                std::cout << "[CameraManager] setCameraGain: cam=" << cameraIndex << " gain=" << gain << " OK" << std::endl;
+            } else {
+                std::cerr << "[CameraManager] setCameraGain: cam " << cameraIndex
+                          << " no writable Gain/GainAbs/GainRaw node" << std::endl;
+            }
         } else {
             std::cerr << "[CameraManager] setCameraGain: cam " << cameraIndex << " camera not open" << std::endl;
         }
@@ -605,8 +772,11 @@ CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex)
         GenApi::INodeMap& nm = camera->GetNodeMap();
 
         // Gain
-        GenApi::CFloatPtr g(nm.GetNode("Gain"));
-        if (g && IsReadable(g)) p.gain = g->GetValue();
+        GainNodeKind gainKind = GainNodeKind::None;
+        if (tryReadGainValue(nm, p.gain, &p.gainMin, &p.gainMax, &gainKind)) {
+            p.gainIsRaw = (gainKind == GainNodeKind::GainRaw);
+            p.gainDisplayName = QString::fromLatin1(gainNodeDisplayName(gainKind));
+        }
 
         // Exposure / Shutter
         GenApi::CFloatPtr e(nm.GetNode("ExposureTimeAbs"));
@@ -785,7 +955,7 @@ void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras)
     }
 }
 
-void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation) {
+void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation, bool preserveStartupUserSet) {
     try {
         // GenApi::INodeMap& nodemap = device->GetNodeMap(); // Removed, passed directly
 
@@ -905,10 +1075,14 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
         setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
-        setFloatIfWritable("ExposureTimeAbs", config.exposureTimeAbs);
-        setFloatIfWritable("ExposureTime", config.exposureTimeAbs);
-        setFloatIfWritable("ExposureTimeBaseAbs", config.exposureTimeBaseAbs);
-        setIntIfWritable("ExposureTimeRaw", config.exposureTimeRaw);
+        if (!preserveStartupUserSet) {
+            setFloatIfWritable("ExposureTimeAbs", config.exposureTimeAbs);
+            setFloatIfWritable("ExposureTime", config.exposureTimeAbs);
+            setFloatIfWritable("ExposureTimeBaseAbs", config.exposureTimeBaseAbs);
+            setIntIfWritable("ExposureTimeRaw", config.exposureTimeRaw);
+        } else {
+            std::cout << "[CameraManager] Preserving startup user set exposure values." << std::endl;
+        }
 
         // 1. Enable PTP (IEEE 1588)
         // Note: Emulated cameras might not support this, check for existence
@@ -924,10 +1098,14 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
             ptrCurrentIpConfigPersistent->SetValue(true);
         }
 
-        setBoolIfWritable("AcquisitionFrameRateEnable", config.enableAcquisitionFps);
-        setBoolIfWritable("AcquisitionFrameRateEnabled", config.enableAcquisitionFps);
-        setFloatIfWritable("AcquisitionFrameRateAbs", config.fps);
-        setFloatIfWritable("AcquisitionFrameRate", config.fps);
+        if (!preserveStartupUserSet) {
+            setBoolIfWritable("AcquisitionFrameRateEnable", config.enableAcquisitionFps);
+            setBoolIfWritable("AcquisitionFrameRateEnabled", config.enableAcquisitionFps);
+            setFloatIfWritable("AcquisitionFrameRateAbs", config.fps);
+            setFloatIfWritable("AcquisitionFrameRate", config.fps);
+        } else {
+            std::cout << "[CameraManager] Preserving startup user set frame-rate values." << std::endl;
+        }
 
 
     } catch (const GenericException& e) {
@@ -1023,6 +1201,9 @@ void CameraManager::startAcquisition() {
                 if (!camera->IsOpen()) {
                     camera->Open();
                 }
+                if (camera->GetDeviceInfo().GetDeviceClass() != "BaslerCamEmu") {
+                    loadCameraDefaultUserSet(*camera);
+                }
 
                 const CameraInfo& camConfig = configuredCams[i];
 
@@ -1036,7 +1217,7 @@ void CameraManager::startAcquisition() {
                     }
                 }
 
-                configureCamera(camera->GetNodeMap(), camConfig, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+                configureCamera(camera->GetNodeMap(), camConfig, camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu", true);
                 camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
                 anyConnected = true;
 
@@ -1201,7 +1382,10 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
         if (!camera->IsOpen()) {
             camera->Open();
         }
-        configureCamera(camera->GetNodeMap(), configuredCams[configArrayIndex], camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu");
+        if (camera->GetDeviceInfo().GetDeviceClass() != "BaslerCamEmu") {
+            loadCameraDefaultUserSet(*camera);
+        }
+        configureCamera(camera->GetNodeMap(), configuredCams[configArrayIndex], camera->GetDeviceInfo().GetDeviceClass() == "BaslerCamEmu", true);
         camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
         if (shuttingDown_) {
             stopCameraRuntime(configArrayIndex);

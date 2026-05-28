@@ -26,6 +26,8 @@
 #include <QtConcurrent>
 #include <QDateTime>
 #include <QTimer>
+#include <QJsonObject>
+#include <QStringList>
 #include <vector>
 #include <deque>
 #include <cmath>
@@ -111,6 +113,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void setupUI();
@@ -122,7 +125,9 @@ private:
     void setupDiagnosticTab();   // Build the all-camera diagnostics table
     void updateDynamicTab(int cameraId);
     void updatePlaybackControlsState(); // Enable/disable controls based on data availability
+    void updatePlaybackInfoLabel();
     void updateSliderZeroMarker();  // Position the zero marker on the slider
+    void updateAnnotationSliderMarkers();
     void setPlaybackPlaying(bool playing);
     void seekToRelativeFrame(double relativeFrame);
     
@@ -152,6 +157,14 @@ private:
     QGridLayout* cameraGridLayout_ = nullptr;
     QWidget* metadataHeaderWidget_ = nullptr;
     QComboBox* metadataDisplayCombo_ = nullptr;
+    QWidget* detailToolsWidget_ = nullptr;
+    QFrame* headerToolsSeparator_ = nullptr;
+    QCheckBox* markerToolCheck_ = nullptr;
+    QComboBox* markerShapeCombo_ = nullptr;
+    QSlider* zoomSlider_ = nullptr;
+    QSlider* brightnessSlider_ = nullptr;
+    QLabel* zoomValueLabel_ = nullptr;
+    QLabel* brightnessValueLabel_ = nullptr;
 
     // Diagnostic tab — all-camera live data table
     QTableWidget* diagTable_         = nullptr;
@@ -174,6 +187,7 @@ private:
     QWidget* playbackPanel_;
     QSlider* playbackSlider_;
     QLabel* sliderZeroMarker_;  // Visual marker at the 0 frame position
+    QVector<QLabel*> annotationSliderMarkers_;
     QToolBar* playbackToolbar_;
     QPushButton* speedButton_;
     QMenu* speedMenu_;
@@ -182,6 +196,7 @@ private:
     QPushButton* prevButton_;
     QPushButton* resetButton_;
     QLineEdit* frameInput_;
+    QLabel* playbackInfoLabel_ = nullptr;
     QPushButton* nextButton_;
     QPushButton* endButton_;
     
@@ -229,6 +244,13 @@ private:
     QString formatTimestamp(const QString& rawTs);
     QString getMetadataOverlayText(int frameIndex, double relativeFrame);
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
+    QString currentEventCameraLabel(int cameraId) const;
+    int currentReviewFrameIndex() const;
+    QString annotationKey(int cameraId, int frameIndex) const;
+    void loadEventAnnotations(const QString& videoPath);
+    void saveEventAnnotations();
+    void applyAnnotationToSelectedFrame();
+    void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
     void addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow);
     void reloadEventTables();
     void updateRecordCountLabel();
@@ -241,6 +263,9 @@ private:
     void moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent);
     QString latestAddedEventTimestamp_;
     bool suppressNewEventIndicatorClear_ = false;
+    QString currentAnnotationPath_;
+    QStringList currentEventCameraLabels_;
+    QJsonObject eventAnnotations_;
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
@@ -250,8 +275,8 @@ private:
     QTimer* playbackTimer_;  // For automatic playback
     
     // Async TIFF loading
-    QFutureWatcher<QVector<QImage>>* tiffLoaderWatcher_;
-    QProgressDialog* loadingDialog_;
+    QFutureWatcher<QVector<QImage>>* tiffLoaderWatcher_ = nullptr;
+    QProgressDialog* loadingDialog_ = nullptr;
     int pendingTriggerIndex_;  // Store trigger index during async load
     
     // triggerButton_ removed

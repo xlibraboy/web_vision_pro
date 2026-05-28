@@ -453,6 +453,8 @@ void MainWindow::setupUi() {
         if (ok) {
             // Readback current values from Pylon nodemap and refresh UI spinboxes
             auto p = cameraManager_->getCameraParams(cameraId);
+            detailView_->setGainPresentation(p.gainDisplayName, p.gainIsRaw);
+            detailView_->setGainRange(p.gainMin, p.gainMax);
             detailView_->setExposureRange(static_cast<int>(p.exposureMinUs), static_cast<int>(p.exposureMaxUs));
             detailView_->setParameterValues(p.gain, p.exposureUs, p.gamma, p.contrast);
             std::vector<CameraInfo> cameras = CameraConfig::getCameras();
@@ -701,6 +703,8 @@ void MainWindow::showDetail(int cameraId) {
         CameraManager::CameraParams liveParams = cameraManager_->getCameraParams(cameraId);
 
         detailView_->setCamera(cameraId, info, nullptr);
+        detailView_->setGainPresentation(liveParams.gainDisplayName, liveParams.gainIsRaw);
+        detailView_->setGainRange(liveParams.gainMin, liveParams.gainMax);
         detailView_->setExposureRange(static_cast<int>(liveParams.exposureMinUs), static_cast<int>(liveParams.exposureMaxUs));
         detailView_->setParameterValues(liveParams.gain, liveParams.exposureUs, liveParams.gamma, liveParams.contrast);
     } else {
@@ -892,6 +896,8 @@ void MainWindow::ensureConfigTab() {
                     cameraManager_->setCameraFrameRate(cameraIndex, info.fps, info.enableAcquisitionFps);
 
                     const CameraManager::CameraParams p = cameraManager_->getCameraParams(cameraIndex);
+                    detailView_->setGainPresentation(p.gainDisplayName, p.gainIsRaw);
+                    detailView_->setGainRange(p.gainMin, p.gainMax);
                     detailView_->setParameterValues(p.gain, info.exposureTimeAbs, p.gamma, p.contrast);
                     detailView_->setAcquisitionFps(info.fps);
                     detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraIndex));

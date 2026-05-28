@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QFile>
 #include <iostream>
 #include <algorithm>
@@ -153,6 +154,11 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
     meta["fps"] = event.fps;
     meta["width"] = event.width;
     meta["height"] = event.height;
+    QJsonArray cameraLabels;
+    for (const QString& label : event.cameraLabels) {
+        cameraLabels.append(label);
+    }
+    meta["cameraLabels"] = cameraLabels;
     meta["permanent"] = event.permanent;
     
     QJsonDocument doc(meta);
@@ -187,6 +193,10 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     event.fps = meta["fps"].toDouble();
     event.width = meta["width"].toInt();
     event.height = meta["height"].toInt();
+    const QJsonArray cameraLabels = meta["cameraLabels"].toArray();
+    for (const QJsonValue& value : cameraLabels) {
+        event.cameraLabels.append(value.toString());
+    }
     event.permanent = meta["permanent"].toBool(false);
     
     return event;
@@ -267,6 +277,12 @@ bool EventDatabase::deleteEvent(const QString& timestamp) {
     // Delete metadata file
     if (QFile::exists(info.metadataPath)) {
         QFile::remove(info.metadataPath);
+    }
+
+    // Delete per-event analysis annotation sidecar, if present.
+    QString annotationPath = QDir(dataPath_).filePath(QString("event_%1_annotations.json").arg(timestamp));
+    if (QFile::exists(annotationPath)) {
+        QFile::remove(annotationPath);
     }
     
     // Remove from registry

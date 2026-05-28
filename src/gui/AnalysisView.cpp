@@ -1,5 +1,6 @@
 #include "AnalysisView.h"
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include "widgets/AnalysisVideoWidget.h"
 #include "../config/CameraConfig.h"
 #include "../core/EventController.h"
@@ -16,13 +17,18 @@
 #include <QIcon>
 #include <QMetaObject>
 #include <QFileInfo>
+#include <QFile>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QShortcut>
 #include <QMenu>
 #include <QKeySequence>
 #include <QFrame>
 #include <QPainter>
 #include <QStyledItemDelegate>
+#include <algorithm>
 
 class LogSelectionDelegate : public QStyledItemDelegate {
 public:
@@ -344,12 +350,15 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         return;
     }
     
-    // Open video files for all possible cameras (up to max configured)
-    int maxCameras = CameraConfig::getCameraCount();
+    // Open all event camera files that actually exist on disk, not only the
+    // currently configured camera count. This preserves old multi-camera events
+    // even if the current system config now has fewer active cameras.
+    const int maxEventCameras = 16;
     videoReaders_.clear();
     
     bool anyOpened = false;
-    for (int i = 0; i < maxCameras; ++i) {
+    int highestOpenedCameraIndex = -1;
+    for (int i = 0; i < maxEventCameras; ++i) {
         int camId = i + 1;
         QString camPath = videoPath;
         
@@ -366,6 +375,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
             if (reader->open(camPath)) {
                 videoReaders_[i] = std::move(reader);
                 anyOpened = true;
+                highestOpenedCameraIndex = std::max(highestOpenedCameraIndex, i);
             }
         }
     }
@@ -375,10 +385,35 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         return;
     }
 
-    // Clear widgets for cameras that have no video file in this event
-    // (prevents stale freeze-frames from a previously viewed event)
-    for (int i = 0; i < (int)cameraWidgets_.size(); ++i) {
-        if (videoReaders_.find(i) == videoReaders_.end()) {
+    const int eventCameraCount = std::max(1, highestOpenedCameraIndex + 1);
+    if (eventCameraCount != static_cast<int>(cameraWidgets_.size())) {
+        setCameraCount(eventCameraCount);
+    }
+
+    currentEventCameraLabels_.clear();
+    QFileInfo currentEventFileInfo(videoPath);
+    QString currentEventBaseName = currentEventFileInfo.baseName();
+    if (currentEventBaseName.startsWith("event_")) {
+        QString tsStr = currentEventBaseName.mid(6);
+        const int camSuffix = tsStr.lastIndexOf("_cam");
+        if (camSuffix >= 0) {
+            tsStr = tsStr.left(camSuffix);
+        }
+        try {
+            currentEventCameraLabels_ = EventDatabase::instance().getEventInfo(tsStr).cameraLabels;
+        } catch (...) {
+            currentEventCameraLabels_.clear();
+        }
+    }
+
+    for (int i = 0; i < static_cast<int>(cameraWidgets_.size()); ++i) {
+        if (!cameraWidgets_[i]) {
+            continue;
+        }
+        if (videoReaders_.find(i) != videoReaders_.end()) {
+            cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
+        } else {
+            cameraWidgets_[i]->setTitle(QString("CAM-%1").arg(i + 1, 2, 10, QChar('0')));
             cameraWidgets_[i]->clear();
         }
     }
@@ -393,6 +428,8 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     if (!videoReaders_.empty()) {
         totalFrames_ = videoReaders_.begin()->second->getTotalFrames() - 1;
     }
+
+    loadEventAnnotations(videoPath);
 
     // Parse event base time from filename: event_yyyyMMdd_HHmmss_zzz_camN.bin
     eventBaseTime_ = QDateTime();
@@ -463,6 +500,8 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     
     updatePlaybackControlsState();
     updateSliderZeroMarker();  // Position the zero marker
+    updateAnnotationSliderMarkers();
+    updatePlaybackInfoLabel();
     
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1 
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
@@ -645,8 +684,8 @@ void AnalysisView::setupMainArea() {
     // All Camera and Camera detail tabs, and hidden on Diagnostic.
     metadataHeaderWidget_ = new QWidget(tabWidget_);
     auto metadataLayout = new QHBoxLayout(metadataHeaderWidget_);
-    metadataLayout->setContentsMargins(6, 0, 6, 0);
-    metadataLayout->setSpacing(6);
+    metadataLayout->setContentsMargins(2, 0, 2, 0);
+    metadataLayout->setSpacing(4);
     auto metadataLabel = new QLabel("Metadata:", metadataHeaderWidget_);
     metadataDisplayCombo_ = new QComboBox(metadataHeaderWidget_);
     metadataDisplayCombo_->setToolTip("Select metadata shown on camera review overlays.");
@@ -659,14 +698,18 @@ void AnalysisView::setupMainArea() {
     metadataDisplayCombo_->addItem("Relative Frame Only", "relative");
     metadataDisplayCombo_->setCurrentIndex(0);
     metadataDisplayCombo_->setFixedWidth(220);
-    metadataLayout->addWidget(metadataLabel);
-    metadataLayout->addWidget(metadataDisplayCombo_);
+    headerToolsSeparator_ = new QFrame(metadataHeaderWidget_);
+    headerToolsSeparator_->setFrameShape(QFrame::VLine);
+    headerToolsSeparator_->setFrameShadow(QFrame::Plain);
+    headerToolsSeparator_->setFixedHeight(22);
+    headerToolsSeparator_->setStyleSheet(QString("background-color: %1; border: none;").arg(tc.border));
     tabWidget_->setCornerWidget(metadataHeaderWidget_, Qt::TopRightCorner);
     connect(metadataDisplayCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         if (isReviewMode_ && playbackSlider_) {
             onSliderMoved(playbackSlider_->value());
         }
     });
+    headerToolsSeparator_->setVisible(false);
     
     // Tab 1: All Camera
     allCameraTab_ = new QWidget();
@@ -677,9 +720,114 @@ void AnalysisView::setupMainArea() {
     singleCameraTab_ = new QWidget();
     auto singleLayout = new QVBoxLayout(singleCameraTab_);
     singleLayout->setContentsMargins(4, 4, 4, 4);
+    singleLayout->setSpacing(4);
+
+    detailToolsWidget_ = new QWidget(metadataHeaderWidget_);
+    auto toolsLayout = new QHBoxLayout(detailToolsWidget_);
+    toolsLayout->setContentsMargins(0, 2, 0, 2);
+    toolsLayout->setSpacing(6);
+
+    markerToolCheck_ = new QCheckBox("Marker", detailToolsWidget_);
+    markerToolCheck_->setToolTip("Enable marker tool, then draw on the detail image.");
+
+    markerShapeCombo_ = new QComboBox(detailToolsWidget_);
+    markerShapeCombo_->setToolTip("Marker drawing type");
+    markerShapeCombo_->setIconSize(QSize(16, 16));
+    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_pen.svg"), "Pen", "pen");
+    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_square.svg"), "Square", "rectangle");
+    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_round.svg"), "Round", "circle");
+    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_arrow.svg"), "Arrow", "arrow");
+    markerShapeCombo_->setFixedWidth(118);
+
+    auto zoomLabel = new QLabel("Zoom:", detailToolsWidget_);
+    zoomSlider_ = new QSlider(Qt::Horizontal, detailToolsWidget_);
+    zoomSlider_->setRange(100, 600);
+    zoomSlider_->setValue(100);
+    zoomSlider_->setFixedWidth(130);
+    zoomValueLabel_ = new QLabel("1.0x", detailToolsWidget_);
+    zoomValueLabel_->setMinimumWidth(38);
+
+    auto brightnessLabel = new QLabel("Brightness:", detailToolsWidget_);
+    brightnessSlider_ = new QSlider(Qt::Horizontal, detailToolsWidget_);
+    brightnessSlider_->setRange(-100, 100);
+    brightnessSlider_->setValue(0);
+    brightnessSlider_->setFixedWidth(130);
+    brightnessValueLabel_ = new QLabel("0", detailToolsWidget_);
+    brightnessValueLabel_->setMinimumWidth(30);
+
+    auto resetToolsButton = new QPushButton("Reset", detailToolsWidget_);
+    resetToolsButton->setToolTip("Reset marker, zoom, and brightness for the detail image.");
+
+    toolsLayout->addWidget(markerToolCheck_);
+    toolsLayout->addWidget(markerShapeCombo_);
+    toolsLayout->addSpacing(6);
+    toolsLayout->addWidget(zoomLabel);
+    toolsLayout->addWidget(zoomSlider_);
+    toolsLayout->addWidget(zoomValueLabel_);
+    toolsLayout->addSpacing(6);
+    toolsLayout->addWidget(brightnessLabel);
+    toolsLayout->addWidget(brightnessSlider_);
+    toolsLayout->addWidget(brightnessValueLabel_);
+    toolsLayout->addWidget(resetToolsButton);
+    toolsLayout->addStretch(1);
+    metadataLayout->addWidget(detailToolsWidget_);
+    metadataLayout->addSpacing(4);
+    metadataLayout->addWidget(headerToolsSeparator_);
+    metadataLayout->addSpacing(4);
+    metadataLayout->addWidget(metadataLabel);
+    metadataLayout->addWidget(metadataDisplayCombo_);
+    detailToolsWidget_->setVisible(false);
     
     selectedCameraWidget_ = new AnalysisVideoWidget(-1, "Select a camera", singleCameraTab_);
-    singleLayout->addWidget(selectedCameraWidget_);
+    singleLayout->addWidget(selectedCameraWidget_, 1);
+
+    connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
+            [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
+        const int frameIndex = currentReviewFrameIndex();
+        if (cameraId < 0 || frameIndex < 0 || currentAnnotationPath_.isEmpty()) return;
+        QJsonArray pts;
+        for (const QPointF& p : points) {
+            QJsonObject obj;
+            obj["nx"] = p.x();
+            obj["ny"] = p.y();
+            pts.append(obj);
+        }
+        QJsonObject ann;
+        ann["shape"] = shape;
+        ann["space"] = "image";
+        ann["points"] = pts;
+        eventAnnotations_[annotationKey(cameraId, frameIndex)] = ann;
+        saveEventAnnotations();
+        seekToRelativeFrame(frameIndex - triggerFrameIndex_);
+        applyAnnotationToSelectedFrame();
+        updateAnnotationSliderMarkers();
+    });
+
+    connect(markerToolCheck_, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (selectedCameraWidget_) selectedCameraWidget_->setMarkerToolEnabled(enabled);
+    });
+    connect(markerShapeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        if (selectedCameraWidget_ && markerShapeCombo_) {
+            selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
+        }
+    });
+    connect(zoomSlider_, &QSlider::valueChanged, this, [this](int value) {
+        const double zoom = value / 100.0;
+        if (zoomValueLabel_) zoomValueLabel_->setText(QString("%1x").arg(zoom, 0, 'f', 1));
+        if (selectedCameraWidget_) selectedCameraWidget_->setZoomFactor(zoom);
+    });
+    connect(brightnessSlider_, &QSlider::valueChanged, this, [this](int value) {
+        if (brightnessValueLabel_) brightnessValueLabel_->setText(QString::number(value));
+        if (selectedCameraWidget_) selectedCameraWidget_->setBrightnessOffset(value);
+    });
+    connect(resetToolsButton, &QPushButton::clicked, this, [this]() {
+        if (markerToolCheck_) markerToolCheck_->setChecked(false);
+        if (markerShapeCombo_) markerShapeCombo_->setCurrentIndex(0);
+        if (zoomSlider_) zoomSlider_->setValue(100);
+        if (brightnessSlider_) brightnessSlider_->setValue(0);
+        if (selectedCameraWidget_) selectedCameraWidget_->resetImageTools();
+    });
+
     tabWidget_->addTab(singleCameraTab_, "Camera");
     
     // Tab 3: Diagnostic — all-camera live data table (built once)
@@ -742,6 +890,11 @@ void AnalysisView::applyAnalysisViewStyle() {
             "color: %1; font-family: '%2'; font-size: %3px; margin-right: 4px; font-weight: 600;"
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
+    if (playbackInfoLabel_) {
+        playbackInfoLabel_->setStyleSheet(QString(
+            "color: %1; font-family: '%2'; font-size: %3px; font-weight: 600; margin-left: 6px;"
+        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
+    }
 
     for (AnalysisVideoWidget* widget : cameraWidgets_) {
         if (widget) {
@@ -771,8 +924,9 @@ void AnalysisView::setupCameraGrid(QWidget* container) {
     
     for (int i = 0; i < numCameras_; ++i) {
         QString label = CameraConfig::getCameraLabel(i);
-        auto widget = new AnalysisVideoWidget(i, label, gridContainer);
-        connect(widget, &AnalysisVideoWidget::clicked, this, &AnalysisView::onCameraClicked);
+            auto widget = new AnalysisVideoWidget(i, label, gridContainer);
+        widget->setAnnotationEditable(false);
+        connect(widget, &AnalysisVideoWidget::doubleClicked, this, &AnalysisView::onCameraClicked);
         
         int row = i / cols;
         int col = i % cols;
@@ -798,7 +952,8 @@ void AnalysisView::setCameraCount(int count) {
         for (int i = numCameras_; i < count; ++i) {
             QString label = CameraConfig::getCameraLabel(i);
             auto widget = new AnalysisVideoWidget(i, label, layout->parentWidget());
-            connect(widget, &AnalysisVideoWidget::clicked, this, &AnalysisView::onCameraClicked);
+            widget->setAnnotationEditable(false);
+            connect(widget, &AnalysisVideoWidget::doubleClicked, this, &AnalysisView::onCameraClicked);
             
             int row = i / cols;
             int col = i % cols;
@@ -847,13 +1002,13 @@ void AnalysisView::setupPlaybackControls() {
         .arg(tc.bg, tc.border));
     
     auto layout = new QVBoxLayout(playbackPanel_);
-    layout->setContentsMargins(12, 6, 12, 6);
+    layout->setContentsMargins(6, 6, 6, 6);
     layout->setSpacing(0);
     
     // Playback slider (System Standard)
     // === PLAYBACK CONTROL TOOLBAR (Single Line + SVGs) ===
     auto toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setSpacing(6);
+    toolbarLayout->setSpacing(4);
     toolbarLayout->setContentsMargins(0, 0, 0, 0); 
 
     auto createDivider = [&]() -> QFrame* {
@@ -881,8 +1036,12 @@ void AnalysisView::setupPlaybackControls() {
     speedButton_->setFixedSize(64, 30);
     speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
     speedMenu_ = new QMenu(speedButton_);
-    speedMenu_->addAction("Very Slow (0.25x)")->setData(0.25);
-    speedMenu_->addAction("Slow (0.5x)")->setData(0.5);
+    speedMenu_->addAction("Ultra Slow (0.05x)")->setData(0.05);
+    speedMenu_->addAction("Very Slow (0.10x)")->setData(0.10);
+    speedMenu_->addAction("Slow (0.15x)")->setData(0.15);
+    speedMenu_->addAction("Slow+ (0.20x)")->setData(0.20);
+    speedMenu_->addAction("Legacy Very Slow (0.25x)")->setData(0.25);
+    speedMenu_->addAction("Half Speed (0.5x)")->setData(0.5);
     speedMenu_->addAction("Normal (1.0x)")->setData(1.0);
     speedMenu_->addAction("Fast (2.0x)")->setData(2.0);
     speedMenu_->addAction("Very Fast (4.0x)")->setData(4.0);
@@ -894,9 +1053,9 @@ void AnalysisView::setupPlaybackControls() {
     playPauseButton_ = createSvgButton("Play.svg", "Play/Pause");
     connect(playPauseButton_, &QPushButton::clicked, this, &AnalysisView::onPlayPauseClicked);
     toolbarLayout->addWidget(playPauseButton_);
-    toolbarLayout->addSpacing(6);
+    toolbarLayout->addSpacing(4);
     toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
-    toolbarLayout->addSpacing(6);
+    toolbarLayout->addSpacing(4);
 
     // 3. Go to Start
     beginButton_ = createSvgButton("Go to Start.svg", "Go to Start");
@@ -914,26 +1073,21 @@ void AnalysisView::setupPlaybackControls() {
     resetButton_ = createSvgButton("Jump to Trigger.svg", "Jump to Trigger");
     connect(resetButton_, &QPushButton::clicked, this, &AnalysisView::onResetClicked);
     toolbarLayout->addWidget(resetButton_);
-    toolbarLayout->addSpacing(6);
+    toolbarLayout->addSpacing(4);
     toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
 
-    // 6. Frame Input
-    toolbarLayout->addSpacing(8);
-    QLabel* frameLabel = new QLabel("Frame:", playbackPanel_);
-    frameLabel->setObjectName("frameLabel");
-    frameLabel->setStyleSheet(QString("color: %1; font-size: 13px; margin-right: 2px;").arg(tc.text));
-    toolbarLayout->addWidget(frameLabel);
-    
+    // 6. Hidden frame input retained for internal seek synchronization only.
     frameInput_ = new QLineEdit("0.0", playbackPanel_);
-    frameInput_->setFixedSize(54, 24);
-    frameInput_->setAlignment(Qt::AlignCenter);
-    frameInput_->setStyleSheet(QString(
-        "QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 0 4px; font-size: 12px; font-weight: 700;}"
-        "QLineEdit:focus { border-color: %4; }"
-    ).arg(tc.bg, tc.text, tc.border, tc.primary));
+    frameInput_->hide();
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
-    toolbarLayout->addWidget(frameInput_);
-    toolbarLayout->addSpacing(6);
+
+    playbackInfoLabel_ = new QLabel("Frame -- | Time --", playbackPanel_);
+    playbackInfoLabel_->setMinimumWidth(150);
+    playbackInfoLabel_->setToolTip("Actual integer recorded frame and time from trigger.");
+    playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; margin-left: 6px;").arg(tc.text));
+    toolbarLayout->addSpacing(4);
+    toolbarLayout->addWidget(playbackInfoLabel_);
+    toolbarLayout->addSpacing(4);
     toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
 
     // 7. Step Forward
@@ -949,7 +1103,7 @@ void AnalysisView::setupPlaybackControls() {
     toolbarLayout->addWidget(endButton_);
     
     // 9. Slider in the middle/end
-    toolbarLayout->addSpacing(14);
+    toolbarLayout->addSpacing(8);
     playbackSlider_ = new QSlider(Qt::Horizontal, playbackPanel_);
     playbackSlider_->setRange(0, 10000); // Deciseconds essentially (1000.0)
     connect(playbackSlider_, &QSlider::sliderMoved, this, &AnalysisView::onSliderMoved);
@@ -1031,6 +1185,12 @@ void AnalysisView::onDeleteClicked() {
                                 
     if (reply == QMessageBox::Yes) {
         std::cout << "[AnalysisView] Confirmed. Deleting..." << std::endl;
+
+        // Stop review/playback and close file handles before deleting files from disk.
+        clearData();
+
+        const bool tableBlocked = activeTable->blockSignals(true);
+
         // Proceed with deletion
         // We must delete from database/disk first
         for (const QString& ts : timestampsToDelete) {
@@ -1046,10 +1206,10 @@ void AnalysisView::onDeleteClicked() {
             activeTable->removeRow(row);
         }
 
+        activeTable->clearSelection();
+        activeTable->blockSignals(tableBlocked);
+
         updateRecordCountLabel();
-        
-        // Clear the data view immediately
-        clearData();
     }
 }
 
@@ -1189,23 +1349,61 @@ void AnalysisView::updateDynamicTab(int cameraId) {
         return;
     }
 
-    QString label = CameraConfig::getCameraLabel(cameraId);
+    QString label = isReviewMode_ ? currentEventCameraLabel(cameraId)
+                                  : CameraConfig::getCameraLabel(cameraId);
     tabWidget_->setTabText(1, label);
     
     // Update the single camera view
     removeSelectedCameraWidget();
     selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, label, singleCameraTab_);
+    if (markerShapeCombo_) {
+        selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
+    }
+    selectedCameraWidget_->setMarkerToolEnabled(markerToolCheck_ && markerToolCheck_->isChecked());
+    selectedCameraWidget_->setZoomFactor(zoomSlider_ ? zoomSlider_->value() / 100.0 : 1.0);
+    selectedCameraWidget_->setBrightnessOffset(brightnessSlider_ ? brightnessSlider_->value() : 0);
+    connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
+            [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
+        const int frameIndex = currentReviewFrameIndex();
+        if (cameraId < 0 || frameIndex < 0 || currentAnnotationPath_.isEmpty()) return;
+        QJsonArray pts;
+        for (const QPointF& p : points) {
+            QJsonObject obj;
+            obj["nx"] = p.x();
+            obj["ny"] = p.y();
+            pts.append(obj);
+        }
+        QJsonObject ann;
+        ann["shape"] = shape;
+        ann["space"] = "image";
+        ann["points"] = pts;
+        eventAnnotations_[annotationKey(cameraId, frameIndex)] = ann;
+        saveEventAnnotations();
+        seekToRelativeFrame(frameIndex - triggerFrameIndex_);
+        applyAnnotationToSelectedFrame();
+        updateAnnotationSliderMarkers();
+    });
     connect(selectedCameraWidget_, &AnalysisVideoWidget::doubleClicked,
             this, &AnalysisView::onSelectedCameraDoubleClicked);
     if (layout) {
-        layout->addWidget(selectedCameraWidget_);
+        layout->addWidget(selectedCameraWidget_, 1);
     }
+    applyAnnotationToSelectedFrame();
+    updateAnnotationSliderMarkers();
     // Diagnostic tab is now a standalone all-camera table; no per-camera rebuild needed.
 }
 
 void AnalysisView::onTabChanged(int index) {
+    updateAnnotationSliderMarkers();
+
     if (metadataHeaderWidget_) {
         metadataHeaderWidget_->setVisible(index == 0 || index == 1);
+    }
+    if (detailToolsWidget_) {
+        detailToolsWidget_->setVisible(index == 1);
+    }
+    if (headerToolsSeparator_) {
+        headerToolsSeparator_->setVisible(index == 1);
     }
 
     // Keep diagnostics live; force an immediate refresh when switching to the tab.
@@ -1234,8 +1432,9 @@ void AnalysisView::onSliderMoved(int value) {
     if (currentFrame_ < 0) currentFrame_ = 0;
     if (currentFrame_ > totalFrames_) currentFrame_ = totalFrames_;
     
-    // Update input display to show relative frame
+    // Update input display to show relative frame for manual seek.
     frameInput_->setText(QString::number(relativeFrame, 'f', 1));
+    updatePlaybackInfoLabel();
     
     // In Review Mode, immediate update is needed when dragging slider
     if (isReviewMode_) {
@@ -1246,7 +1445,7 @@ void AnalysisView::onSliderMoved(int value) {
         
         if (isStreamingMode_) {
             // On-demand loading from video file
-            int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(totalFrames_ - 1));
+            int idx = currentReviewFrameIndex();
             
             for (auto& pair : videoReaders_) {
                 int camIdx = pair.first;
@@ -1268,10 +1467,12 @@ void AnalysisView::onSliderMoved(int value) {
                     QImage finalImage = frameImage.copy();
                     cameraWidgets_[camIdx]->setFrame(finalImage);
                     cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
+                    applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, idx);
                     
                     if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
                         selectedCameraWidget_->setFrame(finalImage);
                         selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                        applyAnnotationToSelectedFrame();
                     }
                 }
             }
@@ -1299,6 +1500,7 @@ void AnalysisView::onSliderMoved(int value) {
                         if (i < (int)cameraWidgets_.size()) {
                             cameraWidgets_[i]->setFrame(slice);
                             cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
+                            applyAnnotationToWidget(cameraWidgets_[i], i, idx);
                         }
                     }
                     
@@ -1311,6 +1513,7 @@ void AnalysisView::onSliderMoved(int value) {
                             QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
                             selectedCameraWidget_->setFrame(slice);
                             selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                            applyAnnotationToSelectedFrame();
                         }
                     }
                 } else {
@@ -1318,6 +1521,7 @@ void AnalysisView::onSliderMoved(int value) {
                     if (!cameraWidgets_.empty()) {
                         cameraWidgets_[0]->setFrame(frameImage);
                         cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+                        applyAnnotationToWidget(cameraWidgets_[0], 0, idx);
                     }
                     // Clear all other camera slots so they don't show stale or duplicate data
                     for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
@@ -1327,10 +1531,112 @@ void AnalysisView::onSliderMoved(int value) {
                     if (selectedCameraWidget_) {
                         selectedCameraWidget_->setFrame(frameImage);
                         selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                        applyAnnotationToSelectedFrame();
                     }
                 }
             }
         }
+    }
+}
+
+int AnalysisView::currentReviewFrameIndex() const {
+    const int maxFrame = std::max(0, static_cast<int>(std::floor(totalFrames_)));
+    return qBound(0, static_cast<int>(std::floor(currentFrame_ + 0.0001)), maxFrame);
+}
+
+QString AnalysisView::annotationKey(int cameraId, int frameIndex) const {
+    return QString("cam%1_frame%2").arg(cameraId + 1).arg(frameIndex);
+}
+
+void AnalysisView::loadEventAnnotations(const QString& videoPath) {
+    eventAnnotations_ = QJsonObject();
+    currentAnnotationPath_.clear();
+
+    QFileInfo fi(videoPath);
+    QString base = fi.baseName();
+    const int camSuffix = base.lastIndexOf("_cam");
+    if (camSuffix >= 0) {
+        base = base.left(camSuffix);
+    }
+    currentAnnotationPath_ = fi.dir().filePath(base + "_annotations.json");
+
+    QFile file(currentAnnotationPath_);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (doc.isObject()) {
+        eventAnnotations_ = doc.object();
+    }
+}
+
+void AnalysisView::saveEventAnnotations() {
+    if (currentAnnotationPath_.isEmpty()) {
+        return;
+    }
+    QFile file(currentAnnotationPath_);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        std::cerr << "[AnalysisView] Failed to save annotations: " << currentAnnotationPath_.toStdString() << std::endl;
+        return;
+    }
+    file.write(QJsonDocument(eventAnnotations_).toJson(QJsonDocument::Indented));
+}
+
+void AnalysisView::applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex) {
+    if (!widget) {
+        return;
+    }
+
+    const QString key = annotationKey(cameraId, frameIndex);
+    if (!eventAnnotations_.contains(key) || !eventAnnotations_[key].isObject()) {
+        widget->clearAnnotation();
+        return;
+    }
+
+    QJsonObject ann = eventAnnotations_[key].toObject();
+    QJsonArray annotationsArray = ann["annotations"].toArray();
+    if (!annotationsArray.isEmpty()) {
+        // Reverting multi-marker behavior: use the last marker if an existing sidecar
+        // was created with the temporary multi-marker format.
+        ann = annotationsArray.last().toObject();
+    }
+
+    const QJsonArray pts = ann["points"].toArray();
+    if (ann["space"].toString() == "image") {
+        QVector<QPointF> normalizedPoints;
+        for (const QJsonValue& val : pts) {
+            const QJsonObject p = val.toObject();
+            normalizedPoints.append(QPointF(p["nx"].toDouble(), p["ny"].toDouble()));
+        }
+        widget->setAnnotationNormalized(ann["shape"].toString("pen"), normalizedPoints);
+        return;
+    }
+
+    QVector<QPoint> legacyPoints;
+    const int dstW = std::max(1, widget->width());
+    const int dstH = std::max(1, widget->height());
+    for (const QJsonValue& val : pts) {
+        const QJsonObject p = val.toObject();
+        if (p.contains("nx") && p.contains("ny")) {
+            legacyPoints.append(QPoint(static_cast<int>(p["nx"].toDouble() * dstW),
+                                       static_cast<int>(p["ny"].toDouble() * dstH)));
+        } else {
+            legacyPoints.append(QPoint(p["x"].toInt(), p["y"].toInt()));
+        }
+    }
+    widget->setAnnotation(ann["shape"].toString("pen"), legacyPoints);
+}
+
+void AnalysisView::applyAnnotationToSelectedFrame() {
+    if (!selectedCameraWidget_) {
+        return;
+    }
+    const int cameraId = selectedCameraWidget_->getCameraId();
+    const int frameIndex = currentReviewFrameIndex();
+    applyAnnotationToWidget(selectedCameraWidget_, cameraId, frameIndex);
+    if (markerShapeCombo_ && !eventAnnotations_.contains(annotationKey(cameraId, frameIndex))) {
+        selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
     }
 }
 
@@ -1463,7 +1769,8 @@ void AnalysisView::onBeginClicked() {
 }
 
 void AnalysisView::onPreviousPressed() {
-    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) - 1.0);
+    const double step = std::max(0.1, playbackSpeed_);
+    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) - step);
 }
 
 void AnalysisView::onPreviousReleased() {}
@@ -1473,7 +1780,8 @@ void AnalysisView::onResetClicked() {
 }
 
 void AnalysisView::onNextPressed() {
-    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) + 1.0);
+    const double step = std::max(0.1, playbackSpeed_);
+    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) + step);
 }
 
 void AnalysisView::onNextReleased() {}
@@ -1726,6 +2034,32 @@ void AnalysisView::setLiveMode() {
     sliderZeroMarker_->hide();
 }
 
+void AnalysisView::updatePlaybackInfoLabel() {
+    if (!playbackInfoLabel_) {
+        return;
+    }
+
+    if (!isReviewMode_) {
+        playbackInfoLabel_->setText("Frame -- | Time --");
+        return;
+    }
+
+    const int frameIndex = currentReviewFrameIndex();
+    const double relFrames = frameIndex - triggerFrameIndex_;
+    double fps = 0.0;
+    if (!videoReaders_.empty() && videoReaders_.begin()->second) {
+        fps = videoReaders_.begin()->second->getFps();
+    }
+    if (fps <= 0.0) {
+        fps = 1.0;
+    }
+    const double seconds = relFrames / fps;
+    playbackInfoLabel_->setText(QString("Frame %1 | Time %2%3 s")
+        .arg(frameIndex)
+        .arg(seconds >= 0.0 ? "+" : "")
+        .arg(seconds, 0, 'f', 3));
+}
+
 void AnalysisView::updateSliderZeroMarker() {
     if (!isReviewMode_) {
         sliderZeroMarker_->hide();
@@ -1752,11 +2086,85 @@ void AnalysisView::updateSliderZeroMarker() {
     // Map value to pixel position
     float ratio = static_cast<float>(zeroValue - sliderMin) / (sliderMax - sliderMin);
     int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
-    int yPos = sliderRect.y() - 11;  // Keep the marker clear of the slider handle
+    int yPos = sliderRect.y() - 16;  // Keep the zero marker above annotation dots and slider handle
     
     // Position and show the marker
     sliderZeroMarker_->move(xPos - 5, yPos);  // Center the 10px wide marker
     sliderZeroMarker_->show();
+}
+
+void AnalysisView::updateAnnotationSliderMarkers() {
+    for (QLabel* marker : annotationSliderMarkers_) {
+        if (marker) {
+            marker->deleteLater();
+        }
+    }
+    annotationSliderMarkers_.clear();
+
+    if (!isReviewMode_ || !playbackSlider_ || eventAnnotations_.isEmpty()) {
+        return;
+    }
+
+    const int sliderMin = playbackSlider_->minimum();
+    const int sliderMax = playbackSlider_->maximum();
+    if (sliderMax == sliderMin) {
+        return;
+    }
+
+    const QRect sliderRect = playbackSlider_->geometry();
+    const int handleWidth = 12;
+    const int usableWidth = std::max(1, sliderRect.width() - handleWidth);
+    // Draw annotation dots below the slider groove so they don't crowd the orange zero marker.
+    const int yPos = sliderRect.y() + sliderRect.height() + 2;
+
+    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+    const QString selectedCameraPrefix = detailTabActive
+        ? QString("cam%1_").arg(selectedCameraId_ + 1)
+        : QString();
+
+    QSet<int> framesWithMarkers;
+    QHash<int, QStringList> frameCameraLabels;
+    for (auto it = eventAnnotations_.begin(); it != eventAnnotations_.end(); ++it) {
+        const QString key = it.key();
+        if (detailTabActive && !key.startsWith(selectedCameraPrefix)) {
+            continue;
+        }
+        const int framePos = key.indexOf("_frame");
+        if (framePos < 0) {
+            continue;
+        }
+        bool ok = false;
+        const int frameIndex = key.mid(framePos + 6).toInt(&ok);
+        if (ok) {
+            framesWithMarkers.insert(frameIndex);
+            const QString cameraLabel = key.left(framePos);
+            frameCameraLabels[frameIndex].append(cameraLabel);
+        }
+    }
+
+    for (int frameIndex : framesWithMarkers) {
+        const int sliderValue = static_cast<int>((frameIndex - triggerFrameIndex_) * 10);
+        if (sliderValue < sliderMin || sliderValue > sliderMax) {
+            continue;
+        }
+        const double ratio = static_cast<double>(sliderValue - sliderMin) / (sliderMax - sliderMin);
+        const int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
+
+        QLabel* marker = new QLabel(playbackPanel_);
+        marker->setFixedSize(7, 7);
+        const QString cameraText = frameCameraLabels.value(frameIndex).join(", ").replace("cam", "Camera ");
+        marker->setToolTip(detailTabActive
+            ? QString("Marker on Camera %1, frame %2").arg(selectedCameraId_ + 1).arg(frameIndex)
+            : QString("Marker on frame %1 (%2)").arg(frameIndex).arg(cameraText));
+        marker->setStyleSheet("background-color: #FF3B30; border: 1px solid white; border-radius: 3px;");
+        marker->move(xPos - 3, yPos);
+        marker->setCursor(Qt::PointingHandCursor);
+        marker->installEventFilter(this);
+        marker->setProperty("annotationFrame", frameIndex);
+        marker->raise();
+        marker->show();
+        annotationSliderMarkers_.append(marker);
+    }
 }
 
 void AnalysisView::updateCameraFrame(int cameraId, const QImage& frame) {
@@ -2058,6 +2466,7 @@ void AnalysisView::onLinkCamerasToggled(bool linked) {
 void AnalysisView::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     updateSliderZeroMarker();
+    updateAnnotationSliderMarkers();
 }
 
 void AnalysisView::showEvent(QShowEvent* event) {
@@ -2080,7 +2489,6 @@ void AnalysisView::showEvent(QShowEvent* event) {
 void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Clearing data to free memory..." << std::endl;
 
-    std::cerr << "[AnalysisView] clearData step 1: stop playback" << std::endl;
     isPlaying_ = false;
     if (playbackTimer_) {
         playbackTimer_->stop();
@@ -2091,7 +2499,6 @@ void AnalysisView::clearData() {
     triggerFrameIndex_ = 0;
 
     // Cancel async loading before releasing frame/video storage.
-    std::cerr << "[AnalysisView] clearData step 2: cancel async" << std::endl;
     if (tiffLoaderWatcher_ && tiffLoaderWatcher_->isRunning()) {
         tiffLoaderWatcher_->cancel();
         tiffLoaderWatcher_->waitForFinished();
@@ -2099,7 +2506,6 @@ void AnalysisView::clearData() {
 
     // Reset UI with slider signals blocked to avoid re-entering review rendering while
     // readers/metadata are being released.
-    std::cerr << "[AnalysisView] clearData step 3: reset slider" << std::endl;
     if (playbackSlider_) {
         const bool blocked = playbackSlider_->blockSignals(true);
         playbackSlider_->setRange(0, 10000);
@@ -2109,35 +2515,58 @@ void AnalysisView::clearData() {
     if (frameInput_) {
         frameInput_->setText("0.0");
     }
+    updatePlaybackInfoLabel();
     if (sliderZeroMarker_) {
         sliderZeroMarker_->hide();
     }
 
     totalFrames_ = 1000;
 
-    std::cerr << "[AnalysisView] clearData step 4: clear widgets" << std::endl;
     // Clear camera widgets before closing readers so the UI no longer references review frames.
     QImage empty;
-    for (auto* widget : cameraWidgets_) {
+    for (int i = 0; i < static_cast<int>(cameraWidgets_.size()); ++i) {
+        auto* widget = cameraWidgets_[i];
         if (widget) {
+            widget->setTitle(CameraConfig::getCameraLabel(i));
             widget->setFrame(empty);
             widget->setTimestamp("");
         }
     }
     if (selectedCameraWidget_) {
+        const int selectedCameraId = selectedCameraWidget_->getCameraId();
+        selectedCameraWidget_->setTitle(selectedCameraId >= 0 ? CameraConfig::getCameraLabel(selectedCameraId)
+                                                              : QString("Select a camera"));
         selectedCameraWidget_->setFrame(empty);
         selectedCameraWidget_->setTimestamp("");
     }
 
-    std::cerr << "[AnalysisView] clearData step 5: clear sequences" << std::endl;
     recordedSequence_.clear();
     frameMetadata_.clear();
-    std::cerr << "[AnalysisView] clearData step 6: clear readers" << std::endl;
     videoReaders_.clear();
-    std::cerr << "[AnalysisView] clearData step 7: update controls" << std::endl;
+    currentAnnotationPath_.clear();
+    currentEventCameraLabels_.clear();
+    const int configuredCameraCount = CameraConfig::getCameraCount();
+    if (configuredCameraCount > 0 && configuredCameraCount != static_cast<int>(cameraWidgets_.size())) {
+        setCameraCount(configuredCameraCount);
+    }
+    eventAnnotations_ = QJsonObject();
+    updateAnnotationSliderMarkers();
     updatePlaybackControlsState();
 
     std::cout << "[AnalysisView] Data cleared." << std::endl;
+}
+
+QString AnalysisView::currentEventCameraLabel(int cameraId) const {
+    if (cameraId >= 0 && cameraId < currentEventCameraLabels_.size()) {
+        const QString savedLabel = currentEventCameraLabels_.at(cameraId).trimmed();
+        if (!savedLabel.isEmpty()) {
+            return savedLabel;
+        }
+    }
+    if (cameraId >= 0 && cameraId < CameraConfig::getCameraCount()) {
+        return CameraConfig::getCameraLabel(cameraId);
+    }
+    return QString("CAM-%1").arg(cameraId + 1, 2, 10, QChar('0'));
 }
 
 QString AnalysisView::formatTimestamp(const QString& rawTs) {
@@ -2149,6 +2578,18 @@ QString AnalysisView::formatTimestamp(const QString& rawTs) {
     }
     
     return dt.isValid() ? dt.toString("yyyy/MM/dd HH:mm:ss") : rawTs;
+}
+
+bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::MouseButtonPress) {
+        QWidget* widget = qobject_cast<QWidget*>(watched);
+        if (widget && widget->property("annotationFrame").isValid()) {
+            const int frameIndex = widget->property("annotationFrame").toInt();
+            seekToRelativeFrame(frameIndex - triggerFrameIndex_);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void AnalysisView::keyPressEvent(QKeyEvent* event) {

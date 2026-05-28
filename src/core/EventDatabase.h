@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QMap>
 #include <QJsonObject>
 #include <vector>
@@ -20,6 +21,7 @@ public:
         double fps;             // Frames per second
         int width;              // Frame width
         int height;             // Frame height
+        QStringList cameraLabels; // Per-camera labels captured at record time
         bool permanent = false; // Excluded from automatic retention cleanup
     };
     

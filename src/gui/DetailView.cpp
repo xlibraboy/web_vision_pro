@@ -2,6 +2,7 @@
 #include "../config/CameraConfig.h"
 #include "../core/TemperatureStatus.h"
 #include <algorithm>
+#include <cmath>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
@@ -67,8 +68,8 @@ void DetailView::setupUi() {
     QVBoxLayout* controlLayout = new QVBoxLayout(controlGroup_);
 
     // Gain Group
-    QGroupBox* gainGroup = new QGroupBox("Gain", controlGroup_);
-    QVBoxLayout* gainLayout = new QVBoxLayout(gainGroup);
+    gainGroup_ = new QGroupBox("Gain", controlGroup_);
+    QVBoxLayout* gainLayout = new QVBoxLayout(gainGroup_);
     spinGain_ = new QDoubleSpinBox(this);
     spinGain_->setRange(0.0, 24.0);
     spinGain_->setSingleStep(0.1);
@@ -79,17 +80,22 @@ void DetailView::setupUi() {
     sliderGain_->setValue(10);
     
     connect(spinGain_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            [this](double val) { sliderGain_->setValue(static_cast<int>(val * 10)); });
+            [this](double val) {
+                const int sliderValue = gainIsRaw_
+                    ? static_cast<int>(std::llround(val))
+                    : static_cast<int>(std::llround(val * 10.0));
+                sliderGain_->setValue(sliderValue);
+            });
     connect(sliderGain_, &QSlider::valueChanged, 
             [this](int val) {
-                // Sync spinbox
-                spinGain_->setValue(val / 10.0);
-                // Live apply
-                emit parameterChanged(currentCameraId_, "Gain", val / 10.0);
+                const double displayedValue = gainIsRaw_ ? static_cast<double>(val)
+                                                         : val / 10.0;
+                spinGain_->setValue(displayedValue);
+                emit parameterChanged(currentCameraId_, "Gain", displayedValue);
             });
     gainLayout->addWidget(spinGain_);
     gainLayout->addWidget(sliderGain_);
-    controlLayout->addWidget(gainGroup);
+    controlLayout->addWidget(gainGroup_);
 
     // Exposure Time Group
     QGroupBox* expGroup = new QGroupBox("Exposure Time", controlGroup_);
@@ -228,6 +234,8 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     spinExposure_->blockSignals(false);
     sliderExposure_->blockSignals(false);
     
+    setGainPresentation("Gain", false);
+
     // Load current parameter values from info (config-backed defaults)
     // Block ALL slider AND spinbox signals to prevent parameterChanged from firing
     // during initialization — this avoids triggering StopGrabbing/StartGrabbing
@@ -341,12 +349,29 @@ void DetailView::setAdminMode(bool isAdmin) {
     btnLoad_->setEnabled(isAdmin);
 }
 
-void DetailView::setParameterValues(double gain, double exposureUs, double gamma, double contrast) {
-    // Block signals while we update controls so we don't emit parameterChanged back
+void DetailView::setGainPresentation(const QString& title, bool isRaw) {
+    gainIsRaw_ = isRaw;
+    if (gainGroup_) {
+        gainGroup_->setTitle(title);
+        gainGroup_->setToolTip(isRaw ? "Camera uses GainRaw units from the device node." : QString());
+    }
     spinGain_->blockSignals(true);
     sliderGain_->blockSignals(true);
-    spinGain_->setValue(gain);
-    sliderGain_->setValue(static_cast<int>(gain * 10));
+    spinGain_->setDecimals(isRaw ? 0 : 1);
+    spinGain_->setSingleStep(isRaw ? 1.0 : 0.1);
+    spinGain_->blockSignals(false);
+    sliderGain_->blockSignals(false);
+}
+
+void DetailView::setParameterValues(double gain, double exposureUs, double gamma, double contrast) {
+    // Block signals while we update controls so we don't emit parameterChanged back
+    const double gainClamped = std::max(spinGain_->minimum(), std::min(gain, spinGain_->maximum()));
+    spinGain_->blockSignals(true);
+    sliderGain_->blockSignals(true);
+    spinGain_->setValue(gainClamped);
+    sliderGain_->setValue(gainIsRaw_
+        ? static_cast<int>(std::llround(gainClamped))
+        : static_cast<int>(std::llround(gainClamped * 10.0)));
     spinGain_->blockSignals(false);
     sliderGain_->blockSignals(false);
 
@@ -371,6 +396,24 @@ void DetailView::setParameterValues(double gain, double exposureUs, double gamma
     sliderContrast_->setValue(static_cast<int>(contrast * 100));
     spinContrast_->blockSignals(false);
     sliderContrast_->blockSignals(false);
+}
+
+void DetailView::setGainRange(double minGain, double maxGain) {
+    const double safeMin = std::max(0.0, minGain);
+    const double safeMax = std::max(safeMin, maxGain);
+    const int sliderMin = gainIsRaw_
+        ? static_cast<int>(std::floor(safeMin))
+        : static_cast<int>(std::floor(safeMin * 10.0));
+    const int sliderMax = gainIsRaw_
+        ? static_cast<int>(std::ceil(safeMax))
+        : static_cast<int>(std::ceil(safeMax * 10.0));
+
+    spinGain_->blockSignals(true);
+    sliderGain_->blockSignals(true);
+    spinGain_->setRange(safeMin, safeMax);
+    sliderGain_->setRange(sliderMin, std::max(sliderMin, sliderMax));
+    spinGain_->blockSignals(false);
+    sliderGain_->blockSignals(false);
 }
 
 void DetailView::setExposureRange(int minUs, int maxUs) {
