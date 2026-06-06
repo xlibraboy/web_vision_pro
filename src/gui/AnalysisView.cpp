@@ -29,6 +29,7 @@
 #include <QPainter>
 #include <QStyledItemDelegate>
 #include <algorithm>
+#include <limits>
 
 class LogSelectionDelegate : public QStyledItemDelegate {
 public:
@@ -240,10 +241,10 @@ static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
 
 static QString makePlaybackSliderStyle(const ThemeColors& tc) {
     return QString(
-        "QSlider::groove:horizontal { height: 4px; background: %1; border-radius: 2px; }"
-        "QSlider::sub-page:horizontal { background: %2; border-radius: 2px; }"
-        "QSlider::add-page:horizontal { background: %3; border-radius: 2px; }"
-        "QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; background: %4; border: 1px solid %2; border-radius: 6px; }"
+        "QSlider::groove:horizontal { height: 2px; background: %1; border-radius: 1px; }"
+        "QSlider::sub-page:horizontal { background: %2; border-radius: 1px; }"
+        "QSlider::add-page:horizontal { background: %3; border-radius: 1px; }"
+        "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -4px 0; background: %4; border: 1px solid %2; border-radius: 5px; }"
         "QSlider::handle:horizontal:hover { background: %5; border-color: %5; }"
         "QSlider::handle:horizontal:pressed { background: %5; }"
         "QSlider::groove:horizontal:disabled { background: %6; }"
@@ -252,6 +253,8 @@ static QString makePlaybackSliderStyle(const ThemeColors& tc) {
         "QSlider::handle:horizontal:disabled { background: %1; border-color: %6; }"
     ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, QColor(tc.handle).lighter(115).name(), tc.bg);
 }
+
+static constexpr int kReviewSliderUnitsPerSecond = 1000;
 
 // Helper: build paperBreakTable stylesheet from theme colors
 static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
@@ -480,10 +483,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     currentFrame_ = triggerFrameIndex_;
     
     // Update UI with relative range
-    int minRange = -triggerFrameIndex_ * 10;
-    int maxRange = (totalFrames_ - triggerFrameIndex_) * 10;
-    
-    playbackSlider_->setRange(minRange, maxRange);
+    configureReviewSliderRange();
     playbackSlider_->setValue(0);
     frameInput_->setText("0.0");
     
@@ -1082,8 +1082,9 @@ void AnalysisView::setupPlaybackControls() {
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
 
     playbackInfoLabel_ = new QLabel("Frame -- | Time --", playbackPanel_);
-    playbackInfoLabel_->setMinimumWidth(150);
-    playbackInfoLabel_->setToolTip("Actual integer recorded frame and time from trigger.");
+    playbackInfoLabel_->setFixedWidth(210);
+    playbackInfoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
     playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; margin-left: 6px;").arg(tc.text));
     toolbarLayout->addSpacing(4);
     toolbarLayout->addWidget(playbackInfoLabel_);
@@ -1423,125 +1424,131 @@ void AnalysisView::onTabChanged(int index) {
 }
 
 void AnalysisView::onSliderMoved(int value) {
-    // Value is relative to trigger (e.g. -200 to +50)
-    // Absolute frame index = value/10 + triggerFrameIndex
-    double relativeFrame = value / 10.0;
-    currentFrame_ = relativeFrame + triggerFrameIndex_;
-    
-    // Clamp currentFrame_ to valid range [0, totalFrames_]
-    if (currentFrame_ < 0) currentFrame_ = 0;
-    if (currentFrame_ > totalFrames_) currentFrame_ = totalFrames_;
-    
-    // Update input display to show relative frame for manual seek.
-    frameInput_->setText(QString::number(relativeFrame, 'f', 1));
-    updatePlaybackInfoLabel();
-    
-    // In Review Mode, immediate update is needed when dragging slider
-    if (isReviewMode_) {
-        // Get consistent metadata text
-        double relFrame = currentFrame_ - triggerFrameIndex_;
-        QString overlayText = getMetadataOverlayText(static_cast<int>(currentFrame_), relFrame);
-        QString tooltipText = getMetadataTooltip(static_cast<int>(currentFrame_), relFrame);
-        
-        if (isStreamingMode_) {
-            // On-demand loading from video file
-            int idx = currentReviewFrameIndex();
-            
-            for (auto& pair : videoReaders_) {
-                int camIdx = pair.first;
-                cv::Mat cvFrame = pair.second->getFrame(idx);
-                
-                if (!cvFrame.empty() && camIdx < static_cast<int>(cameraWidgets_.size())) {
-                    // Convert Mat to QImage safely without crashing on Mono8
-                    cv::Mat rgb;
-                    if (cvFrame.channels() == 1) {
-                        cv::cvtColor(cvFrame, rgb, cv::COLOR_GRAY2RGB);
-                    } else if (cvFrame.channels() == 3) {
-                        cv::cvtColor(cvFrame, rgb, cv::COLOR_BGR2RGB);
-                    } else {
-                        rgb = cvFrame.clone(); 
-                    }
-                    QImage frameImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-                    
-                    // Directly update the widget instead of using updateCameraFrame (which aborts in review mode)
-                    QImage finalImage = frameImage.copy();
-                    cameraWidgets_[camIdx]->setFrame(finalImage);
-                    cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
-                    applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, idx);
-                    
-                    if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
-                        selectedCameraWidget_->setFrame(finalImage);
-                        selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-                        applyAnnotationToSelectedFrame();
-                    }
-                }
-            }
-        } else if (!recordedSequence_.empty()) {
-            QImage frameImage;
-            // Load from in-memory sequence
-            int idx = qBound(0, static_cast<int>(currentFrame_), static_cast<int>(recordedSequence_.size()) - 1);
-            frameImage = recordedSequence_[idx];
-            
-            if (!frameImage.isNull()) {
-                // Check if this is a tiled image (multi-camera recording)
-                bool isTiled = (frameImage.width() > baseWidth_ || frameImage.height() > baseHeight_);
-                
-                if (isTiled) {
-                    int cols = 4;
-                    int rows = (numCameras_ + cols - 1) / cols;
-                    int cellW = frameImage.width() / cols;
-                    int cellH = frameImage.height() / rows;
-                    
-                    for (int i = 0; i < numCameras_; ++i) {
-                        int r = i / cols;
-                        int c = i % cols;
-                        QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
-                        
-                        if (i < (int)cameraWidgets_.size()) {
-                            cameraWidgets_[i]->setFrame(slice);
-                            cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
-                            applyAnnotationToWidget(cameraWidgets_[i], i, idx);
-                        }
-                    }
-                    
-                    // Update selected camera widget with its specific slice
-                    if (selectedCameraWidget_) {
-                        int scId = selectedCameraWidget_->getCameraId();
-                        if (scId >= 0 && scId < numCameras_) {
-                            int r = scId / cols;
-                            int c = scId % cols;
-                            QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
-                            selectedCameraWidget_->setFrame(slice);
-                            selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-                            applyAnnotationToSelectedFrame();
-                        }
-                    }
-                } else {
-                    // Single-camera recording: only update camera widget 0
-                    if (!cameraWidgets_.empty()) {
-                        cameraWidgets_[0]->setFrame(frameImage);
-                        cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
-                        applyAnnotationToWidget(cameraWidgets_[0], 0, idx);
-                    }
-                    // Clear all other camera slots so they don't show stale or duplicate data
-                    for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
-                        cameraWidgets_[wi]->clear();
-                    }
-                    
-                    if (selectedCameraWidget_) {
-                        selectedCameraWidget_->setFrame(frameImage);
-                        selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-                        applyAnnotationToSelectedFrame();
-                    }
-                }
-            }
-        }
-    }
+    const int frameIndex = frameIndexForSliderValue(value);
+    seekToFrameIndex(frameIndex, false);
 }
 
 int AnalysisView::currentReviewFrameIndex() const {
     const int maxFrame = std::max(0, static_cast<int>(std::floor(totalFrames_)));
     return qBound(0, static_cast<int>(std::floor(currentFrame_ + 0.0001)), maxFrame);
+}
+
+void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
+    const int idx = currentReviewFrameIndex();
+    const double relativeFrame = currentFrame_ - triggerFrameIndex_;
+    const double relativeSeconds = relativeSecondsForFrameIndex(idx);
+
+    if (updateSlider && playbackSlider_) {
+        const bool sliderBlocked = playbackSlider_->blockSignals(true);
+        playbackSlider_->setValue(sliderValueForFrameIndex(idx));
+        playbackSlider_->blockSignals(sliderBlocked);
+    }
+
+    frameInput_->setText(hasRelativeTimeAxis()
+        ? QString::number(relativeSeconds, 'f', 3)
+        : QString::number(relativeFrame, 'f', 1));
+    updatePlaybackInfoLabel();
+
+    if (!isReviewMode_) {
+        return;
+    }
+
+    QString overlayText = getMetadataOverlayText(idx, relativeFrame);
+    QString tooltipText = getMetadataTooltip(idx, relativeFrame);
+
+    if (isStreamingMode_) {
+        for (auto& pair : videoReaders_) {
+            int camIdx = pair.first;
+            cv::Mat cvFrame = pair.second->getFrame(idx);
+
+            if (!cvFrame.empty() && camIdx < static_cast<int>(cameraWidgets_.size())) {
+                cv::Mat rgb;
+                if (cvFrame.channels() == 1) {
+                    cv::cvtColor(cvFrame, rgb, cv::COLOR_GRAY2RGB);
+                } else if (cvFrame.channels() == 3) {
+                    cv::cvtColor(cvFrame, rgb, cv::COLOR_BGR2RGB);
+                } else {
+                    rgb = cvFrame.clone();
+                }
+                QImage frameImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
+
+                QImage finalImage = frameImage.copy();
+                cameraWidgets_[camIdx]->setFrame(finalImage);
+                cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
+                applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, idx);
+
+                if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
+                    selectedCameraWidget_->setFrame(finalImage);
+                    selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                    applyAnnotationToSelectedFrame();
+                }
+            }
+        }
+        return;
+    }
+
+    if (recordedSequence_.empty()) {
+        return;
+    }
+
+    QImage frameImage = recordedSequence_[qBound(0, idx, static_cast<int>(recordedSequence_.size()) - 1)];
+    if (frameImage.isNull()) {
+        return;
+    }
+
+    const bool isTiled = (frameImage.width() > baseWidth_ || frameImage.height() > baseHeight_);
+    if (isTiled) {
+        int cols = 4;
+        int rows = (numCameras_ + cols - 1) / cols;
+        int cellW = frameImage.width() / cols;
+        int cellH = frameImage.height() / rows;
+
+        for (int i = 0; i < numCameras_; ++i) {
+            int r = i / cols;
+            int c = i % cols;
+            QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
+
+            if (i < static_cast<int>(cameraWidgets_.size())) {
+                cameraWidgets_[i]->setFrame(slice);
+                cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
+                applyAnnotationToWidget(cameraWidgets_[i], i, idx);
+            }
+        }
+
+        if (selectedCameraWidget_) {
+            int scId = selectedCameraWidget_->getCameraId();
+            if (scId >= 0 && scId < numCameras_) {
+                int r = scId / cols;
+                int c = scId % cols;
+                QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
+                selectedCameraWidget_->setFrame(slice);
+                selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                applyAnnotationToSelectedFrame();
+            }
+        }
+        return;
+    }
+
+    if (!cameraWidgets_.empty()) {
+        cameraWidgets_[0]->setFrame(frameImage);
+        cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+        applyAnnotationToWidget(cameraWidgets_[0], 0, idx);
+    }
+    for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
+        cameraWidgets_[wi]->clear();
+    }
+
+    if (selectedCameraWidget_) {
+        selectedCameraWidget_->setFrame(frameImage);
+        selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+        applyAnnotationToSelectedFrame();
+    }
+}
+
+void AnalysisView::seekToFrameIndex(int frameIndex, bool updateSlider) {
+    currentFrame_ = qBound(0.0, static_cast<double>(frameIndex), totalFrames_);
+    renderCurrentReviewFrame(updateSlider);
+    updatePlaybackControlsState();
 }
 
 QString AnalysisView::annotationKey(int cameraId, int frameIndex) const {
@@ -1738,18 +1745,7 @@ void AnalysisView::seekToRelativeFrame(double relativeFrame) {
     if (!playbackSlider_) {
         return;
     }
-
-    currentFrame_ = qBound(0.0, relativeFrame + triggerFrameIndex_, totalFrames_);
-    const double boundedRelative = currentFrame_ - triggerFrameIndex_;
-    const int sliderValue = static_cast<int>(std::round(boundedRelative * 10.0));
-
-    const bool sliderBlocked = playbackSlider_->blockSignals(true);
-    playbackSlider_->setValue(sliderValue);
-    playbackSlider_->blockSignals(sliderBlocked);
-
-    frameInput_->setText(QString::number(boundedRelative, 'f', 1));
-    onSliderMoved(sliderValue);
-    updatePlaybackControlsState();
+    seekToFrameIndex(static_cast<int>(std::round(relativeFrame + triggerFrameIndex_)));
 }
 
 void AnalysisView::onPlayPauseClicked() {
@@ -1765,29 +1761,27 @@ void AnalysisView::onPlayPauseClicked() {
 }
 
 void AnalysisView::onBeginClicked() {
-    seekToRelativeFrame(-triggerFrameIndex_);
+    seekToFrameIndex(0);
 }
 
 void AnalysisView::onPreviousPressed() {
-    const double step = std::max(0.1, playbackSpeed_);
-    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) - step);
+    seekToFrameIndex(currentReviewFrameIndex() - 1);
 }
 
 void AnalysisView::onPreviousReleased() {}
 
 void AnalysisView::onResetClicked() {
-    seekToRelativeFrame(0.0);
+    seekToFrameIndex(triggerFrameIndex_);
 }
 
 void AnalysisView::onNextPressed() {
-    const double step = std::max(0.1, playbackSpeed_);
-    seekToRelativeFrame((currentFrame_ - triggerFrameIndex_) + step);
+    seekToFrameIndex(currentReviewFrameIndex() + 1);
 }
 
 void AnalysisView::onNextReleased() {}
 
 void AnalysisView::onEndClicked() {
-    seekToRelativeFrame(totalFrames_ - triggerFrameIndex_);
+    seekToFrameIndex(static_cast<int>(std::floor(totalFrames_)));
 }
 
 void AnalysisView::onFrameInputChanged() {
@@ -1831,9 +1825,7 @@ void AnalysisView::startReview(const QString& path, int triggerIndex) {
         // Update Video Slider bounds
         totalFrames_ = recordedSequence_.size() - 1;
         
-        int minRange = -triggerFrameIndex_ * 10;
-        int maxRange = (totalFrames_ - triggerFrameIndex_) * 10;
-        playbackSlider_->setRange(minRange, maxRange);
+        configureReviewSliderRange();
         
         updateSliderZeroMarker();
         
@@ -1963,10 +1955,7 @@ void AnalysisView::onTiffLoadingFinished() {
     currentFrame_ = triggerFrameIndex_;
     
     // Update UI with relative range
-    int minRange = -triggerFrameIndex_ * 10;
-    int maxRange = (totalFrames_ - triggerFrameIndex_) * 10;
-    
-    playbackSlider_->setRange(minRange, maxRange);
+    configureReviewSliderRange();
     playbackSlider_->setValue(0);
     frameInput_->setText("0.0");
     
@@ -2044,8 +2033,7 @@ void AnalysisView::updatePlaybackInfoLabel() {
         return;
     }
 
-    const int frameIndex = currentReviewFrameIndex();
-    const double relFrames = frameIndex - triggerFrameIndex_;
+    const double relFrames = currentFrame_ - triggerFrameIndex_;
     double fps = 0.0;
     if (!videoReaders_.empty() && videoReaders_.begin()->second) {
         fps = videoReaders_.begin()->second->getFps();
@@ -2055,9 +2043,70 @@ void AnalysisView::updatePlaybackInfoLabel() {
     }
     const double seconds = relFrames / fps;
     playbackInfoLabel_->setText(QString("Frame %1 | Time %2%3 s")
-        .arg(frameIndex)
+        .arg(relFrames, 0, 'f', 1)
         .arg(seconds >= 0.0 ? "+" : "")
         .arg(seconds, 0, 'f', 3));
+}
+
+bool AnalysisView::hasRelativeTimeAxis() const {
+    return !frameMetadata_.empty()
+        && triggerFrameIndex_ >= 0
+        && triggerFrameIndex_ < static_cast<int>(frameMetadata_.size());
+}
+
+double AnalysisView::relativeSecondsForFrameIndex(int frameIndex) const {
+    const int clampedFrameIndex = qBound(0, frameIndex, std::max(0, static_cast<int>(frameMetadata_.size()) - 1));
+    if (!hasRelativeTimeAxis()) {
+        return static_cast<double>(clampedFrameIndex - triggerFrameIndex_);
+    }
+
+    const int64_t triggerTimestamp = frameMetadata_[triggerFrameIndex_].timestamp;
+    const int64_t frameTimestamp = frameMetadata_[clampedFrameIndex].timestamp;
+    return static_cast<double>(frameTimestamp - triggerTimestamp) / 1000000000.0;
+}
+
+int AnalysisView::sliderValueForFrameIndex(int frameIndex) const {
+    const int clampedFrameIndex = qBound(0, frameIndex, std::max(0, static_cast<int>(std::floor(totalFrames_))));
+    if (hasRelativeTimeAxis()) {
+        return static_cast<int>(std::round(relativeSecondsForFrameIndex(clampedFrameIndex) * kReviewSliderUnitsPerSecond));
+    }
+    return static_cast<int>(std::round((clampedFrameIndex - triggerFrameIndex_) * 10.0));
+}
+
+int AnalysisView::frameIndexForSliderValue(int value) const {
+    if (!hasRelativeTimeAxis()) {
+        const int frameIndex = static_cast<int>(std::round(value / 10.0)) + triggerFrameIndex_;
+        return qBound(0, frameIndex, std::max(0, static_cast<int>(std::floor(totalFrames_))));
+    }
+
+    const double targetSeconds = static_cast<double>(value) / kReviewSliderUnitsPerSecond;
+    int bestIndex = triggerFrameIndex_;
+    double bestError = std::numeric_limits<double>::max();
+    const int maxIndex = std::min(static_cast<int>(frameMetadata_.size()) - 1,
+                                  std::max(0, static_cast<int>(std::floor(totalFrames_))));
+    for (int i = 0; i <= maxIndex; ++i) {
+        const double error = std::abs(relativeSecondsForFrameIndex(i) - targetSeconds);
+        if (error < bestError) {
+            bestError = error;
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
+}
+
+void AnalysisView::configureReviewSliderRange() {
+    if (!playbackSlider_) {
+        return;
+    }
+
+    if (hasRelativeTimeAxis()) {
+        playbackSlider_->setRange(sliderValueForFrameIndex(0), sliderValueForFrameIndex(static_cast<int>(std::floor(totalFrames_))));
+        return;
+    }
+
+    const int minRange = -triggerFrameIndex_ * 10;
+    const int maxRange = (totalFrames_ - triggerFrameIndex_) * 10;
+    playbackSlider_->setRange(minRange, maxRange);
 }
 
 void AnalysisView::updateSliderZeroMarker() {
@@ -2079,7 +2128,7 @@ void AnalysisView::updateSliderZeroMarker() {
     
     // Calculate pixel position of value=0
     // Account for slider margins and handle width
-    int handleWidth = 12;  // From playback slider stylesheet
+    int handleWidth = 10;  // From playback slider stylesheet
     int usableWidth = sliderRect.width() - handleWidth;
     int zeroValue = 0;  // The trigger frame is always at value 0
     
@@ -2111,10 +2160,11 @@ void AnalysisView::updateAnnotationSliderMarkers() {
         return;
     }
 
+    const ThemeColors tc = CameraConfig::getThemeColors();
     const QRect sliderRect = playbackSlider_->geometry();
-    const int handleWidth = 12;
+    const int handleWidth = 10;
     const int usableWidth = std::max(1, sliderRect.width() - handleWidth);
-    // Draw annotation dots below the slider groove so they don't crowd the orange zero marker.
+    // Draw annotation dots below the slider groove so they don't crowd the zero marker.
     const int yPos = sliderRect.y() + sliderRect.height() + 2;
 
     const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
@@ -2143,20 +2193,33 @@ void AnalysisView::updateAnnotationSliderMarkers() {
     }
 
     for (int frameIndex : framesWithMarkers) {
-        const int sliderValue = static_cast<int>((frameIndex - triggerFrameIndex_) * 10);
+        const int sliderValue = sliderValueForFrameIndex(frameIndex);
         if (sliderValue < sliderMin || sliderValue > sliderMax) {
             continue;
         }
         const double ratio = static_cast<double>(sliderValue - sliderMin) / (sliderMax - sliderMin);
         const int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
+        const int relativeFrame = frameIndex - triggerFrameIndex_;
+        const double relativeSeconds = relativeSecondsForFrameIndex(frameIndex);
 
         QLabel* marker = new QLabel(playbackPanel_);
         marker->setFixedSize(7, 7);
         const QString cameraText = frameCameraLabels.value(frameIndex).join(", ").replace("cam", "Camera ");
         marker->setToolTip(detailTabActive
-            ? QString("Marker on Camera %1, frame %2").arg(selectedCameraId_ + 1).arg(frameIndex)
-            : QString("Marker on frame %1 (%2)").arg(frameIndex).arg(cameraText));
-        marker->setStyleSheet("background-color: #FF3B30; border: 1px solid white; border-radius: 3px;");
+            ? QString("Marker on Camera %1\nFrame %2 (absolute %3)\nTime %4%5 s")
+                .arg(selectedCameraId_ + 1)
+                .arg(relativeFrame)
+                .arg(frameIndex)
+                .arg(relativeSeconds >= 0.0 ? "+" : "")
+                .arg(relativeSeconds, 0, 'f', 3)
+            : QString("Marker on frame %1 (absolute %2)\nTime %3%4 s\n%5")
+                .arg(relativeFrame)
+                .arg(frameIndex)
+                .arg(relativeSeconds >= 0.0 ? "+" : "")
+                .arg(relativeSeconds, 0, 'f', 3)
+                .arg(cameraText));
+        marker->setStyleSheet(QString("background-color: %1; border: 1px solid white; border-radius: 3px;")
+            .arg(QColor(tc.primary).lighter(110).name()));
         marker->move(xPos - 3, yPos);
         marker->setCursor(Qt::PointingHandCursor);
         marker->installEventFilter(this);
@@ -2184,33 +2247,15 @@ void AnalysisView::onPlaybackTick() {
     // Early exit if no data in either mode
     if (recordedSequence_.empty() && !isStreamingMode_) return;
     
-    // Advance frame based on speed
-    // Timer runs at ~33ms (30fps). To play at 30fps (1.0x), we need 1 frame per tick.
-    double step = 1.0 * playbackSpeed_;
-    
-    currentFrame_ += step;
-    
-    // Stop at end instead of looping
-    if (currentFrame_ >= totalFrames_) {
-        currentFrame_ = totalFrames_;
-        seekToRelativeFrame(currentFrame_ - triggerFrameIndex_);
+    const int nextFrameIndex = currentReviewFrameIndex() + std::max(1, static_cast<int>(std::round(playbackSpeed_)));
+
+    if (nextFrameIndex >= totalFrames_) {
+        seekToFrameIndex(static_cast<int>(std::floor(totalFrames_)));
         setPlaybackPlaying(false);
         return;
     }
-    
-    // Update UI (Slider value is relative)
-    double relativeFrame = currentFrame_ - triggerFrameIndex_;
-    
-    const bool sliderBlocked = playbackSlider_->blockSignals(true);
-    playbackSlider_->setValue(static_cast<int>(std::round(relativeFrame * 10.0)));
-    playbackSlider_->blockSignals(sliderBlocked);
-    
-    // Force view update:
-    // In Review Mode, the valueChanged signal triggers onSliderValueChanged,
-    // but onSliderValueChanged deliberately ignores updates while playing to prevent
-    // slider drag interference. So we must explicitly call onSliderMoved here
-    // to fetch and display the new frames.
-    onSliderMoved(static_cast<int>(std::round(relativeFrame * 10.0)));
+
+    seekToFrameIndex(nextFrameIndex);
 }
 
 void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {

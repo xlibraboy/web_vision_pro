@@ -246,6 +246,13 @@ private:
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
     QString currentEventCameraLabel(int cameraId) const;
     int currentReviewFrameIndex() const;
+    bool hasRelativeTimeAxis() const;
+    double relativeSecondsForFrameIndex(int frameIndex) const;
+    int sliderValueForFrameIndex(int frameIndex) const;
+    int frameIndexForSliderValue(int value) const;
+    void configureReviewSliderRange();
+    void renderCurrentReviewFrame(bool updateSlider);
+    void seekToFrameIndex(int frameIndex, bool updateSlider = true);
     QString annotationKey(int cameraId, int frameIndex) const;
     void loadEventAnnotations(const QString& videoPath);
     void saveEventAnnotations();

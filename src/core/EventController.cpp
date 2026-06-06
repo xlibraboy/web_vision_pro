@@ -65,6 +65,13 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     
     CameraBufferState& state = cameraStates_[cameraId];
 
+    // During an active event, stop extending this camera's saved window once it has
+    // collected the configured post-trigger frames. Otherwise faster cameras keep
+    // overwriting older pre-trigger frames while waiting for slower cameras.
+    if (triggering_ && state.postFramesRecorded >= postTriggerLimit_) {
+        return;
+    }
+
     // Ring Buffer Logic
     // 1. Copy frame into current write slot
     FrameData& target = state.circularBuffer[state.writeIndex];
