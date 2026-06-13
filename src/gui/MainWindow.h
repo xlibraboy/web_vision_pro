@@ -21,6 +21,8 @@
 #include "../processing/VideoEncoder.h"
 
 class ConfigDialog;
+class OpcUaClientService;
+
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -48,6 +50,8 @@ private:
     void setupUi();
     void setupCore();
     void applyGlobalTheme();
+    void initializeEventController();
+    void applyOpcUaSettings();
     void startCameraLifecycleAsync(bool restart, const QString& reason);
     bool validateSavedCameraConfiguration(QStringList* errors) const;
     bool promptAdminLogin();
@@ -91,6 +95,8 @@ private:
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
     std::unique_ptr<VideoEncoder> videoEncoder_;
+    std::unique_ptr<OpcUaClientService> opcUaClientService_;
+
     
 
 

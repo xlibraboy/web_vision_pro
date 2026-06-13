@@ -38,6 +38,38 @@ struct AnalysisViewStyle {
     int tabFontSize;
     QString playbackSurfaceStyle;
 };
+struct OpcUaTriggerTagSettings {
+    QString name;
+    QString nodeId;
+    bool enabled = false;
+    bool activeState = true;
+    QString edgeMode = QStringLiteral("rising");
+    int minimumIntervalMs = 1500;
+};
+
+struct OpcUaSpeedTagSettings {
+    bool enabled = false;
+    QString name;
+    QString nodeId;
+    double scale = 1.0;
+    double offset = 0.0;
+    QString unit = QStringLiteral("m/min");
+    int staleTimeoutMs = 2000;
+};
+
+struct OpcUaSettings {
+    bool enabled = false;
+    QString endpointUrl = QStringLiteral("opc.tcp://127.0.0.1:4840");
+    bool useUsernamePassword = false;
+    QString username;
+    QString password;
+    int publishIntervalMs = 250;
+    int reconnectIntervalMs = 3000;
+    int positionDirectionSign = 1;
+    std::vector<OpcUaTriggerTagSettings> triggerTags;
+    OpcUaSpeedTagSettings speedTag;
+};
+
 
 /**
  * Centralized camera configuration - single source of truth for all camera information
@@ -116,6 +148,10 @@ public:
     static AnalysisViewStyle getDefaultAnalysisViewStyle();
     static AnalysisViewStyle getAnalysisViewStyle();
     static void setAnalysisViewStyle(const AnalysisViewStyle& style);
+    // OPC UA client trigger/speed integration settings.
+    static OpcUaSettings getDefaultOpcUaSettings();
+    static OpcUaSettings getOpcUaSettings();
+    static void setOpcUaSettings(const OpcUaSettings& settings);
 
     // Initialize default cameras if empty
     static void ensureDefaultCameras();

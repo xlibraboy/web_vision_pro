@@ -21,6 +21,46 @@ QString defaultEventStoragePath() {
     }
     return QDir::cleanPath(baseDir.filePath("data"));
 }
+std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
+    std::vector<OpcUaTriggerTagSettings> tags(4);
+    for (int i = 0; i < static_cast<int>(tags.size()); ++i) {
+        tags[i].name = QString("Trigger %1").arg(i + 1);
+        tags[i].nodeId = "";
+        tags[i].enabled = false;
+        tags[i].activeState = true;
+        tags[i].edgeMode = QStringLiteral("rising");
+        tags[i].minimumIntervalMs = 1500;
+    }
+    return tags;
+}
+
+OpcUaSettings defaultOpcUaSettings() {
+    OpcUaSettings settings;
+    settings.enabled = false;
+    settings.endpointUrl = QStringLiteral("opc.tcp://127.0.0.1:4840");
+    settings.useUsernamePassword = false;
+    settings.publishIntervalMs = 250;
+    settings.reconnectIntervalMs = 3000;
+    settings.positionDirectionSign = 1;
+    settings.triggerTags = defaultOpcUaTriggerTags();
+    settings.speedTag.enabled = false;
+    settings.speedTag.name = QStringLiteral("Machine Speed");
+    settings.speedTag.nodeId = "";
+    settings.speedTag.scale = 1.0;
+    settings.speedTag.offset = 0.0;
+    settings.speedTag.unit = QStringLiteral("m/min");
+    settings.speedTag.staleTimeoutMs = 2000;
+    return settings;
+}
+
+QString normalizedOpcUaEdgeMode(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == "falling" || normalized == "either") {
+        return normalized;
+    }
+    return QStringLiteral("rising");
+}
+
 }
 
 // --- Configuration Implementation ---
@@ -226,6 +266,102 @@ void CameraConfig::setAnalysisViewStyle(const AnalysisViewStyle& style) {
     settings.setValue("AnalysisView/TabFontFamily", style.tabFontFamily);
     settings.setValue("AnalysisView/TabFontSize", style.tabFontSize);
     settings.setValue("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle);
+}
+OpcUaSettings CameraConfig::getDefaultOpcUaSettings() {
+    return defaultOpcUaSettings();
+}
+
+OpcUaSettings CameraConfig::getOpcUaSettings() {
+    const OpcUaSettings defaults = getDefaultOpcUaSettings();
+    OpcUaSettings result = defaults;
+
+    QSettings settings("PaperVision", "SystemConfig");
+    result.enabled = settings.value("OpcUa/Enabled", defaults.enabled).toBool();
+    result.endpointUrl = settings.value("OpcUa/EndpointUrl", defaults.endpointUrl).toString().trimmed();
+    result.useUsernamePassword = settings.value("OpcUa/UseUsernamePassword", defaults.useUsernamePassword).toBool();
+    result.username = settings.value("OpcUa/Username", defaults.username).toString();
+    result.password = settings.value("OpcUa/Password", defaults.password).toString();
+    result.publishIntervalMs = settings.value("OpcUa/PublishIntervalMs", defaults.publishIntervalMs).toInt();
+    result.reconnectIntervalMs = settings.value("OpcUa/ReconnectIntervalMs", defaults.reconnectIntervalMs).toInt();
+    result.positionDirectionSign = settings.value("OpcUa/PositionDirectionSign", defaults.positionDirectionSign).toInt();
+    if (result.positionDirectionSign >= 0) {
+        result.positionDirectionSign = 1;
+    } else {
+        result.positionDirectionSign = -1;
+    }
+
+    const int triggerCount = settings.beginReadArray("OpcUa/TriggerTags");
+    if (triggerCount > 0) {
+        result.triggerTags.clear();
+        result.triggerTags.reserve(triggerCount);
+        for (int i = 0; i < triggerCount; ++i) {
+            settings.setArrayIndex(i);
+            OpcUaTriggerTagSettings tag = (i < static_cast<int>(defaults.triggerTags.size()))
+                ? defaults.triggerTags[static_cast<size_t>(i)]
+                : OpcUaTriggerTagSettings{};
+            tag.name = settings.value("name", tag.name).toString();
+            tag.nodeId = settings.value("nodeId", tag.nodeId).toString().trimmed();
+            tag.enabled = settings.value("enabled", tag.enabled).toBool();
+            tag.activeState = settings.value("activeState", tag.activeState).toBool();
+            tag.edgeMode = normalizedOpcUaEdgeMode(settings.value("edgeMode", tag.edgeMode).toString());
+            tag.minimumIntervalMs = settings.value("minimumIntervalMs", tag.minimumIntervalMs).toInt();
+            result.triggerTags.push_back(tag);
+        }
+    }
+    settings.endArray();
+
+    if (result.triggerTags.empty()) {
+        result.triggerTags = defaults.triggerTags;
+    }
+
+    result.speedTag.enabled = settings.value("OpcUa/SpeedTag/Enabled", defaults.speedTag.enabled).toBool();
+    result.speedTag.name = settings.value("OpcUa/SpeedTag/Name", defaults.speedTag.name).toString();
+    result.speedTag.nodeId = settings.value("OpcUa/SpeedTag/NodeId", defaults.speedTag.nodeId).toString().trimmed();
+    result.speedTag.scale = settings.value("OpcUa/SpeedTag/Scale", defaults.speedTag.scale).toDouble();
+    result.speedTag.offset = settings.value("OpcUa/SpeedTag/Offset", defaults.speedTag.offset).toDouble();
+    result.speedTag.unit = settings.value("OpcUa/SpeedTag/Unit", defaults.speedTag.unit).toString().trimmed();
+    result.speedTag.staleTimeoutMs = settings.value("OpcUa/SpeedTag/StaleTimeoutMs", defaults.speedTag.staleTimeoutMs).toInt();
+    if (result.speedTag.unit.isEmpty()) {
+        result.speedTag.unit = defaults.speedTag.unit;
+    }
+
+    return result;
+}
+
+void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
+    const OpcUaSettings defaults = getDefaultOpcUaSettings();
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("OpcUa/Enabled", opcUaSettings.enabled);
+    settings.setValue("OpcUa/EndpointUrl", opcUaSettings.endpointUrl.trimmed());
+    settings.setValue("OpcUa/UseUsernamePassword", opcUaSettings.useUsernamePassword);
+    settings.setValue("OpcUa/Username", opcUaSettings.username);
+    settings.setValue("OpcUa/Password", opcUaSettings.password);
+    settings.setValue("OpcUa/PublishIntervalMs", opcUaSettings.publishIntervalMs);
+    settings.setValue("OpcUa/ReconnectIntervalMs", opcUaSettings.reconnectIntervalMs);
+    settings.setValue("OpcUa/PositionDirectionSign", opcUaSettings.positionDirectionSign >= 0 ? 1 : -1);
+
+    settings.beginWriteArray("OpcUa/TriggerTags", static_cast<int>(opcUaSettings.triggerTags.size()));
+    for (int i = 0; i < static_cast<int>(opcUaSettings.triggerTags.size()); ++i) {
+        settings.setArrayIndex(i);
+        const OpcUaTriggerTagSettings& tag = opcUaSettings.triggerTags[static_cast<size_t>(i)];
+        settings.setValue("name", tag.name);
+        settings.setValue("nodeId", tag.nodeId.trimmed());
+        settings.setValue("enabled", tag.enabled);
+        settings.setValue("activeState", tag.activeState);
+        settings.setValue("edgeMode", normalizedOpcUaEdgeMode(tag.edgeMode));
+        settings.setValue("minimumIntervalMs", tag.minimumIntervalMs);
+    }
+    settings.endArray();
+
+    settings.setValue("OpcUa/SpeedTag/Enabled", opcUaSettings.speedTag.enabled);
+    settings.setValue("OpcUa/SpeedTag/Name", opcUaSettings.speedTag.name);
+    settings.setValue("OpcUa/SpeedTag/NodeId", opcUaSettings.speedTag.nodeId.trimmed());
+    settings.setValue("OpcUa/SpeedTag/Scale", opcUaSettings.speedTag.scale);
+    settings.setValue("OpcUa/SpeedTag/Offset", opcUaSettings.speedTag.offset);
+    settings.setValue("OpcUa/SpeedTag/Unit", opcUaSettings.speedTag.unit.trimmed().isEmpty()
+        ? defaults.speedTag.unit
+        : opcUaSettings.speedTag.unit.trimmed());
+    settings.setValue("OpcUa/SpeedTag/StaleTimeoutMs", opcUaSettings.speedTag.staleTimeoutMs);
 }
 
 std::vector<CameraInfo> CameraConfig::getCameras() {

@@ -2040,8 +2040,11 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
                  cv::drawContours(output, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), 2);
                  
                  // SIMULATED TRIGGER
-                 if (area > 5000) { 
-                     EventController::instance().triggerEvent();
+                 if (area > 5000) {
+                     EventController::TriggerContext triggerContext;
+                     triggerContext.reason = QStringLiteral("Defect Detection");
+                     triggerContext.source = QStringLiteral("defect");
+                     EventController::instance().triggerEvent(triggerContext);
                      cv::putText(output, "TRIGGERED!", cv::Point(10, 80), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(255), 2);
                  }
             }

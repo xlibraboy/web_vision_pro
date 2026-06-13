@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstring>
 #include <algorithm>
+#include <limits>
 #include <QDateTime>
 #include <QDir>
 #include <opencv2/imgcodecs.hpp>
@@ -39,10 +40,13 @@ void EventController::initialize(int bufferSize, double fps, int postTriggerFram
     triggering_ = false;
     running_ = true;
     saveRequested_ = false;
-    
+
     {
         std::lock_guard<std::mutex> lock(bufferMutex_);
         cameraStates_.clear();
+        currentEventCameraLabels_.clear();
+        currentEventCameraPositions_.clear();
+        currentTriggerContext_ = TriggerContext{};
     }
     
     // Start worker thread
@@ -148,23 +152,37 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
 }
 
 void EventController::triggerEvent() {
+    triggerEvent(TriggerContext{});
+}
+
+void EventController::triggerEvent(const TriggerContext& context) {
     if (triggering_) return;
-    
-    std::cout << "[EventController] EVENT TRIGGERED! Starting post-trigger recording." << std::endl;
-    
+
+    const QString reason = context.reason.isEmpty() ? QStringLiteral("Triggered") : context.reason;
+    std::cout << "[EventController] EVENT TRIGGERED! Reason: " << reason.toStdString() << std::endl;
+
     std::lock_guard<std::mutex> lock(bufferMutex_);
-    // Add Milliseconds to Event ID for higher precision
     currentTimestamp_ = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz").toStdString();
-    
+    currentTriggerContext_ = context;
+    currentTriggerContext_.reason = reason;
+    if (currentTriggerContext_.positionDirectionSign >= 0) {
+        currentTriggerContext_.positionDirectionSign = 1;
+    } else {
+        currentTriggerContext_.positionDirectionSign = -1;
+    }
+
     currentEventCameraLabels_.clear();
+    currentEventCameraPositions_.clear();
+    const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
     for (auto& pair : cameraStates_) {
         pair.second.postFramesRecorded = 0;
         const int configIndex = pair.first - 1;
-        if (configIndex >= 0 && configIndex < CameraConfig::getCameraCount()) {
+        if (configIndex >= 0 && configIndex < static_cast<int>(cameras.size())) {
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
+            currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
         }
     }
-    
+
     triggering_ = true;
 }
 
@@ -206,7 +224,9 @@ void EventController::saveWorker() {
             std::map<int, std::deque<FrameData>> framesToSave;
             std::map<int, int> triggerIndices;
             std::map<int, QString> eventCameraLabels;
-            
+            std::map<int, int> eventCameraPositions;
+            TriggerContext triggerContext;
+
             {
                 std::lock_guard<std::mutex> bufferLock(bufferMutex_);
                 for (auto& pair : cameraStates_) {
@@ -214,6 +234,8 @@ void EventController::saveWorker() {
                     triggerIndices[pair.first] = pair.second.linearizedTriggerIndex;
                 }
                 eventCameraLabels = currentEventCameraLabels_;
+                eventCameraPositions = currentEventCameraPositions_;
+                triggerContext = currentTriggerContext_;
             }
             
             saveRequested_ = false;
@@ -261,14 +283,27 @@ void EventController::saveWorker() {
             // Register event in database for the primary camera to prevent duplicates
             if (primarySaved) {
                 EventDatabase::EventInfo event;
-                event.timestamp = QString::fromStdString(currentTimestamp_); 
-                event.videoPath = primaryFilename; // Points to the primary .bin file
-                event.metadataPath = "";    // Embedded in .bin
-                event.triggerIndex = primaryTriggerIndex; 
+                event.timestamp = QString::fromStdString(currentTimestamp_);
+                event.videoPath = primaryFilename;
+                event.metadataPath = "";
+                event.triggerIndex = primaryTriggerIndex;
                 event.totalFrames = primaryFramesCount;
                 event.fps = fps_;
                 event.width = primaryWidth;
                 event.height = primaryHeight;
+                event.triggerReason = triggerContext.reason;
+                event.triggerSource = triggerContext.source;
+                event.triggerTagName = triggerContext.triggerTagName;
+                event.triggerTagNodeId = triggerContext.triggerTagNodeId;
+                event.speedTagName = triggerContext.speedTagName;
+                event.speedTagNodeId = triggerContext.speedTagNodeId;
+                event.speedValue = triggerContext.hasSpeed
+                    ? triggerContext.speedValue
+                    : std::numeric_limits<double>::quiet_NaN();
+                event.speedUnit = triggerContext.hasSpeed ? triggerContext.speedUnit : QString();
+                event.speedSampleTimeUtc = triggerContext.speedSampleTimeUtc;
+                event.speedStale = triggerContext.speedStale;
+                event.positionDirectionSign = triggerContext.positionDirectionSign;
                 int highestCameraId = 0;
                 for (const auto& pair : framesToSave) {
                     if (!pair.second.empty()) {
@@ -277,13 +312,17 @@ void EventController::saveWorker() {
                 }
                 if (highestCameraId > 0) {
                     event.cameraLabels.reserve(highestCameraId);
+                    event.cameraPositionsMm.reserve(static_cast<size_t>(highestCameraId));
                     for (int cameraId = 1; cameraId <= highestCameraId; ++cameraId) {
                         event.cameraLabels.append(eventCameraLabels.count(cameraId)
                             ? eventCameraLabels[cameraId]
                             : QString());
+                        event.cameraPositionsMm.push_back(eventCameraPositions.count(cameraId)
+                            ? eventCameraPositions[cameraId]
+                            : 0);
                     }
                 }
-                
+
                 EventDatabase::instance().registerEvent(event);
 
                 // Notify UI with CORRECT linearized index from the primary camera

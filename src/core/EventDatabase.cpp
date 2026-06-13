@@ -8,6 +8,8 @@
 #include <QFile>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
+
 
 EventDatabase& EventDatabase::instance() {
     static EventDatabase instance;
@@ -132,16 +134,14 @@ EventDatabase::EventInfo EventDatabase::getEventInfo(const QString& timestamp) c
 }
 
 void EventDatabase::registerEvent(const EventInfo& event) {
-    events_[event.timestamp] = event;
-    
-    // Auto-save metadata to disk
     QString jsonPath = QDir(dataPath_).filePath("event_" + event.timestamp + ".json");
     EventInfo eventToSave = event;
     eventToSave.metadataPath = jsonPath;
-    
+    events_[event.timestamp] = eventToSave;
+
     saveMetadata(jsonPath, eventToSave);
     trimNonPermanentEvents();
-    
+
     std::cout << "[EventDatabase] Registered new event: " << event.timestamp.toStdString() << std::endl;
 }
 
@@ -159,6 +159,26 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
         cameraLabels.append(label);
     }
     meta["cameraLabels"] = cameraLabels;
+
+    QJsonArray cameraPositions;
+    for (int position : event.cameraPositionsMm) {
+        cameraPositions.append(position);
+    }
+    meta["cameraPositionsMm"] = cameraPositions;
+
+    meta["triggerReason"] = event.triggerReason;
+    meta["triggerSource"] = event.triggerSource;
+    meta["triggerTagName"] = event.triggerTagName;
+    meta["triggerTagNodeId"] = event.triggerTagNodeId;
+    meta["speedTagName"] = event.speedTagName;
+    meta["speedTagNodeId"] = event.speedTagNodeId;
+    if (std::isfinite(event.speedValue)) {
+        meta["speedValue"] = event.speedValue;
+    }
+    meta["speedUnit"] = event.speedUnit;
+    meta["speedSampleTimeUtc"] = event.speedSampleTimeUtc;
+    meta["speedStale"] = event.speedStale;
+    meta["positionDirectionSign"] = event.positionDirectionSign;
     meta["permanent"] = event.permanent;
     
     QJsonDocument doc(meta);
@@ -197,6 +217,24 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     for (const QJsonValue& value : cameraLabels) {
         event.cameraLabels.append(value.toString());
     }
+    const QJsonArray cameraPositions = meta["cameraPositionsMm"].toArray();
+    event.cameraPositionsMm.reserve(static_cast<size_t>(cameraPositions.size()));
+    for (const QJsonValue& value : cameraPositions) {
+        event.cameraPositionsMm.push_back(value.toInt());
+    }
+    event.triggerReason = meta["triggerReason"].toString("Triggered");
+    event.triggerSource = meta["triggerSource"].toString("unknown");
+    event.triggerTagName = meta["triggerTagName"].toString();
+    event.triggerTagNodeId = meta["triggerTagNodeId"].toString();
+    event.speedTagName = meta["speedTagName"].toString();
+    event.speedTagNodeId = meta["speedTagNodeId"].toString();
+    event.speedValue = meta.contains("speedValue")
+        ? meta["speedValue"].toDouble(std::numeric_limits<double>::quiet_NaN())
+        : std::numeric_limits<double>::quiet_NaN();
+    event.speedUnit = meta["speedUnit"].toString();
+    event.speedSampleTimeUtc = meta["speedSampleTimeUtc"].toString();
+    event.speedStale = meta["speedStale"].toBool(false);
+    event.positionDirectionSign = meta["positionDirectionSign"].toInt(1) >= 0 ? 1 : -1;
     event.permanent = meta["permanent"].toBool(false);
     
     return event;

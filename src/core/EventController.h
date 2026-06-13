@@ -24,6 +24,21 @@ public:
         int64_t timestamp;   // Hardware timestamp (ns)
         int64_t frameCounter;
     };
+    struct TriggerContext {
+        QString reason = QStringLiteral("Triggered");
+        QString source = QStringLiteral("unknown");
+        QString triggerTagName;
+        QString triggerTagNodeId;
+        QString speedTagName;
+        QString speedTagNodeId;
+        double speedValue = 0.0;
+        QString speedUnit = QStringLiteral("m/min");
+        QString speedSampleTimeUtc;
+        bool hasSpeed = false;
+        bool speedStale = false;
+        int positionDirectionSign = 1;
+    };
+
 
     // Singleton access
     static EventController& instance();
@@ -36,6 +51,7 @@ public:
 
     // Trigger an event (Paper Break) - captures post-trigger for ALL active cameras
     void triggerEvent();
+    void triggerEvent(const TriggerContext& context);
 
     // Check if currently saving
     bool isSaving() const;
@@ -85,6 +101,8 @@ private:
     
     std::string currentTimestamp_;
     std::map<int, QString> currentEventCameraLabels_;
+    std::map<int, int> currentEventCameraPositions_;
+    TriggerContext currentTriggerContext_;
 
     // Threading
     std::thread saveThread_;

@@ -393,6 +393,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         setCameraCount(eventCameraCount);
     }
 
+    currentEventInfo_ = EventDatabase::EventInfo();
     currentEventCameraLabels_.clear();
     QFileInfo currentEventFileInfo(videoPath);
     QString currentEventBaseName = currentEventFileInfo.baseName();
@@ -403,8 +404,10 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
             tsStr = tsStr.left(camSuffix);
         }
         try {
-            currentEventCameraLabels_ = EventDatabase::instance().getEventInfo(tsStr).cameraLabels;
+            currentEventInfo_ = EventDatabase::instance().getEventInfo(tsStr);
+            currentEventCameraLabels_ = currentEventInfo_.cameraLabels;
         } catch (...) {
+            currentEventInfo_ = EventDatabase::EventInfo();
             currentEventCameraLabels_.clear();
         }
     }
@@ -2030,6 +2033,7 @@ void AnalysisView::updatePlaybackInfoLabel() {
 
     if (!isReviewMode_) {
         playbackInfoLabel_->setText("Frame -- | Time --");
+        playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
         return;
     }
 
@@ -2041,11 +2045,19 @@ void AnalysisView::updatePlaybackInfoLabel() {
     if (fps <= 0.0) {
         fps = 1.0;
     }
-    const double seconds = relFrames / fps;
-    playbackInfoLabel_->setText(QString("Frame %1 | Time %2%3 s")
+    const int frameIndex = currentReviewFrameIndex();
+    const double seconds = frameIndex >= 0
+        ? relativeSecondsForFrameIndex(frameIndex)
+        : (relFrames / fps);
+    const QString baseText = QString("Frame %1 | Time %2%3 s")
         .arg(relFrames, 0, 'f', 1)
         .arg(seconds >= 0.0 ? "+" : "")
-        .arg(seconds, 0, 'f', 3));
+        .arg(seconds, 0, 'f', 3);
+    const QString speedSummary = currentSpeedSummary(seconds);
+    playbackInfoLabel_->setText(speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary));
+    playbackInfoLabel_->setToolTip(speedSummary.isEmpty()
+        ? QString("Relative frame and time from trigger.")
+        : QString("Relative frame and time from trigger.\n%1").arg(speedSummary));
 }
 
 bool AnalysisView::hasRelativeTimeAxis() const {
@@ -2321,17 +2333,10 @@ void AnalysisView::reloadEventTables() {
     permanentPaperBreakTable_->setRowCount(0);
 
     for (const auto& event : events) {
-        QStringList triggers = {"Reel", "Calender", "Press", "Wire"};
-        long long seed = 0;
-        QString rawTs = event.timestamp;
-        for (QChar c : rawTs) {
-            if (c.isDigit()) {
-                seed += c.digitValue();
-            }
-        }
-        QString randomTrigger = triggers[seed % triggers.size()];
-
-        addEventRow(event.timestamp, randomTrigger, event.permanent, false);
+        const QString triggerReason = event.triggerReason.trimmed().isEmpty()
+            ? QStringLiteral("Triggered")
+            : event.triggerReason.trimmed();
+        addEventRow(event.timestamp, triggerReason, event.permanent, false);
     }
 
     sortLogTable(paperBreakTable_);
@@ -2590,6 +2595,8 @@ void AnalysisView::clearData() {
     videoReaders_.clear();
     currentAnnotationPath_.clear();
     currentEventCameraLabels_.clear();
+    currentEventInfo_ = EventDatabase::EventInfo();
+
     const int configuredCameraCount = CameraConfig::getCameraCount();
     if (configuredCameraCount > 0 && configuredCameraCount != static_cast<int>(cameraWidgets_.size())) {
         setCameraCount(configuredCameraCount);
@@ -2613,6 +2620,42 @@ QString AnalysisView::currentEventCameraLabel(int cameraId) const {
     }
     return QString("CAM-%1").arg(cameraId + 1, 2, 10, QChar('0'));
 }
+int AnalysisView::currentEventCameraPositionMm(int cameraId) const {
+    if (cameraId >= 0 && cameraId < static_cast<int>(currentEventInfo_.cameraPositionsMm.size())) {
+        return currentEventInfo_.cameraPositionsMm[static_cast<size_t>(cameraId)];
+    }
+    if (cameraId >= 0 && cameraId < CameraConfig::getCameraCount()) {
+        return CameraConfig::getCameraInfo(cameraId).machinePosition;
+    }
+    return 0;
+}
+
+QString AnalysisView::currentSpeedSummary(double relativeSeconds) const {
+    if (!std::isfinite(currentEventInfo_.speedValue)) {
+        return QString();
+    }
+
+    QStringList parts;
+    parts.append(QString("Speed %1 %2")
+        .arg(currentEventInfo_.speedValue, 0, 'f', 2)
+        .arg(currentEventInfo_.speedUnit.isEmpty() ? QStringLiteral("m/min") : currentEventInfo_.speedUnit));
+
+    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+    if (detailTabActive) {
+        const int cameraId = selectedCameraId_;
+        const int basePositionMm = currentEventCameraPositionMm(cameraId);
+        const double deltaMm = currentEventInfo_.speedValue * 1000.0 / 60.0 * relativeSeconds
+            * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
+        parts.append(QString("Δ %1 mm").arg(deltaMm, 0, 'f', 1));
+        parts.append(QString("Pos %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1));
+    }
+
+    if (currentEventInfo_.speedStale) {
+        parts.append(QStringLiteral("Stale"));
+    }
+    return parts.join(" | ");
+}
+
 
 QString AnalysisView::formatTimestamp(const QString& rawTs) {
     // Convert from yyyyMMdd_HHmmss_zzz to yyyy-MM-dd HH:mm:ss.zzz

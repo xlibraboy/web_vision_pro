@@ -5,6 +5,8 @@
 #include <QMap>
 #include <QJsonObject>
 #include <vector>
+#include <limits>
+
 
 /**
  * EventDatabase - Manages event metadata and file indexing
@@ -22,6 +24,18 @@ public:
         int width;              // Frame width
         int height;             // Frame height
         QStringList cameraLabels; // Per-camera labels captured at record time
+        std::vector<int> cameraPositionsMm; // Per-camera machine positions captured at record time
+        QString triggerReason = QStringLiteral("Triggered");
+        QString triggerSource = QStringLiteral("unknown");
+        QString triggerTagName;
+        QString triggerTagNodeId;
+        QString speedTagName;
+        QString speedTagNodeId;
+        double speedValue = std::numeric_limits<double>::quiet_NaN();
+        QString speedUnit;
+        QString speedSampleTimeUtc;
+        bool speedStale = false;
+        int positionDirectionSign = 1;
         bool permanent = false; // Excluded from automatic retention cleanup
     };
     

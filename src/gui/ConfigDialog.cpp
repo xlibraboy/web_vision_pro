@@ -570,6 +570,227 @@ void ConfigDialog::setupUI() {
     sidebar->addItem(globalGroupItem);
     stackedWidget->addWidget(bufferGroup);
 
+    // OPC UA Tab
+    QWidget* opcUaGroup = new QWidget(this);
+    QVBoxLayout* opcUaLayout = new QVBoxLayout(opcUaGroup);
+    opcUaLayout->setSpacing(kSectionSpacing);
+    opcUaLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+
+    const QString opcUaLineEditStyle = QString(
+        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; } "
+        "QLineEdit:hover { border-color: %4; } "
+        "QLineEdit:focus { border-color: %4; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    const QString opcUaComboStyle = QString(
+        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; min-width: 120px; } "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; width: 20px; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+
+    auto createOpcUaForm = [&](QGroupBox* group) {
+        QFormLayout* form = new QFormLayout(group);
+        form->setSpacing(kControlSpacing);
+        form->setContentsMargins(14, 18, 14, 14);
+        form->setHorizontalSpacing(kSectionSpacing);
+        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        return form;
+    };
+
+    QLabel* opcUaHeaderLabel = new QLabel("OPC UA Client", opcUaGroup);
+    opcUaHeaderLabel->setStyleSheet(QString("color: %1; font-size: 17px; font-weight: 700;").arg(tc.primary));
+    opcUaLayout->addWidget(opcUaHeaderLabel);
+
+    QLabel* opcUaDescriptionLabel = new QLabel(
+        "Connect to external boolean trigger tags and a machine speed tag for event synchronization.",
+        opcUaGroup);
+    opcUaDescriptionLabel->setWordWrap(true);
+    opcUaDescriptionLabel->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    opcUaLayout->addWidget(opcUaDescriptionLabel);
+
+    QGroupBox* opcUaConnectionGroup = new QGroupBox("Connection", opcUaGroup);
+    opcUaConnectionGroup->setStyleSheet(sectionStyle);
+    QFormLayout* opcUaConnectionForm = createOpcUaForm(opcUaConnectionGroup);
+
+    opcUaEnabledCheck_ = new QCheckBox("Enable OPC UA client", opcUaConnectionGroup);
+    opcUaEnabledCheck_->setStyleSheet(QString("color: %1;").arg(tc.text));
+    opcUaConnectionForm->addRow("Client:", opcUaEnabledCheck_);
+
+    opcUaEndpointEdit_ = new QLineEdit(opcUaConnectionGroup);
+    opcUaEndpointEdit_->setPlaceholderText("opc.tcp://127.0.0.1:4840");
+    opcUaEndpointEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaConnectionForm->addRow("Endpoint URL:", opcUaEndpointEdit_);
+
+    opcUaPublishIntervalSpin_ = new QSpinBox(opcUaConnectionGroup);
+    opcUaPublishIntervalSpin_->setRange(50, 10000);
+    opcUaPublishIntervalSpin_->setSuffix(" ms");
+    opcUaPublishIntervalSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaConnectionForm->addRow("Publish Interval:", opcUaPublishIntervalSpin_);
+
+    opcUaReconnectIntervalSpin_ = new QSpinBox(opcUaConnectionGroup);
+    opcUaReconnectIntervalSpin_->setRange(250, 60000);
+    opcUaReconnectIntervalSpin_->setSuffix(" ms");
+    opcUaReconnectIntervalSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaConnectionForm->addRow("Reconnect Delay:", opcUaReconnectIntervalSpin_);
+    opcUaLayout->addWidget(opcUaConnectionGroup);
+
+    QGroupBox* opcUaAuthGroup = new QGroupBox("Authentication", opcUaGroup);
+    opcUaAuthGroup->setStyleSheet(sectionStyle);
+    QFormLayout* opcUaAuthForm = createOpcUaForm(opcUaAuthGroup);
+
+    opcUaAuthModeCombo_ = new QComboBox(opcUaAuthGroup);
+    opcUaAuthModeCombo_->setStyleSheet(opcUaComboStyle);
+    opcUaAuthModeCombo_->addItem("Anonymous", false);
+    opcUaAuthModeCombo_->addItem("Username / Password", true);
+    opcUaAuthForm->addRow("Mode:", opcUaAuthModeCombo_);
+
+    opcUaUsernameEdit_ = new QLineEdit(opcUaAuthGroup);
+    opcUaUsernameEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaAuthForm->addRow("Username:", opcUaUsernameEdit_);
+
+    opcUaPasswordEdit_ = new QLineEdit(opcUaAuthGroup);
+    opcUaPasswordEdit_->setEchoMode(QLineEdit::Password);
+    opcUaPasswordEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaAuthForm->addRow("Password:", opcUaPasswordEdit_);
+
+    connect(opcUaAuthModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        const bool useCredentials = opcUaAuthModeCombo_ && opcUaAuthModeCombo_->currentData().toBool();
+        if (opcUaUsernameEdit_) {
+            opcUaUsernameEdit_->setEnabled(isAdminMode_ && useCredentials);
+        }
+        if (opcUaPasswordEdit_) {
+            opcUaPasswordEdit_->setEnabled(isAdminMode_ && useCredentials);
+        }
+    });
+    opcUaLayout->addWidget(opcUaAuthGroup);
+
+    QGroupBox* opcUaTriggerGroup = new QGroupBox("Trigger Tags", opcUaGroup);
+    opcUaTriggerGroup->setStyleSheet(sectionStyle);
+    QVBoxLayout* opcUaTriggerLayout = new QVBoxLayout(opcUaTriggerGroup);
+    opcUaTriggerLayout->setContentsMargins(14, 18, 14, 14);
+    opcUaTriggerLayout->setSpacing(8);
+
+    QLabel* opcUaTriggerNote = new QLabel(
+        "Each enabled tag can trigger a recording when the configured active state edge is observed.",
+        opcUaTriggerGroup);
+    opcUaTriggerNote->setWordWrap(true);
+    opcUaTriggerNote->setStyleSheet(QString("color: %1;").arg(tc.text));
+    opcUaTriggerLayout->addWidget(opcUaTriggerNote);
+
+    QGridLayout* opcUaTriggerGrid = new QGridLayout();
+    opcUaTriggerGrid->setHorizontalSpacing(8);
+    opcUaTriggerGrid->setVerticalSpacing(6);
+    opcUaTriggerGrid->addWidget(new QLabel("On", opcUaTriggerGroup), 0, 0);
+    opcUaTriggerGrid->addWidget(new QLabel("Name", opcUaTriggerGroup), 0, 1);
+    opcUaTriggerGrid->addWidget(new QLabel("NodeId", opcUaTriggerGroup), 0, 2);
+    opcUaTriggerGrid->addWidget(new QLabel("Active", opcUaTriggerGroup), 0, 3);
+    opcUaTriggerGrid->addWidget(new QLabel("Edge", opcUaTriggerGroup), 0, 4);
+    opcUaTriggerGrid->addWidget(new QLabel("Cooldown", opcUaTriggerGroup), 0, 5);
+
+    for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
+        OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
+        row.enabledCheck = new QCheckBox(opcUaTriggerGroup);
+        row.enabledCheck->setStyleSheet(QString("color: %1;").arg(tc.text));
+        opcUaTriggerGrid->addWidget(row.enabledCheck, i + 1, 0, Qt::AlignCenter);
+
+        row.nameEdit = new QLineEdit(opcUaTriggerGroup);
+        row.nameEdit->setPlaceholderText(QString("Trigger %1").arg(i + 1));
+        row.nameEdit->setStyleSheet(opcUaLineEditStyle);
+        opcUaTriggerGrid->addWidget(row.nameEdit, i + 1, 1);
+
+        row.nodeIdEdit = new QLineEdit(opcUaTriggerGroup);
+        row.nodeIdEdit->setPlaceholderText("ns=2;s=Line.Trigger");
+        row.nodeIdEdit->setStyleSheet(opcUaLineEditStyle);
+        opcUaTriggerGrid->addWidget(row.nodeIdEdit, i + 1, 2);
+
+        row.activeStateCombo = new QComboBox(opcUaTriggerGroup);
+        row.activeStateCombo->setStyleSheet(opcUaComboStyle);
+        row.activeStateCombo->addItem("True", true);
+        row.activeStateCombo->addItem("False", false);
+        opcUaTriggerGrid->addWidget(row.activeStateCombo, i + 1, 3);
+
+        row.edgeModeCombo = new QComboBox(opcUaTriggerGroup);
+        row.edgeModeCombo->setStyleSheet(opcUaComboStyle);
+        row.edgeModeCombo->addItem("Rising", "rising");
+        row.edgeModeCombo->addItem("Falling", "falling");
+        row.edgeModeCombo->addItem("Either", "either");
+        opcUaTriggerGrid->addWidget(row.edgeModeCombo, i + 1, 4);
+
+        row.minimumIntervalSpin = new QSpinBox(opcUaTriggerGroup);
+        row.minimumIntervalSpin->setRange(0, 60000);
+        row.minimumIntervalSpin->setSuffix(" ms");
+        row.minimumIntervalSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 5);
+    }
+    opcUaTriggerLayout->addLayout(opcUaTriggerGrid);
+    opcUaLayout->addWidget(opcUaTriggerGroup);
+
+    QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tag", opcUaGroup);
+    opcUaSpeedGroup->setStyleSheet(sectionStyle);
+    QFormLayout* opcUaSpeedForm = createOpcUaForm(opcUaSpeedGroup);
+
+    opcUaSpeedEnabledCheck_ = new QCheckBox("Use machine speed tag", opcUaSpeedGroup);
+    opcUaSpeedEnabledCheck_->setStyleSheet(QString("color: %1;").arg(tc.text));
+    opcUaSpeedForm->addRow("Speed Source:", opcUaSpeedEnabledCheck_);
+
+    opcUaSpeedNameEdit_ = new QLineEdit(opcUaSpeedGroup);
+    opcUaSpeedNameEdit_->setPlaceholderText("Machine Speed");
+    opcUaSpeedNameEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaSpeedForm->addRow("Display Name:", opcUaSpeedNameEdit_);
+
+    opcUaSpeedNodeIdEdit_ = new QLineEdit(opcUaSpeedGroup);
+    opcUaSpeedNodeIdEdit_->setPlaceholderText("ns=2;s=Line.Speed");
+    opcUaSpeedNodeIdEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaSpeedForm->addRow("NodeId:", opcUaSpeedNodeIdEdit_);
+
+    opcUaSpeedScaleSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
+    opcUaSpeedScaleSpin_->setDecimals(4);
+    opcUaSpeedScaleSpin_->setRange(-100000.0, 100000.0);
+    opcUaSpeedScaleSpin_->setSingleStep(0.1);
+    opcUaSpeedScaleSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaSpeedForm->addRow("Scale:", opcUaSpeedScaleSpin_);
+
+    opcUaSpeedOffsetSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
+    opcUaSpeedOffsetSpin_->setDecimals(4);
+    opcUaSpeedOffsetSpin_->setRange(-100000.0, 100000.0);
+    opcUaSpeedOffsetSpin_->setSingleStep(0.1);
+    opcUaSpeedOffsetSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaSpeedForm->addRow("Offset:", opcUaSpeedOffsetSpin_);
+
+    opcUaSpeedUnitEdit_ = new QLineEdit(opcUaSpeedGroup);
+    opcUaSpeedUnitEdit_->setPlaceholderText("m/min");
+    opcUaSpeedUnitEdit_->setStyleSheet(opcUaLineEditStyle);
+    opcUaSpeedForm->addRow("Unit:", opcUaSpeedUnitEdit_);
+
+    opcUaSpeedStaleTimeoutSpin_ = new QSpinBox(opcUaSpeedGroup);
+    opcUaSpeedStaleTimeoutSpin_->setRange(100, 60000);
+    opcUaSpeedStaleTimeoutSpin_->setSuffix(" ms");
+    opcUaSpeedStaleTimeoutSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaSpeedForm->addRow("Stale Timeout:", opcUaSpeedStaleTimeoutSpin_);
+
+    opcUaPositionDirectionCombo_ = new QComboBox(opcUaSpeedGroup);
+    opcUaPositionDirectionCombo_->setStyleSheet(opcUaComboStyle);
+    opcUaPositionDirectionCombo_->addItem("Increase position with time", 1);
+    opcUaPositionDirectionCombo_->addItem("Decrease position with time", -1);
+    opcUaSpeedForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
+    opcUaLayout->addWidget(opcUaSpeedGroup);
+
+    opcUaLayout->addStretch();
+
+    QHBoxLayout* opcUaActionsLayout = new QHBoxLayout();
+    opcUaActionsLayout->addStretch();
+    opcUaSaveBtn_ = new QPushButton("Save OPC UA Settings", opcUaGroup);
+    opcUaSaveBtn_->setIcon(IconManager::instance().save(16));
+    stylePrimaryActionButton(opcUaSaveBtn_, tc);
+    connect(opcUaSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveOpcUaSettings);
+    opcUaActionsLayout->addWidget(opcUaSaveBtn_);
+    opcUaLayout->addLayout(opcUaActionsLayout);
+
+    QListWidgetItem* opcUaItem = new QListWidgetItem(IconManager::instance().settings(20), "OPC UA");
+    sidebar->addItem(opcUaItem);
+    stackedWidget->addWidget(opcUaGroup);
+
+
     // UI Preferences Tab
     QWidget* uiGroup = new QWidget(this);
     QVBoxLayout* uiPageLayout = new QVBoxLayout(uiGroup);
@@ -1534,6 +1755,99 @@ void ConfigDialog::loadSettings() {
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
     eventRetentionSpin_->setValue(CameraConfig::getEventRetentionCount());
+    const OpcUaSettings opcUaSettings = CameraConfig::getOpcUaSettings();
+    const OpcUaSettings defaultOpcUaSettings = CameraConfig::getDefaultOpcUaSettings();
+    if (opcUaEnabledCheck_) {
+        opcUaEnabledCheck_->setChecked(opcUaSettings.enabled);
+    }
+    if (opcUaEndpointEdit_) {
+        opcUaEndpointEdit_->setText(opcUaSettings.endpointUrl);
+    }
+    if (opcUaAuthModeCombo_) {
+        const int authModeIndex = opcUaAuthModeCombo_->findData(opcUaSettings.useUsernamePassword);
+        if (authModeIndex != -1) {
+            opcUaAuthModeCombo_->setCurrentIndex(authModeIndex);
+        }
+    }
+    if (opcUaUsernameEdit_) {
+        opcUaUsernameEdit_->setText(opcUaSettings.username);
+    }
+    if (opcUaPasswordEdit_) {
+        opcUaPasswordEdit_->setText(opcUaSettings.password);
+    }
+    if (opcUaPublishIntervalSpin_) {
+        opcUaPublishIntervalSpin_->setValue(opcUaSettings.publishIntervalMs);
+    }
+    if (opcUaReconnectIntervalSpin_) {
+        opcUaReconnectIntervalSpin_->setValue(opcUaSettings.reconnectIntervalMs);
+    }
+
+    for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
+        const OpcUaTriggerTagSettings tag = (i < static_cast<int>(opcUaSettings.triggerTags.size()))
+            ? opcUaSettings.triggerTags[static_cast<size_t>(i)]
+            : defaultOpcUaSettings.triggerTags[static_cast<size_t>(i)];
+        OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
+        if (row.enabledCheck) {
+            row.enabledCheck->setChecked(tag.enabled);
+        }
+        if (row.nameEdit) {
+            row.nameEdit->setText(tag.name);
+        }
+        if (row.nodeIdEdit) {
+            row.nodeIdEdit->setText(tag.nodeId);
+        }
+        if (row.activeStateCombo) {
+            const int activeStateIndex = row.activeStateCombo->findData(tag.activeState);
+            if (activeStateIndex != -1) {
+                row.activeStateCombo->setCurrentIndex(activeStateIndex);
+            }
+        }
+        if (row.edgeModeCombo) {
+            const int edgeModeIndex = row.edgeModeCombo->findData(tag.edgeMode);
+            if (edgeModeIndex != -1) {
+                row.edgeModeCombo->setCurrentIndex(edgeModeIndex);
+            }
+        }
+        if (row.minimumIntervalSpin) {
+            row.minimumIntervalSpin->setValue(tag.minimumIntervalMs);
+        }
+    }
+
+    if (opcUaSpeedEnabledCheck_) {
+        opcUaSpeedEnabledCheck_->setChecked(opcUaSettings.speedTag.enabled);
+    }
+    if (opcUaSpeedNameEdit_) {
+        opcUaSpeedNameEdit_->setText(opcUaSettings.speedTag.name);
+    }
+    if (opcUaSpeedNodeIdEdit_) {
+        opcUaSpeedNodeIdEdit_->setText(opcUaSettings.speedTag.nodeId);
+    }
+    if (opcUaSpeedScaleSpin_) {
+        opcUaSpeedScaleSpin_->setValue(opcUaSettings.speedTag.scale);
+    }
+    if (opcUaSpeedOffsetSpin_) {
+        opcUaSpeedOffsetSpin_->setValue(opcUaSettings.speedTag.offset);
+    }
+    if (opcUaSpeedUnitEdit_) {
+        opcUaSpeedUnitEdit_->setText(opcUaSettings.speedTag.unit);
+    }
+    if (opcUaSpeedStaleTimeoutSpin_) {
+        opcUaSpeedStaleTimeoutSpin_->setValue(opcUaSettings.speedTag.staleTimeoutMs);
+    }
+    if (opcUaPositionDirectionCombo_) {
+        const int directionIndex = opcUaPositionDirectionCombo_->findData(opcUaSettings.positionDirectionSign >= 0 ? 1 : -1);
+        if (directionIndex != -1) {
+            opcUaPositionDirectionCombo_->setCurrentIndex(directionIndex);
+        }
+    }
+    const bool useOpcUaCredentials = opcUaSettings.useUsernamePassword;
+    if (opcUaUsernameEdit_) {
+        opcUaUsernameEdit_->setEnabled(isAdminMode_ && useOpcUaCredentials);
+    }
+    if (opcUaPasswordEdit_) {
+        opcUaPasswordEdit_->setEnabled(isAdminMode_ && useOpcUaCredentials);
+    }
+
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
     selectedThemeIndex_ = CameraConfig::getThemePreset();
     const int savedThemeIdx = selectedThemeIndex_;
@@ -2117,6 +2431,86 @@ void ConfigDialog::saveRecordingSettings() {
     QMessageBox::information(this, "Recording Settings Saved", "Recording settings saved.");
     emitConfigUpdated(false);
 }
+void ConfigDialog::saveOpcUaSettings() {
+    qInfo() << "[ConfigDialog] OPC UA save requested";
+
+    OpcUaSettings settings = CameraConfig::getDefaultOpcUaSettings();
+    settings.enabled = opcUaEnabledCheck_ && opcUaEnabledCheck_->isChecked();
+    settings.endpointUrl = opcUaEndpointEdit_ ? opcUaEndpointEdit_->text().trimmed() : QString();
+    settings.useUsernamePassword = opcUaAuthModeCombo_ && opcUaAuthModeCombo_->currentData().toBool();
+    settings.username = opcUaUsernameEdit_ ? opcUaUsernameEdit_->text().trimmed() : QString();
+    settings.password = opcUaPasswordEdit_ ? opcUaPasswordEdit_->text() : QString();
+    settings.publishIntervalMs = opcUaPublishIntervalSpin_ ? opcUaPublishIntervalSpin_->value() : settings.publishIntervalMs;
+    settings.reconnectIntervalMs = opcUaReconnectIntervalSpin_ ? opcUaReconnectIntervalSpin_->value() : settings.reconnectIntervalMs;
+    settings.positionDirectionSign = (opcUaPositionDirectionCombo_ && opcUaPositionDirectionCombo_->currentData().toInt() < 0) ? -1 : 1;
+
+    QStringList validationErrors;
+    bool hasEnabledTrigger = false;
+
+    settings.triggerTags.clear();
+    settings.triggerTags.reserve(kOpcUaTriggerSlots);
+    for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
+        const OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
+        OpcUaTriggerTagSettings tag;
+        tag.enabled = row.enabledCheck && row.enabledCheck->isChecked();
+        tag.name = row.nameEdit ? row.nameEdit->text().trimmed() : QString();
+        tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
+        tag.activeState = row.activeStateCombo ? row.activeStateCombo->currentData().toBool() : true;
+        tag.edgeMode = row.edgeModeCombo ? row.edgeModeCombo->currentData().toString() : QStringLiteral("rising");
+        tag.minimumIntervalMs = row.minimumIntervalSpin ? row.minimumIntervalSpin->value() : 0;
+
+        if (tag.name.isEmpty()) {
+            tag.name = QString("Trigger %1").arg(i + 1);
+        }
+        if (tag.enabled) {
+            hasEnabledTrigger = true;
+            if (tag.nodeId.isEmpty()) {
+                validationErrors.append(QString("%1 is enabled but has no NodeId.").arg(tag.name));
+            }
+        }
+        settings.triggerTags.push_back(tag);
+    }
+
+    settings.speedTag.enabled = opcUaSpeedEnabledCheck_ && opcUaSpeedEnabledCheck_->isChecked();
+    settings.speedTag.name = opcUaSpeedNameEdit_ ? opcUaSpeedNameEdit_->text().trimmed() : QString();
+    settings.speedTag.nodeId = opcUaSpeedNodeIdEdit_ ? opcUaSpeedNodeIdEdit_->text().trimmed() : QString();
+    settings.speedTag.scale = opcUaSpeedScaleSpin_ ? opcUaSpeedScaleSpin_->value() : 1.0;
+    settings.speedTag.offset = opcUaSpeedOffsetSpin_ ? opcUaSpeedOffsetSpin_->value() : 0.0;
+    settings.speedTag.unit = opcUaSpeedUnitEdit_ ? opcUaSpeedUnitEdit_->text().trimmed() : QStringLiteral("m/min");
+    settings.speedTag.staleTimeoutMs = opcUaSpeedStaleTimeoutSpin_ ? opcUaSpeedStaleTimeoutSpin_->value() : 2000;
+    if (settings.speedTag.name.isEmpty()) {
+        settings.speedTag.name = QStringLiteral("Machine Speed");
+    }
+    if (settings.speedTag.unit.isEmpty()) {
+        settings.speedTag.unit = QStringLiteral("m/min");
+    }
+
+    if (settings.enabled) {
+        if (settings.endpointUrl.isEmpty()) {
+            validationErrors.append("Endpoint URL is required when OPC UA is enabled.");
+        }
+        if (settings.useUsernamePassword && settings.username.isEmpty()) {
+            validationErrors.append("Username is required when username/password authentication is selected.");
+        }
+        if (!hasEnabledTrigger && !settings.speedTag.enabled) {
+            validationErrors.append("Enable at least one trigger tag or the machine speed tag before turning on the OPC UA client.");
+        }
+    }
+
+    if (settings.speedTag.enabled && settings.speedTag.nodeId.isEmpty()) {
+        validationErrors.append("Machine speed tag is enabled but has no NodeId.");
+    }
+
+    if (!validationErrors.isEmpty()) {
+        QMessageBox::warning(this, "Invalid OPC UA Settings", validationErrors.join("\n"));
+        return;
+    }
+
+    CameraConfig::setOpcUaSettings(settings);
+    QMessageBox::information(this, "OPC UA Settings Saved", "OPC UA settings saved.");
+    emitConfigUpdated(false);
+}
+
 
 void ConfigDialog::saveUiSettings() {
     qInfo() << "[ConfigDialog] UI save requested";
@@ -2241,6 +2635,30 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     preTriggerSpin_->setEnabled(isAdmin);
     postTriggerSpin_->setEnabled(isAdmin);
     eventRetentionSpin_->setEnabled(isAdmin);
+    if (opcUaEnabledCheck_) opcUaEnabledCheck_->setEnabled(isAdmin);
+    if (opcUaEndpointEdit_) opcUaEndpointEdit_->setEnabled(isAdmin);
+    if (opcUaAuthModeCombo_) opcUaAuthModeCombo_->setEnabled(isAdmin);
+    if (opcUaUsernameEdit_) opcUaUsernameEdit_->setEnabled(isAdmin && opcUaAuthModeCombo_ && opcUaAuthModeCombo_->currentData().toBool());
+    if (opcUaPasswordEdit_) opcUaPasswordEdit_->setEnabled(isAdmin && opcUaAuthModeCombo_ && opcUaAuthModeCombo_->currentData().toBool());
+    if (opcUaPublishIntervalSpin_) opcUaPublishIntervalSpin_->setEnabled(isAdmin);
+    if (opcUaReconnectIntervalSpin_) opcUaReconnectIntervalSpin_->setEnabled(isAdmin);
+    for (auto& row : opcUaTriggerRows_) {
+        if (row.enabledCheck) row.enabledCheck->setEnabled(isAdmin);
+        if (row.nameEdit) row.nameEdit->setEnabled(isAdmin);
+        if (row.nodeIdEdit) row.nodeIdEdit->setEnabled(isAdmin);
+        if (row.activeStateCombo) row.activeStateCombo->setEnabled(isAdmin);
+        if (row.edgeModeCombo) row.edgeModeCombo->setEnabled(isAdmin);
+        if (row.minimumIntervalSpin) row.minimumIntervalSpin->setEnabled(isAdmin);
+    }
+    if (opcUaSpeedEnabledCheck_) opcUaSpeedEnabledCheck_->setEnabled(isAdmin);
+    if (opcUaSpeedNameEdit_) opcUaSpeedNameEdit_->setEnabled(isAdmin);
+    if (opcUaSpeedNodeIdEdit_) opcUaSpeedNodeIdEdit_->setEnabled(isAdmin);
+    if (opcUaSpeedScaleSpin_) opcUaSpeedScaleSpin_->setEnabled(isAdmin);
+    if (opcUaSpeedOffsetSpin_) opcUaSpeedOffsetSpin_->setEnabled(isAdmin);
+    if (opcUaSpeedUnitEdit_) opcUaSpeedUnitEdit_->setEnabled(isAdmin);
+    if (opcUaSpeedStaleTimeoutSpin_) opcUaSpeedStaleTimeoutSpin_->setEnabled(isAdmin);
+    if (opcUaPositionDirectionCombo_) opcUaPositionDirectionCombo_->setEnabled(isAdmin);
+    if (opcUaSaveBtn_) opcUaSaveBtn_->setEnabled(isAdmin);
     eventStoragePathEdit_->setEnabled(isAdmin);
     browseEventStorageBtn_->setEnabled(isAdmin);
     resetEventStorageBtn_->setEnabled(isAdmin);

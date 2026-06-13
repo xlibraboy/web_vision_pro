@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QComboBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QButtonGroup>
 #include "widgets/ToggleSwitch.h"
 #include <QPushButton>
@@ -18,6 +19,8 @@
 #include <QFrame>
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
+#include <array>
+
 
 // Forward declarations for new widgets
 #include <QGroupBox>
@@ -46,6 +49,7 @@ signals:
 private slots:
     void saveCameraConfiguration();
     void saveRecordingSettings();
+    void saveOpcUaSettings();
     void saveUiSettings();
     void applyUiSettings();
     void resetLiveViewCardSettings();
@@ -187,6 +191,35 @@ private:
     QPushButton* uiApplyBtn_ = nullptr;
     QLabel* uiUnsavedIndicator_ = nullptr;
     UiSettingsSnapshot originalValues_;
+    static constexpr int kOpcUaTriggerSlots = 4;
+
+    struct OpcUaTriggerRowWidgets {
+        QCheckBox* enabledCheck = nullptr;
+        QLineEdit* nameEdit = nullptr;
+        QLineEdit* nodeIdEdit = nullptr;
+        QComboBox* activeStateCombo = nullptr;
+        QComboBox* edgeModeCombo = nullptr;
+        QSpinBox* minimumIntervalSpin = nullptr;
+    };
+
+    QCheckBox* opcUaEnabledCheck_ = nullptr;
+    QLineEdit* opcUaEndpointEdit_ = nullptr;
+    QComboBox* opcUaAuthModeCombo_ = nullptr;
+    QLineEdit* opcUaUsernameEdit_ = nullptr;
+    QLineEdit* opcUaPasswordEdit_ = nullptr;
+    QSpinBox* opcUaPublishIntervalSpin_ = nullptr;
+    QSpinBox* opcUaReconnectIntervalSpin_ = nullptr;
+    std::array<OpcUaTriggerRowWidgets, kOpcUaTriggerSlots> opcUaTriggerRows_{};
+    QCheckBox* opcUaSpeedEnabledCheck_ = nullptr;
+    QLineEdit* opcUaSpeedNameEdit_ = nullptr;
+    QLineEdit* opcUaSpeedNodeIdEdit_ = nullptr;
+    QDoubleSpinBox* opcUaSpeedScaleSpin_ = nullptr;
+    QDoubleSpinBox* opcUaSpeedOffsetSpin_ = nullptr;
+    QLineEdit* opcUaSpeedUnitEdit_ = nullptr;
+    QSpinBox* opcUaSpeedStaleTimeoutSpin_ = nullptr;
+    QComboBox* opcUaPositionDirectionCombo_ = nullptr;
+    QPushButton* opcUaSaveBtn_ = nullptr;
+
 
     // Premium Camera Setup UI
     NetworkSummaryHeader* networkSummaryHeader_;

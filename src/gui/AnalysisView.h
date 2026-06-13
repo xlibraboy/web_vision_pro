@@ -35,6 +35,8 @@
 #include <pylon/PylonIncludes.h>
 
 #include "../core/CameraManager.h"
+#include "../core/EventDatabase.h"
+
 
 class AnalysisVideoWidget;
 
@@ -245,6 +247,9 @@ private:
     QString getMetadataOverlayText(int frameIndex, double relativeFrame);
     QString getMetadataTooltip(int frameIndex, double relativeFrame);
     QString currentEventCameraLabel(int cameraId) const;
+    int currentEventCameraPositionMm(int cameraId) const;
+    QString currentSpeedSummary(double relativeSeconds) const;
+
     int currentReviewFrameIndex() const;
     bool hasRelativeTimeAxis() const;
     double relativeSecondsForFrameIndex(int frameIndex) const;
@@ -273,6 +278,8 @@ private:
     QString currentAnnotationPath_;
     QStringList currentEventCameraLabels_;
     QJsonObject eventAnnotations_;
+    EventDatabase::EventInfo currentEventInfo_;
+
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
