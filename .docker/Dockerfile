@@ -16,8 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev \
     qt5-default \
     libqt5svg5-dev \
-    libqt5opcua5-dev \
-    libqt5opcua5-plugins \
     libxcb-xinerama0 \
     libxcb-keysyms1 \
     libxcb-icccm4 \
@@ -32,6 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-xinput0 \
     libxkbcommon-x11-0 \
     libx11-xcb-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Qt OpcUa — separate layer to preserve cache above
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libqt5opcua5-dev \
+    libqt5opcua5-plugins \
     && rm -rf /var/lib/apt/lists/*
 
 # Pylon Installation
