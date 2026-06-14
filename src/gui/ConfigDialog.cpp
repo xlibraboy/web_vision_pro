@@ -38,8 +38,15 @@
 #include <QPixmap>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QHostInfo>
+#include <QNetworkInterface>
+#include <QTimer>
 #include <utility>
 #include <algorithm>
+
+extern "C" {
+#include <open62541.h>
+}
 
 namespace {
     struct CuratedFontOption {
@@ -225,6 +232,130 @@ namespace {
         }
         return parts.join(", ");
     }
+    struct OpcUaDiscoveryResult {
+        bool detected = false;
+        QString endpointUrl;
+        QString statusMessage;
+    };
+
+    QString uaStringToQString(const UA_String& value) {
+        if (!value.data || value.length == 0) {
+            return QString();
+        }
+        return QString::fromUtf8(reinterpret_cast<const char*>(value.data), static_cast<int>(value.length));
+    }
+
+    QStringList buildOpcUaDiscoveryCandidates(const QString& configuredEndpoint) {
+        QStringList candidates;
+        QSet<QString> seen;
+        auto appendCandidate = [&](const QString& candidate) {
+            const QString trimmed = candidate.trimmed();
+            if (trimmed.isEmpty() || seen.contains(trimmed)) {
+                return;
+            }
+            seen.insert(trimmed);
+            candidates.append(trimmed);
+        };
+
+        appendCandidate(configuredEndpoint);
+        appendCandidate(QStringLiteral("opc.tcp://localhost:4840"));
+        appendCandidate(QStringLiteral("opc.tcp://127.0.0.1:4840"));
+
+        const QString localHost = QHostInfo::localHostName().trimmed();
+        if (!localHost.isEmpty()) {
+            appendCandidate(QStringLiteral("opc.tcp://%1:4840").arg(localHost));
+        }
+
+        const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+        for (const QNetworkInterface& iface : interfaces) {
+            if (!(iface.flags() & QNetworkInterface::IsUp) ||
+                !(iface.flags() & QNetworkInterface::IsRunning) ||
+                (iface.flags() & QNetworkInterface::IsLoopBack)) {
+                continue;
+            }
+
+            const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+            for (const QNetworkAddressEntry& entry : entries) {
+                const QHostAddress address = entry.ip();
+                if (address.protocol() != QAbstractSocket::IPv4Protocol || address.isLoopback()) {
+                    continue;
+                }
+                appendCandidate(QStringLiteral("opc.tcp://%1:4840").arg(address.toString()));
+            }
+        }
+
+        return candidates;
+    }
+
+    OpcUaDiscoveryResult detectOpcUaEndpoint(const QString& configuredEndpoint) {
+        const QStringList candidates = buildOpcUaDiscoveryCandidates(configuredEndpoint);
+        for (const QString& candidate : candidates) {
+            UA_Client* client = UA_Client_new();
+            if (!client) {
+                break;
+            }
+
+            UA_ClientConfig* config = UA_Client_getConfig(client);
+            UA_ClientConfig_setDefault(config);
+            config->timeout = 750;
+            config->connectivityCheckInterval = 0;
+
+            size_t serverCount = 0;
+            UA_ApplicationDescription* servers = nullptr;
+            const QByteArray candidateUtf8 = candidate.toUtf8();
+            const UA_StatusCode status = UA_Client_findServers(
+                client,
+                candidateUtf8.constData(),
+                0,
+                nullptr,
+                0,
+                nullptr,
+                &serverCount,
+                &servers
+            );
+
+            if (status == UA_STATUSCODE_GOOD && serverCount > 0) {
+                QString detectedEndpoint;
+                for (size_t i = 0; i < serverCount && detectedEndpoint.isEmpty(); ++i) {
+                    for (size_t j = 0; j < servers[i].discoveryUrlsSize; ++j) {
+                        const QString discoveryUrl = uaStringToQString(servers[i].discoveryUrls[j]).trimmed();
+                        if (discoveryUrl.startsWith(QStringLiteral("opc.tcp://"), Qt::CaseInsensitive)) {
+                            detectedEndpoint = discoveryUrl;
+                            break;
+                        }
+                    }
+                }
+
+                if (detectedEndpoint.isEmpty()) {
+                    detectedEndpoint = candidate;
+                }
+
+                UA_Array_delete(servers, serverCount, &UA_TYPES[UA_TYPES_APPLICATIONDESCRIPTION]);
+                UA_Client_delete(client);
+
+                OpcUaDiscoveryResult result;
+                result.detected = true;
+                result.endpointUrl = detectedEndpoint;
+                result.statusMessage = QStringLiteral("Detected OPC UA server endpoint: %1").arg(detectedEndpoint);
+                return result;
+            }
+
+            if (servers) {
+                UA_Array_delete(servers, serverCount, &UA_TYPES[UA_TYPES_APPLICATIONDESCRIPTION]);
+            }
+            UA_Client_delete(client);
+        }
+
+        OpcUaDiscoveryResult result;
+        result.detected = false;
+        if (configuredEndpoint.trimmed().isEmpty()) {
+            result.statusMessage = QStringLiteral("No discoverable OPC UA server found on this network. Enter the endpoint URL manually.");
+        } else {
+            result.statusMessage = QStringLiteral("No discoverable OPC UA server responded on this network. Keeping the saved endpoint URL; verify it manually.");
+        }
+        return result;
+    }
+
 
     void stylePrimaryActionButton(QPushButton* button, const ThemeColors& tc) {
         button->setStyleSheet(QString(
@@ -260,9 +391,33 @@ bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
     return QWidget::eventFilter(obj, event);
 }
 
+void ConfigDialog::updateOpcUaDiscoveryStatus(const QString& message, bool detected) {
+    if (!opcUaDiscoveryStatusLabel_) {
+        return;
+    }
+
+    const QString color = detected ? CameraConfig::getThemeColors().primary : QStringLiteral("#A9B4C2");
+    opcUaDiscoveryStatusLabel_->setText(message);
+    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(color));
+}
+
+void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint) {
+    const OpcUaDiscoveryResult result = detectOpcUaEndpoint(opcUaEndpointEdit_ ? opcUaEndpointEdit_->text() : QString());
+    updateOpcUaDiscoveryStatus(result.statusMessage, result.detected);
+
+    if (result.detected && opcUaEndpointEdit_ &&
+            (overwriteExistingEndpoint || opcUaEndpointEdit_->text().trimmed().isEmpty())) {
+        opcUaEndpointEdit_->setText(result.endpointUrl);
+    }
+    opcUaDiscoveryAttempted_ = true;
+}
+
 void ConfigDialog::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
-    relayoutUiPreferencePanels();
+            refreshOpcUaEndpointDiscovery(false);
+            refreshOpcUaEndpointDiscovery(true);
+        });
+    }
 }
 
 void ConfigDialog::resizeEvent(QResizeEvent* event) {
@@ -470,6 +625,7 @@ void ConfigDialog::setupUI() {
 
     QHBoxLayout* cameraActionsLayout = new QHBoxLayout();
     cameraActionsLayout->addStretch();
+
     cameraSaveBtn_ = new QPushButton("Save Camera Configuration", camSetupGroup);
     cameraSaveBtn_->setIcon(IconManager::instance().save(16));
     cameraSaveBtn_->setDefault(true);
@@ -608,7 +764,23 @@ void ConfigDialog::setupUI() {
     opcUaDescriptionLabel->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
     opcUaLayout->addWidget(opcUaDescriptionLabel);
 
-    QGroupBox* opcUaConnectionGroup = new QGroupBox("Connection", opcUaGroup);
+    QTabWidget* opcUaTabs = new QTabWidget(opcUaGroup);
+    opcUaTabs->setDocumentMode(true);
+    opcUaTabs->setStyleSheet(QString(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
+        "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
+        "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
+        "QTabBar::tab:hover { color: %4; }"
+    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text));
+    opcUaLayout->addWidget(opcUaTabs, 1);
+
+    QWidget* opcUaConnectionTab = new QWidget(opcUaTabs);
+    QVBoxLayout* opcUaConnectionTabLayout = new QVBoxLayout(opcUaConnectionTab);
+    opcUaConnectionTabLayout->setContentsMargins(10, 10, 10, 10);
+    opcUaConnectionTabLayout->setSpacing(10);
+
+    QGroupBox* opcUaConnectionGroup = new QGroupBox("Connection", opcUaConnectionTab);
     opcUaConnectionGroup->setStyleSheet(sectionStyle);
     QFormLayout* opcUaConnectionForm = createOpcUaForm(opcUaConnectionGroup);
 
@@ -620,6 +792,25 @@ void ConfigDialog::setupUI() {
     opcUaEndpointEdit_->setPlaceholderText("opc.tcp://127.0.0.1:4840");
     opcUaEndpointEdit_->setStyleSheet(opcUaLineEditStyle);
     opcUaConnectionForm->addRow("Endpoint URL:", opcUaEndpointEdit_);
+    QWidget* opcUaEndpointActions = new QWidget(opcUaConnectionGroup);
+    QHBoxLayout* opcUaEndpointActionsLayout = new QHBoxLayout(opcUaEndpointActions);
+    opcUaEndpointActionsLayout->setContentsMargins(0, 0, 0, 0);
+    opcUaEndpointActionsLayout->setSpacing(8);
+
+    opcUaDiscoveryStatusLabel_ = new QLabel("Checking for discoverable OPC UA servers...", opcUaEndpointActions);
+    opcUaDiscoveryStatusLabel_->setWordWrap(true);
+    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    opcUaEndpointActionsLayout->addWidget(opcUaDiscoveryStatusLabel_, 1);
+
+    opcUaDetectEndpointBtn_ = new QPushButton("Detect Server", opcUaEndpointActions);
+    stylePrimaryActionButton(opcUaDetectEndpointBtn_, tc);
+    opcUaDetectEndpointBtn_->setIcon(IconManager::instance().refresh(16));
+    connect(opcUaDetectEndpointBtn_, &QPushButton::clicked, this, [this]() {
+        refreshOpcUaEndpointDiscovery(false);
+    });
+    opcUaEndpointActionsLayout->addWidget(opcUaDetectEndpointBtn_, 0, Qt::AlignTop);
+    opcUaConnectionForm->addRow(QString(), opcUaEndpointActions);
+
 
     opcUaPublishIntervalSpin_ = new QSpinBox(opcUaConnectionGroup);
     opcUaPublishIntervalSpin_->setRange(50, 10000);
@@ -632,9 +823,9 @@ void ConfigDialog::setupUI() {
     opcUaReconnectIntervalSpin_->setSuffix(" ms");
     opcUaReconnectIntervalSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     opcUaConnectionForm->addRow("Reconnect Delay:", opcUaReconnectIntervalSpin_);
-    opcUaLayout->addWidget(opcUaConnectionGroup);
+    opcUaConnectionTabLayout->addWidget(opcUaConnectionGroup);
 
-    QGroupBox* opcUaAuthGroup = new QGroupBox("Authentication", opcUaGroup);
+    QGroupBox* opcUaAuthGroup = new QGroupBox("Authentication", opcUaConnectionTab);
     opcUaAuthGroup->setStyleSheet(sectionStyle);
     QFormLayout* opcUaAuthForm = createOpcUaForm(opcUaAuthGroup);
 
@@ -662,9 +853,16 @@ void ConfigDialog::setupUI() {
             opcUaPasswordEdit_->setEnabled(isAdminMode_ && useCredentials);
         }
     });
-    opcUaLayout->addWidget(opcUaAuthGroup);
+    opcUaConnectionTabLayout->addWidget(opcUaAuthGroup);
+    opcUaConnectionTabLayout->addStretch(1);
+    opcUaTabs->addTab(opcUaConnectionTab, "Connection");
 
-    QGroupBox* opcUaTriggerGroup = new QGroupBox("Trigger Tags", opcUaGroup);
+    QWidget* opcUaTriggerTab = new QWidget(opcUaTabs);
+    QVBoxLayout* opcUaTriggerTabLayout = new QVBoxLayout(opcUaTriggerTab);
+    opcUaTriggerTabLayout->setContentsMargins(10, 10, 10, 10);
+    opcUaTriggerTabLayout->setSpacing(10);
+
+    QGroupBox* opcUaTriggerGroup = new QGroupBox("Trigger Tags", opcUaTriggerTab);
     opcUaTriggerGroup->setStyleSheet(sectionStyle);
     QVBoxLayout* opcUaTriggerLayout = new QVBoxLayout(opcUaTriggerGroup);
     opcUaTriggerLayout->setContentsMargins(14, 18, 14, 14);
@@ -723,9 +921,16 @@ void ConfigDialog::setupUI() {
         opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 5);
     }
     opcUaTriggerLayout->addLayout(opcUaTriggerGrid);
-    opcUaLayout->addWidget(opcUaTriggerGroup);
+    opcUaTriggerTabLayout->addWidget(opcUaTriggerGroup);
+    opcUaTriggerTabLayout->addStretch(1);
+    opcUaTabs->addTab(opcUaTriggerTab, "Triggers");
 
-    QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tag", opcUaGroup);
+    QWidget* opcUaSpeedTab = new QWidget(opcUaTabs);
+    QVBoxLayout* opcUaSpeedTabLayout = new QVBoxLayout(opcUaSpeedTab);
+    opcUaSpeedTabLayout->setContentsMargins(10, 10, 10, 10);
+    opcUaSpeedTabLayout->setSpacing(10);
+
+    QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tag", opcUaSpeedTab);
     opcUaSpeedGroup->setStyleSheet(sectionStyle);
     QFormLayout* opcUaSpeedForm = createOpcUaForm(opcUaSpeedGroup);
 
@@ -773,9 +978,9 @@ void ConfigDialog::setupUI() {
     opcUaPositionDirectionCombo_->addItem("Increase position with time", 1);
     opcUaPositionDirectionCombo_->addItem("Decrease position with time", -1);
     opcUaSpeedForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
-    opcUaLayout->addWidget(opcUaSpeedGroup);
-
-    opcUaLayout->addStretch();
+    opcUaSpeedTabLayout->addWidget(opcUaSpeedGroup);
+    opcUaSpeedTabLayout->addStretch(1);
+    opcUaTabs->addTab(opcUaSpeedTab, "Speed");
 
     QHBoxLayout* opcUaActionsLayout = new QHBoxLayout();
     opcUaActionsLayout->addStretch();
@@ -1841,6 +2046,13 @@ void ConfigDialog::loadSettings() {
         }
     }
     const bool useOpcUaCredentials = opcUaSettings.useUsernamePassword;
+    opcUaDiscoveryAttempted_ = false;
+    updateOpcUaDiscoveryStatus(
+        opcUaSettings.endpointUrl.trimmed().isEmpty()
+            ? QStringLiteral("Checking for discoverable OPC UA servers...")
+            : QStringLiteral("Saved endpoint URL loaded. Automatic detection will verify discoverable servers when this page is shown."),
+        false
+    );
     if (opcUaUsernameEdit_) {
         opcUaUsernameEdit_->setEnabled(isAdminMode_ && useOpcUaCredentials);
     }

@@ -85,6 +85,9 @@ private:
     void resizeEvent(QResizeEvent* event) override;
     void checkUiSettingsModified();
     void clearUiSettingsModified();
+    void refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint);
+    void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
+
 
     struct UiSettingsSnapshot {
         QString eventStoragePath;
@@ -218,7 +221,10 @@ private:
     QLineEdit* opcUaSpeedUnitEdit_ = nullptr;
     QSpinBox* opcUaSpeedStaleTimeoutSpin_ = nullptr;
     QComboBox* opcUaPositionDirectionCombo_ = nullptr;
+    QLabel* opcUaDiscoveryStatusLabel_ = nullptr;
+    QPushButton* opcUaDetectEndpointBtn_ = nullptr;
     QPushButton* opcUaSaveBtn_ = nullptr;
+    bool opcUaDiscoveryAttempted_ = false;
 
 
     // Premium Camera Setup UI
