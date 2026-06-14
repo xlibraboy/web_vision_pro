@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev \
     qt5-default \
     libqt5svg5-dev \
+    libqt5opcua5-dev \
+    libqt5opcua5-plugins \
     libxcb-xinerama0 \
     libxcb-keysyms1 \
     libxcb-icccm4 \

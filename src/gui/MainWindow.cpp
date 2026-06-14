@@ -164,9 +164,6 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
-    if (opcUaClientService_) {
-        opcUaClientService_->stop();
-    }
     if (cameraLifecycleWatcher_) {
         cameraLifecycleWatcher_->waitForFinished();
     }
@@ -576,7 +573,7 @@ void MainWindow::setupUi() {
 void MainWindow::setupCore() {
     // 1. Initialize Components
     cameraManager_ = std::make_unique<CameraManager>();
-    opcUaClientService_ = std::make_unique<OpcUaClientService>();
+    opcUaClientService_ = new OpcUaClientService(this);
     // MEMORY OPTIMIZATION: Reduced buffer to 200 frames (20s @ 10fps) due to high resolution (1024x1040 BGR = 3MB/frame)
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
@@ -593,34 +590,28 @@ void MainWindow::setupCore() {
         }, Qt::QueuedConnection);
     });
 
-    if (opcUaClientService_) {
-        opcUaClientService_->setStatusCallback([this](const QString& message) {
-            QMetaObject::invokeMethod(this, [this, message]() {
-                statusBar()->showMessage(message, 5000);
-            }, Qt::QueuedConnection);
-        });
-        opcUaClientService_->setTriggerCallback([this](const OpcUaClientService::TriggerEvent& event) {
-            QMetaObject::invokeMethod(this, [this, event]() {
-                EventController::TriggerContext triggerContext;
-                triggerContext.reason = event.tagName.trimmed().isEmpty()
-                    ? QStringLiteral("OPC UA Trigger")
-                    : QString("OPC UA: %1").arg(event.tagName.trimmed());
-                triggerContext.source = event.source.trimmed().isEmpty() ? QStringLiteral("opcua") : event.source.trimmed();
-                triggerContext.triggerTagName = event.tagName.trimmed();
-                triggerContext.triggerTagNodeId = event.nodeId.trimmed();
-                triggerContext.speedTagName = event.speedTagName.trimmed();
-                triggerContext.speedTagNodeId = event.speedTagNodeId.trimmed();
-                triggerContext.speedUnit = event.speedUnit.trimmed();
-                triggerContext.speedSampleTimeUtc = event.speedSampleTimeUtc;
-                triggerContext.speedValue = event.speedValue;
-                triggerContext.hasSpeed = event.hasSpeed;
-                triggerContext.speedStale = event.speedStale;
-                triggerContext.positionDirectionSign = event.positionDirectionSign;
-                EventController::instance().triggerEvent(triggerContext);
-                statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
-            }, Qt::QueuedConnection);
-        });
-    }
+    connect(opcUaClientService_, &OpcUaClientService::statusChanged, this, [this](const QString& message) {
+        statusBar()->showMessage(message, 5000);
+    });
+    connect(opcUaClientService_, &OpcUaClientService::triggerFired, this, [this](const OpcUaClientService::TriggerEvent& event) {
+        EventController::TriggerContext triggerContext;
+        triggerContext.reason = event.tagName.trimmed().isEmpty()
+            ? QStringLiteral("OPC UA Trigger")
+            : QString("OPC UA: %1").arg(event.tagName.trimmed());
+        triggerContext.source = event.source.trimmed().isEmpty() ? QStringLiteral("opcua") : event.source.trimmed();
+        triggerContext.triggerTagName = event.tagName.trimmed();
+        triggerContext.triggerTagNodeId = event.nodeId.trimmed();
+        triggerContext.speedTagName = event.speedTagName.trimmed();
+        triggerContext.speedTagNodeId = event.speedTagNodeId.trimmed();
+        triggerContext.speedUnit = event.speedUnit.trimmed();
+        triggerContext.speedSampleTimeUtc = event.speedSampleTimeUtc;
+        triggerContext.speedValue = event.speedValue;
+        triggerContext.hasSpeed = event.hasSpeed;
+        triggerContext.speedStale = event.speedStale;
+        triggerContext.positionDirectionSign = event.positionDirectionSign;
+        EventController::instance().triggerEvent(triggerContext);
+        statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
+    });
 
     // 3. Register Callback
     // THROTTLE: Only emit if GUI is ready for THIS camera. Drops frames if GUI is slow.

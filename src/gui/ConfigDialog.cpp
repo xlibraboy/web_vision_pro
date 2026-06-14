@@ -43,10 +43,9 @@
 #include <QTimer>
 #include <utility>
 #include <algorithm>
-
-extern "C" {
-#include <open62541.h>
-}
+#include <QOpcUaProvider>
+#include <QOpcUaClient>
+#include <QOpcUaEndpointDescription>
 
 namespace {
     struct CuratedFontOption {
@@ -232,130 +231,31 @@ namespace {
         }
         return parts.join(", ");
     }
-    struct OpcUaDiscoveryResult {
-        bool detected = false;
-        QString endpointUrl;
-        QString statusMessage;
-    };
-
-    QString uaStringToQString(const UA_String& value) {
-        if (!value.data || value.length == 0) {
-            return QString();
-        }
-        return QString::fromUtf8(reinterpret_cast<const char*>(value.data), static_cast<int>(value.length));
-    }
-
     QStringList buildOpcUaDiscoveryCandidates(const QString& configuredEndpoint) {
         QStringList candidates;
         QSet<QString> seen;
-        auto appendCandidate = [&](const QString& candidate) {
-            const QString trimmed = candidate.trimmed();
-            if (trimmed.isEmpty() || seen.contains(trimmed)) {
-                return;
-            }
-            seen.insert(trimmed);
-            candidates.append(trimmed);
+        auto add = [&](const QString& c) {
+            const QString t = c.trimmed();
+            if (!t.isEmpty() && !seen.contains(t)) { seen.insert(t); candidates.append(t); }
         };
-
-        appendCandidate(configuredEndpoint);
-        appendCandidate(QStringLiteral("opc.tcp://localhost:4840"));
-        appendCandidate(QStringLiteral("opc.tcp://127.0.0.1:4840"));
-
+        add(configuredEndpoint);
+        add(QStringLiteral("opc.tcp://localhost:4840"));
+        add(QStringLiteral("opc.tcp://127.0.0.1:4840"));
         const QString localHost = QHostInfo::localHostName().trimmed();
-        if (!localHost.isEmpty()) {
-            appendCandidate(QStringLiteral("opc.tcp://%1:4840").arg(localHost));
-        }
-
-        const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
-        for (const QNetworkInterface& iface : interfaces) {
+        if (!localHost.isEmpty())
+            add(QStringLiteral("opc.tcp://%1:4840").arg(localHost));
+        for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
             if (!(iface.flags() & QNetworkInterface::IsUp) ||
                 !(iface.flags() & QNetworkInterface::IsRunning) ||
-                (iface.flags() & QNetworkInterface::IsLoopBack)) {
-                continue;
-            }
-
-            const QList<QNetworkAddressEntry> entries = iface.addressEntries();
-            for (const QNetworkAddressEntry& entry : entries) {
-                const QHostAddress address = entry.ip();
-                if (address.protocol() != QAbstractSocket::IPv4Protocol || address.isLoopback()) {
-                    continue;
-                }
-                appendCandidate(QStringLiteral("opc.tcp://%1:4840").arg(address.toString()));
+                (iface.flags() & QNetworkInterface::IsLoopBack)) continue;
+            for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+                const QHostAddress addr = entry.ip();
+                if (addr.protocol() == QAbstractSocket::IPv4Protocol && !addr.isLoopback())
+                    add(QStringLiteral("opc.tcp://%1:4840").arg(addr.toString()));
             }
         }
-
         return candidates;
     }
-
-    OpcUaDiscoveryResult detectOpcUaEndpoint(const QString& configuredEndpoint) {
-        const QStringList candidates = buildOpcUaDiscoveryCandidates(configuredEndpoint);
-        for (const QString& candidate : candidates) {
-            UA_Client* client = UA_Client_new();
-            if (!client) {
-                break;
-            }
-
-            UA_ClientConfig* config = UA_Client_getConfig(client);
-            UA_ClientConfig_setDefault(config);
-            config->timeout = 750;
-            config->connectivityCheckInterval = 0;
-
-            size_t serverCount = 0;
-            UA_ApplicationDescription* servers = nullptr;
-            const QByteArray candidateUtf8 = candidate.toUtf8();
-            const UA_StatusCode status = UA_Client_findServers(
-                client,
-                candidateUtf8.constData(),
-                0,
-                nullptr,
-                0,
-                nullptr,
-                &serverCount,
-                &servers
-            );
-
-            if (status == UA_STATUSCODE_GOOD && serverCount > 0) {
-                QString detectedEndpoint;
-                for (size_t i = 0; i < serverCount && detectedEndpoint.isEmpty(); ++i) {
-                    for (size_t j = 0; j < servers[i].discoveryUrlsSize; ++j) {
-                        const QString discoveryUrl = uaStringToQString(servers[i].discoveryUrls[j]).trimmed();
-                        if (discoveryUrl.startsWith(QStringLiteral("opc.tcp://"), Qt::CaseInsensitive)) {
-                            detectedEndpoint = discoveryUrl;
-                            break;
-                        }
-                    }
-                }
-
-                if (detectedEndpoint.isEmpty()) {
-                    detectedEndpoint = candidate;
-                }
-
-                UA_Array_delete(servers, serverCount, &UA_TYPES[UA_TYPES_APPLICATIONDESCRIPTION]);
-                UA_Client_delete(client);
-
-                OpcUaDiscoveryResult result;
-                result.detected = true;
-                result.endpointUrl = detectedEndpoint;
-                result.statusMessage = QStringLiteral("Detected OPC UA server endpoint: %1").arg(detectedEndpoint);
-                return result;
-            }
-
-            if (servers) {
-                UA_Array_delete(servers, serverCount, &UA_TYPES[UA_TYPES_APPLICATIONDESCRIPTION]);
-            }
-            UA_Client_delete(client);
-        }
-
-        OpcUaDiscoveryResult result;
-        result.detected = false;
-        if (configuredEndpoint.trimmed().isEmpty()) {
-            result.statusMessage = QStringLiteral("No discoverable OPC UA server found on this network. Enter the endpoint URL manually.");
-        } else {
-            result.statusMessage = QStringLiteral("No discoverable OPC UA server responded on this network. Keeping the saved endpoint URL; verify it manually.");
-        }
-        return result;
-    }
-
 
     void stylePrimaryActionButton(QPushButton* button, const ThemeColors& tc) {
         button->setStyleSheet(QString(
@@ -392,32 +292,109 @@ bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
 }
 
 void ConfigDialog::updateOpcUaDiscoveryStatus(const QString& message, bool detected) {
-    if (!opcUaDiscoveryStatusLabel_) {
-        return;
-    }
-
+    if (!opcUaDiscoveryStatusLabel_) return;
     const QString color = detected ? CameraConfig::getThemeColors().primary : QStringLiteral("#A9B4C2");
     opcUaDiscoveryStatusLabel_->setText(message);
     opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(color));
 }
 
 void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint) {
-    const OpcUaDiscoveryResult result = detectOpcUaEndpoint(opcUaEndpointEdit_ ? opcUaEndpointEdit_->text() : QString());
-    updateOpcUaDiscoveryStatus(result.statusMessage, result.detected);
+    updateOpcUaDiscoveryStatus(QStringLiteral("Scanning for OPC UA servers…"), false);
+    if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(false);
 
-    if (result.detected && opcUaEndpointEdit_ &&
-            (overwriteExistingEndpoint || opcUaEndpointEdit_->text().trimmed().isEmpty())) {
-        opcUaEndpointEdit_->setText(result.endpointUrl);
+    const QString configured = opcUaEndpointEdit_ ? opcUaEndpointEdit_->text() : QString();
+    const QStringList candidates = buildOpcUaDiscoveryCandidates(configured);
+
+    // Try each candidate in sequence using QOpcUaClient::requestEndpoints (async).
+    // We iterate via a shared index so each response triggers the next probe.
+    struct DiscoveryState {
+        QStringList candidates;
+        int index = 0;
+        bool overwrite = false;
+        QString configured;
+        QOpcUaProvider* provider = nullptr;
+        QOpcUaClient* client = nullptr;
+    };
+    auto state = std::make_shared<DiscoveryState>();
+    state->candidates = candidates;
+    state->overwrite = overwriteExistingEndpoint;
+    state->configured = configured;
+    state->provider = new QOpcUaProvider(this);
+
+    const QStringList backends = QOpcUaProvider::availableBackends();
+    const QString backend = backends.contains(QStringLiteral("open62541"))
+        ? QStringLiteral("open62541") : (backends.isEmpty() ? QString() : backends.first());
+
+    if (backend.isEmpty()) {
+        updateOpcUaDiscoveryStatus(
+            QStringLiteral("No OPC UA backend available. Install qt-opcua-open62541 plugin."), false);
+        if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(true);
+        opcUaDiscoveryAttempted_ = true;
+        return;
     }
-    opcUaDiscoveryAttempted_ = true;
+
+    state->client = state->provider->createClient(backend);
+    if (!state->client) {
+        updateOpcUaDiscoveryStatus(QStringLiteral("Failed to create OPC UA discovery client."), false);
+        if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(true);
+        opcUaDiscoveryAttempted_ = true;
+        return;
+    }
+    state->client->setParent(this);
+
+    // Lambda that probes the next candidate
+    auto probeNext = [this, state]() mutable {
+        while (state->index < state->candidates.size()) {
+            const QString url = state->candidates[state->index++];
+            state->client->requestEndpoints(QUrl(url));
+            return; // wait for endpointsRequestFinished
+        }
+        // All candidates exhausted
+        const QString msg = state->configured.trimmed().isEmpty()
+            ? QStringLiteral("No discoverable OPC UA server found on this network. Enter the endpoint URL manually.")
+            : QStringLiteral("No discoverable OPC UA server responded on this network. Keeping the saved endpoint URL; verify it manually.");
+        updateOpcUaDiscoveryStatus(msg, false);
+        if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(true);
+        opcUaDiscoveryAttempted_ = true;
+        state->client->deleteLater();
+        state->provider->deleteLater();
+    };
+
+    connect(state->client, &QOpcUaClient::endpointsRequestFinished, this,
+            [this, state, probeNext](const QVector<QOpcUaEndpointDescription>& endpoints,
+                                     QOpcUa::UaStatusCode statusCode,
+                                     const QUrl& /*requestUrl*/) mutable {
+        if (statusCode == QOpcUa::UaStatusCode::Good && !endpoints.isEmpty()) {
+            // Find first opc.tcp endpoint
+            QString detected;
+            for (const auto& ep : endpoints) {
+                const QString url = ep.endpointUrl();
+                if (url.startsWith(QLatin1String("opc.tcp://"), Qt::CaseInsensitive)) {
+                    detected = url;
+                    break;
+                }
+            }
+            if (detected.isEmpty()) detected = endpoints.first().endpointUrl();
+
+            updateOpcUaDiscoveryStatus(
+                QString("Detected OPC UA server endpoint: %1").arg(detected), true);
+            if (opcUaEndpointEdit_ && (state->overwrite || opcUaEndpointEdit_->text().trimmed().isEmpty()))
+                opcUaEndpointEdit_->setText(detected);
+            if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(true);
+            opcUaDiscoveryAttempted_ = true;
+            state->client->deleteLater();
+            state->provider->deleteLater();
+            return;
+        }
+        probeNext(); // try next candidate
+    });
+
+    probeNext(); // kick off
 }
 
 void ConfigDialog::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
-            refreshOpcUaEndpointDiscovery(false);
-            refreshOpcUaEndpointDiscovery(true);
-        });
-    }
+    refreshOpcUaEndpointDiscovery(true);
 }
 
 void ConfigDialog::resizeEvent(QResizeEvent* event) {

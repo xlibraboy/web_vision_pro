@@ -1,12 +1,15 @@
 #pragma once
 
 #include "../config/CameraConfig.h"
-#include <atomic>
-#include <functional>
-#include <mutex>
-#include <thread>
+#include <QObject>
+#include <QOpcUaClient>
+#include <QOpcUaProvider>
+#include <QOpcUaMonitoringParameters>
 
-class OpcUaClientService {
+class QOpcUaNode;
+
+class OpcUaClientService : public QObject {
+    Q_OBJECT
 public:
     struct TriggerEvent {
         QString tagName;
@@ -22,31 +25,54 @@ public:
         int positionDirectionSign = 1;
     };
 
-    using TriggerCallback = std::function<void(const TriggerEvent&)>;
-    using StatusCallback = std::function<void(const QString&)>;
-
-    OpcUaClientService();
-    ~OpcUaClientService();
+    explicit OpcUaClientService(QObject* parent = nullptr);
+    ~OpcUaClientService() override;
 
     void setSettings(const OpcUaSettings& settings);
-    void setTriggerCallback(TriggerCallback callback);
-    void setStatusCallback(StatusCallback callback);
-
     void start();
     void stop();
     bool isRunning() const;
 
-    void dispatchTriggerEvent(const TriggerEvent& event);
-    void emitStatus(const QString& message);
+signals:
+    void triggerFired(const OpcUaClientService::TriggerEvent& event);
+    void statusChanged(const QString& message);
+
+private slots:
+    void onConnected();
+    void onDisconnected();
+    void onErrorOccurred(QOpcUaClient::ClientError error);
+    void onStateChanged(QOpcUaClient::ClientState state);
+    void onNodeValueChanged(QOpcUa::Types type, const QVariant& value,
+                            const QDateTime& serverTimestamp, QOpcUa::UaStatusCode statusCode);
 
 private:
-    void run();
+    void connectToServer();
+    void subscribeNodes();
+    void scheduleReconnect();
+    QOpcUaNode* createSubscribedNode(const QString& nodeId);
 
-
-    mutable std::mutex mutex_;
     OpcUaSettings settings_;
-    TriggerCallback triggerCallback_;
-    StatusCallback statusCallback_;
-    std::thread worker_;
-    std::atomic<bool> stopRequested_{false};
+    QOpcUaProvider* provider_ = nullptr;
+    QOpcUaClient* client_ = nullptr;
+    QTimer* reconnectTimer_ = nullptr;
+    bool running_ = false;
+
+    // Speed state
+    struct SpeedSample {
+        bool valid = false;
+        double value = 0.0;
+        QString sampleTimeUtc;
+        qint64 receivedAtMs = 0;
+    } latestSpeed_;
+
+    // Trigger state per slot
+    struct TriggerState {
+        bool hasPrev = false;
+        bool prevActive = false;
+        qint64 lastFiredMs = 0;
+        OpcUaTriggerTagSettings settings;
+        QOpcUaNode* node = nullptr;
+    };
+    QVector<TriggerState> triggerStates_;
+    QOpcUaNode* speedNode_ = nullptr;
 };
