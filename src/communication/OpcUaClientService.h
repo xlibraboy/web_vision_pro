@@ -2,14 +2,13 @@
 
 #include "../config/CameraConfig.h"
 #include <QObject>
-#include <QOpcUaClient>
-#include <QOpcUaProvider>
-#include <QOpcUaMonitoringParameters>
-
-class QOpcUaNode;
+#include <QPointer>
+#include <QtOpcUa/QOpcUaClient>
+#include <QtOpcUa/QOpcUaNode>
 
 class OpcUaClientService : public QObject {
     Q_OBJECT
+
 public:
     struct TriggerEvent {
         QString tagName;
@@ -34,45 +33,56 @@ public:
     bool isRunning() const;
 
 signals:
-    void triggerFired(const OpcUaClientService::TriggerEvent& event);
+    void triggerReceived(const OpcUaClientService::TriggerEvent& event);
     void statusChanged(const QString& message);
 
 private slots:
-    void onConnected();
-    void onDisconnected();
-    void onErrorOccurred(QOpcUaClient::ClientError error);
-    void onStateChanged(QOpcUaClient::ClientState state);
-    void onNodeValueChanged(QOpcUa::Types type, const QVariant& value,
-                            const QDateTime& serverTimestamp, QOpcUa::UaStatusCode statusCode);
+    void connectClient();
+    void reconnectLater();
+    void handleClientStateChanged(QOpcUaClient::ClientState state);
+    void handleClientErrorChanged(QOpcUaClient::ClientError error);
+    void handleTriggerValueChanged(const QVariant& value);
+    void handleSpeedValueChanged(const QVariant& value);
+    void handleAttributeUpdated(QOpcUa::NodeAttribute attribute, const QVariant& value);
 
 private:
-    void connectToServer();
-    void subscribeNodes();
-    void scheduleReconnect();
-    QOpcUaNode* createSubscribedNode(const QString& nodeId);
+    struct TriggerMonitorState {
+        OpcUaTriggerTagSettings settings;
+        QPointer<QOpcUaNode> node;
+        bool hasPreviousValue = false;
+        bool previousActive = false;
+        qint64 lastTriggeredMs = 0;
+    };
+
+    struct LatestSpeedSample {
+        bool valid = false;
+        QString tagName;
+        QString nodeId;
+        QString unit;
+        QString sampleTimeUtc;
+        double value = 0.0;
+        qint64 receivedAtMs = 0;
+    };
+
+    void resetRuntimeState();
+    void clearMonitoredNodes();
+    void monitorConfiguredNodes();
+    void monitorTriggerTag(const OpcUaTriggerTagSettings& triggerSettings);
+    void monitorSpeedTag(const OpcUaSpeedTagSettings& speedSettings);
+    void emitStatus(const QString& message);
+    void dispatchTriggerEvent(const TriggerEvent& event);
+    void processTriggerValue(TriggerMonitorState& state, const QVariant& value);
+    void processSpeedValue(const QVariant& value);
+    bool extractBooleanValue(const QVariant& value, bool* result) const;
+    bool extractNumericValue(const QVariant& value, double* result) const;
+    QString clientErrorText(QOpcUaClient::ClientError error) const;
+    QString backendName() const;
 
     OpcUaSettings settings_;
-    QOpcUaProvider* provider_ = nullptr;
     QOpcUaClient* client_ = nullptr;
-    QTimer* reconnectTimer_ = nullptr;
-    bool running_ = false;
-
-    // Speed state
-    struct SpeedSample {
-        bool valid = false;
-        double value = 0.0;
-        QString sampleTimeUtc;
-        qint64 receivedAtMs = 0;
-    } latestSpeed_;
-
-    // Trigger state per slot
-    struct TriggerState {
-        bool hasPrev = false;
-        bool prevActive = false;
-        qint64 lastFiredMs = 0;
-        OpcUaTriggerTagSettings settings;
-        QOpcUaNode* node = nullptr;
-    };
-    QVector<TriggerState> triggerStates_;
-    QOpcUaNode* speedNode_ = nullptr;
+    QList<TriggerMonitorState> triggerStates_;
+    QPointer<QOpcUaNode> speedNode_;
+    LatestSpeedSample latestSpeed_;
+    bool shouldReconnect_ = false;
+    bool connectAttemptInFlight_ = false;
 };

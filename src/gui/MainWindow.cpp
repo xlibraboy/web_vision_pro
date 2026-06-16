@@ -254,7 +254,24 @@ void MainWindow::applyOpcUaSettings() {
     opcUaClientService_->stop();
     const OpcUaSettings opcUaSettings = CameraConfig::getOpcUaSettings();
     opcUaClientService_->setSettings(opcUaSettings);
-    if (opcUaSettings.enabled) {
+
+    const QString endpointUrl = opcUaSettings.endpointUrl.trimmed();
+    const bool hasNonDefaultEndpoint = !endpointUrl.isEmpty()
+        && endpointUrl.compare(QStringLiteral("opc.tcp://127.0.0.1:4840"), Qt::CaseInsensitive) != 0
+        && endpointUrl.compare(QStringLiteral("opc.tcp://localhost:4840"), Qt::CaseInsensitive) != 0;
+
+    bool hasEnabledNode = false;
+    for (const auto& triggerTag : opcUaSettings.triggerTags) {
+        if (triggerTag.enabled && !triggerTag.nodeId.trimmed().isEmpty()) {
+            hasEnabledNode = true;
+            break;
+        }
+    }
+    if (!hasEnabledNode && opcUaSettings.speedTag.enabled && !opcUaSettings.speedTag.nodeId.trimmed().isEmpty()) {
+        hasEnabledNode = true;
+    }
+
+    if (opcUaSettings.enabled && hasNonDefaultEndpoint && hasEnabledNode) {
         opcUaClientService_->start();
     }
 }
@@ -573,58 +590,54 @@ void MainWindow::setupUi() {
 void MainWindow::setupCore() {
     // 1. Initialize Components
     cameraManager_ = std::make_unique<CameraManager>();
-    opcUaClientService_ = new OpcUaClientService(this);
-    // MEMORY OPTIMIZATION: Reduced buffer to 200 frames (20s @ 10fps) due to high resolution (1024x1040 BGR = 3MB/frame)
+    opcUaClientService_ = std::make_unique<OpcUaClientService>(this);
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
 
     // 2. Connect Signals
-    // Using QueuedConnection to handle cross-thread signal safely
     connect(this, &MainWindow::frameReady, this, &MainWindow::handleFrame, Qt::QueuedConnection);
 
-    // Status Callback from CameraManager to MainWindow
     cameraManager_->registerStatusCallback([this](const std::string& msg) {
         QMetaObject::invokeMethod(this, [this, msg]() {
             statusBar()->showMessage(QString::fromStdString(msg), 5000);
         }, Qt::QueuedConnection);
     });
 
-    connect(opcUaClientService_, &OpcUaClientService::statusChanged, this, [this](const QString& message) {
-        statusBar()->showMessage(message, 5000);
-    });
-    connect(opcUaClientService_, &OpcUaClientService::triggerFired, this, [this](const OpcUaClientService::TriggerEvent& event) {
-        EventController::TriggerContext triggerContext;
-        triggerContext.reason = event.tagName.trimmed().isEmpty()
-            ? QStringLiteral("OPC UA Trigger")
-            : QString("OPC UA: %1").arg(event.tagName.trimmed());
-        triggerContext.source = event.source.trimmed().isEmpty() ? QStringLiteral("opcua") : event.source.trimmed();
-        triggerContext.triggerTagName = event.tagName.trimmed();
-        triggerContext.triggerTagNodeId = event.nodeId.trimmed();
-        triggerContext.speedTagName = event.speedTagName.trimmed();
-        triggerContext.speedTagNodeId = event.speedTagNodeId.trimmed();
-        triggerContext.speedUnit = event.speedUnit.trimmed();
-        triggerContext.speedSampleTimeUtc = event.speedSampleTimeUtc;
-        triggerContext.speedValue = event.speedValue;
-        triggerContext.hasSpeed = event.hasSpeed;
-        triggerContext.speedStale = event.speedStale;
-        triggerContext.positionDirectionSign = event.positionDirectionSign;
-        EventController::instance().triggerEvent(triggerContext);
-        statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
-    });
+    if (opcUaClientService_) {
+        connect(opcUaClientService_.get(), &OpcUaClientService::statusChanged, this, [this](const QString& message) {
+            statusBar()->showMessage(message, 5000);
+        });
+        connect(opcUaClientService_.get(), &OpcUaClientService::triggerReceived, this,
+                [this](const OpcUaClientService::TriggerEvent& event) {
+            EventController::TriggerContext triggerContext;
+            triggerContext.reason = event.tagName.trimmed().isEmpty()
+                ? QStringLiteral("OPC UA Trigger")
+                : QString("OPC UA: %1").arg(event.tagName.trimmed());
+            triggerContext.source = event.source.trimmed().isEmpty() ? QStringLiteral("opcua") : event.source.trimmed();
+            triggerContext.triggerTagName = event.tagName.trimmed();
+            triggerContext.triggerTagNodeId = event.nodeId.trimmed();
+            triggerContext.speedTagName = event.speedTagName.trimmed();
+            triggerContext.speedTagNodeId = event.speedTagNodeId.trimmed();
+            triggerContext.speedUnit = event.speedUnit.trimmed();
+            triggerContext.speedSampleTimeUtc = event.speedSampleTimeUtc;
+            triggerContext.speedValue = event.speedValue;
+            triggerContext.hasSpeed = event.hasSpeed;
+            triggerContext.speedStale = event.speedStale;
+            triggerContext.positionDirectionSign = event.positionDirectionSign;
+            EventController::instance().triggerEvent(triggerContext);
+            statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
+        });
+    }
 
-    // 3. Register Callback
-    // THROTTLE: Only emit if GUI is ready for THIS camera. Drops frames if GUI is slow.
     cameraManager_->registerCallback([this](int cameraId, const cv::Mat& frame) {
         if (cameraId >= 0 && cameraId < 16) {
             bool expected = false;
-            // Always allow empty frames to pass through to clear UI
             if (frame.empty()) {
                 emit frameReady(cameraId, cv::Mat());
                 return;
             }
             if (framePending_[cameraId].compare_exchange_strong(expected, true)) {
-                // DEEP COPY: Pylon buffer is temporary, must clone for GUI queue
                 emit frameReady(cameraId, frame.clone());
             }
         }

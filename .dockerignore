@@ -3,3 +3,13 @@ build/
 .agent/
 data/
 *.log
+*.html
+omp-session*
+OpcDaToUaBridge/
+scripts/
+assets/
+opencode.json
+docker-*.sh
+docker-image-manager.sh
+*.md
+resources.qrc

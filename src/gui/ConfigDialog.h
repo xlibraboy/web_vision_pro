@@ -85,7 +85,7 @@ private:
     void resizeEvent(QResizeEvent* event) override;
     void checkUiSettingsModified();
     void clearUiSettingsModified();
-    void refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint);
+    void refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint, bool allowNetworkScan);
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
 
 

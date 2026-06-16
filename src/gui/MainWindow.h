@@ -95,7 +95,7 @@ private:
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
     std::unique_ptr<VideoEncoder> videoEncoder_;
-    OpcUaClientService* opcUaClientService_ = nullptr;
+    std::unique_ptr<OpcUaClientService> opcUaClientService_;
 
     
 
