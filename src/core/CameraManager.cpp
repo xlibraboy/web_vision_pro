@@ -2295,6 +2295,11 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
             if (tryDirect(matchedDeviceInfo)) {
+                // Mirror Utility_IpConfig: restart the camera's IP stack so the
+                // new persistent configuration takes effect on the LIVE
+                // interface (scA780 does not apply it otherwise).
+                pTl->RestartIpConfiguration(targetMac.c_str());
+                std::cout << "[CameraManager] IP stack restart triggered for MAC " << targetMac << std::endl;
                 TlFactory.ReleaseTl(pTl);
                 return IpConfigResult::Success;
             }
