@@ -35,3 +35,6 @@ size_check.cpp
 
 # Logs
 *.log
+
+# Worktrees
+.worktrees/
