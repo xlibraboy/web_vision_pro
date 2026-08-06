@@ -37,6 +37,10 @@ struct GigEDeviceInfo {
     std::string subnetMask;
     std::string defaultGateway;
     std::string userDefinedName;
+    std::string ipConfigMode;        // "Static", "DHCP", or "AutoIP"
+    bool supportsPersistentIp = false;
+    bool supportsDhcp = false;
+    bool supportsAutoIp = false;
 };
 
 class CameraManager {
@@ -170,6 +174,7 @@ public:
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
     static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
+    static bool configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:
     struct CameraRuntime {

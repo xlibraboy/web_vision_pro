@@ -2175,6 +2175,13 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
             if (dev.GetPropertyValue("SubnetMask", val)) info.subnetMask = val.c_str();
             if (dev.GetPropertyValue("DefaultGateway", val)) info.defaultGateway = val.c_str();
             if (dev.GetPropertyValue("UserDefinedName", val)) info.userDefinedName = val.c_str();
+
+            if (dev.IsPersistentIpActive())      info.ipConfigMode = "Static";
+            else if (dev.IsDhcpActive())         info.ipConfigMode = "DHCP";
+            else                                 info.ipConfigMode = "AutoIP";
+            info.supportsPersistentIp = dev.IsPersistentIpSupported();
+            info.supportsDhcp         = dev.IsDhcpSupported();
+            info.supportsAutoIp       = dev.IsAutoIpSupported();
             
             devices.push_back(info);
         }
@@ -2187,6 +2194,19 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
 }
 
 bool CameraManager::applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway) {
+    return configureIpConfiguration(mac, "Static", ip, mask, gateway);
+}
+
+bool CameraManager::configureIpConfiguration(const std::string& mac, const std::string& mode,
+                                             const std::string& ip, const std::string& mask,
+                                             const std::string& gateway) {
+    const bool isStatic = (mode == "Static");
+    const bool isDhcp   = (mode == "DHCP");
+    const bool isAuto   = (mode == "AutoIP");
+    if (!isStatic && !isDhcp && !isAuto) {
+        std::cerr << "[CameraManager] Unknown IP config mode: " << mode << std::endl;
+        return false;
+    }
     try {
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
@@ -2224,43 +2244,53 @@ bool CameraManager::applyIpConfiguration(const std::string& mac, const std::stri
             return false;
         }
 
-        std::cout << "[CameraManager] Applying GigE IP config: input MAC=" << mac
-                  << " normalized=" << targetMac
+        std::cout << "[CameraManager] Applying GigE IP config: MAC=" << targetMac
+                  << " mode=" << mode
                   << " currentIp=" << (currentIp.empty() ? "<unknown>" : currentIp)
                   << " targetIp=" << ip
                   << " mask=" << mask
                   << " gateway=" << gateway << std::endl;
 
-        // Prefer the direct device API when the camera is currently reachable.
+        // Static: prefer the direct device API when the camera is currently reachable.
         // This writes the persistent IP and enables persistent-IP mode on the device itself.
-        try {
-            std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(matchedDeviceInfo));
-            Pylon::CBaslerGigEInstantCamera camera(device.release());
-            camera.Open();
-            camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
-            camera.ChangeIpConfiguration(true, false);
-            camera.Close();
-            TlFactory.ReleaseTl(pTl);
-            std::cout << "[CameraManager] Successfully changed persistent IP for MAC " << targetMac
-                      << " to " << ip << " using direct GigE device API." << std::endl;
-            return true;
-        } catch (const Pylon::GenericException& e) {
-            std::cerr << "[CameraManager] Direct GigE IP configuration failed for MAC " << targetMac
-                      << ": " << e.GetDescription() << ". Falling back to broadcast IP configuration." << std::endl;
+        if (isStatic) {
+            try {
+                std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(matchedDeviceInfo));
+                Pylon::CBaslerGigEInstantCamera camera(device.release());
+                camera.Open();
+                camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
+                camera.ChangeIpConfiguration(true, false);
+                camera.Close();
+                TlFactory.ReleaseTl(pTl);
+                std::cout << "[CameraManager] Successfully changed persistent IP for MAC " << targetMac
+                          << " to " << ip << " using direct GigE device API." << std::endl;
+                return true;
+            } catch (const Pylon::GenericException& e) {
+                std::cerr << "[CameraManager] Direct GigE IP configuration failed for MAC " << targetMac
+                          << ": " << e.GetDescription() << ". Falling back to broadcast IP configuration." << std::endl;
+            }
         }
 
         // Pylon SDK requires MAC address with NO delimiters (e.g., "003053061a58")
         // and the camera must NOT be open when reconfiguring IP.
         // Use the normalized (delimiter-free, uppercase) MAC for all transport layer calls.
-        bool setOk = pTl->BroadcastIpConfiguration(targetMac.c_str(), true, false, ip.c_str(), mask.c_str(), gateway.c_str(), userDefinedName.c_str());
-        
+        // DHCP/AutoIP: ip/mask/gateway are ignored by the transport layer; pass placeholders.
+        bool setOk = pTl->BroadcastIpConfiguration(
+            targetMac.c_str(), isStatic, isDhcp,
+            isStatic ? ip.c_str() : "0.0.0.0",
+            isStatic ? mask.c_str() : "0.0.0.0",
+            isStatic ? gateway.c_str() : "0.0.0.0",
+            userDefinedName.c_str());
+
         if (setOk) {
             pTl->RestartIpConfiguration(targetMac.c_str());
-            std::cout << "[CameraManager] Successfully changed IP for MAC " << targetMac << " to " << ip << std::endl;
+            std::cout << "[CameraManager] Successfully changed IP config for MAC " << targetMac
+                      << " mode=" << mode << (isStatic ? (" to " + ip) : "") << std::endl;
         } else {
-            std::cerr << "[CameraManager] Failed to change IP for MAC " << targetMac << " (input=" << mac << ")" << std::endl;
+            std::cerr << "[CameraManager] Failed to change IP config for MAC " << targetMac
+                      << " mode=" << mode << " (input=" << mac << ")" << std::endl;
         }
-        
+
         TlFactory.ReleaseTl(pTl);
         return setOk;
     } catch (const Pylon::GenericException& e) {
