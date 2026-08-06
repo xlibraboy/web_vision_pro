@@ -152,14 +152,17 @@ void IpConfiguratorPanel::onApplyClicked() {
     if (row < 0 || row >= static_cast<int>(devices_.size())) return;
     const QString mac = QString::fromStdString(devices_[static_cast<size_t>(row)].macAddress);
     const QString mode = modeCombo_->currentData().toString();
-    const QString ip = ipEdit_->text().trimmed();
-    const QString mask = maskEdit_->text().trimmed();
-    const QString gateway = gatewayEdit_->text().trimmed();
+    QString ip = ipEdit_->text().trimmed();
+    QString mask = maskEdit_->text().trimmed();
+    QString gateway = gatewayEdit_->text().trimmed();
 
     if (mode == QStringLiteral("Static")) {
+        // An empty gateway means "no gateway" (0.0.0.0).
+        if (gateway.isEmpty()) gateway = QStringLiteral("0.0.0.0");
         if (!isValidIpv4(ip) || !isValidIpv4(mask) || !isValidIpv4(gateway)) {
             QMessageBox::warning(this, "Apply IP",
-                "IP address, subnet mask, and gateway must be valid IPv4 addresses (e.g. 192.168.1.10).");
+                "IP address, subnet mask, and gateway must be valid IPv4 addresses (e.g. 192.168.1.10).\n"
+                "Leave the gateway empty for no gateway (0.0.0.0).");
             return;
         }
     }

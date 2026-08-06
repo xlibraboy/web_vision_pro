@@ -3049,6 +3049,11 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
                " within a few seconds \u2014 no cable changes needed.";
     if (mode == QStringLiteral("Static")) {
         message += QString(" Expected at %1.").arg(ip);
+        if (gateway == QStringLiteral("0.0.0.0")) {
+            message += " Note: this camera model keeps its previous gateway in live status"
+                       " when 0.0.0.0 is applied (firmware limitation); 0.0.0.0 is stored"
+                       " as the persistent setting.";
+        }
     }
     ipConfiguratorPanel_->setApplyResult(true, message);
 
