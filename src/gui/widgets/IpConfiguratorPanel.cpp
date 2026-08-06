@@ -174,9 +174,10 @@ void IpConfiguratorPanel::setApplyResult(bool ok, const QString& message) {
     applyInFlight_ = false;
     applyBtn_->setEnabled(table_->currentRow() >= 0 && adminMode_);
     statusLabel_->setText(message);
-    if (ok) {
-        QTimer::singleShot(3000, this, &IpConfiguratorPanel::refresh);
-    } else {
+    // Refresh on success (camera restarts its network stack) and on failure
+    // (the discovery list may have gone stale since the last scan).
+    QTimer::singleShot(ok ? 3000 : 1500, this, &IpConfiguratorPanel::refresh);
+    if (!ok) {
         QMessageBox::critical(this, "Apply IP", message);
     }
 }

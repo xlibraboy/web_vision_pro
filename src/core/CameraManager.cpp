@@ -2,6 +2,7 @@
 #include "../config/CameraConfig.h"
 #include <iostream>
 #include <chrono>
+#include <thread>
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -2194,54 +2195,66 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
 }
 
 bool CameraManager::applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway) {
-    return configureIpConfiguration(mac, "Static", ip, mask, gateway);
+    return configureIpConfiguration(mac, "Static", ip, mask, gateway) == IpConfigResult::Success;
 }
 
-bool CameraManager::configureIpConfiguration(const std::string& mac, const std::string& mode,
-                                             const std::string& ip, const std::string& mask,
-                                             const std::string& gateway) {
+IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, const std::string& mode,
+                                                       const std::string& ip, const std::string& mask,
+                                                       const std::string& gateway) {
     const bool isStatic = (mode == "Static");
     const bool isDhcp   = (mode == "DHCP");
     const bool isAuto   = (mode == "AutoIP");
     if (!isStatic && !isDhcp && !isAuto) {
         std::cerr << "[CameraManager] Unknown IP config mode: " << mode << std::endl;
-        return false;
+        return IpConfigResult::WriteFailed;
     }
     try {
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {
             std::cerr << "[CameraManager] Error: No GigE transport layer installed." << std::endl;
-            return false;
+            return IpConfigResult::WriteFailed;
         }
 
-        // Find user defined name and validate device exists
-        Pylon::DeviceInfoList_t lstDevices;
-        pTl->EnumerateAllDevices(lstDevices);
+        // Find user defined name and validate device exists. Retry discovery:
+        // GigE discovery can miss cameras on busy networks or while a camera
+        // is restarting its network stack (2-10 s after an IP change).
         const std::string targetMac = normalizeMacAddress(mac);
+        Pylon::DeviceInfoList_t lstDevices;
         std::string userDefinedName = "";
         std::string currentIp;
         Pylon::CDeviceInfo matchedDeviceInfo;
         bool found = false;
-        for (const auto& dev : lstDevices) {
-            const std::string enumeratedMac = normalizeMacAddress(dev.GetMacAddress().c_str());
-            if (enumeratedMac == targetMac) {
-                found = true;
-                matchedDeviceInfo = dev;
-                userDefinedName = dev.GetUserDefinedName().c_str();
-                Pylon::String_t val;
-                if (dev.GetPropertyValue("IpAddress", val)) {
-                    currentIp = val.c_str();
+        for (int attempt = 0; attempt < 5 && !found; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            }
+            lstDevices.clear();
+            pTl->EnumerateAllDevices(lstDevices);
+            for (const auto& dev : lstDevices) {
+                const std::string enumeratedMac = normalizeMacAddress(dev.GetMacAddress().c_str());
+                if (enumeratedMac == targetMac) {
+                    found = true;
+                    matchedDeviceInfo = dev;
+                    userDefinedName = dev.GetUserDefinedName().c_str();
+                    Pylon::String_t val;
+                    if (dev.GetPropertyValue("IpAddress", val)) {
+                        currentIp = val.c_str();
+                    }
+                    break;
                 }
-                break;
             }
         }
 
         if (!found) {
             std::cerr << "[CameraManager] Cannot apply IP config: target MAC " << mac
-                      << " was not found in the current GigE device discovery list." << std::endl;
+                      << " was not found after 5 discovery attempts (1 s apart). Visible devices:";
+            for (const auto& dev : lstDevices) {
+                std::cerr << " " << normalizeMacAddress(dev.GetMacAddress().c_str());
+            }
+            std::cerr << std::endl;
             TlFactory.ReleaseTl(pTl);
-            return false;
+            return IpConfigResult::DeviceNotFound;
         }
 
         std::cout << "[CameraManager] Applying GigE IP config: MAC=" << targetMac
@@ -2264,7 +2277,7 @@ bool CameraManager::configureIpConfiguration(const std::string& mac, const std::
                 TlFactory.ReleaseTl(pTl);
                 std::cout << "[CameraManager] Successfully changed persistent IP for MAC " << targetMac
                           << " to " << ip << " using direct GigE device API." << std::endl;
-                return true;
+                return IpConfigResult::Success;
             } catch (const Pylon::GenericException& e) {
                 std::cerr << "[CameraManager] Direct GigE IP configuration failed for MAC " << targetMac
                           << ": " << e.GetDescription() << ". Falling back to broadcast IP configuration." << std::endl;
@@ -2292,9 +2305,9 @@ bool CameraManager::configureIpConfiguration(const std::string& mac, const std::
         }
 
         TlFactory.ReleaseTl(pTl);
-        return setOk;
+        return setOk ? IpConfigResult::Success : IpConfigResult::WriteFailed;
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Error applying IP config: " << e.GetDescription() << std::endl;
-        return false;
+        return IpConfigResult::WriteFailed;
     }
 }

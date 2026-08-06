@@ -43,6 +43,14 @@ struct GigEDeviceInfo {
     bool supportsAutoIp = false;
 };
 
+// Result of an IP configuration write; lets callers distinguish a camera that
+// is absent from discovery from a write that was attempted and failed.
+enum class IpConfigResult {
+    Success,
+    DeviceNotFound,
+    WriteFailed,
+};
+
 class CameraManager {
 public:
     // Temperature status aliases — types defined in TemperatureStatus.h
@@ -174,7 +182,7 @@ public:
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
     static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
-    static bool configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
+    static IpConfigResult configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:
     struct CameraRuntime {

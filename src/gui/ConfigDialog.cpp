@@ -3005,7 +3005,7 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
         wasRunning = true;
     }
 
-    const bool ok = CameraManager::configureIpConfiguration(
+    const IpConfigResult result = CameraManager::configureIpConfiguration(
         normalizedMac.toStdString(), mode.toStdString(),
         ip.toStdString(), mask.toStdString(), gateway.toStdString());
 
@@ -3013,10 +3013,13 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
         cameraManager_->startAcquisition();
     }
 
-    if (!ok) {
-        ipConfiguratorPanel_->setApplyResult(false,
-            "Failed to apply " + mode + " configuration to camera " + mac + ".\n"
-            "Check the connection and that the camera supports this mode.");
+    if (result != IpConfigResult::Success) {
+        const QString message = (result == IpConfigResult::DeviceNotFound)
+            ? "Camera " + mac + " is not currently visible in GigE discovery.\n"
+              "Check that it is powered on and connected, then click Refresh and try again."
+            : "Failed to apply " + mode + " configuration to camera " + mac + ".\n"
+              "Check the connection and that the camera supports this mode.";
+        ipConfiguratorPanel_->setApplyResult(false, message);
         return;
     }
 
