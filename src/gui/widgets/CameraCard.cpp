@@ -444,6 +444,15 @@ void CameraCard::setDetectedIp(const QString& ip) {
         .arg(cameraInfo_.pixelFormat));
 }
 
+void CameraCard::setNetworkConfig(const QString& ip, const QString& mask, const QString& gateway) {
+    ipLabel_->setText(ip);
+    subnetEdit_->setText(mask);
+    gatewayEdit_->setText(gateway);
+    cameraInfo_.ipAddress = ip;
+    cameraInfo_.subnetMask = mask;
+    cameraInfo_.defaultGateway = gateway;
+}
+
 void CameraCard::setStatus(const QString& text, const QColor& color) {
     statusLabel_->setText(text);
     statusColor_ = color;

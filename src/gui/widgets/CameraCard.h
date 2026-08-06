@@ -68,6 +68,7 @@ public:
 
     // Actions
     void setDetectedIp(const QString& ip);
+    void setNetworkConfig(const QString& ip, const QString& mask, const QString& gateway);
     void setStatus(const QString& text, const QColor& color);
     void setEditable(bool editable);
     void updateMacCombo(const std::vector<GigEDeviceInfo>& devices, const QString& current,
