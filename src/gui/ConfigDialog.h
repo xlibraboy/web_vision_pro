@@ -30,6 +30,7 @@ class AnalysisVideoWidget;
 class NetworkSummaryHeader;
 class DeleteConfirmationDialog;
 class CameraDeviceSettingsDialog;
+class IpConfiguratorPanel;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -58,8 +59,9 @@ private slots:
     void onRemoveCameraConfigClicked();
     void onRefreshLogsClicked();
     void onClearLogsClicked();
-    void onOpenIpConfiguratorClicked();
     void onToggleLogsClicked();
+    void onIpConfiguratorApplyRequested(const QString& mac, const QString& mode, const QString& ip,
+                                        const QString& mask, const QString& gateway);
 
     // Camera card slots
     void onCameraCardRemoveClicked();
@@ -241,6 +243,7 @@ private:
     std::vector<GigEDeviceInfo> currentGigEDevices_;
 
     CameraManager* cameraManager_;
+    IpConfiguratorPanel* ipConfiguratorPanel_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;
 

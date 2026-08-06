@@ -5,6 +5,7 @@
 #include "widgets/CameraDeviceSettingsDialog.h"
 #include "widgets/NetworkSummaryHeader.h"
 #include "widgets/DeleteConfirmationDialog.h"
+#include "widgets/IpConfiguratorPanel.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -17,7 +18,6 @@
 #include <QStackedWidget>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QProcess>
 #include <QApplication>
 #include <QScrollArea>
 #include <QGroupBox>
@@ -434,6 +434,14 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
 
     setupUI();
 
+    connect(ipConfiguratorPanel_, &IpConfiguratorPanel::applyRequested,
+            this, &ConfigDialog::onIpConfiguratorApplyRequested);
+    connect(ipConfiguratorPanel_, &IpConfiguratorPanel::statusMessage,
+            this, [this](const QString& message) {
+        if (connectionLogsBrowser_) connectionLogsBrowser_->append(message);
+    });
+    ipConfiguratorPanel_->refresh();
+
     loadSettings();
     liveViewGridTitlePresets_.updateStyles();
     liveViewDetailTitlePresets_.updateStyles();
@@ -616,18 +624,41 @@ void ConfigDialog::setupUI() {
     cameraScrollWidget_->installEventFilter(this);
 
     cameraScrollArea_->setWidget(cameraScrollWidget_);
-    camSetupLayout->addWidget(cameraScrollArea_, 1);
+
+    QTabWidget* cameraSubTabs = new QTabWidget(camSetupGroup);
+    cameraSubTabs->setDocumentMode(true);
+    cameraSubTabs->setStyleSheet(QString(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
+        "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
+        "QTabBar::tab:!selected { margin-top: 3px; color: %3; } "
+        "QTabBar::tab:hover { color: %4; }"
+    ).arg(tc.border, tc.btnBg, tc.text, tc.primary));
+
+    // Tab 1: Camera Cards (existing scroll area + save button)
+    QWidget* cameraCardsPage = new QWidget(cameraSubTabs);
+    QVBoxLayout* cameraCardsPageLayout = new QVBoxLayout(cameraCardsPage);
+    cameraCardsPageLayout->setContentsMargins(0, 8, 0, 0);
+    cameraCardsPageLayout->setSpacing(kSectionSpacing);
+    cameraCardsPageLayout->addWidget(cameraScrollArea_, 1);
 
     QHBoxLayout* cameraActionsLayout = new QHBoxLayout();
     cameraActionsLayout->addStretch();
 
-    cameraSaveBtn_ = new QPushButton("Save Camera Configuration", camSetupGroup);
+    cameraSaveBtn_ = new QPushButton("Save Camera Configuration", cameraCardsPage);
     cameraSaveBtn_->setIcon(IconManager::instance().save(16));
     cameraSaveBtn_->setDefault(true);
     stylePrimaryActionButton(cameraSaveBtn_, tc);
     connect(cameraSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveCameraConfiguration);
     cameraActionsLayout->addWidget(cameraSaveBtn_);
-    camSetupLayout->addLayout(cameraActionsLayout);
+    cameraCardsPageLayout->addLayout(cameraActionsLayout);
+    cameraSubTabs->addTab(cameraCardsPage, "Camera Cards");
+
+    // Tab 2: IP Configurator
+    ipConfiguratorPanel_ = new IpConfiguratorPanel(cameraSubTabs);
+    cameraSubTabs->addTab(ipConfiguratorPanel_, "IP Configurator");
+
+    camSetupLayout->addWidget(cameraSubTabs, 1);
 
     QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
     sidebar->addItem(camSetupItem);
@@ -2897,6 +2928,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     for (auto* card : cameraCards_) {
         // Card handles its own edit state
     }
+    if (ipConfiguratorPanel_) ipConfiguratorPanel_->setAdminMode(isAdmin);
 }
 
 void ConfigDialog::onRefreshLogsClicked() {
@@ -2957,8 +2989,63 @@ void ConfigDialog::onToggleLogsClicked() {
     // Left empty or we can remove the slot. Currently not used as logs are always visible in Diagnostics tab.
 }
 
-void ConfigDialog::onOpenIpConfiguratorClicked() {
-    QProcess::startDetached("/opt/pylon/bin/IpConfigurator", QStringList());
+void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QString& mode,
+                                                  const QString& ip, const QString& mask,
+                                                  const QString& gateway) {
+    const QString normalizedMac = normalizeMac(mac);
+    if (normalizedMac.isEmpty()) {
+        ipConfiguratorPanel_->setApplyResult(false, "Invalid MAC address.");
+        return;
+    }
+
+    // Stop acquisition while the camera network stack is reconfigured.
+    bool wasRunning = false;
+    if (cameraManager_) {
+        cameraManager_->stopAcquisition();
+        wasRunning = true;
+    }
+
+    const bool ok = CameraManager::configureIpConfiguration(
+        normalizedMac.toStdString(), mode.toStdString(),
+        ip.toStdString(), mask.toStdString(), gateway.toStdString());
+
+    if (wasRunning && cameraManager_) {
+        cameraManager_->startAcquisition();
+    }
+
+    if (!ok) {
+        ipConfiguratorPanel_->setApplyResult(false,
+            "Failed to apply " + mode + " configuration to camera " + mac + ".\n"
+            "Check the connection and that the camera supports this mode.");
+        return;
+    }
+
+    // Sync the matching camera card (by normalized MAC) and persist.
+    CameraCard* matchedCard = nullptr;
+    for (CameraCard* card : cameraCards_) {
+        if (normalizeMac(card->macAddress()) == normalizedMac) {
+            matchedCard = card;
+            break;
+        }
+    }
+    if (matchedCard) {
+        matchedCard->setNetworkConfig(ip, mask, gateway);
+        persistCameraNetworkSelection(matchedCard->cameraId(), matchedCard->sourceType(),
+                                      ip, normalizedMac, mask, gateway);
+    }
+
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+    refreshNetworkStatus();
+    if (connectionLogsBrowser_) {
+        connectionLogsBrowser_->append(QString("[%1] IP config applied: MAC=%2 mode=%3 IP=%4")
+            .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"), mac, mode, ip));
+    }
+
+    QString message = QString("Successfully applied %1 configuration to %2.").arg(mode, mac);
+    if (mode == QStringLiteral("Static")) {
+        message += QString(" Camera is expected at %1 after it reconnects.").arg(ip);
+    }
+    ipConfiguratorPanel_->setApplyResult(true, message);
 }
 
 bool ConfigDialog::validateConfiguration(QStringList* errors) const {

@@ -75,7 +75,8 @@ src/
 │       ├── IconManager.h/cpp         # SVG icon management
 │       ├── NetworkSummaryHeader.h/cpp# Network status header
 │       ├── CameraDeviceSettingsDialog.h/cpp # Per-camera device settings
-│       └── DeleteConfirmationDialog.h/cpp   # Delete confirmation
+│       ├── DeleteConfirmationDialog.h/cpp   # Delete confirmation
+│       └── IpConfiguratorPanel.h/cpp        # GigE IP configurator (Static/DHCP/AutoIP)
 ├── config/
 │   └── CameraConfig.h/cpp            # Centralized config: cameras, themes, OPC UA settings
 └── communication/
@@ -114,6 +115,13 @@ src/
 - OPC UA settings: endpoint URL, auth, publish/reconnect intervals, trigger tags, speed tag
 - Event storage path configurable with validation
 - Config persisted via `CameraConfig` static methods
+
+### IP Configurator (embedded)
+- Sub-tab "IP Configurator" inside the Camera Configuration tab of ConfigDialog
+- Discovery table of all GigE cameras on the network: friendly name, user-defined name, MAC, IP, mask, gateway, current mode
+- Apply Static / DHCP / AutoIP via `CameraManager::configureIpConfiguration` (static: direct device API with broadcast fallback; DHCP/AutoIP: broadcast + restart)
+- Successful applies auto-sync the matching camera card (by normalized MAC) and persist its network fields
+- Acquisition is stopped during reconfiguration; admin-mode gated
 
 ### Data Format
 - Event files: `data/event_{timestamp}_{index}.json` + `data/event_{timestamp}_{index}_cam{N}.bin`
