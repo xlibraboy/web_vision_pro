@@ -2264,30 +2264,45 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
                   << " mask=" << mask
                   << " gateway=" << gateway << std::endl;
 
-        // Static: prefer the direct device API when the camera is currently reachable.
-        // This writes the persistent IP and enables persistent-IP mode on the device itself.
-        if (isStatic) {
+        // Direct device API: the reliable path on cameras that ignore GVCP
+        // broadcast IP configuration (e.g. scA780). It writes the persistent
+        // IP settings and switches the configuration mode on the device itself.
+        auto tryDirect = [&](const Pylon::CDeviceInfo& devInfo) -> bool {
             try {
-                std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(matchedDeviceInfo));
+                std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(devInfo));
                 Pylon::CBaslerGigEInstantCamera camera(device.release());
                 camera.Open();
-                camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
-                camera.ChangeIpConfiguration(true, false);
+                if (isStatic) {
+                    camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
+                }
+                camera.ChangeIpConfiguration(isStatic, isDhcp);
                 camera.Close();
-                TlFactory.ReleaseTl(pTl);
-                std::cout << "[CameraManager] Successfully changed persistent IP for MAC " << targetMac
-                          << " to " << ip << " using direct GigE device API." << std::endl;
-                return IpConfigResult::Success;
+                std::cout << "[CameraManager] Successfully changed IP config for MAC " << targetMac
+                          << " mode=" << mode << (isStatic ? (" to " + ip) : "")
+                          << " using direct GigE device API." << std::endl;
+                return true;
             } catch (const Pylon::GenericException& e) {
-                std::cerr << "[CameraManager] Direct GigE IP configuration failed for MAC " << targetMac
-                          << ": " << e.GetDescription() << ". Falling back to broadcast IP configuration." << std::endl;
+                std::cerr << "[CameraManager] Direct GigE IP configuration attempt failed for MAC " << targetMac
+                          << ": " << e.GetDescription() << std::endl;
+                return false;
+            }
+        };
+
+        // Retry the direct path: right after a mode/IP change the camera
+        // restarts its network stack and is unreachable for a few seconds.
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
+            if (tryDirect(matchedDeviceInfo)) {
+                TlFactory.ReleaseTl(pTl);
+                return IpConfigResult::Success;
             }
         }
 
-        // Pylon SDK requires MAC address with NO delimiters (e.g., "003053061a58")
-        // and the camera must NOT be open when reconfiguring IP.
-        // Use the normalized (delimiter-free, uppercase) MAC for all transport layer calls.
-        // DHCP/AutoIP: ip/mask/gateway are ignored by the transport layer; pass placeholders.
+        // Broadcast fallback: pylon SDK requires the MAC with NO delimiters
+        // (e.g., "003053061a58") and the camera must NOT be open. Only some
+        // cameras accept broadcast IP configuration.
         bool setOk = pTl->BroadcastIpConfiguration(
             targetMac.c_str(), isStatic, isDhcp,
             isStatic ? ip.c_str() : "0.0.0.0",

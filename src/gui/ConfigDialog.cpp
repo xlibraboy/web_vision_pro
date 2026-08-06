@@ -3045,10 +3045,19 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
     }
 
     QString message = QString("Successfully applied %1 configuration to %2.").arg(mode, mac);
+    message += " The camera restarts its network interface automatically and reappears"
+               " within a few seconds \u2014 no cable changes needed.";
     if (mode == QStringLiteral("Static")) {
-        message += QString(" Camera is expected at %1 after it reconnects.").arg(ip);
+        message += QString(" Expected at %1.").arg(ip);
     }
     ipConfiguratorPanel_->setApplyResult(true, message);
+
+    // The camera disappears from discovery while it restarts its network
+    // stack; refresh again shortly so camera cards show the new detected IP.
+    QTimer::singleShot(8000, this, [this]() {
+        currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+        refreshNetworkStatus();
+    });
 }
 
 bool ConfigDialog::validateConfiguration(QStringList* errors) const {

@@ -119,7 +119,7 @@ src/
 ### IP Configurator (embedded)
 - Sub-tab "IP Configurator" inside the Camera Configuration tab of ConfigDialog
 - Discovery table of all GigE cameras on the network: friendly name, user-defined name, MAC, IP, mask, gateway, current mode
-- Apply Static / DHCP / AutoIP via `CameraManager::configureIpConfiguration` (static: direct device API with broadcast fallback; DHCP/AutoIP: broadcast + restart)
+- Apply Static / DHCP / AutoIP via `CameraManager::configureIpConfiguration` (direct device API for all modes, with broadcast fallback; direct path retried while the camera restarts its network stack)
 - Successful applies auto-sync the matching camera card (by normalized MAC) and persist its network fields
 - Acquisition is stopped during reconfiguration; admin-mode gated
 
