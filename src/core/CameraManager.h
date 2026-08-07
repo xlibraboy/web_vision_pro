@@ -206,7 +206,7 @@ public:
         QString deviceId;
         QString ipAddress;
     };
-    LiveDeviceSettings readLiveDeviceSettings(int configArrayIndex);
+    LiveDeviceSettings readLiveDeviceSettings(int configArrayIndex, bool allowDirectOpen = true);
 
     // Live exposure/rate writes (no acquisition stop required). Uses the
     // attached runtime camera, or opens the configured device directly when
@@ -216,7 +216,7 @@ public:
     // GigE Network / Stream Health
     uint64_t getIncompleteGrabCount(int configArrayIndex) const;
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
-    static std::vector<GigEDeviceInfo> enumerateGigEDevices();
+    static std::vector<GigEDeviceInfo> enumerateGigEDevices(bool forceRefresh = false);
     static IpConfigResult configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:

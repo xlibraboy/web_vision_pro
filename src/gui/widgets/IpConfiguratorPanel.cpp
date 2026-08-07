@@ -317,7 +317,7 @@ void IpConfiguratorPanel::setupUI() {
 }
 
 void IpConfiguratorPanel::refresh() {
-    devices_ = CameraManager::enumerateGigEDevices();
+    devices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
     populateTable(devices_);
     clearEditor();
     if (devices_.empty()) {

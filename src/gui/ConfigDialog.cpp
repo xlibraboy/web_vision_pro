@@ -2846,7 +2846,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
 void ConfigDialog::onRefreshLogsClicked() {
     networkSummaryHeader_->setRefreshing(true);
 
-    currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
     QString refreshTs = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
     connectionLogsBrowser_->append(QString("--- Refresh at %1 ---").arg(refreshTs));
 
@@ -2949,7 +2949,7 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
                                       ip, normalizedMac, mask, gateway);
     }
 
-    currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
     refreshNetworkStatus();
     if (connectionLogsBrowser_) {
         connectionLogsBrowser_->append(QString("[%1] IP config applied: MAC=%2 mode=%3 IP=%4")
@@ -2972,7 +2972,7 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
     // The camera disappears from discovery while it restarts its network
     // stack; refresh again shortly so camera cards show the new detected IP.
     QTimer::singleShot(8000, this, [this]() {
-        currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+        currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
         refreshNetworkStatus();
     });
 }

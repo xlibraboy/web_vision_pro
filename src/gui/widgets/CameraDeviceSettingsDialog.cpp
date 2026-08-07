@@ -204,7 +204,10 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
     , editable_(editable) {
     setupUi();
     if (cameraManager_) {
-        liveSettings_ = cameraManager_->readLiveDeviceSettings(cameraIndex_);
+        // Fast path only: read live settings from the acquisition runtime.
+        // The slower direct GigE open is deferred below so the dialog opens
+        // instantly instead of blocking on a network scan + device open.
+        liveSettings_ = cameraManager_->readLiveDeviceSettings(cameraIndex_, /*allowDirectOpen=*/false);
     }
     if (liveSettings_.ok) {
         // Show the ACTUAL camera state, not the saved config: the dialog is a
@@ -258,6 +261,68 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
     }
     populateUi();
     refreshLiveDeviceInfo();
+
+    // The runtime read above may have found nothing (camera on the network but
+    // not attached to the acquisition runtime). Finish the slower direct GigE
+    // read in the background so the dialog opens instantly; live values are
+    // applied as soon as the read completes.
+    if (cameraManager_ && !liveSettings_.ok) {
+        QTimer::singleShot(0, this, [this]() {
+            CameraManager::LiveDeviceSettings full = cameraManager_->readLiveDeviceSettings(cameraIndex_, /*allowDirectOpen=*/true);
+            if (full.ok) {
+                liveSettings_ = full;
+                // Re-apply the same live-value overrides the constructor does.
+                if (!full.pixelFormat.isEmpty()) {
+                    currentInfo_.pixelFormat = full.pixelFormat;
+                    originalInfo_.pixelFormat = full.pixelFormat;
+                }
+                if (full.width > 0) {
+                    currentInfo_.width = full.width;
+                    originalInfo_.width = full.width;
+                }
+                if (full.height > 0) {
+                    currentInfo_.height = full.height;
+                    originalInfo_.height = full.height;
+                }
+                currentInfo_.offsetX = full.offsetX;
+                originalInfo_.offsetX = full.offsetX;
+                currentInfo_.offsetY = full.offsetY;
+                originalInfo_.offsetY = full.offsetY;
+                if (full.exposureUs > 0.0) {
+                    currentInfo_.exposureTimeAbs = full.exposureUs;
+                    originalInfo_.exposureTimeAbs = full.exposureUs;
+                }
+                if (full.exposureTimeBaseAbs > 0.0) {
+                    currentInfo_.exposureTimeBaseAbs = full.exposureTimeBaseAbs;
+                    originalInfo_.exposureTimeBaseAbs = full.exposureTimeBaseAbs;
+                }
+                if (full.exposureTimeRaw > 0) {
+                    currentInfo_.exposureTimeRaw = full.exposureTimeRaw;
+                    originalInfo_.exposureTimeRaw = full.exposureTimeRaw;
+                }
+                if (full.acquisitionFrameRate > 0.0) {
+                    currentInfo_.fps = full.acquisitionFrameRate;
+                    originalInfo_.fps = full.acquisitionFrameRate;
+                } else if (full.resultingFrameRate > 0.0) {
+                    currentInfo_.fps = full.resultingFrameRate;
+                    originalInfo_.fps = full.resultingFrameRate;
+                }
+                currentInfo_.enableAcquisitionFps = full.acquisitionFrameRateEnable;
+                originalInfo_.enableAcquisitionFps = full.acquisitionFrameRateEnable;
+                currentInfo_.chunkModeActive = full.chunkModeActive;
+                originalInfo_.chunkModeActive = full.chunkModeActive;
+                if (!full.enabledChunks.isEmpty()) {
+                    currentInfo_.enabledChunks = full.enabledChunks;
+                    originalInfo_.enabledChunks = full.enabledChunks;
+                }
+                if (full.temperature > 0.0) {
+                    currentInfo_.temperature = full.temperature;
+                }
+                populateUi();
+                refreshLiveDeviceInfo();
+            }
+        });
+    }
 }
 
 CameraInfo CameraDeviceSettingsDialog::updatedInfo() const {
@@ -334,6 +399,14 @@ void CameraDeviceSettingsDialog::setupUi() {
     refreshTimer_ = new QTimer(this);
     refreshTimer_->setInterval(2000);
     refreshTimer_->start();
+
+    // Debounce live camera writes + refresh while the user edits: spinboxes
+    // fire valueChanged on every keystroke/arrow, and each write can be a slow
+    // GigE round-trip. Coalesce them into a single write after the pause.
+    changeDebounceTimer_ = new QTimer(this);
+    changeDebounceTimer_->setSingleShot(true);
+    changeDebounceTimer_->setInterval(350);
+    connect(changeDebounceTimer_, &QTimer::timeout, this, &CameraDeviceSettingsDialog::flushPendingLiveChanges);
 
     const auto registerChangeSignal = [this](QObject* obj, const char* signal) {
         connect(obj, signal, this, SLOT(onValueChanged()));
@@ -796,6 +869,13 @@ void CameraDeviceSettingsDialog::onCancelClicked() {
     }
 }
 
+void CameraDeviceSettingsDialog::flushPendingLiveChangesOnClose() {
+    if (changeDebounceTimer_ && changeDebounceTimer_->isActive()) {
+        changeDebounceTimer_->stop();
+        flushPendingLiveChanges();
+    }
+}
+
 void CameraDeviceSettingsDialog::closeEvent(QCloseEvent* event) {
     if (!confirmStagedClose()) {
         event->ignore();
@@ -808,6 +888,7 @@ void CameraDeviceSettingsDialog::reject() {
     if (!confirmStagedClose()) {
         return;
     }
+    flushPendingLiveChangesOnClose();
     QDialog::reject();
 }
 
@@ -863,6 +944,10 @@ void CameraDeviceSettingsDialog::populateUi() {
         formats << "Mono8" << "Mono16";
     }
     formats.removeDuplicates();
+    // populateUi() may run twice (once synchronously, once after the deferred
+    // direct device read lands) — clear first so items are never duplicated.
+    pixelFormatCombo_->clear();
+    chunkListWidget_->clear();
     pixelFormatCombo_->addItems(formats);
     if (!currentInfo_.pixelFormat.trimmed().isEmpty() && pixelFormatCombo_->findText(currentInfo_.pixelFormat) == -1) {
         pixelFormatCombo_->addItem(currentInfo_.pixelFormat);
@@ -1152,10 +1237,31 @@ void CameraDeviceSettingsDialog::onValueChanged() {
     if (currentInfo_.chunkModeActive != previousInfo.chunkModeActive) stageField("chunkMode");
     if (currentInfo_.enabledChunks != previousInfo.enabledChunks) stageField("chunks");
 
-    // Live (immediate) fields — exposure abs/base/raw + framerate, written
-    // whenever the camera is reachable (runtime-attached or direct).
-    const bool reachable = cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
-    if (reachable) {
+    // Cheap UI-only updates happen immediately so the dialog feels responsive.
+    updateStagedBadges();
+    updateStagedCallouts();
+    updateApplyStagedEnabled();
+
+    // The expensive part — live camera write + config persist + full info
+    // refresh — is debounced so typing in a spinbox doesn't fire a slow GigE
+    // round-trip on every keystroke. flushPendingLiveChanges() runs 350ms
+    // after the user stops editing (and on dialog close).
+    changeDebounceTimer_->start();
+}
+
+void CameraDeviceSettingsDialog::flushPendingLiveChanges() {
+    if (populating_) {
+        return;
+    }
+
+    // Live (immediate) fields — exposure abs/base/raw + framerate. Only write
+    // when the camera is attached to the acquisition runtime: that path is an
+    // in-memory node-map write. If the camera is merely reachable on the
+    // network, applyLiveExposureRate would do a blocking direct GigE open on
+    // the UI thread — skip it and let the staged flow handle those writes.
+    const bool runtimeAttached = cameraManager_
+        && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+    if (runtimeAttached) {
         cameraManager_->applyLiveExposureRate(cameraIndex_, currentInfo_);
     }
 
@@ -1164,9 +1270,6 @@ void CameraDeviceSettingsDialog::onValueChanged() {
 
     updateControlAvailability();
     refreshLiveDeviceInfo();
-    updateStagedBadges();
-    updateStagedCallouts();
-    updateApplyStagedEnabled();
 }
 
 void CameraDeviceSettingsDialog::closeDialog() {
@@ -1192,17 +1295,20 @@ void CameraDeviceSettingsDialog::closeDialog() {
         if (box.clickedButton() == applyAndClose) {
             applyStagedChanges();
             if (stagedFields_.isEmpty()) {
+                flushPendingLiveChangesOnClose();
                 accept();
             }
             return;
         }
         if (box.clickedButton() == closeAnyways) {
             clearStaged();
+            flushPendingLiveChangesOnClose();
             accept();
             return;
         }
         return;  // Keep Editing
     }
+    flushPendingLiveChangesOnClose();
     accept();
 }
 

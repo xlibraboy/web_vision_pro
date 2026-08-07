@@ -1070,7 +1070,7 @@ CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex)
     return p;
 }
 
-CameraManager::LiveDeviceSettings CameraManager::readLiveDeviceSettings(int configArrayIndex) {
+CameraManager::LiveDeviceSettings CameraManager::readLiveDeviceSettings(int configArrayIndex, bool allowDirectOpen) {
     LiveDeviceSettings out;
 
     // 1) Runtime path: camera attached to the acquisition runtime.
@@ -1092,6 +1092,12 @@ CameraManager::LiveDeviceSettings CameraManager::readLiveDeviceSettings(int conf
     }
 
     // 2) Direct path: camera on the network but not attached to the runtime.
+    //    This performs a blocking GigE open/close — callers that need a fast,
+    //    non-blocking read (e.g. the Device Settings dialog constructor) can
+    //    opt out and rely on the runtime path only.
+    if (!allowDirectOpen) {
+        return out;
+    }
     if (openConfiguredDeviceDirect(configArrayIndex,
             [&out](GenApi::INodeMap& nodemap, const Pylon::CDeviceInfo& di) {
                 fillLiveSettingsFromNodeMap(nodemap, out);
@@ -2448,7 +2454,28 @@ void CameraManager::setGlobalResolution(int binningFactor) {
     }
 }
 
-std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
+std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices(bool forceRefresh) {
+    // GigE enumeration is a network broadcast scan that can block for seconds,
+    // especially when no cameras are present. Cache the result briefly so the
+    // Device Settings dialog (which polls reachability multiple times per
+    // refresh cycle) doesn't hammer the wire on every poll.
+    //
+    // NOTE: empty results are cached too — the offline/no-camera case is the
+    // slow one, so it must not re-scan on every reachability check.
+    static std::mutex cacheMutex;
+    static std::vector<GigEDeviceInfo> cachedDevices;
+    static std::chrono::steady_clock::time_point cachedAt;
+    static bool cacheValid = false;
+    constexpr auto kCacheTtl = std::chrono::milliseconds(2500);
+
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        const auto now = std::chrono::steady_clock::now();
+        if (!forceRefresh && cacheValid && (now - cachedAt) < kCacheTtl) {
+            return cachedDevices;
+        }
+    }
+
     std::vector<GigEDeviceInfo> devices;
     try {
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
@@ -2485,6 +2512,13 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
         TlFactory.ReleaseTl(pTl);
     } catch (const Pylon::GenericException& e) {
         std::cerr << "[CameraManager] Error enumerating GigE devices: " << e.GetDescription() << std::endl;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cachedDevices = devices;
+        cachedAt = std::chrono::steady_clock::now();
+        cacheValid = true;
     }
     return devices;
 }

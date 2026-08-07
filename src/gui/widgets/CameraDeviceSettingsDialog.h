@@ -121,9 +121,12 @@ private:
     QPushButton* applyStagedBtn_;
     QPushButton* cancelBtn_;
     QTimer* refreshTimer_;
+    QTimer* changeDebounceTimer_;
 
     // Staged-change model
     QSet<QString> stagedFields_;
     int stagedCount() const;
     QSet<QString> stagedFieldsInGroup(int groupId) const;
+    void flushPendingLiveChanges();
+    void flushPendingLiveChangesOnClose();
 };
