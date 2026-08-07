@@ -68,7 +68,6 @@ private slots:
     void onCameraCardEditToggled(bool checked);
     void onCameraCardSourceChanged(int source);
     void onCameraCardMacChanged(const QString& mac);
-    void onCameraCardWriteIpClicked();
     void onCameraCardDeviceSettingsClicked();
 
 private:

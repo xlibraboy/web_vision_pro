@@ -181,7 +181,6 @@ public:
     uint64_t getIncompleteGrabCount(int configArrayIndex) const;
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
     static std::vector<GigEDeviceInfo> enumerateGigEDevices();
-    static bool applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway);
     static IpConfigResult configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
 
 private:
