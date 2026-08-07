@@ -317,19 +317,6 @@ void CameraCard::createContent(const CameraInfo& info) {
     gatewayEdit_->setStyleSheet(fieldStyle);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Gateway:", gatewayEdit_);
 
-    // Write IP Button
-    writeIpBtn_ = new QPushButton("Apply IP to Camera", networkInfoGroup_);
-    writeIpBtn_->setIcon(IconManager::instance().save(16));
-    writeIpBtn_->setStyleSheet(
-        "QPushButton { background-color: #238636; color: white; "
-        "border: none; border-radius: 6px; padding: 7px 12px; "
-        "font-size: 11px; font-weight: 500; }"
-        "QPushButton:hover { background-color: #2EA043; }"
-        "QPushButton:disabled { background-color: #30363D; color: #8B949E; }"
-    );
-    connect(writeIpBtn_, &QPushButton::clicked, this, &CameraCard::writeIpClicked);
-    networkFieldsLayout_->addWidget(writeIpBtn_, networkRow, 1, 1, 1, Qt::AlignLeft);
-
     contentLayout_->addWidget(networkInfoGroup_);
 
     deviceSettingsBtn_ = new QPushButton("Device Settings...", contentWidget_);
@@ -429,7 +416,6 @@ void CameraCard::setEditable(bool editable) {
     macCombo_->setEnabled(editable);
     subnetEdit_->setEnabled(editable);
     gatewayEdit_->setEnabled(editable);
-    writeIpBtn_->setEnabled(editable);
     deviceSettingsBtn_->setEnabled(editable);
 }
 

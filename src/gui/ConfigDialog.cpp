@@ -2335,7 +2335,6 @@ void ConfigDialog::connectCameraCardSignals(CameraCard* card) {
     connect(card, &CameraCard::removeClicked, this, &ConfigDialog::onCameraCardRemoveClicked);
     connect(card, &CameraCard::sourceChanged, this, &ConfigDialog::onCameraCardSourceChanged);
     connect(card, &CameraCard::macChanged, this, &ConfigDialog::onCameraCardMacChanged);
-    connect(card, &CameraCard::writeIpClicked, this, &ConfigDialog::onCameraCardWriteIpClicked);
     connect(card, &CameraCard::deviceSettingsClicked, this, &ConfigDialog::onCameraCardDeviceSettingsClicked);
 }
 
@@ -2407,97 +2406,6 @@ void ConfigDialog::onCameraCardMacChanged(const QString&) {
     }
 
     refreshNetworkStatus();
-}
-
-void ConfigDialog::onCameraCardWriteIpClicked() {
-    CameraCard* card = findCameraCard(sender());
-    if (!card) return;
-
-    // Write IP logic (similar to original)
-    if (card->sourceType() != 1) {
-        QMessageBox::warning(this, "Write IP", "IP writing is only available for cameras configured as Real.");
-        return;
-    }
-
-    QString mac = card->macAddress();
-    QString ip = card->ipAddress();
-    QString mask = card->subnetMask();
-    QString gw = card->gateway();
-    const QString normalizedMac = normalizeMac(mac);
-
-    if (normalizedMac.isEmpty()) {
-        QMessageBox::warning(this, "Write IP", "Please select or enter a valid MAC Address first.");
-        return;
-    }
-
-    bool macVisible = false;
-    for (const auto& dev : currentGigEDevices_) {
-        if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizedMac) {
-            macVisible = true;
-            break;
-        }
-    }
-
-    if (!macVisible) {
-        QMessageBox::warning(this, "Write IP",
-            "The selected MAC is not currently visible in GigE discovery. "
-            "Refresh discovery and verify the physical camera is connected before writing its IP.");
-        return;
-    }
-
-    persistCameraNetworkSelection(
-        card->cameraId(),
-        card->sourceType(),
-        ip, mac, mask, gw
-    );
-
-    bool wasRunning = false;
-    if (cameraManager_) {
-        cameraManager_->stopAcquisition();
-        wasRunning = true;
-    }
-
-    bool writeOk = CameraManager::applyIpConfiguration(
-        normalizedMac.toStdString(),
-        ip.toStdString(),
-        mask.toStdString(),
-        gw.toStdString()
-    );
-
-    if (!writeOk) {
-        QMessageBox::critical(this, "Write IP",
-            "Failed to write IP configuration to camera " + mac + ".\n"
-            "Please check connection and MAC address.");
-        if (wasRunning && cameraManager_) {
-            cameraManager_->startAcquisition();
-        }
-        return;
-    }
-
-    onRefreshLogsClicked();
-    refreshNetworkStatus();
-
-    // Check if IP matches
-    QString detectedIp = "Offline";
-    for (const auto& dev : currentGigEDevices_) {
-        if (normalizeMac(QString::fromStdString(dev.macAddress)) == normalizeMac(mac)) {
-            detectedIp = QString::fromStdString(dev.ipAddress);
-            break;
-        }
-    }
-
-    if (normalizeIp(detectedIp) == normalizeIp(ip)) {
-        QMessageBox::information(this, "Write IP",
-            "Camera " + mac + " is now detected at " + ip + ".");
-    } else {
-        QMessageBox::warning(this, "Write IP",
-            "IP write sent to camera " + mac + ", but it has not been rediscovered at " + ip + " yet.\n"
-            "Refresh after reconnecting the camera if needed.");
-    }
-
-    if (wasRunning && cameraManager_) {
-        cameraManager_->startAcquisition();
-    }
 }
 
 void ConfigDialog::onAddCameraConfigClicked() {

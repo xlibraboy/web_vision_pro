@@ -90,7 +90,6 @@ signals:
     void editToggled(bool checked);
     void sourceChanged(int source);
     void macChanged(const QString& mac);
-    void writeIpClicked();
     void removeClicked();
     void deviceSettingsClicked();
     void expansionChanged(bool expanded);
@@ -153,7 +152,6 @@ private:
     QComboBox* macCombo_;
     QLineEdit* subnetEdit_;
     QLineEdit* gatewayEdit_;
-    QPushButton* writeIpBtn_;
     QPushButton* deviceSettingsBtn_;
 
     // Data

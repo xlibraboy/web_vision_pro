@@ -2194,10 +2194,6 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices() {
     return devices;
 }
 
-bool CameraManager::applyIpConfiguration(const std::string& mac, const std::string& ip, const std::string& mask, const std::string& gateway) {
-    return configureIpConfiguration(mac, "Static", ip, mask, gateway) == IpConfigResult::Success;
-}
-
 IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, const std::string& mode,
                                                        const std::string& ip, const std::string& mask,
                                                        const std::string& gateway) {
