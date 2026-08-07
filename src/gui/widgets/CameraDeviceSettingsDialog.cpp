@@ -802,8 +802,8 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
 
     // Carried fix: refresh live temperature on the read-only label only.
-    // Never overwrite with an unmeaningful reading (getTemperature returns 0.0
-    // when the sensor is not reachable or not reporting).
+    // Never overwrite with an unmeaningful reading (getTemperature returns -1.0
+    // sentinel when the sensor is not reachable or not reporting).
     if (cameraManager_ && reachable) {
         const double temp = cameraManager_->getTemperature(cameraIndex_);
         if (temp > 0.0) {
@@ -971,7 +971,36 @@ void CameraDeviceSettingsDialog::closeDialog() {
     if (!validateInputs(nullptr)) {
         return;
     }
-
+    if (!stagedFields_.isEmpty()) {
+        const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+        const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+        QMessageBox box(this);
+        box.setWindowTitle("Staged Changes");
+        box.setIcon(QMessageBox::Warning);
+        box.setText(QString("%1 change(s) are staged but not yet applied. Apply them before closing?")
+                        .arg(stagedCount()));
+        QPushButton* applyAndClose = box.addButton("Apply & Close", QMessageBox::AcceptRole);
+        QPushButton* closeAnyways = box.addButton("Close without Applying", QMessageBox::DestructiveRole);
+        box.addButton("Keep Editing", QMessageBox::RejectRole);
+        if (running) {
+            applyAndClose->setEnabled(false);
+            applyAndClose->setToolTip("Stop the camera to apply staged changes.");
+        }
+        box.exec();
+        if (box.clickedButton() == applyAndClose) {
+            applyStagedChanges();
+            if (stagedFields_.isEmpty()) {
+                accept();
+            }
+            return;
+        }
+        if (box.clickedButton() == closeAnyways) {
+            clearStaged();
+            accept();
+            return;
+        }
+        return;  // Keep Editing
+    }
     accept();
 }
 
