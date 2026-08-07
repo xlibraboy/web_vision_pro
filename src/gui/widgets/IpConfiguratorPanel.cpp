@@ -207,24 +207,48 @@ void IpConfiguratorPanel::onIpFieldEdited(const QString& text) {
     auto* edit = qobject_cast<QLineEdit*>(sender());
     if (!edit) return;
 
-    // Keep only digits (max 12 = 4 octets), then insert the dots.
-    QString digits;
-    digits.reserve(12);
+    // Keep only digits and dots typed by the user.
+    QString filtered;
+    filtered.reserve(edit->text().size());
     for (const QChar ch : edit->text()) {
+        if (ch.isDigit() || ch == QLatin1Char('.')) filtered.append(ch);
+    }
+
+    // Normalize: no leading or consecutive dots, at most 3 dots and 12 digits.
+    QString normalized;
+    normalized.reserve(filtered.size());
+    int digits = 0;
+    int dots = 0;
+    bool lastWasDot = false;
+    for (const QChar ch : filtered) {
         if (ch.isDigit()) {
-            digits.append(ch);
-            if (digits.size() == 12) break;
+            if (digits >= 12) break;
+            normalized.append(ch);
+            ++digits;
+            lastWasDot = false;
+        } else {
+            if (dots >= 3) continue;
+            if (lastWasDot || normalized.isEmpty()) continue;
+            normalized.append(ch);
+            ++dots;
+            lastWasDot = true;
         }
     }
-    QString dotted;
-    dotted.reserve(15);
-    for (int i = 0; i < digits.size(); ++i) {
-        if (i == 3 || i == 6 || i == 9) dotted.append(QLatin1Char('.'));
-        dotted.append(digits.at(i));
+
+    // Auto-insert dots only when the user typed digits without any dots.
+    if (dots == 0 && digits > 3) {
+        QString autoDotted;
+        autoDotted.reserve(15);
+        for (int i = 0; i < normalized.size(); ++i) {
+            if (i == 3 || i == 6 || i == 9) autoDotted.append(QLatin1Char('.'));
+            autoDotted.append(normalized.at(i));
+        }
+        normalized = autoDotted;
     }
+
     edit->blockSignals(true);
-    edit->setText(dotted);
-    edit->setCursorPosition(dotted.size());
+    edit->setText(normalized);
+    edit->setCursorPosition(normalized.size());
     edit->blockSignals(false);
 }
 
