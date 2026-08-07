@@ -74,7 +74,7 @@ src/
 │       ├── ToggleSwitch.h/cpp        # Custom toggle switch
 │       ├── IconManager.h/cpp         # SVG icon management
 │       ├── NetworkSummaryHeader.h/cpp# Network status header
-│       ├── CameraDeviceSettingsDialog.h/cpp # Per-camera device settings
+│       ├── CameraDeviceSettingsDialog.h/cpp # Per-camera device settings (two-pane: status sidebar + grouped pages, live/staged apply)
 │       ├── DeleteConfirmationDialog.h/cpp   # Delete confirmation
 │       └── IpConfiguratorPanel.h/cpp        # GigE IP configurator (Static/DHCP/AutoIP)
 ├── config/
@@ -115,6 +115,13 @@ src/
 - OPC UA settings: endpoint URL, auth, publish/reconnect intervals, trigger tags, speed tag
 - Event storage path configurable with validation
 - Config persisted via `CameraConfig` static methods
+
+### Device Settings Dialog
+- Two-pane layout: left sidebar = live status card (model, IP, temperature, run state) + camera run toggle + group nav with amber badges on groups holding staged changes; right = stacked detail pages for Image Format, AOI, Exposure & Rate, Chunk Data, Device Info, Service
+- Hybrid apply semantics: exposure (Abs) and framerate write live while the camera runs; format/AOI/exposure-base/raw/chunk changes stage while running and apply via Apply Staged (or the Stop & Apply callout after stopping)
+- Staged-loss guards on Cancel/Close confirm before discarding staged changes (note: title-bar X currently bypasses the guard — known minor, tracked for final review)
+- 2s live status refresh timer
+- Admin gating: `editable_ == false` → whole dialog read-only
 
 ### IP Configurator (embedded)
 - Sub-tab "IP Configurator" inside the Camera Configuration tab of ConfigDialog
