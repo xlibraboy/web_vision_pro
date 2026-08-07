@@ -176,7 +176,7 @@ QFrame* buildCallout(QWidget* parent) {
     QLabel* text = new QLabel("Changes staged \u2014 stop the camera to apply.", callout);
     text->setStyleSheet(
         "color: #F0C040; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;");
-    QPushButton* stopApply = new QPushButton("Stop & Apply", callout);
+    QPushButton* stopApply = new QPushButton("Stop and Apply", callout);
     stopApply->setStyleSheet(
         "QPushButton { background: rgba(224, 168, 0, 0.18); color: #F0C040; border: 1px solid rgba(224, 168, 0, 0.4); "
         "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; }"
