@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -620,6 +621,53 @@ QSet<QString> CameraDeviceSettingsDialog::stagedFieldsInGroup(int groupId) const
     return fields;
 }
 
+void CameraDeviceSettingsDialog::stageField(const QString& field) {
+    if (!stagedFields_.contains(field)) {
+        stagedFields_.insert(field);
+        updateStagedBadges();
+        updateStagedCallouts();
+        updateApplyStagedEnabled();
+    }
+}
+
+void CameraDeviceSettingsDialog::clearStaged() {
+    stagedFields_.clear();
+    updateStagedBadges();
+    updateStagedCallouts();
+    updateApplyStagedEnabled();
+}
+
+void CameraDeviceSettingsDialog::updateStagedBadges() {
+    // Amber dot via DecorationRole; empty pixmap removes it.
+    const QPixmap amberDot = [this]() {
+        QPixmap pm(10, 10);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(QColor("#E0A800"));
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(1, 1, 8, 8);
+        return pm;
+    }();
+    for (auto it = navItems_.constBegin(); it != navItems_.constEnd(); ++it) {
+        const bool hasStaged = !stagedFieldsInGroup(it.key()).isEmpty();
+        it.value()->setData(Qt::DecorationRole, hasStaged ? QVariant(amberDot) : QVariant());
+    }
+}
+
+void CameraDeviceSettingsDialog::updateStagedCallouts() {
+    for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
+        it.value()->setVisible(!stagedFieldsInGroup(it.key()).isEmpty());
+    }
+}
+
+void CameraDeviceSettingsDialog::updateApplyStagedEnabled() {
+    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+    applyStagedBtn_->setEnabled(editable_ && reachable && !running && !stagedFields_.isEmpty());
+}
+
 void CameraDeviceSettingsDialog::onCancelClicked() {
     reject();
 }
@@ -816,20 +864,33 @@ void CameraDeviceSettingsDialog::onValueChanged() {
     currentInfo_.chunkModeActive = chunkModeActiveCheck_->isChecked();
     currentInfo_.enabledChunks = selectedChunks();
 
-    const bool includesStopRequiredChanges = currentInfo_.pixelFormat != previousInfo.pixelFormat
-        || currentInfo_.width != previousInfo.width
-        || currentInfo_.height != previousInfo.height
-        || currentInfo_.offsetX != previousInfo.offsetX
-        || currentInfo_.offsetY != previousInfo.offsetY
-        || currentInfo_.enableExposureTimeBase != previousInfo.enableExposureTimeBase
-        || currentInfo_.exposureTimeBaseAbs != previousInfo.exposureTimeBaseAbs
-        || currentInfo_.exposureTimeRaw != previousInfo.exposureTimeRaw
-        || currentInfo_.chunkModeActive != previousInfo.chunkModeActive
-        || currentInfo_.enabledChunks != previousInfo.enabledChunks;
+    // Staged (stop-required) fields
+    if (currentInfo_.pixelFormat != previousInfo.pixelFormat) stageField("pixelFormat");
+    if (currentInfo_.width != previousInfo.width) stageField("width");
+    if (currentInfo_.height != previousInfo.height) stageField("height");
+    if (currentInfo_.offsetX != previousInfo.offsetX) stageField("offsetX");
+    if (currentInfo_.offsetY != previousInfo.offsetY) stageField("offsetY");
+    if (currentInfo_.enableExposureTimeBase != previousInfo.enableExposureTimeBase) stageField("exposureTimeBase");
+    if (currentInfo_.exposureTimeBaseAbs != previousInfo.exposureTimeBaseAbs) stageField("exposureTimeBase");
+    if (currentInfo_.exposureTimeRaw != previousInfo.exposureTimeRaw) stageField("exposureTimeRaw");
+    if (currentInfo_.chunkModeActive != previousInfo.chunkModeActive) stageField("chunkMode");
+    if (currentInfo_.enabledChunks != previousInfo.enabledChunks) stageField("chunks");
 
-    applyImmediateChanges(includesStopRequiredChanges);
+    // Live (immediate) fields — only when reachable
+    const bool reachable = cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    if (reachable) {
+        cameraManager_->setCameraExposure(cameraIndex_, currentInfo_.exposureTimeAbs);
+        cameraManager_->setCameraFrameRate(cameraIndex_, currentInfo_.fps, currentInfo_.enableAcquisitionFps);
+    }
+
+    persistSharedCameraSettings(cameraIndex_, currentInfo_);
+    emit settingsApplied(currentInfo_);
+
     updateControlAvailability();
     refreshLiveDeviceInfo();
+    updateStagedBadges();
+    updateStagedCallouts();
+    updateApplyStagedEnabled();
 }
 
 void CameraDeviceSettingsDialog::closeDialog() {
@@ -868,54 +929,26 @@ void CameraDeviceSettingsDialog::toggleCameraRunState() {
 void CameraDeviceSettingsDialog::updateControlAvailability() {
     const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
     const bool configuredReal = hasConfiguredRealDevice(currentInfo_);
-    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
-    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
     const bool baseEnabled = editable_ && (reachable || configuredReal);
-    const bool stopRequiredEditable = baseEnabled && !running;
 
-    pixelFormatCombo_->setEnabled(stopRequiredEditable);
-    widthSpin_->setEnabled(stopRequiredEditable);
-    heightSpin_->setEnabled(stopRequiredEditable);
-    offsetXSpin_->setEnabled(stopRequiredEditable);
-    offsetYSpin_->setEnabled(stopRequiredEditable);
-    enableExposureTimeBaseCheck_->setEnabled(stopRequiredEditable);
-    exposureTimeBaseSpin_->setEnabled(stopRequiredEditable && currentInfo_.enableExposureTimeBase);
-    exposureTimeRawSpin_->setEnabled(stopRequiredEditable);
-    chunkModeActiveCheck_->setEnabled(stopRequiredEditable);
-    chunkListWidget_->setEnabled(stopRequiredEditable && currentInfo_.chunkModeActive);
+    // Staged fields: editable whenever the camera is editable (even while running)
+    pixelFormatCombo_->setEnabled(baseEnabled);
+    widthSpin_->setEnabled(baseEnabled);
+    heightSpin_->setEnabled(baseEnabled);
+    offsetXSpin_->setEnabled(baseEnabled);
+    offsetYSpin_->setEnabled(baseEnabled);
+    enableExposureTimeBaseCheck_->setEnabled(baseEnabled);
+    exposureTimeBaseSpin_->setEnabled(baseEnabled && currentInfo_.enableExposureTimeBase);
+    exposureTimeRawSpin_->setEnabled(baseEnabled);
+    chunkModeActiveCheck_->setEnabled(baseEnabled);
+    chunkListWidget_->setEnabled(baseEnabled && currentInfo_.chunkModeActive);
 
+    // Live fields
     exposureTimeAbsSpin_->setEnabled(baseEnabled);
     enableAcquisitionRateCheck_->setEnabled(baseEnabled);
     acquisitionRateSpin_->setEnabled(baseEnabled && currentInfo_.enableAcquisitionFps);
 
-    applyBtn_->setEnabled(true);
-    cancelBtn_->setText("Cancel");
+    updateApplyStagedEnabled();
 }
 
-void CameraDeviceSettingsDialog::applyImmediateChanges(bool includesStopRequiredChanges) {
-    if (!validateInputs(nullptr)) {
-        return;
-    }
 
-    const bool reachable = cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
-    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
-
-    if (!reachable) {
-        persistSharedCameraSettings(cameraIndex_, currentInfo_);
-        emit settingsApplied(currentInfo_);
-        return;
-    }
-
-    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
-    if (includesStopRequiredChanges) {
-        if (!running) {
-            cameraManager_->applyCameraDeviceSettings(cameraIndex_, currentInfo_);
-        }
-    } else {
-        cameraManager_->setCameraExposure(cameraIndex_, currentInfo_.exposureTimeAbs);
-        cameraManager_->setCameraFrameRate(cameraIndex_, currentInfo_.fps, currentInfo_.enableAcquisitionFps);
-    }
-
-    persistSharedCameraSettings(cameraIndex_, currentInfo_);
-    emit settingsApplied(currentInfo_);
-}

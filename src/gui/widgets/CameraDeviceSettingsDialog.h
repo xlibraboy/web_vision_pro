@@ -47,7 +47,6 @@ private:
     void populateUi();
     void refreshLiveDeviceInfo();
     void updateControlAvailability();
-    void applyImmediateChanges(bool includesStopRequiredChanges);
     bool validateInputs(QStringList* errors) const;
     bool hasStopRequiredChanges() const;
     QStringList selectedChunks() const;
