@@ -16,8 +16,16 @@
 - Public dialog API preserved: `CameraInfo updatedInfo() const`, `bool requiresRestart() const`, signal `settingsApplied(const CameraInfo&)` — `ConfigDialog.cpp` is NOT modified.
 - Admin gating preserved: non-admin (`editable_ == false`) gets fully read-only dialog.
 - Theme tokens (keep exact): surface `#24292E`, inset `#1C2128`, border `#30363D`, text `#E3E3E3`, muted `#8B949E`, accent `#00E5FF`, success `#2EA043`, warn `#E0A800`, danger `#FF5A5A`.
-- Build/verify per task: `bash ./docker-rebuild-app.sh`, then `docker logs paper_vision_node 2>&1 | grep -E 'Built target|error:'` must show `[100%] Built target PaperVision_App` and no `error:`. Container must stay Up.
-- The running app container must be stopped before copying over a running binary — `docker-rebuild-app.sh` handles this via `--force-recreate`.
+- Build/verify per task: compile the WORKTREE source with a one-off container (the compose-based `docker-rebuild-app.sh` mounts the MAIN checkout, so it would build the wrong code):
+
+```bash
+docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build \
+  -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app \
+  -w /app web-vision-pro:1.0 \
+  bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"
+```
+
+Expected: `[100%] Built target PaperVision_App` and no `error:` in the output. The running `paper_vision_node` app (main checkout) is left untouched during per-task verification; visual verification of the worktree build happens at Task 6 via the compose mount swap.
 
 ---
 
@@ -358,8 +366,8 @@ The constructor keeps its existing `populateUi(); refreshLiveDeviceInfo();` sequ
 
 - [ ] **Step 7: Build and verify**
 
-Run: `bash ./docker-rebuild-app.sh`
-Expected: log shows `[100%] Built target PaperVision_App`, no `error:` lines, container Up, app running.
+Run: `docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -w /app web-vision-pro:1.0 bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"`
+Expected: output ends with `[100%] Built target PaperVision_App`, no `error:` lines.
 
 - [ ] **Step 8: Commit**
 
@@ -436,8 +444,8 @@ In `refreshLiveDeviceInfo()`, delete the old `statusLabel_` cascade and the `isC
 
 - [ ] **Step 2: Build and verify**
 
-Run: `bash ./docker-rebuild-app.sh`
-Expected: `[100%] Built target PaperVision_App`, no `error:`, container Up.
+Run: `docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -w /app web-vision-pro:1.0 bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"`
+Expected: `[100%] Built target PaperVision_App`, no `error:`.
 
 - [ ] **Step 3: Commit**
 
@@ -600,8 +608,8 @@ void CameraDeviceSettingsDialog::updateControlAvailability() {
 
 - [ ] **Step 4: Build and verify**
 
-Run: `bash ./docker-rebuild-app.sh`
-Expected: `[100%] Built target PaperVision_App`, no `error:`, container Up.
+Run: `docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -w /app web-vision-pro:1.0 bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"`
+Expected: `[100%] Built target PaperVision_App`, no `error:`.
 
 - [ ] **Step 5: Commit**
 
@@ -714,8 +722,8 @@ Remove the method definition and its declaration in the header (`updateImpactBan
 
 - [ ] **Step 4: Build and verify**
 
-Run: `bash ./docker-rebuild-app.sh`
-Expected: `[100%] Built target PaperVision_App`, no `error:`, container Up.
+Run: `docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -w /app web-vision-pro:1.0 bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"`
+Expected: `[100%] Built target PaperVision_App`, no `error:`.
 
 - [ ] **Step 5: Commit**
 
@@ -782,8 +790,8 @@ Apply to every remaining form control the shared token styles from Task 1 (alrea
 
 - [ ] **Step 3: Build and verify**
 
-Run: `bash ./docker-rebuild-app.sh`
-Expected: `[100%] Built target PaperVision_App`, no `error:`, container Up.
+Run: `docker rm -f paper_vision_wt_build 2>/dev/null; docker run --rm --name paper_vision_wt_build -v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -w /app web-vision-pro:1.0 bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc)"`
+Expected: `[100%] Built target PaperVision_App`, no `error:`.
 
 - [ ] **Step 4: Commit**
 
@@ -808,7 +816,7 @@ Find the Device Settings / CameraDeviceSettingsDialog description (source layout
 
 - [ ] **Step 2: Full build + launch + user verification checklist**
 
-Run: `bash ./docker-rebuild-app.sh`; verify `[100%] Built target PaperVision_App`, no errors, container Up, app running.
+Run the worktree build in the app container. Since compose mounts the main checkout, swap the mount to the worktree for the visual check: stop the app container (`docker stop paper_vision_node`), then start a one-off run from the worktree with the same env as compose (DISPLAY=:0, XAUTHORITY, --network host, privileged, `-v /home/autoinst578/web_vision_pro/.worktrees/feature/polish-device-setting:/app -v $XAUTHORITY:/tmp/.docker.xauth:ro -e XAUTHORITY=/tmp/.docker.xauth -e DISPLAY=:0 -e QT_X11_NO_MITSHM=1`), command `bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j\$(nproc) && cp PaperVision_App PaperVision_App.run && exec ./PaperVision_App.run"`. Verify the app window opens on the display. After the check, `docker stop` that container and restart `paper_vision_node` with `bash ./docker-rebuild-app.sh` (or leave the worktree run active while the user verifies, then swap back).
 
 Ask the user to verify at DISPLAY=:0 (login `admin`/`admin` if prompted):
 1. Camera Cards → Device Settings opens the two-pane dialog; sidebar shows model/IP/temp/run state; chip shows Running/Stopped/Offline
