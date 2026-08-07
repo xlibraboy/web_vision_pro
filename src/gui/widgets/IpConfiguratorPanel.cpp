@@ -16,6 +16,7 @@
 #include <QAbstractSocket>
 #include <QFont>
 #include <QKeyEvent>
+#include <QMouseEvent>
 
 // Single-field IPv4 editor with structural dots: the four octets are kept
 // separately and the dots are regenerated on every edit, so they can never
@@ -41,6 +42,7 @@ public:
             ++idx;
         }
         cursorOctet_ = lastNonEmptyOctet();
+        cursorDigit_ = octets_[cursorOctet_].size();
         refreshDisplay();
     }
 
@@ -50,7 +52,7 @@ protected:
         if (key >= Qt::Key_0 && key <= Qt::Key_9) {
             // Typing over a selection replaces the whole value.
             if (hasSelectedText()) clearOctets();
-            appendDigit(QLatin1Char('0' + (key - Qt::Key_0)));
+            insertDigit(QLatin1Char('0' + (key - Qt::Key_0)));
             event->accept();
             return;
         }
@@ -58,25 +60,73 @@ protected:
             if (hasSelectedText()) clearOctets();
             if (!octets_[cursorOctet_].isEmpty() && cursorOctet_ < 3) {
                 ++cursorOctet_;
+                cursorDigit_ = 0;
+                refreshCursor();
             }
             event->accept();
             return;
         }
-        if (key == Qt::Key_Backspace || key == Qt::Key_Delete) {
+        if (key == Qt::Key_Backspace) {
             if (hasSelectedText()) {
                 clearOctets();
             } else {
-                removeLastDigit();
+                backspace();
             }
             event->accept();
             return;
         }
-        if (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Home
-            || key == Qt::Key_End || key == Qt::Key_Up || key == Qt::Key_Down) {
-            event->accept(); // keep the cursor at the end
+        if (key == Qt::Key_Delete) {
+            if (hasSelectedText()) {
+                clearOctets();
+            } else {
+                deleteAtCursor();
+            }
+            event->accept();
             return;
         }
-        QLineEdit::keyPressEvent(event); // Tab, Ctrl+A, Ctrl+C/V, etc.
+        if (key == Qt::Key_Left) {
+            moveCursor(-1);
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Right) {
+            moveCursor(1);
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Home) {
+            cursorOctet_ = 0;
+            cursorDigit_ = 0;
+            refreshCursor();
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_End) {
+            cursorOctet_ = lastNonEmptyOctet();
+            cursorDigit_ = octets_[cursorOctet_].size();
+            refreshCursor();
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Up || key == Qt::Key_Down) {
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_V && (event->modifiers() & Qt::ControlModifier)) {
+            event->accept(); // block paste: raw text would bypass the octets
+            return;
+        }
+        QLineEdit::keyPressEvent(event); // Tab, Ctrl+A, Ctrl+C/X, etc.
+    }
+
+    void mousePressEvent(QMouseEvent* event) override {
+        QLineEdit::mousePressEvent(event);
+        snapCursorFromDisplay();
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        QLineEdit::mouseDoubleClickEvent(event);
+        snapCursorFromDisplay();
     }
 
 private:
@@ -87,28 +137,75 @@ private:
         return 0;
     }
 
+    int displayPos() const {
+        int pos = 0;
+        for (int i = 0; i < cursorOctet_; ++i) pos += octets_[i].size() + 1;
+        pos += cursorDigit_;
+        return pos;
+    }
+
+    void refreshCursor() {
+        setCursorPosition(qBound(0, displayPos(), text().size()));
+    }
+
+    void snapCursorFromDisplay() {
+        int p = qBound(0, cursorPosition(), text().size());
+        for (int i = 0; i < 4; ++i) {
+            const int len = octets_[i].size();
+            if (p <= len) {
+                cursorOctet_ = i;
+                cursorDigit_ = p;
+                refreshCursor();
+                return;
+            }
+            p -= len + 1;
+        }
+        cursorOctet_ = lastNonEmptyOctet();
+        cursorDigit_ = octets_[cursorOctet_].size();
+        refreshCursor();
+    }
+
     void clearOctets() {
         for (QString& oct : octets_) oct.clear();
         cursorOctet_ = 0;
+        cursorDigit_ = 0;
         refreshDisplay();
     }
 
-    void appendDigit(const QChar digit) {
+    void insertDigit(const QChar digit) {
         if (octets_[cursorOctet_].size() >= 3) {
-            if (cursorOctet_ >= 3) return;
-            ++cursorOctet_;
+            if (cursorDigit_ == octets_[cursorOctet_].size() && cursorOctet_ < 3) {
+                ++cursorOctet_;
+                cursorDigit_ = 0;
+            } else {
+                return; // octet is full and the cursor is not at its end
+            }
         }
-        octets_[cursorOctet_].append(digit);
+        octets_[cursorOctet_].insert(cursorDigit_, digit);
+        ++cursorDigit_;
         refreshDisplay();
     }
 
-    void removeLastDigit() {
-        // Always remove from the END of the value.
-        const int idx = lastNonEmptyOctet();
-        if (octets_[idx].isEmpty()) return;
-        octets_[idx].chop(1);
-        if (cursorOctet_ > idx) cursorOctet_ = idx;
+    void backspace() {
+        if (cursorDigit_ > 0) {
+            octets_[cursorOctet_].remove(cursorDigit_ - 1, 1);
+            --cursorDigit_;
+        } else if (cursorOctet_ > 0) {
+            --cursorOctet_;
+            cursorDigit_ = octets_[cursorOctet_].size();
+            if (cursorDigit_ > 0) {
+                octets_[cursorOctet_].remove(cursorDigit_ - 1, 1);
+                --cursorDigit_;
+            }
+        }
         refreshDisplay();
+    }
+
+    void deleteAtCursor() {
+        if (cursorDigit_ < octets_[cursorOctet_].size()) {
+            octets_[cursorOctet_].remove(cursorDigit_, 1);
+            refreshDisplay();
+        }
     }
 
     void refreshDisplay() {
@@ -121,11 +218,31 @@ private:
             if (last < 3) text.append(QLatin1Char('.'));
         }
         setText(text);
-        setCursorPosition(text.size());
+        refreshCursor();
+    }
+
+    void moveCursor(int delta) {
+        if (delta < 0) {
+            if (cursorDigit_ > 0) {
+                --cursorDigit_;
+            } else if (cursorOctet_ > 0) {
+                --cursorOctet_;
+                cursorDigit_ = octets_[cursorOctet_].size();
+            }
+        } else {
+            if (cursorDigit_ < octets_[cursorOctet_].size()) {
+                ++cursorDigit_;
+            } else if (cursorOctet_ < 3) {
+                ++cursorOctet_;
+                cursorDigit_ = 0;
+            }
+        }
+        refreshCursor();
     }
 
     QString octets_[4];
     int cursorOctet_ = 0;
+    int cursorDigit_ = 0;
 };
 
 IpConfiguratorPanel::IpConfiguratorPanel(QWidget* parent) : QWidget(parent) {
