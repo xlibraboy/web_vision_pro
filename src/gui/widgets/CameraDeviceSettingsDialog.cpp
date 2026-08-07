@@ -587,7 +587,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
         "QCheckBox { color: #E3E3E3; font-size: 12px; spacing: 8px; }"
         "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #484F58; background: #161B22; }"
         "QCheckBox::indicator:hover { border-color: #6E7681; background: #1C2128; }"
-        "QCheckBox::indicator:checked { background: #238636; border-color: #2EA043; }"
+        "QCheckBox::indicator:checked { background: #238636; border-color: #2EA043; image: url(none); }"
         "QCheckBox::indicator:checked:hover { background: #2EA043; border-color: #3FBF5F; }");
     chunkGroupLayout->addWidget(chunkModeActiveCheck_);
     QLabel* chunkHelp = new QLabel("Choose which chunk items should be included in the payload.", chunkGroup);
@@ -601,10 +601,6 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
         "QListWidget::item { padding: 7px 10px; }"
         "QListWidget::item:hover { background-color: #252B33; }"
         "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.10); color: #E3E3E3; }"
-        "QListWidget::item::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #484F58; background: #161B22; margin-right: 8px; }"
-        "QListWidget::item::indicator:hover { border-color: #6E7681; background: #1C2128; }"
-        "QListWidget::item::indicator:checked { background: #238636; border-color: #2EA043; }"
-        "QListWidget::item::indicator:checked:hover { background: #2EA043; border-color: #3FBF5F; }"
         "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; border-radius: 4px; }"
         "QScrollBar::handle:vertical { background: #3D444D; min-height: 20px; border-radius: 4px; }"
         "QScrollBar::handle:vertical:hover { background: #4F5760; }"
