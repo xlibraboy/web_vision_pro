@@ -10,6 +10,7 @@ class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QLabel;
+class FixedDotIpEdit;
 
 class IpConfiguratorPanel : public QWidget {
     Q_OBJECT
@@ -31,23 +32,20 @@ private slots:
     void onTableSelectionChanged();
     void onModeChanged(int index);
     void onApplyClicked();
-    void onOctetEdited();
 
 private:
     void setupUI();
     void populateTable(const std::vector<GigEDeviceInfo>& devices);
     void loadRowIntoEditor(int row);
     void clearEditor();
-    QString octetText(QLineEdit* const octets[4]) const;
     static bool isValidIpv4(const QString& text);
-    bool eventFilter(QObject* obj, QEvent* event) override;
 
     QTableWidget* table_;
     QLabel* statusLabel_;
     QComboBox* modeCombo_;
-    QLineEdit* ipOctets_[4] = {};
-    QLineEdit* maskOctets_[4] = {};
-    QLineEdit* gatewayOctets_[4] = {};
+    FixedDotIpEdit* ipEdit_ = nullptr;
+    FixedDotIpEdit* maskEdit_ = nullptr;
+    FixedDotIpEdit* gatewayEdit_ = nullptr;
     QPushButton* applyBtn_;
     QPushButton* refreshBtn_;
 

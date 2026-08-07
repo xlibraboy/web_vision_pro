@@ -15,9 +15,103 @@
 #include <QHostAddress>
 #include <QAbstractSocket>
 #include <QFont>
-#include <QRegularExpression>
-#include <QRegularExpressionValidator>
 #include <QKeyEvent>
+
+// Single-field IPv4 editor with structural dots: the four octets are kept
+// separately and the dots are regenerated on every edit, so they can never
+// be deleted or moved. Typing digits fills octets; '.' advances to the next
+// octet; Backspace/Delete removes the last digit only.
+class FixedDotIpEdit : public QLineEdit {
+public:
+    explicit FixedDotIpEdit(QWidget* parent = nullptr) : QLineEdit(parent) {
+        setMaxLength(15);
+    }
+
+    void setOctets(const QString& dotted) {
+        for (QString& oct : octets_) oct.clear();
+        cursorOctet_ = 0;
+        const QStringList parts = dotted.split(QLatin1Char('.'));
+        int idx = 0;
+        for (const QString& part : parts) {
+            if (idx >= 4) break;
+            QString digits;
+            for (const QChar c : part) {
+                if (c.isDigit()) digits.append(c);
+            }
+            octets_[idx] = digits.left(3);
+            ++idx;
+        }
+        refreshDisplay();
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override {
+        const int key = event->key();
+        if (key >= Qt::Key_0 && key <= Qt::Key_9) {
+            appendDigit(QLatin1Char('0' + (key - Qt::Key_0)));
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Period || key == Qt::Key_Comma) {
+            if (!octets_[cursorOctet_].isEmpty() && cursorOctet_ < 3) {
+                ++cursorOctet_;
+                refreshDisplay();
+            }
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Backspace || key == Qt::Key_Delete) {
+            removeLastDigit();
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Home
+            || key == Qt::Key_End || key == Qt::Key_Up || key == Qt::Key_Down) {
+            event->accept(); // keep the cursor at the end
+            return;
+        }
+        QLineEdit::keyPressEvent(event); // Tab / focus navigation
+    }
+
+private:
+    void appendDigit(const QChar digit) {
+        if (octets_[cursorOctet_].size() >= 3) {
+            if (cursorOctet_ >= 3) return;
+            ++cursorOctet_;
+        }
+        octets_[cursorOctet_].append(digit);
+        refreshDisplay();
+    }
+
+    void removeLastDigit() {
+        while (octets_[cursorOctet_].isEmpty() && cursorOctet_ > 0) {
+            --cursorOctet_;
+        }
+        if (!octets_[cursorOctet_].isEmpty()) {
+            octets_[cursorOctet_].chop(1);
+            refreshDisplay();
+        }
+    }
+
+    void refreshDisplay() {
+        int lastNonEmpty = -1;
+        for (int i = 0; i < 4; ++i) {
+            if (!octets_[i].isEmpty()) lastNonEmpty = i;
+        }
+        QString text;
+        if (lastNonEmpty >= 0) {
+            QStringList parts;
+            for (int i = 0; i <= lastNonEmpty; ++i) parts << octets_[i];
+            text = parts.join(QLatin1Char('.'));
+            if (lastNonEmpty < 3) text.append(QLatin1Char('.'));
+        }
+        setText(text);
+        setCursorPosition(text.size());
+    }
+
+    QString octets_[4];
+    int cursorOctet_ = 0;
+};
 
 IpConfiguratorPanel::IpConfiguratorPanel(QWidget* parent) : QWidget(parent) {
     setupUI();
@@ -59,28 +153,6 @@ void IpConfiguratorPanel::setupUI() {
     auto* editLayout = new QGridLayout(editGroup);
     editLayout->setSpacing(8);
 
-    // One row per address: four 3-digit octet boxes with fixed "." labels —
-    // the dots are structural and can never be deleted.
-    auto createOctetRow = [this](QLineEdit* (&out)[4]) {
-        auto* row = new QWidget(this);
-        auto* rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->setSpacing(2);
-        for (int i = 0; i < 4; ++i) {
-            if (i > 0) rowLayout->addWidget(new QLabel(".", row));
-            auto* box = new QLineEdit(row);
-            box->setMaxLength(3);
-            box->setAlignment(Qt::AlignCenter);
-            box->setFixedWidth(36);
-            box->setValidator(new QRegularExpressionValidator(QRegularExpression("\\d{0,3}"), box));
-            box->installEventFilter(this);
-            connect(box, &QLineEdit::textEdited, this, &IpConfiguratorPanel::onOctetEdited);
-            rowLayout->addWidget(box);
-            out[i] = box;
-        }
-        return row;
-    };
-
     modeCombo_ = new QComboBox(editGroup);
     modeCombo_->addItem("Static", QStringLiteral("Static"));
     modeCombo_->addItem("DHCP", QStringLiteral("DHCP"));
@@ -90,12 +162,18 @@ void IpConfiguratorPanel::setupUI() {
     editLayout->addWidget(new QLabel("Mode:", editGroup), 0, 0);
     editLayout->addWidget(modeCombo_, 0, 1);
 
+    ipEdit_ = new FixedDotIpEdit(editGroup);
+    maskEdit_ = new FixedDotIpEdit(editGroup);
+    gatewayEdit_ = new FixedDotIpEdit(editGroup);
+    ipEdit_->setPlaceholderText("0.0.0.0");
+    maskEdit_->setPlaceholderText("255.255.255.0");
+    gatewayEdit_->setPlaceholderText("0.0.0.0");
     editLayout->addWidget(new QLabel("IP Address:", editGroup), 1, 0);
-    editLayout->addWidget(createOctetRow(ipOctets_), 1, 1);
+    editLayout->addWidget(ipEdit_, 1, 1);
     editLayout->addWidget(new QLabel("Subnet Mask:", editGroup), 2, 0);
-    editLayout->addWidget(createOctetRow(maskOctets_), 2, 1);
+    editLayout->addWidget(maskEdit_, 2, 1);
     editLayout->addWidget(new QLabel("Gateway:", editGroup), 3, 0);
-    editLayout->addWidget(createOctetRow(gatewayOctets_), 3, 1);
+    editLayout->addWidget(gatewayEdit_, 3, 1);
 
     applyBtn_ = new QPushButton("Apply to Camera", editGroup);
     applyBtn_->setEnabled(false);
@@ -164,24 +242,17 @@ void IpConfiguratorPanel::loadRowIntoEditor(int row) {
     const GigEDeviceInfo& dev = devices_[static_cast<size_t>(row)];
     const int modeIndex = modeCombo_->findData(QString::fromStdString(dev.ipConfigMode));
     modeCombo_->setCurrentIndex(modeIndex >= 0 ? modeIndex : 0);
-
-    auto fillOctets = [](QLineEdit* const octets[4], const std::string& value) {
-        const QStringList parts = QString::fromStdString(value).split('.');
-        for (int i = 0; i < 4; ++i) {
-            octets[i]->setText(i < parts.size() ? parts.at(i).trimmed() : QString());
-        }
-    };
-    fillOctets(ipOctets_, dev.ipAddress);
-    fillOctets(maskOctets_, dev.subnetMask);
-    fillOctets(gatewayOctets_, dev.defaultGateway);
+    ipEdit_->setOctets(QString::fromStdString(dev.ipAddress));
+    maskEdit_->setOctets(QString::fromStdString(dev.subnetMask));
+    gatewayEdit_->setOctets(QString::fromStdString(dev.defaultGateway));
 }
 
 void IpConfiguratorPanel::onModeChanged(int) {
     const bool editable = adminMode_ && table_->currentRow() >= 0;
     const bool staticMode = editable && modeCombo_->currentData().toString() == QStringLiteral("Static");
-    for (auto* octets : {ipOctets_, maskOctets_, gatewayOctets_}) {
-        for (int i = 0; i < 4; ++i) octets[i]->setEnabled(staticMode);
-    }
+    ipEdit_->setEnabled(staticMode);
+    maskEdit_->setEnabled(staticMode);
+    gatewayEdit_->setEnabled(staticMode);
 }
 
 void IpConfiguratorPanel::onApplyClicked() {
@@ -189,17 +260,13 @@ void IpConfiguratorPanel::onApplyClicked() {
     if (row < 0 || row >= static_cast<int>(devices_.size())) return;
     const QString mac = QString::fromStdString(devices_[static_cast<size_t>(row)].macAddress);
     const QString mode = modeCombo_->currentData().toString();
-    QString ip = octetText(ipOctets_);
-    QString mask = octetText(maskOctets_);
-    QString gateway = octetText(gatewayOctets_);
+    QString ip = ipEdit_->text().trimmed();
+    QString mask = maskEdit_->text().trimmed();
+    QString gateway = gatewayEdit_->text().trimmed();
 
     if (mode == QStringLiteral("Static")) {
         // An empty gateway means "no gateway" (0.0.0.0).
-        bool gatewayEmpty = true;
-        for (int i = 0; i < 4; ++i) {
-            if (!gatewayOctets_[i]->text().isEmpty()) { gatewayEmpty = false; break; }
-        }
-        if (gatewayEmpty) gateway = QStringLiteral("0.0.0.0");
+        if (gateway.isEmpty()) gateway = QStringLiteral("0.0.0.0");
         if (!isValidIpv4(ip) || !isValidIpv4(mask) || !isValidIpv4(gateway)) {
             QMessageBox::warning(this, "Apply IP",
                 "IP address, subnet mask, and gateway must be complete IPv4 addresses (e.g. 192.168.1.10).\n"
@@ -232,55 +299,11 @@ void IpConfiguratorPanel::setApplyResult(bool ok, const QString& message) {
     }
 }
 
-void IpConfiguratorPanel::onOctetEdited() {
-    auto* box = qobject_cast<QLineEdit*>(sender());
-    if (!box) return;
-    for (auto* octets : {ipOctets_, maskOctets_, gatewayOctets_}) {
-        for (int i = 0; i < 4; ++i) {
-            if (octets[i] == box) {
-                // Auto-advance to the next octet once this one is full.
-                if (box->text().size() >= 3 && i < 3) {
-                    octets[i + 1]->setFocus();
-                }
-                return;
-            }
-        }
-    }
-}
-
-bool IpConfiguratorPanel::eventFilter(QObject* obj, QEvent* event) {
-    if (event->type() == QEvent::KeyPress) {
-        auto* key = static_cast<QKeyEvent*>(event);
-        if (key->key() == Qt::Key_Backspace) {
-            for (auto* octets : {ipOctets_, maskOctets_, gatewayOctets_}) {
-                for (int i = 0; i < 4; ++i) {
-                    if (octets[i] == obj) {
-                        // Backspace on an empty octet moves to the previous one.
-                        if (octets[i]->text().isEmpty() && i > 0) {
-                            octets[i - 1]->setFocus();
-                        }
-                        return QWidget::eventFilter(obj, event);
-                    }
-                }
-            }
-        }
-    }
-    return QWidget::eventFilter(obj, event);
-}
-
-QString IpConfiguratorPanel::octetText(QLineEdit* const octets[4]) const {
-    QStringList parts;
-    for (int i = 0; i < 4; ++i) {
-        parts << octets[i]->text().trimmed();
-    }
-    return parts.join(QLatin1Char('.'));
-}
-
 void IpConfiguratorPanel::clearEditor() {
     modeCombo_->setCurrentIndex(0);
-    for (auto* octets : {ipOctets_, maskOctets_, gatewayOctets_}) {
-        for (int i = 0; i < 4; ++i) octets[i]->clear();
-    }
+    ipEdit_->setOctets(QString());
+    maskEdit_->setOctets(QString());
+    gatewayEdit_->setOctets(QString());
     modeCombo_->setEnabled(false);
     applyBtn_->setEnabled(false);
     onModeChanged(0);
