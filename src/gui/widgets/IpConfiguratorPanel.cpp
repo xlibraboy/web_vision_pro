@@ -29,7 +29,6 @@ public:
 
     void setOctets(const QString& dotted) {
         for (QString& oct : octets_) oct.clear();
-        cursorOctet_ = 0;
         const QStringList parts = dotted.split(QLatin1Char('.'));
         int idx = 0;
         for (const QString& part : parts) {
@@ -41,6 +40,7 @@ public:
             octets_[idx] = digits.left(3);
             ++idx;
         }
+        cursorOctet_ = lastNonEmptyOctet();
         refreshDisplay();
     }
 
@@ -48,20 +48,26 @@ protected:
     void keyPressEvent(QKeyEvent* event) override {
         const int key = event->key();
         if (key >= Qt::Key_0 && key <= Qt::Key_9) {
+            // Typing over a selection replaces the whole value.
+            if (hasSelectedText()) clearOctets();
             appendDigit(QLatin1Char('0' + (key - Qt::Key_0)));
             event->accept();
             return;
         }
         if (key == Qt::Key_Period || key == Qt::Key_Comma) {
+            if (hasSelectedText()) clearOctets();
             if (!octets_[cursorOctet_].isEmpty() && cursorOctet_ < 3) {
                 ++cursorOctet_;
-                refreshDisplay();
             }
             event->accept();
             return;
         }
         if (key == Qt::Key_Backspace || key == Qt::Key_Delete) {
-            removeLastDigit();
+            if (hasSelectedText()) {
+                clearOctets();
+            } else {
+                removeLastDigit();
+            }
             event->accept();
             return;
         }
@@ -70,10 +76,23 @@ protected:
             event->accept(); // keep the cursor at the end
             return;
         }
-        QLineEdit::keyPressEvent(event); // Tab / focus navigation
+        QLineEdit::keyPressEvent(event); // Tab, Ctrl+A, Ctrl+C/V, etc.
     }
 
 private:
+    int lastNonEmptyOctet() const {
+        for (int i = 3; i >= 0; --i) {
+            if (!octets_[i].isEmpty()) return i;
+        }
+        return 0;
+    }
+
+    void clearOctets() {
+        for (QString& oct : octets_) oct.clear();
+        cursorOctet_ = 0;
+        refreshDisplay();
+    }
+
     void appendDigit(const QChar digit) {
         if (octets_[cursorOctet_].size() >= 3) {
             if (cursorOctet_ >= 3) return;
@@ -84,26 +103,22 @@ private:
     }
 
     void removeLastDigit() {
-        while (octets_[cursorOctet_].isEmpty() && cursorOctet_ > 0) {
-            --cursorOctet_;
-        }
-        if (!octets_[cursorOctet_].isEmpty()) {
-            octets_[cursorOctet_].chop(1);
-            refreshDisplay();
-        }
+        // Always remove from the END of the value.
+        const int idx = lastNonEmptyOctet();
+        if (octets_[idx].isEmpty()) return;
+        octets_[idx].chop(1);
+        if (cursorOctet_ > idx) cursorOctet_ = idx;
+        refreshDisplay();
     }
 
     void refreshDisplay() {
-        int lastNonEmpty = -1;
-        for (int i = 0; i < 4; ++i) {
-            if (!octets_[i].isEmpty()) lastNonEmpty = i;
-        }
+        const int last = lastNonEmptyOctet();
         QString text;
-        if (lastNonEmpty >= 0) {
+        if (!octets_[last].isEmpty()) {
             QStringList parts;
-            for (int i = 0; i <= lastNonEmpty; ++i) parts << octets_[i];
+            for (int i = 0; i <= last; ++i) parts << octets_[i];
             text = parts.join(QLatin1Char('.'));
-            if (lastNonEmpty < 3) text.append(QLatin1Char('.'));
+            if (last < 3) text.append(QLatin1Char('.'));
         }
         setText(text);
         setCursorPosition(text.size());
