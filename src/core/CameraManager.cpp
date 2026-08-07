@@ -145,6 +145,232 @@ bool tryWriteGainValue(GenApi::INodeMap& nodemap, double gain) {
     return false;
 }
 
+// Reads the full set of scout/SFNC device nodes into LiveDeviceSettings.
+// Safe against missing/read-protected nodes; each read is independently
+// guarded. Also resolves chunk enablement via ChunkSelector/ChunkEnable.
+void fillLiveSettingsFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::LiveDeviceSettings& out) {
+    const auto readEnum = [&](const char* name, QString& target) {
+        try {
+            GenApi::CEnumerationPtr e(nodemap.GetNode(name));
+            if (e && GenApi::IsReadable(e)) {
+                target = QString::fromLatin1(e->GetCurrentEntry()->GetSymbolic().c_str());
+            }
+        } catch (...) {}
+    };
+    const auto readInt = [&](const char* name, int& target) {
+        try {
+            GenApi::CIntegerPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsReadable(n)) {
+                target = static_cast<int>(n->GetValue());
+            }
+        } catch (...) {}
+    };
+    const auto readFloat = [&](const char* name, double& target) {
+        try {
+            GenApi::CFloatPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsReadable(n)) {
+                target = n->GetValue();
+            }
+        } catch (...) {}
+    };
+    const auto readBool = [&](const char* name, bool& target) {
+        try {
+            GenApi::CBooleanPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsReadable(n)) {
+                target = n->GetValue();
+            }
+        } catch (...) {}
+    };
+    const auto readString = [&](const char* name, QString& target) {
+        try {
+            GenApi::CStringPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsReadable(n)) {
+                target = QString::fromLatin1(n->GetValue().c_str());
+            }
+        } catch (...) {}
+    };
+
+    readEnum("PixelFormat", out.pixelFormat);
+    readInt("Width", out.width);
+    readInt("Height", out.height);
+    readInt("OffsetX", out.offsetX);
+    readInt("OffsetY", out.offsetY);
+    readFloat("ExposureTimeAbs", out.exposureUs);
+    if (out.exposureUs <= 0.0) {
+        readFloat("ExposureTime", out.exposureUs); // newer SFNC fallback
+    }
+    readFloat("ExposureTimeBaseAbs", out.exposureTimeBaseAbs);
+    readInt("ExposureTimeRaw", out.exposureTimeRaw);
+    readBool("AcquisitionFrameRateEnable", out.acquisitionFrameRateEnable);
+    readFloat("AcquisitionFrameRateAbs", out.acquisitionFrameRate);
+    if (out.acquisitionFrameRate <= 0.0) {
+        readFloat("AcquisitionFrameRate", out.acquisitionFrameRate); // SFNC fallback
+    }
+    readFloat("ResultingFrameRateAbs", out.resultingFrameRate);
+    if (out.resultingFrameRate <= 0.0) {
+        readFloat("ResultingFrameRate", out.resultingFrameRate);
+    }
+    readBool("ChunkModeActive", out.chunkModeActive);
+
+    // Chunk enablement: iterate the dialog's chunk option names, select each
+    // via ChunkSelector and read ChunkEnable.
+    if (GenApi::INode* selector = nodemap.GetNode("ChunkSelector")) {
+        GenApi::CEnumerationPtr sel(selector);
+        GenApi::CBooleanPtr enable(nodemap.GetNode("ChunkEnable"));
+        if (sel && enable && GenApi::IsReadable(sel) && GenApi::IsReadable(enable)) {
+            const QStringList candidates = {
+                "Image", "OffsetX", "OffsetY", "Width", "Height", "PixelFormat",
+                "DynamicRangeMax", "DynamicRangeMin", "Timestamp", "Framecounter"
+            };
+            for (const QString& name : candidates) {
+                try {
+                    sel->FromString(name.toLatin1().constData());
+                    if (enable->GetValue()) {
+                        out.enabledChunks << name;
+                    }
+                } catch (...) {
+                    // selector not supported on this camera — skip
+                }
+            }
+        }
+    }
+
+    // Temperature: scout exposes TemperatureSelector + TemperatureAbs.
+    try {
+        GenApi::CEnumerationPtr tempSel(nodemap.GetNode("TemperatureSelector"));
+        GenApi::CFloatPtr tempAbs(nodemap.GetNode("TemperatureAbs"));
+        if (tempAbs && GenApi::IsReadable(tempAbs)) {
+            if (tempSel && GenApi::IsReadable(tempSel)) {
+                // Prefer the sensor board reading, fall back to the first entry.
+                try {
+                    tempSel->FromString("Sensorboard");
+                } catch (...) {
+                    try {
+                        tempSel->FromString("Mainboard");
+                    } catch (...) {}
+                }
+            }
+            out.temperature = tempAbs->GetValue();
+        }
+    } catch (...) {}
+
+    readString("DeviceVendorName", out.vendorName);
+    readString("DeviceManufacturerInfo", out.manufacturerInfo);
+    readString("DeviceVersion", out.deviceVersion);
+    readString("DeviceFirmwareVersion", out.firmwareVersion);
+    readString("DeviceID", out.deviceId);
+}
+
+// Writes the live (non-stop-required) exposure/rate nodes. Mirrors the
+// startup configureCamera() writes: base/raw are applied when enabled,
+// absolute exposure always, frame rate per its enable flag. These nodes
+// accept changes while the camera is grabbing (Basler scout behavior —
+// no acquisition stop required).
+void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
+    const auto setBool = [&](const char* name, bool value) {
+        try {
+            GenApi::CBooleanPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsWritable(n)) {
+                n->SetValue(value);
+            }
+        } catch (...) {}
+    };
+    const auto setFloat = [&](const char* name, double value) {
+        try {
+            GenApi::CFloatPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsWritable(n)) {
+                n->SetValue(value);
+            }
+        } catch (...) {}
+    };
+    const auto setInt = [&](const char* name, int value) {
+        try {
+            GenApi::CIntegerPtr n(nodemap.GetNode(name));
+            if (n && GenApi::IsWritable(n)) {
+                n->SetValue(value);
+            }
+        } catch (...) {}
+    };
+
+    setBool("ExposureTimeBaseEnable", info.enableExposureTimeBase);
+    setBool("EnableExposureTimeBase", info.enableExposureTimeBase);
+    setFloat("ExposureTimeAbs", info.exposureTimeAbs);
+    setFloat("ExposureTime", info.exposureTimeAbs); // newer SFNC fallback
+    if (info.enableExposureTimeBase) {
+        setFloat("ExposureTimeBaseAbs", info.exposureTimeBaseAbs);
+        setInt("ExposureTimeRaw", info.exposureTimeRaw);
+    }
+
+    setBool("AcquisitionFrameRateEnable", info.enableAcquisitionFps);
+    setBool("AcquisitionFrameRateEnabled", info.enableAcquisitionFps);
+    if (info.enableAcquisitionFps) {
+        setFloat("AcquisitionFrameRateAbs", info.fps);
+        setFloat("AcquisitionFrameRate", info.fps); // SFNC fallback
+    }
+}
+
+// Opens the configured camera (by MAC/IP from CameraConfig) directly and
+// invokes fn with its node map + device info. Returns false when the device
+// is absent or the open fails (e.g. it is owned by the acquisition runtime).
+bool openConfiguredDeviceDirect(int configArrayIndex,
+                                const std::function<void(GenApi::INodeMap&, const Pylon::CDeviceInfo&)>& fn) {
+    const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameras.size())) {
+        return false;
+    }
+    const QString wantedMac = cameras[configArrayIndex].macAddress.trimmed();
+    const QString wantedIp = cameras[configArrayIndex].ipAddress.trimmed();
+    if (wantedMac.isEmpty() && wantedIp.isEmpty()) {
+        return false;
+    }
+
+    try {
+        Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
+        Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
+        if (pTl == nullptr) {
+            return false;
+        }
+
+        Pylon::DeviceInfoList_t lstDevices;
+        pTl->EnumerateAllDevices(lstDevices);
+        const std::string targetMac = normalizeMacAddress(wantedMac.toStdString());
+
+        Pylon::CDeviceInfo matchedDeviceInfo;
+        bool found = false;
+        for (const auto& dev : lstDevices) {
+            const std::string enumeratedMac = normalizeMacAddress(dev.GetMacAddress().c_str());
+            if ((!targetMac.empty() && enumeratedMac == targetMac)
+                    || (!wantedIp.isEmpty() && QString::fromLatin1(dev.GetIpAddress().c_str()) == wantedIp)) {
+                matchedDeviceInfo = dev;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            TlFactory.ReleaseTl(pTl);
+            return false;
+        }
+
+        try {
+            std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(matchedDeviceInfo));
+            Pylon::CBaslerGigEInstantCamera camera(device.release());
+            camera.Open();
+            fn(camera.GetNodeMap(), camera.GetDeviceInfo());
+            camera.Close();
+            TlFactory.ReleaseTl(pTl);
+            return true;
+        } catch (const Pylon::GenericException& e) {
+            std::cerr << "[CameraManager] Direct device open failed: " << e.GetDescription() << std::endl;
+            TlFactory.ReleaseTl(pTl);
+            return false;
+        }
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Direct device access error: " << e.GetDescription() << std::endl;
+    }
+    return false;
+}
+
 void loadCameraDefaultUserSet(Pylon::CInstantCamera& camera) {
     try {
         if (!camera.IsPylonDeviceAttached() || !camera.IsOpen()) {
@@ -842,6 +1068,75 @@ CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex)
 
     } catch (...) {}
     return p;
+}
+
+CameraManager::LiveDeviceSettings CameraManager::readLiveDeviceSettings(int configArrayIndex) {
+    LiveDeviceSettings out;
+
+    // 1) Runtime path: camera attached to the acquisition runtime.
+    if (Pylon::CInstantCamera* camera = getCameraByConfigIndex(configArrayIndex)) {
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            try {
+                fillLiveSettingsFromNodeMap(camera->GetNodeMap(), out);
+                const Pylon::CDeviceInfo& di = camera->GetDeviceInfo();
+                out.modelName = QString::fromLatin1(di.GetModelName().c_str());
+                out.ipAddress = QString::fromLatin1(di.GetIpAddress().c_str());
+                out.ok = true;
+                out.fromRuntime = true;
+                return out;
+            } catch (const Pylon::GenericException& e) {
+                std::cerr << "[CameraManager] readLiveDeviceSettings runtime read failed for index "
+                          << configArrayIndex << ": " << e.GetDescription() << std::endl;
+            }
+        }
+    }
+
+    // 2) Direct path: camera on the network but not attached to the runtime.
+    if (openConfiguredDeviceDirect(configArrayIndex,
+            [&out](GenApi::INodeMap& nodemap, const Pylon::CDeviceInfo& di) {
+                fillLiveSettingsFromNodeMap(nodemap, out);
+                out.modelName = QString::fromLatin1(di.GetModelName().c_str());
+                out.ipAddress = QString::fromLatin1(di.GetIpAddress().c_str());
+                if (out.modelName.isEmpty()) {
+                    out.modelName = QString::fromLatin1(di.GetFriendlyName().c_str());
+                }
+            })) {
+        out.ok = true;
+        out.fromRuntime = false;
+        std::cout << "[CameraManager] readLiveDeviceSettings direct read OK for index "
+                  << configArrayIndex << " (" << out.modelName.toStdString()
+                  << " @ " << out.ipAddress.toStdString() << ")" << std::endl;
+    } else {
+        std::cerr << "[CameraManager] readLiveDeviceSettings: no device matched for index "
+                  << configArrayIndex << std::endl;
+    }
+    return out;
+}
+
+void CameraManager::applyLiveExposureRate(int configArrayIndex, const CameraInfo& info) {
+    // Runtime path: camera attached to the acquisition runtime.
+    if (Pylon::CInstantCamera* camera = getCameraByConfigIndex(configArrayIndex)) {
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            try {
+                writeExposureRateNodes(camera->GetNodeMap(), info);
+                return;
+            } catch (const Pylon::GenericException& e) {
+                std::cerr << "[CameraManager] applyLiveExposureRate runtime write failed for index "
+                          << configArrayIndex << ": " << e.GetDescription() << std::endl;
+            }
+        }
+    }
+
+    // Direct path: camera on the network but not attached. Exposure/rate
+    // nodes accept writes without an acquisition stop, so a direct open is
+    // safe even while the camera would be streaming for another owner.
+    if (!openConfiguredDeviceDirect(configArrayIndex,
+            [&info](GenApi::INodeMap& nodemap, const Pylon::CDeviceInfo&) {
+                writeExposureRateNodes(nodemap, info);
+            })) {
+        std::cerr << "[CameraManager] applyLiveExposureRate: camera not writable for index "
+                  << configArrayIndex << std::endl;
+    }
 }
 
 void CameraManager::setCameraContrast(int cameraIndex, double contrast) {

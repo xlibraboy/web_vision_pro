@@ -177,6 +177,42 @@ public:
     bool loadParameters(int configArrayIndex);
     void saveParametersForAll(const std::vector<CameraInfo>& cameras);
 
+    // Live device settings read from the camera itself (Basler scout nodes).
+    // Prefers the attached runtime camera; falls back to a direct GigE open
+    // by the configured MAC/IP when the camera is on the network but not
+    // attached to the acquisition runtime.
+    struct LiveDeviceSettings {
+        bool ok = false;              // read succeeded (camera reachable)
+        bool fromRuntime = false;     // read from attached runtime vs direct open
+        QString pixelFormat;
+        int width = 0;
+        int height = 0;
+        int offsetX = 0;
+        int offsetY = 0;
+        double exposureUs = 0.0;
+        double exposureTimeBaseAbs = 0.0;
+        int exposureTimeRaw = 0;
+        bool acquisitionFrameRateEnable = false;
+        double acquisitionFrameRate = 0.0;  // AcquisitionFrameRateAbs (requested)
+        double resultingFrameRate = 0.0;    // ResultingFrameRateAbs (actual)
+        bool chunkModeActive = false;
+        QStringList enabledChunks;
+        double temperature = 0.0;
+        QString vendorName;
+        QString modelName;
+        QString manufacturerInfo;
+        QString deviceVersion;
+        QString firmwareVersion;
+        QString deviceId;
+        QString ipAddress;
+    };
+    LiveDeviceSettings readLiveDeviceSettings(int configArrayIndex);
+
+    // Live exposure/rate writes (no acquisition stop required). Uses the
+    // attached runtime camera, or opens the configured device directly when
+    // it is online but not attached.
+    void applyLiveExposureRate(int configArrayIndex, const CameraInfo& info);
+
     // GigE Network / Stream Health
     uint64_t getIncompleteGrabCount(int configArrayIndex) const;
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;

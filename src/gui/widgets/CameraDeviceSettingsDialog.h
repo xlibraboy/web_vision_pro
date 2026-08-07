@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QSet>
 #include "../CameraInfo.h"
+#include "../../core/CameraManager.h"
 
 class QCloseEvent;
 class QLabel;
@@ -18,8 +19,6 @@ class QDoubleSpinBox;
 class QCheckBox;
 class QPushButton;
 class QTimer;
-
-class CameraManager;
 
 class CameraDeviceSettingsDialog : public QDialog {
     Q_OBJECT
@@ -73,6 +72,7 @@ private:
     CameraManager* cameraManager_;
     bool editable_;
     bool populating_ = false;
+    CameraManager::LiveDeviceSettings liveSettings_;  // actual camera state
 
     QLabel* modelValueLabel_;
     QLabel* ipValueLabel_;

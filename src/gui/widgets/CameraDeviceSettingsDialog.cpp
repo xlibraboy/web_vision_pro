@@ -55,7 +55,10 @@ bool isCameraReachable(CameraManager* cameraManager, int cameraIndex, const Came
     }
 
     const CameraManager::CameraParams params = cameraManager->getCameraParams(cameraIndex);
-    if (params.exposureUs > 0.0 || params.width > 0 || params.height > 0 || params.fps > 0.0) {
+    // CameraParams defaults exposureUs to 5000.0 even with NO camera attached,
+    // so exposure alone is not evidence of life. Width/height/fps are 0 when
+    // the runtime camera is absent — those are the honest signals.
+    if (params.width > 0 || params.height > 0 || params.fps > 0.0) {
         return true;
     }
 
@@ -190,24 +193,57 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
     , cameraManager_(cameraManager)
     , editable_(editable) {
     setupUi();
-    if (isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
-        const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
-        const cv::Size resolution = cameraManager_->getCameraResolution(cameraIndex_);
-        const double acquisitionFps = cameraManager_->getCameraAcquisitionFps(cameraIndex_);
-
-        currentInfo_.exposureTimeAbs = params.exposureUs;
-        originalInfo_.exposureTimeAbs = params.exposureUs;
-
-        if (resolution.width > 0 && resolution.height > 0) {
-            currentInfo_.width = resolution.width;
-            currentInfo_.height = resolution.height;
-            originalInfo_.width = resolution.width;
-            originalInfo_.height = resolution.height;
+    if (cameraManager_) {
+        liveSettings_ = cameraManager_->readLiveDeviceSettings(cameraIndex_);
+    }
+    if (liveSettings_.ok) {
+        // Show the ACTUAL camera state, not the saved config: the dialog is a
+        // setup surface and its fields must reflect what the camera is doing.
+        if (!liveSettings_.pixelFormat.isEmpty()) {
+            currentInfo_.pixelFormat = liveSettings_.pixelFormat;
+            originalInfo_.pixelFormat = liveSettings_.pixelFormat;
         }
-
-        if (acquisitionFps > 0.0) {
-            currentInfo_.fps = acquisitionFps;
-            originalInfo_.fps = acquisitionFps;
+        if (liveSettings_.width > 0) {
+            currentInfo_.width = liveSettings_.width;
+            originalInfo_.width = liveSettings_.width;
+        }
+        if (liveSettings_.height > 0) {
+            currentInfo_.height = liveSettings_.height;
+            originalInfo_.height = liveSettings_.height;
+        }
+        currentInfo_.offsetX = liveSettings_.offsetX;
+        originalInfo_.offsetX = liveSettings_.offsetX;
+        currentInfo_.offsetY = liveSettings_.offsetY;
+        originalInfo_.offsetY = liveSettings_.offsetY;
+        if (liveSettings_.exposureUs > 0.0) {
+            currentInfo_.exposureTimeAbs = liveSettings_.exposureUs;
+            originalInfo_.exposureTimeAbs = liveSettings_.exposureUs;
+        }
+        if (liveSettings_.exposureTimeBaseAbs > 0.0) {
+            currentInfo_.exposureTimeBaseAbs = liveSettings_.exposureTimeBaseAbs;
+            originalInfo_.exposureTimeBaseAbs = liveSettings_.exposureTimeBaseAbs;
+        }
+        if (liveSettings_.exposureTimeRaw > 0) {
+            currentInfo_.exposureTimeRaw = liveSettings_.exposureTimeRaw;
+            originalInfo_.exposureTimeRaw = liveSettings_.exposureTimeRaw;
+        }
+        if (liveSettings_.acquisitionFrameRate > 0.0) {
+            currentInfo_.fps = liveSettings_.acquisitionFrameRate;
+            originalInfo_.fps = liveSettings_.acquisitionFrameRate;
+        } else if (liveSettings_.resultingFrameRate > 0.0) {
+            currentInfo_.fps = liveSettings_.resultingFrameRate;
+            originalInfo_.fps = liveSettings_.resultingFrameRate;
+        }
+        currentInfo_.enableAcquisitionFps = liveSettings_.acquisitionFrameRateEnable;
+        originalInfo_.enableAcquisitionFps = liveSettings_.acquisitionFrameRateEnable;
+        currentInfo_.chunkModeActive = liveSettings_.chunkModeActive;
+        originalInfo_.chunkModeActive = liveSettings_.chunkModeActive;
+        if (!liveSettings_.enabledChunks.isEmpty()) {
+            currentInfo_.enabledChunks = liveSettings_.enabledChunks;
+            originalInfo_.enabledChunks = liveSettings_.enabledChunks;
+        }
+        if (liveSettings_.temperature > 0.0) {
+            currentInfo_.temperature = liveSettings_.temperature;
         }
     }
     populateUi();
@@ -459,7 +495,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     QLabel* exposureTitle = new QLabel("Exposure & Rate", exposurePage);
     exposureTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
     exposurePageLayout->addWidget(exposureTitle);
-    QLabel* exposureHint = new QLabel("Exposure applies live; base/raw exposure requires camera stop.", exposurePage);
+    QLabel* exposureHint = new QLabel("Exposure and framerate apply live to the camera - no restart needed.", exposurePage);
     exposureHint->setStyleSheet("font-size: 11px; color: #8B949E;");
     exposurePageLayout->addWidget(exposureHint);
     stagedCallouts_.insert(2, buildCallout(exposurePage));
@@ -627,7 +663,7 @@ QSet<QString> CameraDeviceSettingsDialog::stagedFieldsInGroup(int groupId) const
     switch (groupId) {
     case 0: if (stagedFields_.contains("pixelFormat")) fields.insert("pixelFormat"); break;
     case 1: for (const char* f : {"width", "height", "offsetX", "offsetY"}) if (stagedFields_.contains(f)) fields.insert(f); break;
-    case 2: for (const char* f : {"exposureTimeBase", "exposureTimeRaw"}) if (stagedFields_.contains(f)) fields.insert(f); break;
+    case 2: break;  // Exposure & Rate is fully live — never staged
     case 3: for (const char* f : {"chunkMode", "chunks"}) if (stagedFields_.contains(f)) fields.insert(f); break;
     default: break;
     }
@@ -752,6 +788,14 @@ void CameraDeviceSettingsDialog::applyStagedChanges() {
 
     const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
     const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+    if (!connected) {
+        // Reachable on the network but not attached to the acquisition
+        // runtime: a live write is impossible. Do NOT silently persist.
+        QMessageBox::information(this, "Apply Staged",
+            "Camera is online but not attached to the acquisition runtime.\n"
+            "Save the camera configuration and restart cameras, then apply staged changes.");
+        return;
+    }
     if (running) {
         QMessageBox::information(this, "Apply Staged",
             "Stop the camera first (sidebar button) to apply staged changes.");
@@ -812,20 +856,47 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     deviceVersionValueLabel_->setText("Not available");
     firmwareVersionValueLabel_->setText("Not available");
     deviceIdValueLabel_->setText(QString::number(originalInfo_.id));
-    if (cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
-        const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
-        sensorWidthValueLabel_->setText(QString::number(std::max(0, params.width)));
-        sensorHeightValueLabel_->setText(QString::number(std::max(0, params.height)));
-        maxWidthValueLabel_->setText(QString::number(std::max(0, params.width)));
-        maxHeightValueLabel_->setText(QString::number(std::max(0, params.height)));
-    } else {
-        sensorWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
-        sensorHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
-        maxWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
-        maxHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
+
+    // Actual camera identity/details from the live read (direct or runtime).
+    if (liveSettings_.ok) {
+        vendorValueLabel_->setText(formatReadOnlyValue(liveSettings_.vendorName));
+        modelInfoValueLabel_->setText(formatReadOnlyValue(liveSettings_.modelName));
+        manufacturerInfoValueLabel_->setText(formatReadOnlyValue(liveSettings_.manufacturerInfo));
+        deviceVersionValueLabel_->setText(formatReadOnlyValue(liveSettings_.deviceVersion));
+        firmwareVersionValueLabel_->setText(formatReadOnlyValue(liveSettings_.firmwareVersion));
+        deviceIdValueLabel_->setText(formatReadOnlyValue(liveSettings_.deviceId.isEmpty()
+            ? QString::number(originalInfo_.id) : liveSettings_.deviceId));
     }
-    modelValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getModelName(cameraIndex_)) : originalInfo_.model));
-    ipValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_)) : originalInfo_.ipAddress));
+
+    // Sensor geometry: prefer the live read, then the runtime params, then config.
+    int sensorW = 0;
+    int sensorH = 0;
+    if (liveSettings_.ok) {
+        sensorW = liveSettings_.width;
+        sensorH = liveSettings_.height;
+    } else if (cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+        const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
+        sensorW = params.width;
+        sensorH = params.height;
+    }
+    if (sensorW <= 0) {
+        sensorW = originalInfo_.width;
+    }
+    if (sensorH <= 0) {
+        sensorH = originalInfo_.height;
+    }
+    sensorWidthValueLabel_->setText(QString::number(std::max(0, sensorW)));
+    sensorHeightValueLabel_->setText(QString::number(std::max(0, sensorH)));
+    maxWidthValueLabel_->setText(QString::number(std::max(0, sensorW)));
+    maxHeightValueLabel_->setText(QString::number(std::max(0, sensorH)));
+
+    if (liveSettings_.ok) {
+        modelValueLabel_->setText(formatReadOnlyValue(liveSettings_.modelName));
+        ipValueLabel_->setText(formatReadOnlyValue(liveSettings_.ipAddress));
+    } else {
+        modelValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getModelName(cameraIndex_)) : originalInfo_.model));
+        ipValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_)) : originalInfo_.ipAddress));
+    }
     resultingRateValueLabel_->setText(QString::number(currentInfo_.fps, 'f', 3) + " Hz");
     updateSidebarStatus();
     updateStagedCallouts();
@@ -840,7 +911,9 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     // Carried fix: refresh live temperature on the read-only label only.
     // Never overwrite with an unmeaningful reading (getTemperature returns -1.0
     // sentinel when the sensor is not reachable or not reporting).
-    if (cameraManager_ && reachable) {
+    if (liveSettings_.temperature > 0.0) {
+        currentInfo_.temperature = liveSettings_.temperature;
+    } else if (cameraManager_ && reachable) {
         const double temp = cameraManager_->getTemperature(cameraIndex_);
         if (temp > 0.0) {
             currentInfo_.temperature = temp;
@@ -867,8 +940,13 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         QString("QLabel { color: %1; font-size: 12px; font-weight: 600; padding: 3px 10px; border: 1px solid %1; border-radius: 10px; }")
             .arg(chipColor));
 
-    statusModelLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getModelName(cameraIndex_) : std::string())));
-    statusIpLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getIpAddress(cameraIndex_) : std::string())));
+    if (liveSettings_.ok) {
+        statusModelLabel_->setText(formatReadOnlyValue(liveSettings_.modelName));
+        statusIpLabel_->setText(formatReadOnlyValue(liveSettings_.ipAddress));
+    } else {
+        statusModelLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getModelName(cameraIndex_) : std::string())));
+        statusIpLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getIpAddress(cameraIndex_) : std::string())));
+    }
     statusTempLabel_->setText(QString("Temperature: %1 C").arg(currentInfo_.temperature, 0, 'f', 1));
 
     if (!reachable) {
@@ -921,9 +999,6 @@ bool CameraDeviceSettingsDialog::hasStopRequiredChanges() const {
         || currentInfo_.height != originalInfo_.height
         || currentInfo_.offsetX != originalInfo_.offsetX
         || currentInfo_.offsetY != originalInfo_.offsetY
-        || currentInfo_.enableExposureTimeBase != originalInfo_.enableExposureTimeBase
-        || currentInfo_.exposureTimeBaseAbs != originalInfo_.exposureTimeBaseAbs
-        || currentInfo_.exposureTimeRaw != originalInfo_.exposureTimeRaw
         || currentInfo_.chunkModeActive != originalInfo_.chunkModeActive
         || currentInfo_.enabledChunks != originalInfo_.enabledChunks;
 }
@@ -974,23 +1049,23 @@ void CameraDeviceSettingsDialog::onValueChanged() {
     currentInfo_.chunkModeActive = chunkModeActiveCheck_->isChecked();
     currentInfo_.enabledChunks = selectedChunks();
 
-    // Staged (stop-required) fields
+    // Staged (stop-required) fields — the camera itself requires an
+    // acquisition stop for format/AOI/chunk changes. Exposure and rate
+    // nodes (abs, base, raw, framerate) are LIVE: scA780 accepts them
+    // while grabbing, no restart needed.
     if (currentInfo_.pixelFormat != previousInfo.pixelFormat) stageField("pixelFormat");
     if (currentInfo_.width != previousInfo.width) stageField("width");
     if (currentInfo_.height != previousInfo.height) stageField("height");
     if (currentInfo_.offsetX != previousInfo.offsetX) stageField("offsetX");
     if (currentInfo_.offsetY != previousInfo.offsetY) stageField("offsetY");
-    if (currentInfo_.enableExposureTimeBase != previousInfo.enableExposureTimeBase) stageField("exposureTimeBase");
-    if (currentInfo_.exposureTimeBaseAbs != previousInfo.exposureTimeBaseAbs) stageField("exposureTimeBase");
-    if (currentInfo_.exposureTimeRaw != previousInfo.exposureTimeRaw) stageField("exposureTimeRaw");
     if (currentInfo_.chunkModeActive != previousInfo.chunkModeActive) stageField("chunkMode");
     if (currentInfo_.enabledChunks != previousInfo.enabledChunks) stageField("chunks");
 
-    // Live (immediate) fields — only when reachable
+    // Live (immediate) fields — exposure abs/base/raw + framerate, written
+    // whenever the camera is reachable (runtime-attached or direct).
     const bool reachable = cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
     if (reachable) {
-        cameraManager_->setCameraExposure(cameraIndex_, currentInfo_.exposureTimeAbs);
-        cameraManager_->setCameraFrameRate(cameraIndex_, currentInfo_.fps, currentInfo_.enableAcquisitionFps);
+        cameraManager_->applyLiveExposureRate(cameraIndex_, currentInfo_);
     }
 
     persistSharedCameraSettings(cameraIndex_, currentInfo_);
