@@ -161,19 +161,22 @@ QString doubleSpinStyle() {
 QFrame* buildCallout(QWidget* parent) {
     QFrame* callout = new QFrame(parent);
     callout->setStyleSheet(
-        "QFrame { background-color: rgba(224, 168, 0, 0.08); border: 1px solid #E0A800; border-radius: 6px; }");
+        "QFrame { background-color: rgba(210, 153, 34, 0.12); border: 1px solid rgba(224, 168, 0, 0.35); "
+        "border-radius: 8px; }");
     QHBoxLayout* lay = new QHBoxLayout(callout);
-    lay->setContentsMargins(10, 6, 10, 6);
-    lay->setSpacing(8);
+    lay->setContentsMargins(12, 8, 12, 8);
+    lay->setSpacing(10);
     QLabel* icon = new QLabel(callout);
     icon->setPixmap(IconManager::instance().warning(16).pixmap(16, 16));
-    QLabel* text = new QLabel("Changes staged - stop the camera to apply.", callout);
-    text->setStyleSheet("color: #E0A800; font-size: 11px; font-weight: 500; background: transparent;");
+    QLabel* text = new QLabel("Changes staged \u2014 stop the camera to apply.", callout);
+    text->setStyleSheet(
+        "color: #F0C040; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;");
     QPushButton* stopApply = new QPushButton("Stop & Apply", callout);
     stopApply->setStyleSheet(
-        "QPushButton { background: #1C2128; color: #E0A800; border: 1px solid #E0A800; border-radius: 4px; "
-        "padding: 3px 8px; font-size: 10px; font-weight: 600; }"
-        "QPushButton:hover { background: rgba(224, 168, 0, 0.15); }");
+        "QPushButton { background: rgba(224, 168, 0, 0.18); color: #F0C040; border: 1px solid rgba(224, 168, 0, 0.4); "
+        "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; }"
+        "QPushButton:hover { background: rgba(224, 168, 0, 0.28); border-color: #E0A800; }"
+        "QPushButton:pressed { background: rgba(224, 168, 0, 0.35); }");
     lay->addWidget(icon);
     lay->addWidget(text, 1);
     lay->addWidget(stopApply);
