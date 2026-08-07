@@ -4,12 +4,11 @@
 
 #include <QAbstractItemView>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QFrame>
-#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -77,6 +76,9 @@ bool isCameraReachable(CameraManager* cameraManager, int cameraIndex, const Came
 
     const QString wantedMac = normalizeMacForCompare(info.macAddress);
     const QString wantedIp = info.ipAddress.trimmed();
+    if (wantedMac.isEmpty() && wantedIp.isEmpty()) {
+        return false;
+    }
     const auto devices = CameraManager::enumerateGigEDevices();
     for (const auto& device : devices) {
         const QString deviceMac = normalizeMacForCompare(QString::fromStdString(device.macAddress));
@@ -314,6 +316,7 @@ void CameraDeviceSettingsDialog::setupUi() {
     for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
         QPushButton* btn = it.value()->findChild<QPushButton*>();
         if (btn) {
+            btn->setEnabled(isCameraReachable(cameraManager_, cameraIndex_, currentInfo_));
             connect(btn, &QPushButton::clicked, this, [this]() {
                 if (cameraManager_ && cameraManager_->isCameraRunning(cameraIndex_)) {
                     cameraManager_->stopCamera(cameraIndex_);
@@ -547,8 +550,6 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     QLabel* infoHint = new QLabel("Read-only device identity and live connection details.", infoPage);
     infoHint->setStyleSheet("font-size: 11px; color: #8B949E;");
     infoPageLayout->addWidget(infoHint);
-    stagedCallouts_.insert(4, buildCallout(infoPage));
-    infoPageLayout->addWidget(stagedCallouts_.value(4));
 
     QGroupBox* deviceInfoGroup = new QGroupBox("Device Information", infoPage);
     deviceInfoGroup->setStyleSheet(groupBoxStyle());
@@ -587,8 +588,6 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     QLabel* serviceHint = new QLabel("Camera maintenance actions.", servicePage);
     serviceHint->setStyleSheet("font-size: 11px; color: #8B949E;");
     servicePageLayout->addWidget(serviceHint);
-    stagedCallouts_.insert(5, buildCallout(servicePage));
-    servicePageLayout->addWidget(stagedCallouts_.value(5));
 
     QLabel* serviceNote = new QLabel("Reset Device is not available in this build.", servicePage);
     serviceNote->setWordWrap(true);
@@ -670,8 +669,12 @@ void CameraDeviceSettingsDialog::updateStagedBadges() {
 }
 
 void CameraDeviceSettingsDialog::updateStagedCallouts() {
+    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
     for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
         it.value()->setVisible(!stagedFieldsInGroup(it.key()).isEmpty());
+        if (QPushButton* btn = it.value()->findChild<QPushButton*>()) {
+            btn->setEnabled(reachable);
+        }
     }
 }
 
@@ -682,38 +685,55 @@ void CameraDeviceSettingsDialog::updateApplyStagedEnabled() {
     applyStagedBtn_->setEnabled(editable_ && reachable && !running && !stagedFields_.isEmpty());
 }
 
-void CameraDeviceSettingsDialog::onCancelClicked() {
-    if (!stagedFields_.isEmpty()) {
-        const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
-        const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
-        QMessageBox box(this);
-        box.setWindowTitle("Staged Changes");
-        box.setIcon(QMessageBox::Warning);
-        box.setText(QString("%1 change(s) are staged but not yet applied to the camera.")
-                        .arg(stagedCount()));
-        QPushButton* applyAndClose = box.addButton("Apply & Close", QMessageBox::AcceptRole);
-        QPushButton* discard = box.addButton("Discard", QMessageBox::DestructiveRole);
-        box.addButton("Keep Editing", QMessageBox::RejectRole);
-        if (running) {
-            applyAndClose->setEnabled(false);
-            applyAndClose->setToolTip("Stop the camera to apply staged changes.");
-        }
-        box.exec();
-        if (box.clickedButton() == applyAndClose) {
-            applyStagedChanges();
-            if (stagedFields_.isEmpty()) {
-                accept();
-            }
-            return;
-        }
-        if (box.clickedButton() == discard) {
-            clearStaged();
-            reject();
-            return;
-        }
-        return;  // Keep Editing
+bool CameraDeviceSettingsDialog::confirmStagedClose() {
+    if (stagedFields_.isEmpty()) {
+        return true;
     }
-    reject();
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+    QMessageBox box(this);
+    box.setWindowTitle("Staged Changes");
+    box.setIcon(QMessageBox::Warning);
+    box.setText(QString("%1 change(s) are staged but not yet applied to the camera.")
+                    .arg(stagedCount()));
+    QPushButton* applyAndClose = box.addButton("Apply & Close", QMessageBox::AcceptRole);
+    QPushButton* discard = box.addButton("Discard", QMessageBox::DestructiveRole);
+    box.addButton("Keep Editing", QMessageBox::RejectRole);
+    if (running) {
+        applyAndClose->setEnabled(false);
+        applyAndClose->setToolTip("Stop the camera to apply staged changes.");
+    }
+    box.exec();
+    if (box.clickedButton() == applyAndClose) {
+        applyStagedChanges();
+        return stagedFields_.isEmpty();
+    }
+    if (box.clickedButton() == discard) {
+        clearStaged();
+        return true;
+    }
+    return false;  // Keep Editing
+}
+
+void CameraDeviceSettingsDialog::onCancelClicked() {
+    if (confirmStagedClose()) {
+        reject();
+    }
+}
+
+void CameraDeviceSettingsDialog::closeEvent(QCloseEvent* event) {
+    if (!confirmStagedClose()) {
+        event->ignore();
+        return;
+    }
+    QDialog::closeEvent(event);
+}
+
+void CameraDeviceSettingsDialog::reject() {
+    if (!confirmStagedClose()) {
+        return;
+    }
+    QDialog::reject();
 }
 
 void CameraDeviceSettingsDialog::applyStagedChanges() {
@@ -721,6 +741,12 @@ void CameraDeviceSettingsDialog::applyStagedChanges() {
         return;
     }
     if (!validateInputs(nullptr)) {
+        return;
+    }
+
+    if (!isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+        QMessageBox::information(this, "Apply Staged",
+            "Camera is not reachable - staged changes kept.");
         return;
     }
 
@@ -786,14 +812,24 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     deviceVersionValueLabel_->setText("Not available");
     firmwareVersionValueLabel_->setText("Not available");
     deviceIdValueLabel_->setText(QString::number(originalInfo_.id));
-    sensorWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
-    sensorHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
-    maxWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
-    maxHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
+    if (cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+        const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
+        sensorWidthValueLabel_->setText(QString::number(std::max(0, params.width)));
+        sensorHeightValueLabel_->setText(QString::number(std::max(0, params.height)));
+        maxWidthValueLabel_->setText(QString::number(std::max(0, params.width)));
+        maxHeightValueLabel_->setText(QString::number(std::max(0, params.height)));
+    } else {
+        sensorWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
+        sensorHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
+        maxWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
+        maxHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
+    }
     modelValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getModelName(cameraIndex_)) : originalInfo_.model));
     ipValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_)) : originalInfo_.ipAddress));
     resultingRateValueLabel_->setText(QString::number(currentInfo_.fps, 'f', 3) + " Hz");
     updateSidebarStatus();
+    updateStagedCallouts();
+    updateApplyStagedEnabled();
 }
 
 void CameraDeviceSettingsDialog::updateSidebarStatus() {

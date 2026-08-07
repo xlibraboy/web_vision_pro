@@ -6,6 +6,7 @@
 #include <QSet>
 #include "../CameraInfo.h"
 
+class QCloseEvent;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -34,6 +35,10 @@ public:
 signals:
     void settingsApplied(const CameraInfo& info);
 
+protected:
+    void closeEvent(QCloseEvent* event) override;
+    void reject() override;
+
 private slots:
     void onValueChanged();
     void closeDialog();
@@ -58,6 +63,7 @@ private:
     void updateStagedBadges();
     void updateStagedCallouts();
     void updateApplyStagedEnabled();
+    bool confirmStagedClose();
     void stageField(const QString& field);
     void clearStaged();
 
