@@ -165,6 +165,12 @@ void IpConfiguratorPanel::onApplyClicked() {
                 "Leave the gateway empty for no gateway (0.0.0.0).");
             return;
         }
+        if (gateway == QStringLiteral("0.0.0.0")) {
+            QMessageBox::information(this, "Gateway 0.0.0.0",
+                "0.0.0.0 (no gateway) will be stored as the persistent setting, but this camera model "
+                "keeps its previous gateway in live status \u2014 it cannot apply 0.0.0.0 to the live interface.\n\n"
+                "The gateway is not used on a direct camera connection, so this has no effect on operation.");
+        }
     }
 
     applyInFlight_ = true;
