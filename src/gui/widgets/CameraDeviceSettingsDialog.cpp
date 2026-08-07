@@ -168,6 +168,11 @@ QFrame* buildCallout(QWidget* parent) {
     lay->setSpacing(10);
     QLabel* icon = new QLabel(callout);
     icon->setPixmap(IconManager::instance().warning(16).pixmap(16, 16));
+    icon->setStyleSheet(
+        "QLabel { background-color: rgba(224, 168, 0, 0.20); border: 1px solid rgba(224, 168, 0, 0.30); "
+        "border-radius: 12px; padding: 4px; min-width: 22px; min-height: 22px; "
+        "qproperty-alignment: AlignCenter; }");
+    icon->setFixedSize(28, 28);
     QLabel* text = new QLabel("Changes staged \u2014 stop the camera to apply.", callout);
     text->setStyleSheet(
         "color: #F0C040; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;");
