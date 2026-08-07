@@ -31,21 +31,23 @@ private slots:
     void onTableSelectionChanged();
     void onModeChanged(int index);
     void onApplyClicked();
-    void onIpFieldEdited(const QString& text);
+    void onOctetEdited();
 
 private:
     void setupUI();
     void populateTable(const std::vector<GigEDeviceInfo>& devices);
     void loadRowIntoEditor(int row);
     void clearEditor();
+    QString octetText(QLineEdit* const octets[4]) const;
     static bool isValidIpv4(const QString& text);
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
     QTableWidget* table_;
     QLabel* statusLabel_;
     QComboBox* modeCombo_;
-    QLineEdit* ipEdit_;
-    QLineEdit* maskEdit_;
-    QLineEdit* gatewayEdit_;
+    QLineEdit* ipOctets_[4] = {};
+    QLineEdit* maskOctets_[4] = {};
+    QLineEdit* gatewayOctets_[4] = {};
     QPushButton* applyBtn_;
     QPushButton* refreshBtn_;
 
