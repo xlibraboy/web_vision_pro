@@ -88,8 +88,8 @@ Each group page: **title + one-line hint**, then the form. Three field classes:
 
 | Class | Fields | Behavior |
 |---|---|---|
-| **Live** | Exposure (Abs), Framerate, Enable Framerate | write to camera on change; green ✓ "Applied" feedback inline |
-| **Staged** | Pixel Format, AOI (W/H/Offsets), Exposure Time Base/Raw, Chunk Mode + items | editable anytime (even while running); staged locally; amber callout per page: *"N changes staged — stop camera to apply"* |
+| **Live** | Exposure (Abs, Time Base, Raw), Framerate, Enable Framerate | write to camera on change; green ✓ "Applied" feedback inline |
+| **Staged** | Pixel Format, AOI (W/H/Offsets), Chunk Mode + items | editable anytime (even while running); staged locally; amber callout per page: *"N changes staged — stop camera to apply"* |
 | **Read-only** | Sensor/Max dims, Resulting framerate, Device Info | info chips as today |
 
 Flow:
@@ -98,7 +98,7 @@ Flow:
 3. Footer **Apply Staged** (enabled only when camera stopped and staged changes exist) writes everything, clears badges, green confirmation
 4. **Close** = done; **Cancel** = discard only the **staged** (unapplied) changes — live-applied writes are already on the camera and are never reverted (confirm dialog appears only when staged changes are pending)
 
-Immediate changes keep today's live-write path (`applyImmediateChanges`); stop-required params move to an explicit staged write instead of the current silent-skip-when-running behavior.
+Immediate changes keep today's live-write path (`applyImmediateChanges`); stop-required params (format/AOI/chunk only — exposure base/raw follow exposure Abs as live writes) move to an explicit staged write instead of the current silent-skip-when-running behavior.
 
 ### Visual system
 

@@ -118,7 +118,8 @@ src/
 
 ### Device Settings Dialog
 - Two-pane layout: left sidebar = live status card (model, IP, temperature, run state) + camera run toggle + group nav with amber badges on groups holding staged changes; right = stacked detail pages for Image Format, AOI, Exposure & Rate, Chunk Data, Device Info, Service
-- Hybrid apply semantics: exposure (Abs) and framerate write live while the camera runs; format/AOI/exposure-base/raw/chunk changes stage while running and apply via Apply Staged (or the Stop & Apply callout after stopping)
+- Hybrid apply semantics: exposure (Abs, base, raw) and framerate write live to the camera while it runs — no restart needed; format/AOI/chunk changes stage while running and apply via Apply Staged (or the Stop & Apply callout after stopping)
+- Dialog shows live camera values (read from the device when reachable) rather than saved config
 - Staged-loss guards on Cancel/Close confirm before discarding staged changes (note: title-bar X currently bypasses the guard — known minor, tracked for final review)
 - 2s live status refresh timer
 - Admin gating: `editable_ == false` → whole dialog read-only
