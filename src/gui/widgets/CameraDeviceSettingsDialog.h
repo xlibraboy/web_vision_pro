@@ -2,16 +2,21 @@
 
 #include <QDialog>
 #include <QStringList>
+#include <QHash>
+#include <QSet>
 #include "../CameraInfo.h"
 
 class QLabel;
-class QTabWidget;
+class QListWidget;
+class QListWidgetItem;
+class QStackedWidget;
+class QFrame;
 class QComboBox;
 class QSpinBox;
 class QDoubleSpinBox;
 class QCheckBox;
-class QListWidget;
 class QPushButton;
+class QTimer;
 
 class CameraManager;
 
@@ -33,18 +38,29 @@ private slots:
     void onValueChanged();
     void closeDialog();
     void toggleCameraRunState();
+    void onNavChanged(int row);
+    void onCancelClicked();
+    void applyStagedChanges();
 
 private:
     void setupUi();
     void populateUi();
     void refreshLiveDeviceInfo();
-    void updateImpactBanner();
     void updateControlAvailability();
     void applyImmediateChanges(bool includesStopRequiredChanges);
     bool validateInputs(QStringList* errors) const;
     bool hasStopRequiredChanges() const;
     QStringList selectedChunks() const;
     QStringList availableChunkOptions() const;
+
+    QWidget* buildSidebar();
+    void buildDetailPages();
+    void updateSidebarStatus();
+    void updateStagedBadges();
+    void updateStagedCallouts();
+    void updateApplyStagedEnabled();
+    void stageField(const QString& field);
+    void clearStaged();
 
     int cameraIndex_;
     CameraInfo originalInfo_;
@@ -53,9 +69,6 @@ private:
     bool editable_;
     bool populating_ = false;
 
-    QLabel* subtitleLabel_;
-    QLabel* impactLabel_;
-    QLabel* statusLabel_;
     QLabel* modelValueLabel_;
     QLabel* ipValueLabel_;
 
@@ -87,9 +100,25 @@ private:
     QLabel* firmwareVersionValueLabel_;
     QLabel* deviceIdValueLabel_;
 
+    // Layout
+    QListWidget* navList_;
+    QStackedWidget* detailStack_;
+    QHash<int, QListWidgetItem*> navItems_;    // groupId -> nav item
+    QHash<int, QFrame*> stagedCallouts_;       // groupId -> callout frame
+    QFrame* statusCard_;
+    QLabel* statusChipLabel_;
+    QLabel* statusTitleLabel_;
+    QLabel* statusModelLabel_;
+    QLabel* statusIpLabel_;
+    QLabel* statusTempLabel_;
+    QPushButton* runStateBtn_;
     QPushButton* applyBtn_;
-    QPushButton* applyCloseBtn_;
+    QPushButton* applyStagedBtn_;
     QPushButton* cancelBtn_;
-    QPushButton* resetDeviceBtn_;
-    QPushButton* cameraRunStateBtn_;
+    QTimer* refreshTimer_;
+
+    // Staged-change model
+    QSet<QString> stagedFields_;
+    int stagedCount() const;
+    QSet<QString> stagedFieldsInGroup(int groupId) const;
 };

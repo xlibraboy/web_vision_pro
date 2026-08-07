@@ -17,7 +17,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QTabWidget>
+#include <QStackedWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "IconManager.h"
@@ -131,6 +132,49 @@ void addFormRow(QFormLayout* layout, const QString& label, QWidget* field) {
     layout->addRow(labelWidget, field);
 }
 
+QString groupBoxStyle() {
+    return "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; border-radius: 8px; "
+           "margin-top: 6px; padding-top: 8px; font-size: 12px; }"
+           "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }";
+}
+QString comboStyle() {
+    return "QComboBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
+           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+           "QComboBox:focus { border-color: #00E5FF; }";
+}
+QString spinStyle() {
+    return "QSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
+           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+           "QSpinBox:focus { border-color: #00E5FF; }";
+}
+QString doubleSpinStyle() {
+    return "QDoubleSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
+           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+           "QDoubleSpinBox:focus { border-color: #00E5FF; }";
+}
+QFrame* buildCallout(QWidget* parent) {
+    QFrame* callout = new QFrame(parent);
+    callout->setStyleSheet(
+        "QFrame { background-color: rgba(224, 168, 0, 0.08); border: 1px solid #E0A800; border-radius: 6px; }");
+    QHBoxLayout* lay = new QHBoxLayout(callout);
+    lay->setContentsMargins(10, 6, 10, 6);
+    lay->setSpacing(8);
+    QLabel* icon = new QLabel(callout);
+    icon->setPixmap(IconManager::instance().warning(16).pixmap(16, 16));
+    QLabel* text = new QLabel("Changes staged - stop the camera to apply.", callout);
+    text->setStyleSheet("color: #E0A800; font-size: 11px; font-weight: 500; background: transparent;");
+    QPushButton* stopApply = new QPushButton("Stop & Apply", callout);
+    stopApply->setStyleSheet(
+        "QPushButton { background: #1C2128; color: #E0A800; border: 1px solid #E0A800; border-radius: 4px; "
+        "padding: 3px 8px; font-size: 10px; font-weight: 600; }"
+        "QPushButton:hover { background: rgba(224, 168, 0, 0.15); }");
+    lay->addWidget(icon);
+    lay->addWidget(text, 1);
+    lay->addWidget(stopApply);
+    callout->setVisible(false);
+    return callout;
+}
+
 }
 
 CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const CameraInfo& info,
@@ -165,7 +209,6 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
     }
     populateUi();
     refreshLiveDeviceInfo();
-    updateImpactBanner();
 }
 
 CameraInfo CameraDeviceSettingsDialog::updatedInfo() const {
@@ -179,63 +222,181 @@ bool CameraDeviceSettingsDialog::requiresRestart() const {
 void CameraDeviceSettingsDialog::setupUi() {
     setWindowTitle(QString("Camera %1 - Device Settings").arg(originalInfo_.id));
     setModal(true);
-    resize(900, 700);
+    resize(980, 680);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
-    rootLayout->setSpacing(14);
-    rootLayout->setContentsMargins(16, 16, 16, 16);
+    rootLayout->setSpacing(12);
+    rootLayout->setContentsMargins(14, 14, 14, 14);
 
+    // Title bar: camera icon + title + live status chip
+    QHBoxLayout* titleLayout = new QHBoxLayout();
+    titleLayout->setSpacing(10);
+    QLabel* titleIcon = new QLabel(this);
+    titleIcon->setPixmap(IconManager::instance().camera(20).pixmap(20, 20));
+    titleLayout->addWidget(titleIcon);
     QLabel* titleLabel = new QLabel(QString("Camera %1 - Device Settings").arg(originalInfo_.id), this);
-    titleLabel->setStyleSheet("font-size: 18px; font-weight: 600; color: #E3E3E3;");
-    rootLayout->addWidget(titleLabel);
+    titleLabel->setStyleSheet("font-size: 17px; font-weight: 600; color: #E3E3E3;");
+    titleLayout->addWidget(titleLabel);
+    titleLayout->addStretch();
+    statusChipLabel_ = new QLabel(this);
+    statusChipLabel_->setStyleSheet(
+        "QLabel { color: #8B949E; font-size: 12px; font-weight: 600; "
+        "padding: 3px 10px; border: 1px solid #30363D; border-radius: 10px; }");
+    titleLayout->addWidget(statusChipLabel_);
+    rootLayout->addLayout(titleLayout);
 
-    subtitleLabel_ = new QLabel(this);
-    subtitleLabel_->setStyleSheet("font-size: 12px; color: #8B949E;");
-    subtitleLabel_->setWordWrap(true);
-    rootLayout->addWidget(subtitleLabel_);
+    // Two-pane body
+    QHBoxLayout* bodyLayout = new QHBoxLayout();
+    bodyLayout->setSpacing(12);
+    bodyLayout->addWidget(buildSidebar());
+    detailStack_ = new QStackedWidget(this);
+    bodyLayout->addWidget(detailStack_, 1);
+    rootLayout->addLayout(bodyLayout, 1);
 
-    QFrame* impactFrame = new QFrame(this);
-    impactFrame->setStyleSheet("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; }");
-    QVBoxLayout* impactLayout = new QVBoxLayout(impactFrame);
-    impactLayout->setContentsMargins(12, 10, 12, 10);
-    impactLayout->setSpacing(6);
-    impactLabel_ = new QLabel(this);
-    impactLabel_->setWordWrap(true);
-    impactLabel_->setStyleSheet("font-size: 12px; color: #E3E3E3;");
-    statusLabel_ = new QLabel(this);
-    statusLabel_->setWordWrap(true);
-    statusLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
-    impactLayout->addWidget(impactLabel_);
-    impactLayout->addWidget(statusLabel_);
-    rootLayout->addWidget(impactFrame);
+    // Footer
+    QHBoxLayout* footerLayout = new QHBoxLayout();
+    footerLayout->setSpacing(10);
+    footerLayout->addStretch();
+    cancelBtn_ = new QPushButton("Cancel", this);
+    cancelBtn_->setIcon(IconManager::instance().close(16));
+    applyStagedBtn_ = new QPushButton("Apply Staged", this);
+    applyStagedBtn_->setIcon(IconManager::instance().save(16));
+    applyStagedBtn_->setEnabled(false);
+    applyBtn_ = new QPushButton("Close", this);
+    applyBtn_->setIcon(IconManager::instance().check(16));
+    footerLayout->addWidget(cancelBtn_);
+    footerLayout->addWidget(applyStagedBtn_);
+    footerLayout->addWidget(applyBtn_);
+    rootLayout->addLayout(footerLayout);
 
-    QTabWidget* tabs = new QTabWidget(this);
-    tabs->setStyleSheet(
-        "QTabWidget::pane { border: 1px solid #30363D; border-radius: 8px; background-color: #24292E; }"
-        "QTabBar::tab { background: #1C2128; color: #8B949E; padding: 8px 14px; margin-right: 4px; border-top-left-radius: 6px; border-top-right-radius: 6px; }"
-        "QTabBar::tab:selected { background: #24292E; color: #00E5FF; }"
-    );
-    rootLayout->addWidget(tabs, 1);
+    const QString buttonBase =
+        "QPushButton { border: 1px solid #30363D; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; } ";
+    cancelBtn_->setStyleSheet(buttonBase +
+        "QPushButton { background: transparent; color: #E3E3E3; } QPushButton:hover { border-color: #8B949E; }");
+    applyStagedBtn_->setStyleSheet(buttonBase +
+        "QPushButton { background: #1C2128; color: #E0A800; } QPushButton:hover { border-color: #E0A800; }"
+        "QPushButton:disabled { color: #6E7681; border-color: #30363D; }");
+    applyBtn_->setStyleSheet(buttonBase +
+        "QPushButton { background: #238636; color: white; } QPushButton:hover { background: #2EA043; }");
 
-    QWidget* imageTab = new QWidget(this);
-    QVBoxLayout* imageLayout = new QVBoxLayout(imageTab);
-    imageLayout->setContentsMargins(14, 14, 14, 14);
-    imageLayout->setSpacing(14);
+    buildDetailPages();
+    navList_->setCurrentRow(0);
 
-    QGroupBox* imageFormatGroup = new QGroupBox("Image Format Controls", imageTab);
-    imageFormatGroup->setStyleSheet("QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 12px; } QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }");
+    refreshTimer_ = new QTimer(this);
+    refreshTimer_->setInterval(2000);
+    refreshTimer_->start();
+
+    const auto registerChangeSignal = [this](QObject* obj, const char* signal) {
+        connect(obj, signal, this, SLOT(onValueChanged()));
+    };
+    registerChangeSignal(pixelFormatCombo_, SIGNAL(currentIndexChanged(int)));
+    registerChangeSignal(widthSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(heightSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(offsetXSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(offsetYSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(exposureTimeAbsSpin_, SIGNAL(valueChanged(double)));
+    registerChangeSignal(enableExposureTimeBaseCheck_, SIGNAL(toggled(bool)));
+    registerChangeSignal(exposureTimeBaseSpin_, SIGNAL(valueChanged(double)));
+    registerChangeSignal(exposureTimeRawSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(enableAcquisitionRateCheck_, SIGNAL(toggled(bool)));
+    registerChangeSignal(acquisitionRateSpin_, SIGNAL(valueChanged(double)));
+    registerChangeSignal(chunkModeActiveCheck_, SIGNAL(toggled(bool)));
+    connect(chunkListWidget_, &QListWidget::itemChanged, this, &CameraDeviceSettingsDialog::onValueChanged);
+    connect(navList_, &QListWidget::currentRowChanged, this, &CameraDeviceSettingsDialog::onNavChanged);
+    connect(cancelBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::onCancelClicked);
+    connect(applyBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::closeDialog);
+    connect(applyStagedBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::applyStagedChanges);
+    connect(runStateBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::toggleCameraRunState);
+    connect(refreshTimer_, &QTimer::timeout, this, &CameraDeviceSettingsDialog::refreshLiveDeviceInfo);
+}
+
+QWidget* CameraDeviceSettingsDialog::buildSidebar() {
+    QWidget* sidebar = new QWidget(this);
+    sidebar->setFixedWidth(230);
+    QVBoxLayout* sideLayout = new QVBoxLayout(sidebar);
+    sideLayout->setContentsMargins(0, 0, 0, 0);
+    sideLayout->setSpacing(10);
+
+    statusCard_ = new QFrame(sidebar);
+    statusCard_->setStyleSheet("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; }");
+    QVBoxLayout* cardLayout = new QVBoxLayout(statusCard_);
+    cardLayout->setContentsMargins(12, 10, 12, 10);
+    cardLayout->setSpacing(4);
+    statusTitleLabel_ = new QLabel(statusCard_);
+    statusTitleLabel_->setStyleSheet("font-size: 13px; font-weight: 600; color: #E3E3E3;");
+    statusModelLabel_ = new QLabel(statusCard_);
+    statusModelLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    statusIpLabel_ = new QLabel(statusCard_);
+    statusIpLabel_->setStyleSheet("font-size: 11px; color: #8B949E; font-family: 'SF Mono', Monaco, monospace;");
+    statusTempLabel_ = new QLabel(statusCard_);
+    statusTempLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    runStateBtn_ = new QPushButton(statusCard_);
+    runStateBtn_->setStyleSheet(
+        "QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; }"
+        "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; background: transparent; }");
+    cardLayout->addWidget(statusTitleLabel_);
+    cardLayout->addWidget(statusModelLabel_);
+    cardLayout->addWidget(statusIpLabel_);
+    cardLayout->addWidget(statusTempLabel_);
+    cardLayout->addWidget(runStateBtn_);
+    sideLayout->addWidget(statusCard_);
+
+    navList_ = new QListWidget(sidebar);
+    navList_->setStyleSheet(
+        "QListWidget { background: transparent; border: none; outline: 0; }"
+        "QListWidget::item { padding: 8px 10px; border-radius: 6px; color: #8B949E; font-size: 12px; font-weight: 500; }"
+        "QListWidget::item:hover { background-color: rgba(0, 229, 255, 0.06); color: #E3E3E3; }"
+        "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.12); color: #E3E3E3; border-left: 2px solid #00E5FF; }");
+    navList_->setFocusPolicy(Qt::StrongFocus);
+    sideLayout->addWidget(navList_, 1);
+    return sidebar;
+}
+
+void CameraDeviceSettingsDialog::buildDetailPages() {
+    // --- Page: Image Format (group 0) ---
+    QWidget* imagePage = new QWidget(this);
+    QVBoxLayout* imagePageLayout = new QVBoxLayout(imagePage);
+    imagePageLayout->setContentsMargins(4, 0, 4, 0);
+    imagePageLayout->setSpacing(10);
+    QLabel* imageTitle = new QLabel("Image Format", imagePage);
+    imageTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    imagePageLayout->addWidget(imageTitle);
+    QLabel* imageHint = new QLabel("Pixel format of the acquired image.", imagePage);
+    imageHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    imagePageLayout->addWidget(imageHint);
+    stagedCallouts_.insert(0, buildCallout(imagePage));
+    imagePageLayout->addWidget(stagedCallouts_.value(0));
+
+    QGroupBox* imageFormatGroup = new QGroupBox("Image Format Controls", imagePage);
+    imageFormatGroup->setStyleSheet(groupBoxStyle());
     QFormLayout* imageFormatLayout = new QFormLayout(imageFormatGroup);
     imageFormatLayout->setContentsMargins(14, 16, 14, 14);
     imageFormatLayout->setHorizontalSpacing(14);
     imageFormatLayout->setVerticalSpacing(10);
     pixelFormatCombo_ = new QComboBox(imageFormatGroup);
     pixelFormatCombo_->setEditable(false);
-    pixelFormatCombo_->setStyleSheet("QComboBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }");
+    pixelFormatCombo_->setStyleSheet(comboStyle());
     addFormRow(imageFormatLayout, "Pixel Format:", pixelFormatCombo_);
-    imageLayout->addWidget(imageFormatGroup);
+    imagePageLayout->addWidget(imageFormatGroup);
+    imagePageLayout->addStretch();
+    detailStack_->addWidget(imagePage);
 
-    QGroupBox* roiGroup = new QGroupBox("AOI Controls", imageTab);
-    roiGroup->setStyleSheet(imageFormatGroup->styleSheet());
+    // --- Page: AOI (group 1) ---
+    QWidget* aoiPage = new QWidget(this);
+    QVBoxLayout* aoiPageLayout = new QVBoxLayout(aoiPage);
+    aoiPageLayout->setContentsMargins(4, 0, 4, 0);
+    aoiPageLayout->setSpacing(10);
+    QLabel* aoiTitle = new QLabel("AOI", aoiPage);
+    aoiTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    aoiPageLayout->addWidget(aoiTitle);
+    QLabel* aoiHint = new QLabel("Region of interest; requires camera stop to apply.", aoiPage);
+    aoiHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    aoiPageLayout->addWidget(aoiHint);
+    stagedCallouts_.insert(1, buildCallout(aoiPage));
+    aoiPageLayout->addWidget(stagedCallouts_.value(1));
+
+    QGroupBox* roiGroup = new QGroupBox("AOI Controls", aoiPage);
+    roiGroup->setStyleSheet(groupBoxStyle());
     QFormLayout* roiLayout = new QFormLayout(roiGroup);
     roiLayout->setContentsMargins(14, 16, 14, 14);
     roiLayout->setHorizontalSpacing(14);
@@ -252,11 +413,10 @@ void CameraDeviceSettingsDialog::setupUi() {
     offsetYSpin_ = new QSpinBox(roiGroup);
     offsetYSpin_->setRange(0, 100000);
     offsetYSpin_->setSuffix(" px");
-    const QString spinStyle = "QSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }";
-    widthSpin_->setStyleSheet(spinStyle);
-    heightSpin_->setStyleSheet(spinStyle);
-    offsetXSpin_->setStyleSheet(spinStyle);
-    offsetYSpin_->setStyleSheet(spinStyle);
+    widthSpin_->setStyleSheet(spinStyle());
+    heightSpin_->setStyleSheet(spinStyle());
+    offsetXSpin_->setStyleSheet(spinStyle());
+    offsetYSpin_->setStyleSheet(spinStyle());
     addFormRow(roiLayout, "Width:", widthSpin_);
     addFormRow(roiLayout, "Height:", heightSpin_);
     addFormRow(roiLayout, "Offset X:", offsetXSpin_);
@@ -269,16 +429,26 @@ void CameraDeviceSettingsDialog::setupUi() {
     addFormRow(roiLayout, "Sensor Height:", sensorHeightValueLabel_);
     addFormRow(roiLayout, "Max Width:", maxWidthValueLabel_);
     addFormRow(roiLayout, "Max Height:", maxHeightValueLabel_);
-    imageLayout->addWidget(roiGroup);
-    imageLayout->addStretch();
-    tabs->addTab(imageTab, "Image && ROI");
+    aoiPageLayout->addWidget(roiGroup);
+    aoiPageLayout->addStretch();
+    detailStack_->addWidget(aoiPage);
 
-    QWidget* exposureTab = new QWidget(this);
-    QVBoxLayout* exposureLayout = new QVBoxLayout(exposureTab);
-    exposureLayout->setContentsMargins(14, 14, 14, 14);
-    exposureLayout->setSpacing(14);
-    QGroupBox* exposureGroup = new QGroupBox("Acquisition Controls", exposureTab);
-    exposureGroup->setStyleSheet(imageFormatGroup->styleSheet());
+    // --- Page: Exposure & Rate (group 2) ---
+    QWidget* exposurePage = new QWidget(this);
+    QVBoxLayout* exposurePageLayout = new QVBoxLayout(exposurePage);
+    exposurePageLayout->setContentsMargins(4, 0, 4, 0);
+    exposurePageLayout->setSpacing(10);
+    QLabel* exposureTitle = new QLabel("Exposure & Rate", exposurePage);
+    exposureTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    exposurePageLayout->addWidget(exposureTitle);
+    QLabel* exposureHint = new QLabel("Exposure applies live; base/raw exposure requires camera stop.", exposurePage);
+    exposureHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    exposurePageLayout->addWidget(exposureHint);
+    stagedCallouts_.insert(2, buildCallout(exposurePage));
+    exposurePageLayout->addWidget(stagedCallouts_.value(2));
+
+    QGroupBox* exposureGroup = new QGroupBox("Acquisition Controls", exposurePage);
+    exposureGroup->setStyleSheet(groupBoxStyle());
     QFormLayout* exposureForm = new QFormLayout(exposureGroup);
     exposureForm->setContentsMargins(14, 16, 14, 14);
     exposureForm->setHorizontalSpacing(14);
@@ -299,11 +469,10 @@ void CameraDeviceSettingsDialog::setupUi() {
     acquisitionRateSpin_->setRange(0.0, 10000.0);
     acquisitionRateSpin_->setDecimals(3);
     acquisitionRateSpin_->setSuffix(" Hz");
-    const QString doubleSpinStyle = "QDoubleSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }";
-    exposureTimeAbsSpin_->setStyleSheet(doubleSpinStyle);
-    exposureTimeBaseSpin_->setStyleSheet(doubleSpinStyle);
-    acquisitionRateSpin_->setStyleSheet(doubleSpinStyle);
-    exposureTimeRawSpin_->setStyleSheet(spinStyle);
+    exposureTimeAbsSpin_->setStyleSheet(doubleSpinStyle());
+    exposureTimeBaseSpin_->setStyleSheet(doubleSpinStyle());
+    acquisitionRateSpin_->setStyleSheet(doubleSpinStyle());
+    exposureTimeRawSpin_->setStyleSheet(spinStyle());
     enableExposureTimeBaseCheck_->setStyleSheet("color: #E3E3E3; font-size: 12px;");
     enableAcquisitionRateCheck_->setStyleSheet("color: #E3E3E3; font-size: 12px;");
     resultingRateValueLabel_ = createInfoValueLabel();
@@ -314,16 +483,26 @@ void CameraDeviceSettingsDialog::setupUi() {
     addFormRow(exposureForm, QString(), enableAcquisitionRateCheck_);
     addFormRow(exposureForm, "Acquisition Framerate:", acquisitionRateSpin_);
     addFormRow(exposureForm, "Resulting Framerate:", resultingRateValueLabel_);
-    exposureLayout->addWidget(exposureGroup);
-    exposureLayout->addStretch();
-    tabs->addTab(exposureTab, "Exposure && Rate");
+    exposurePageLayout->addWidget(exposureGroup);
+    exposurePageLayout->addStretch();
+    detailStack_->addWidget(exposurePage);
 
-    QWidget* chunkTab = new QWidget(this);
-    QVBoxLayout* chunkLayout = new QVBoxLayout(chunkTab);
-    chunkLayout->setContentsMargins(14, 14, 14, 14);
-    chunkLayout->setSpacing(14);
-    QGroupBox* chunkGroup = new QGroupBox("Chunk Data Streams", chunkTab);
-    chunkGroup->setStyleSheet(imageFormatGroup->styleSheet());
+    // --- Page: Chunk Data (group 3) ---
+    QWidget* chunkPage = new QWidget(this);
+    QVBoxLayout* chunkPageLayout = new QVBoxLayout(chunkPage);
+    chunkPageLayout->setContentsMargins(4, 0, 4, 0);
+    chunkPageLayout->setSpacing(10);
+    QLabel* chunkTitle = new QLabel("Chunk Data", chunkPage);
+    chunkTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    chunkPageLayout->addWidget(chunkTitle);
+    QLabel* chunkHint = new QLabel("Choose chunk items included in the payload; requires camera stop.", chunkPage);
+    chunkHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    chunkPageLayout->addWidget(chunkHint);
+    stagedCallouts_.insert(3, buildCallout(chunkPage));
+    chunkPageLayout->addWidget(stagedCallouts_.value(3));
+
+    QGroupBox* chunkGroup = new QGroupBox("Chunk Data Streams", chunkPage);
+    chunkGroup->setStyleSheet(groupBoxStyle());
     QVBoxLayout* chunkGroupLayout = new QVBoxLayout(chunkGroup);
     chunkGroupLayout->setContentsMargins(14, 16, 14, 14);
     chunkGroupLayout->setSpacing(10);
@@ -338,16 +517,26 @@ void CameraDeviceSettingsDialog::setupUi() {
     chunkListWidget_->setSelectionMode(QAbstractItemView::NoSelection);
     chunkListWidget_->setStyleSheet("QListWidget { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; color: #E3E3E3; } QListWidget::item { padding: 6px; }");
     chunkGroupLayout->addWidget(chunkListWidget_);
-    chunkLayout->addWidget(chunkGroup);
-    chunkLayout->addStretch();
-    tabs->addTab(chunkTab, "Chunk Data");
+    chunkPageLayout->addWidget(chunkGroup);
+    chunkPageLayout->addStretch();
+    detailStack_->addWidget(chunkPage);
 
-    QWidget* deviceInfoTab = new QWidget(this);
-    QVBoxLayout* deviceInfoLayout = new QVBoxLayout(deviceInfoTab);
-    deviceInfoLayout->setContentsMargins(14, 14, 14, 14);
-    deviceInfoLayout->setSpacing(14);
-    QGroupBox* deviceInfoGroup = new QGroupBox("Device Information", deviceInfoTab);
-    deviceInfoGroup->setStyleSheet(imageFormatGroup->styleSheet());
+    // --- Page: Device Information (group 4) ---
+    QWidget* infoPage = new QWidget(this);
+    QVBoxLayout* infoPageLayout = new QVBoxLayout(infoPage);
+    infoPageLayout->setContentsMargins(4, 0, 4, 0);
+    infoPageLayout->setSpacing(10);
+    QLabel* infoTitle = new QLabel("Device Information", infoPage);
+    infoTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    infoPageLayout->addWidget(infoTitle);
+    QLabel* infoHint = new QLabel("Read-only device identity and live connection details.", infoPage);
+    infoHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    infoPageLayout->addWidget(infoHint);
+    stagedCallouts_.insert(4, buildCallout(infoPage));
+    infoPageLayout->addWidget(stagedCallouts_.value(4));
+
+    QGroupBox* deviceInfoGroup = new QGroupBox("Device Information", infoPage);
+    deviceInfoGroup->setStyleSheet(groupBoxStyle());
     QFormLayout* deviceInfoForm = new QFormLayout(deviceInfoGroup);
     deviceInfoForm->setContentsMargins(14, 16, 14, 14);
     deviceInfoForm->setHorizontalSpacing(14);
@@ -368,75 +557,81 @@ void CameraDeviceSettingsDialog::setupUi() {
     addFormRow(deviceInfoForm, "Device ID:", deviceIdValueLabel_);
     addFormRow(deviceInfoForm, "Live Model:", modelValueLabel_);
     addFormRow(deviceInfoForm, "Live IP:", ipValueLabel_);
-    deviceInfoLayout->addWidget(deviceInfoGroup);
-    deviceInfoLayout->addStretch();
-    tabs->addTab(deviceInfoTab, "Device Info");
+    infoPageLayout->addWidget(deviceInfoGroup);
+    infoPageLayout->addStretch();
+    detailStack_->addWidget(infoPage);
 
-    QWidget* serviceTab = new QWidget(this);
-    QVBoxLayout* serviceLayout = new QVBoxLayout(serviceTab);
-    serviceLayout->setContentsMargins(14, 14, 14, 14);
-    serviceLayout->setSpacing(14);
-    QGroupBox* serviceGroup = new QGroupBox("Service", serviceTab);
-    serviceGroup->setStyleSheet(imageFormatGroup->styleSheet());
-    QVBoxLayout* serviceGroupLayout = new QVBoxLayout(serviceGroup);
-    serviceGroupLayout->setContentsMargins(14, 16, 14, 14);
-    serviceGroupLayout->setSpacing(10);
-    QLabel* serviceNote = new QLabel("Reset Device will immediately restart the camera and interrupt acquisition.", serviceGroup);
+    // --- Page: Service (group 5) ---
+    QWidget* servicePage = new QWidget(this);
+    QVBoxLayout* servicePageLayout = new QVBoxLayout(servicePage);
+    servicePageLayout->setContentsMargins(4, 0, 4, 0);
+    servicePageLayout->setSpacing(10);
+    QLabel* serviceTitle = new QLabel("Service", servicePage);
+    serviceTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    servicePageLayout->addWidget(serviceTitle);
+    QLabel* serviceHint = new QLabel("Camera maintenance actions.", servicePage);
+    serviceHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    servicePageLayout->addWidget(serviceHint);
+    stagedCallouts_.insert(5, buildCallout(servicePage));
+    servicePageLayout->addWidget(stagedCallouts_.value(5));
+
+    QLabel* serviceNote = new QLabel("Reset Device is not available in this build.", servicePage);
     serviceNote->setWordWrap(true);
     serviceNote->setStyleSheet("color: #8B949E; font-size: 12px;");
-    serviceGroupLayout->addWidget(serviceNote);
-    resetDeviceBtn_ = new QPushButton("Reset Device...", serviceGroup);
-    resetDeviceBtn_->setIcon(IconManager::instance().warning(16));
-    resetDeviceBtn_->setEnabled(false);
-    resetDeviceBtn_->setStyleSheet("QPushButton { background-color: transparent; color: #FF5A5A; border: 1px solid #FF5A5A; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 600; } QPushButton:hover { background-color: rgba(255, 90, 90, 0.1); }");
-    serviceGroupLayout->addWidget(resetDeviceBtn_, 0, Qt::AlignLeft);
-    cameraRunStateBtn_ = new QPushButton("Stop Camera for Editing", serviceGroup);
-    cameraRunStateBtn_->setStyleSheet("QPushButton { background-color: #1C2128; color: #E3E3E3; border: 1px solid #30363D; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 600; } QPushButton:hover { border-color: #00E5FF; }");
-    serviceGroupLayout->addWidget(cameraRunStateBtn_, 0, Qt::AlignLeft);
-    serviceLayout->addWidget(serviceGroup);
-    serviceLayout->addStretch();
-    tabs->addTab(serviceTab, "Service");
+    servicePageLayout->addWidget(serviceNote);
+    servicePageLayout->addStretch();
+    detailStack_->addWidget(servicePage);
 
-    QHBoxLayout* footerLayout = new QHBoxLayout();
-    footerLayout->setSpacing(10);
-    footerLayout->addStretch();
-    cancelBtn_ = new QPushButton("Cancel", this);
-    cancelBtn_->setIcon(IconManager::instance().close(16));
-    applyBtn_ = new QPushButton("Close", this);
-    applyBtn_->setIcon(IconManager::instance().close(16));
-    applyCloseBtn_ = new QPushButton("Close", this);
-    applyCloseBtn_->setIcon(IconManager::instance().close(16));
-    footerLayout->addWidget(cancelBtn_);
-    footerLayout->addWidget(applyBtn_);
-    footerLayout->addWidget(applyCloseBtn_);
-    rootLayout->addLayout(footerLayout);
-
-    const auto registerChangeSignal = [this](QObject* obj, const char* signal) {
-        connect(obj, signal, this, SLOT(onValueChanged()));
+    struct NavEntry { int id; const char* icon; const char* label; };
+    const NavEntry entries[] = {
+        {0, Icons::EDIT, "Image Format"},
+        {1, Icons::SETTINGS, "AOI"},
+        {2, Icons::SPEED, "Exposure & Rate"},
+        {3, Icons::INFO, "Chunk Data"},
+        {4, Icons::CAMERA, "Device Info"},
+        {5, Icons::SETTINGS, "Service"},
     };
+    for (const auto& e : entries) {
+        QListWidgetItem* item = new QListWidgetItem(
+            IconManager::instance().getIcon(e.icon, 16), QString::fromLatin1(e.label), navList_);
+        navItems_.insert(e.id, item);
+    }
+}
 
-    registerChangeSignal(pixelFormatCombo_, SIGNAL(currentIndexChanged(int)));
-    registerChangeSignal(widthSpin_, SIGNAL(valueChanged(int)));
-    registerChangeSignal(heightSpin_, SIGNAL(valueChanged(int)));
-    registerChangeSignal(offsetXSpin_, SIGNAL(valueChanged(int)));
-    registerChangeSignal(offsetYSpin_, SIGNAL(valueChanged(int)));
-    registerChangeSignal(exposureTimeAbsSpin_, SIGNAL(valueChanged(double)));
-    registerChangeSignal(enableExposureTimeBaseCheck_, SIGNAL(toggled(bool)));
-    registerChangeSignal(exposureTimeBaseSpin_, SIGNAL(valueChanged(double)));
-    registerChangeSignal(exposureTimeRawSpin_, SIGNAL(valueChanged(int)));
-    registerChangeSignal(enableAcquisitionRateCheck_, SIGNAL(toggled(bool)));
-    registerChangeSignal(acquisitionRateSpin_, SIGNAL(valueChanged(double)));
-    registerChangeSignal(chunkModeActiveCheck_, SIGNAL(toggled(bool)));
-    connect(chunkListWidget_, &QListWidget::itemChanged, this, &CameraDeviceSettingsDialog::onValueChanged);
-    connect(cancelBtn_, &QPushButton::clicked, this, &QDialog::reject);
-    connect(applyCloseBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::closeDialog);
-    connect(applyBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::closeDialog);
-    connect(cameraRunStateBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::toggleCameraRunState);
+void CameraDeviceSettingsDialog::onNavChanged(int row) {
+    if (row >= 0 && row < detailStack_->count()) {
+        detailStack_->setCurrentIndex(row);
+    }
+}
+
+int CameraDeviceSettingsDialog::stagedCount() const {
+    return stagedFields_.size();
+}
+
+QSet<QString> CameraDeviceSettingsDialog::stagedFieldsInGroup(int groupId) const {
+    QSet<QString> fields;
+    switch (groupId) {
+    case 0: if (stagedFields_.contains("pixelFormat")) fields.insert("pixelFormat"); break;
+    case 1: for (const char* f : {"width", "height", "offsetX", "offsetY"}) if (stagedFields_.contains(f)) fields.insert(f); break;
+    case 2: for (const char* f : {"exposureTimeBase", "exposureTimeRaw"}) if (stagedFields_.contains(f)) fields.insert(f); break;
+    case 3: for (const char* f : {"chunkMode", "chunks"}) if (stagedFields_.contains(f)) fields.insert(f); break;
+    default: break;
+    }
+    return fields;
+}
+
+void CameraDeviceSettingsDialog::onCancelClicked() {
+    reject();
+}
+
+void CameraDeviceSettingsDialog::applyStagedChanges() {
+    // No-op in the two-pane skeleton: applyStagedBtn_ starts disabled and nothing
+    // enables it yet. The staged-change apply flow is wired in Task 4.
 }
 
 void CameraDeviceSettingsDialog::populateUi() {
     populating_ = true;
-    subtitleLabel_->setText(QString("%1 | %2 | %3 mm").arg(originalInfo_.name).arg(originalInfo_.location).arg(originalInfo_.machinePosition));
+    statusTitleLabel_->setText(QString("%1 | %2 | %3 mm").arg(originalInfo_.name).arg(originalInfo_.location).arg(originalInfo_.machinePosition));
 
     QStringList formats = defaultPixelFormats();
     if (formats.isEmpty()) {
@@ -486,69 +681,6 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     modelValueLabel_->setText(formatReadOnlyValue(originalInfo_.model));
     ipValueLabel_->setText(formatReadOnlyValue(originalInfo_.ipAddress));
     resultingRateValueLabel_->setText(QString::number(currentInfo_.fps, 'f', 3) + " Hz");
-
-    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
-    const bool configuredReal = hasConfiguredRealDevice(currentInfo_);
-    if (!reachable && !configuredReal) {
-        statusLabel_->setText("Camera is offline. Only general config values can be edited here.");
-        return;
-    }
-
-    if (!reachable && configuredReal) {
-        statusLabel_->setText("Camera is configured and expected online. Live runtime state is not confirmed yet; edits can still be saved here.");
-        return;
-    }
-
-    if (!cameraManager_->isCameraConnected(cameraIndex_) && !cameraManager_->isCameraOpen(cameraIndex_)) {
-        statusLabel_->setText("Camera is online on the network, but not attached to the live acquisition runtime. Save config/restart cameras to edit live device parameters.");
-        return;
-    }
-
-    statusLabel_->setText(cameraManager_->isCameraRunning(cameraIndex_)
-        ? "Camera is running. Stop this camera to edit format, ROI, chunk, and stop-required acquisition parameters."
-        : "Camera is stopped. All device parameters can be changed and are applied immediately.");
-    modelValueLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_->getModelName(cameraIndex_))));
-    ipValueLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_))));
-
-    CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
-    if (params.width > 0) {
-        sensorWidthValueLabel_->setText(QString::number(params.width));
-        maxWidthValueLabel_->setText(QString::number(params.width));
-    }
-    if (params.height > 0) {
-        sensorHeightValueLabel_->setText(QString::number(params.height));
-        maxHeightValueLabel_->setText(QString::number(params.height));
-    }
-
-    const double acquisitionFps = cameraManager_->getCameraAcquisitionFps(cameraIndex_);
-    if (params.fps > 0.0) {
-        resultingRateValueLabel_->setText(QString::number(params.fps, 'f', 3) + " Hz");
-    }
-}
-
-void CameraDeviceSettingsDialog::updateImpactBanner() {
-    const bool hasChanges = currentInfo_.pixelFormat != originalInfo_.pixelFormat
-        || currentInfo_.width != originalInfo_.width
-        || currentInfo_.height != originalInfo_.height
-        || currentInfo_.offsetX != originalInfo_.offsetX
-        || currentInfo_.offsetY != originalInfo_.offsetY
-        || currentInfo_.exposureTimeAbs != originalInfo_.exposureTimeAbs
-        || currentInfo_.enableExposureTimeBase != originalInfo_.enableExposureTimeBase
-        || currentInfo_.exposureTimeBaseAbs != originalInfo_.exposureTimeBaseAbs
-        || currentInfo_.exposureTimeRaw != originalInfo_.exposureTimeRaw
-        || currentInfo_.enableAcquisitionFps != originalInfo_.enableAcquisitionFps
-        || currentInfo_.fps != originalInfo_.fps
-        || currentInfo_.chunkModeActive != originalInfo_.chunkModeActive
-        || currentInfo_.enabledChunks != originalInfo_.enabledChunks;
-
-    if (!hasChanges) {
-        impactLabel_->setText("Device settings are in sync.");
-        return;
-    }
-
-    impactLabel_->setText(hasStopRequiredChanges()
-        ? "Some edited parameters require this camera to be stopped before they can be applied."
-        : "Changes are applied immediately to the selected camera.");
 }
 
 bool CameraDeviceSettingsDialog::validateInputs(QStringList* errors) const {
@@ -650,7 +782,6 @@ void CameraDeviceSettingsDialog::onValueChanged() {
     applyImmediateChanges(includesStopRequiredChanges);
     updateControlAvailability();
     refreshLiveDeviceInfo();
-    updateImpactBanner();
 }
 
 void CameraDeviceSettingsDialog::closeDialog() {
@@ -684,7 +815,6 @@ void CameraDeviceSettingsDialog::toggleCameraRunState() {
 
     refreshLiveDeviceInfo();
     updateControlAvailability();
-    updateImpactBanner();
 }
 
 void CameraDeviceSettingsDialog::updateControlAvailability() {
@@ -711,13 +841,7 @@ void CameraDeviceSettingsDialog::updateControlAvailability() {
     acquisitionRateSpin_->setEnabled(baseEnabled && currentInfo_.enableAcquisitionFps);
 
     applyBtn_->setEnabled(true);
-    applyCloseBtn_->setVisible(false);
     cancelBtn_->setText("Cancel");
-
-    if (cameraRunStateBtn_) {
-        cameraRunStateBtn_->setEnabled(baseEnabled);
-        cameraRunStateBtn_->setText(running ? "Stop Camera for Editing" : "Start Camera");
-    }
 }
 
 void CameraDeviceSettingsDialog::applyImmediateChanges(bool includesStopRequiredChanges) {
