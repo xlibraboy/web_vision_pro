@@ -958,13 +958,9 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
 
     // Card left-border accent reflects live state
     QString cardAccent = !reachable ? "#FF5A5A" : (running ? "#2EA043" : "#E0A800");
-    static QString lastAccent;
-    if (cardAccent != lastAccent) {
-        lastAccent = cardAccent;
-        statusCard_->setStyleSheet(
-            QString("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
-                    "border-left: 4px solid %1; }").arg(cardAccent));
-    }
+    statusCard_->setStyleSheet(
+        QString("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
+                "border-left: 4px solid %1; }").arg(cardAccent));
 
     // Model row with label · value
     QString modelValue;
