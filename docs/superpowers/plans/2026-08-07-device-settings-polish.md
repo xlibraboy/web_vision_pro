@@ -253,25 +253,7 @@ QFrame* buildCallout(QWidget* parent) {
 }
 ```
 
-The callout's "Stop & Apply" button needs wiring. In `buildDetailPages()`, after inserting each callout, capture it in a local vector; after all pages are built:
-
-```cpp
-    // Wire Stop & Apply on every callout: stop the camera if running, then apply staged.
-    for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
-        QPushButton* btn = it.value()->findChild<QPushButton*>();
-        if (btn) {
-            connect(btn, &QPushButton::clicked, this, [this]() {
-                if (cameraManager_ && cameraManager_->isCameraRunning(cameraIndex_)) {
-                    cameraManager_->stopCamera(cameraIndex_);
-                }
-                applyStagedChanges();
-                refreshLiveDeviceInfo();
-            });
-        }
-    }
-```
-
-(Use `findChild<QPushButton*>()` on the callout — the callout contains exactly one button.)
+The callout's "Stop & Apply" button is created here but wired in Task 4 (its slot `applyStagedChanges()` does not exist yet).
 
 `buildDetailPages()` constructs pages in this order (group ids fixed):
 
@@ -365,7 +347,14 @@ QSet<QString> CameraDeviceSettingsDialog::stagedFieldsInGroup(int groupId) const
 
 - [ ] **Step 6: Trim old setupUi leftovers**
 
-Remove from the .cpp: the old `impactFrame`/`impactLabel_`/`statusLabel_` block, the old `tabs` QTabWidget, the old footer with `applyCloseBtn_`, the Service-tab `resetDeviceBtn_`/`cameraRunStateBtn_`, and the old duplicate inline style strings (replaced by the shared helpers). In `populateUi()`, replace the `subtitleLabel_` line with `statusTitleLabel_->setText(QString("%1 | %2 | %3 mm").arg(originalInfo_.name).arg(originalInfo_.location).arg(originalInfo_.machinePosition));`. In the constructor, after `populateUi()`, call `updateSidebarStatus();` instead of `updateImpactBanner();` and remove the `updateImpactBanner()` call site (the method itself is deleted in Task 5).
+Remove from the .cpp: the old `impactFrame`/`impactLabel_`/`statusLabel_` block, the old `tabs` QTabWidget, the old footer with `applyCloseBtn_`, the Service-tab `resetDeviceBtn_`/`cameraRunStateBtn_`, and the old duplicate inline style strings (replaced by the shared helpers). Then make these four consistency fixes so the file still compiles with the trimmed header:
+
+1. **Delete `updateImpactBanner()`** — remove its definition in the .cpp and its declaration in the header (members `impactLabel_`/`statusLabel_` are gone). Remove its call sites: in the constructor, in `onValueChanged()`, and in `toggleCameraRunState()`.
+2. **`refreshLiveDeviceInfo()`** — delete the final `statusLabel_->setText(...)` cascade (the `isCameraReachable`/`configuredReal`/connected branches). Keep only the read-only label updates and the resulting-rate line. The status chip and sidebar labels are populated from Task 2's `updateSidebarStatus()`.
+3. **`updateControlAvailability()`** — delete the `if (cameraRunStateBtn_) { ... }` block (the member is gone; `runStateBtn_` is driven by Task 2's `updateSidebarStatus()`) and the `applyCloseBtn_->setVisible(false);` line (member removed). Keep the `applyBtn_->setEnabled(true);` and `cancelBtn_->setText("Cancel");` lines (Task 3 rewrites this function).
+4. **`populateUi()`** — replace the `subtitleLabel_->setText(...)` line with `statusTitleLabel_->setText(QString("%1 | %2 | %3 mm").arg(originalInfo_.name).arg(originalInfo_.location).arg(originalInfo_.machinePosition));`.
+
+The constructor keeps its existing `populateUi(); refreshLiveDeviceInfo();` sequence — no `updateImpactBanner()` call, no `updateSidebarStatus()` call yet.
 
 - [ ] **Step 7: Build and verify**
 
@@ -661,6 +650,24 @@ void CameraDeviceSettingsDialog::applyStagedChanges() {
 }
 ```
 
+Wire the callout "Stop & Apply" buttons (created in Task 1) at the end of `applyStagedChanges()` — or, better, once in the constructor after the connects. Use `findChild<QPushButton*>()` on each callout (each callout contains exactly one button):
+
+```cpp
+    // Wire Stop & Apply on every callout: stop the camera if running, then apply staged.
+    for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
+        QPushButton* btn = it.value()->findChild<QPushButton*>();
+        if (btn) {
+            connect(btn, &QPushButton::clicked, this, [this]() {
+                if (cameraManager_ && cameraManager_->isCameraRunning(cameraIndex_)) {
+                    cameraManager_->stopCamera(cameraIndex_);
+                }
+                applyStagedChanges();
+                refreshLiveDeviceInfo();
+            });
+        }
+    }
+```
+
 - [ ] **Step 2: Implement `onCancelClicked()` with staged-loss guard**
 
 ```cpp
@@ -701,9 +708,9 @@ void CameraDeviceSettingsDialog::onCancelClicked() {
 
 Note: `clearStaged()` before `reject()` discards only staged state — live-applied writes stay on the camera (per spec).
 
-- [ ] **Step 3: Delete `applyImmediateChanges()` and `updateImpactBanner()`**
+- [ ] **Step 3: Delete `applyImmediateChanges()`**
 
-Remove both method definitions and their declarations from the header (their jobs are taken over by the staged model + `updateSidebarStatus`). Verify no remaining call sites (grep `applyImmediateChanges|updateImpactBanner` → no matches).
+Remove the method definition and its declaration in the header (`updateImpactBanner()` was already deleted in Task 1). Verify no remaining call sites (grep `applyImmediateChanges|updateImpactBanner` → no matches).
 
 - [ ] **Step 4: Build and verify**
 
