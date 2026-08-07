@@ -309,6 +309,20 @@ void CameraDeviceSettingsDialog::setupUi() {
     connect(applyStagedBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::applyStagedChanges);
     connect(runStateBtn_, &QPushButton::clicked, this, &CameraDeviceSettingsDialog::toggleCameraRunState);
     connect(refreshTimer_, &QTimer::timeout, this, &CameraDeviceSettingsDialog::refreshLiveDeviceInfo);
+
+    // Wire Stop & Apply on every callout: stop the camera if running, then apply staged.
+    for (auto it = stagedCallouts_.constBegin(); it != stagedCallouts_.constEnd(); ++it) {
+        QPushButton* btn = it.value()->findChild<QPushButton*>();
+        if (btn) {
+            connect(btn, &QPushButton::clicked, this, [this]() {
+                if (cameraManager_ && cameraManager_->isCameraRunning(cameraIndex_)) {
+                    cameraManager_->stopCamera(cameraIndex_);
+                }
+                applyStagedChanges();
+                refreshLiveDeviceInfo();
+            });
+        }
+    }
 }
 
 QWidget* CameraDeviceSettingsDialog::buildSidebar() {
@@ -669,12 +683,62 @@ void CameraDeviceSettingsDialog::updateApplyStagedEnabled() {
 }
 
 void CameraDeviceSettingsDialog::onCancelClicked() {
+    if (!stagedFields_.isEmpty()) {
+        const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+        const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+        QMessageBox box(this);
+        box.setWindowTitle("Staged Changes");
+        box.setIcon(QMessageBox::Warning);
+        box.setText(QString("%1 change(s) are staged but not yet applied to the camera.")
+                        .arg(stagedCount()));
+        QPushButton* applyAndClose = box.addButton("Apply & Close", QMessageBox::AcceptRole);
+        QPushButton* discard = box.addButton("Discard", QMessageBox::DestructiveRole);
+        box.addButton("Keep Editing", QMessageBox::RejectRole);
+        if (running) {
+            applyAndClose->setEnabled(false);
+            applyAndClose->setToolTip("Stop the camera to apply staged changes.");
+        }
+        box.exec();
+        if (box.clickedButton() == applyAndClose) {
+            applyStagedChanges();
+            if (stagedFields_.isEmpty()) {
+                accept();
+            }
+            return;
+        }
+        if (box.clickedButton() == discard) {
+            clearStaged();
+            reject();
+            return;
+        }
+        return;  // Keep Editing
+    }
     reject();
 }
 
 void CameraDeviceSettingsDialog::applyStagedChanges() {
-    // No-op in the two-pane skeleton: applyStagedBtn_ starts disabled and nothing
-    // enables it yet. The staged-change apply flow is wired in Task 4.
+    if (stagedFields_.isEmpty()) {
+        return;
+    }
+    if (!validateInputs(nullptr)) {
+        return;
+    }
+
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+    if (running) {
+        QMessageBox::information(this, "Apply Staged",
+            "Stop the camera first (sidebar button) to apply staged changes.");
+        return;
+    }
+
+    if (cameraManager_ && connected) {
+        cameraManager_->applyCameraDeviceSettings(cameraIndex_, currentInfo_);
+    }
+    persistSharedCameraSettings(cameraIndex_, currentInfo_);
+    emit settingsApplied(currentInfo_);
+    clearStaged();
+    refreshLiveDeviceInfo();
 }
 
 void CameraDeviceSettingsDialog::populateUi() {
@@ -736,6 +800,16 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
     const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
     const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+
+    // Carried fix: refresh live temperature on the read-only label only.
+    // Never overwrite with an unmeaningful reading (getTemperature returns 0.0
+    // when the sensor is not reachable or not reporting).
+    if (cameraManager_ && reachable) {
+        const double temp = cameraManager_->getTemperature(cameraIndex_);
+        if (temp > 0.0) {
+            currentInfo_.temperature = temp;
+        }
+    }
 
     QString chipText;
     QString chipColor;
