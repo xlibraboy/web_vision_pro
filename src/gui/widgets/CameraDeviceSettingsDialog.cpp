@@ -678,9 +678,57 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     sensorHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
     maxWidthValueLabel_->setText(QString::number(std::max(0, originalInfo_.width)));
     maxHeightValueLabel_->setText(QString::number(std::max(0, originalInfo_.height)));
-    modelValueLabel_->setText(formatReadOnlyValue(originalInfo_.model));
-    ipValueLabel_->setText(formatReadOnlyValue(originalInfo_.ipAddress));
+    modelValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getModelName(cameraIndex_)) : originalInfo_.model));
+    ipValueLabel_->setText(formatReadOnlyValue(cameraManager_ ? QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_)) : originalInfo_.ipAddress));
     resultingRateValueLabel_->setText(QString::number(currentInfo_.fps, 'f', 3) + " Hz");
+    updateSidebarStatus();
+}
+
+void CameraDeviceSettingsDialog::updateSidebarStatus() {
+    const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
+    const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
+    const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
+
+    QString chipText;
+    QString chipColor;
+    if (!reachable) {
+        chipText = "Offline";
+        chipColor = "#FF5A5A";
+    } else if (running) {
+        chipText = "Running";
+        chipColor = "#2EA043";
+    } else if (connected) {
+        chipText = "Stopped";
+        chipColor = "#E0A800";
+    } else {
+        chipText = "Online";
+        chipColor = "#E0A800";
+    }
+    statusChipLabel_->setText(chipText);
+    statusChipLabel_->setStyleSheet(
+        QString("QLabel { color: %1; font-size: 12px; font-weight: 600; padding: 3px 10px; border: 1px solid %1; border-radius: 10px; }")
+            .arg(chipColor));
+
+    statusModelLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getModelName(cameraIndex_) : std::string())));
+    statusIpLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getIpAddress(cameraIndex_) : std::string())));
+    statusTempLabel_->setText(QString("Temperature: %1 C").arg(currentInfo_.temperature, 0, 'f', 1));
+
+    if (!reachable) {
+        runStateBtn_->setText("Unavailable");
+        runStateBtn_->setEnabled(false);
+        runStateBtn_->setStyleSheet(
+            "QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; "
+            "color: #6E7681; border: 1px solid #30363D; background: transparent; }");
+        return;
+    }
+    runStateBtn_->setEnabled(editable_);
+    runStateBtn_->setText(running ? "Stop Camera" : "Start Camera");
+    runStateBtn_->setStyleSheet(
+        QString("QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; "
+                "color: %1; border: 1px solid %1; background: transparent; }"
+                "QPushButton:hover { background: rgba(0, 229, 255, 0.08); border-color: #00E5FF; }"
+                "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }")
+            .arg(running ? "#2EA043" : "#E0A800"));
 }
 
 bool CameraDeviceSettingsDialog::validateInputs(QStringList* errors) const {
