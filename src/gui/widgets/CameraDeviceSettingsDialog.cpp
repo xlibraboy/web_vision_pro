@@ -581,16 +581,14 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     chunkGroupLayout->addWidget(chunkHelp);
     chunkListWidget_ = new QListWidget(chunkGroup);
     chunkListWidget_->setSelectionMode(QAbstractItemView::NoSelection);
-    chunkListWidget_->setAlternatingRowColors(true);
     chunkListWidget_->setStyleSheet(
-        "QListWidget { background-color: #161B22; border: 1px solid #30363D; border-radius: 6px; color: #E3E3E3; outline: 0; }"
-        "QListWidget::item { padding: 8px 10px; }"
-        "QListWidget::item:alternate { background-color: #1C2128; }"
-        "QListWidget::item:hover { background-color: rgba(0, 229, 255, 0.08); }"
-        "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.15); color: #E3E3E3; }"
-        "QScrollBar:vertical { background: #161B22; width: 8px; margin: 0; border-radius: 4px; }"
-        "QScrollBar::handle:vertical { background: #30363D; min-height: 24px; border-radius: 4px; }"
-        "QScrollBar::handle:vertical:hover { background: #484F58; }"
+        "QListWidget { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; color: #E3E3E3; outline: 0; }"
+        "QListWidget::item { padding: 7px 10px; }"
+        "QListWidget::item:hover { background-color: #252B33; }"
+        "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.10); color: #E3E3E3; }"
+        "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; border-radius: 4px; }"
+        "QScrollBar::handle:vertical { background: #3D444D; min-height: 20px; border-radius: 4px; }"
+        "QScrollBar::handle:vertical:hover { background: #4F5760; }"
         "QScrollBar::add-line:vertical { height: 0; background: none; }"
         "QScrollBar::sub-line:vertical { height: 0; background: none; }"
         "QScrollBar::add-page:vertical { background: none; }"
