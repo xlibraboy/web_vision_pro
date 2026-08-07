@@ -31,11 +31,13 @@ private slots:
     void onTableSelectionChanged();
     void onModeChanged(int index);
     void onApplyClicked();
+    void onIpFieldEdited(const QString& text);
 
 private:
     void setupUI();
     void populateTable(const std::vector<GigEDeviceInfo>& devices);
     void loadRowIntoEditor(int row);
+    void clearEditor();
     static bool isValidIpv4(const QString& text);
 
     QTableWidget* table_;

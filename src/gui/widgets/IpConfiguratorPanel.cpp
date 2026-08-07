@@ -68,6 +68,9 @@ void IpConfiguratorPanel::setupUI() {
     ipEdit_ = new QLineEdit(editGroup);
     maskEdit_ = new QLineEdit(editGroup);
     gatewayEdit_ = new QLineEdit(editGroup);
+    connect(ipEdit_, &QLineEdit::textEdited, this, &IpConfiguratorPanel::onIpFieldEdited);
+    connect(maskEdit_, &QLineEdit::textEdited, this, &IpConfiguratorPanel::onIpFieldEdited);
+    connect(gatewayEdit_, &QLineEdit::textEdited, this, &IpConfiguratorPanel::onIpFieldEdited);
     editLayout->addWidget(new QLabel("IP Address:", editGroup), 1, 0);
     editLayout->addWidget(ipEdit_, 1, 1);
     editLayout->addWidget(new QLabel("Subnet Mask:", editGroup), 2, 0);
@@ -81,12 +84,13 @@ void IpConfiguratorPanel::setupUI() {
     editLayout->addWidget(applyBtn_, 4, 0, 1, 2);
 
     layout->addWidget(editGroup);
-    onModeChanged(0);
+    clearEditor();
 }
 
 void IpConfiguratorPanel::refresh() {
     devices_ = CameraManager::enumerateGigEDevices();
     populateTable(devices_);
+    clearEditor();
     if (devices_.empty()) {
         statusLabel_->setText("No GigE devices found. Check the network connection and click Refresh.");
     } else {
@@ -126,8 +130,14 @@ void IpConfiguratorPanel::onRefreshClicked() {
 
 void IpConfiguratorPanel::onTableSelectionChanged() {
     const int row = table_->currentRow();
-    applyBtn_->setEnabled(row >= 0 && adminMode_ && !applyInFlight_);
-    if (row >= 0) loadRowIntoEditor(row);
+    if (row < 0) {
+        clearEditor();
+        return;
+    }
+    modeCombo_->setEnabled(adminMode_);
+    applyBtn_->setEnabled(adminMode_ && !applyInFlight_);
+    loadRowIntoEditor(row);
+    onModeChanged(0);
 }
 
 void IpConfiguratorPanel::loadRowIntoEditor(int row) {
@@ -141,7 +151,8 @@ void IpConfiguratorPanel::loadRowIntoEditor(int row) {
 }
 
 void IpConfiguratorPanel::onModeChanged(int) {
-    const bool staticMode = adminMode_ && modeCombo_->currentData().toString() == QStringLiteral("Static");
+    const bool editable = adminMode_ && table_->currentRow() >= 0;
+    const bool staticMode = editable && modeCombo_->currentData().toString() == QStringLiteral("Static");
     ipEdit_->setEnabled(staticMode);
     maskEdit_->setEnabled(staticMode);
     gatewayEdit_->setEnabled(staticMode);
@@ -191,11 +202,47 @@ void IpConfiguratorPanel::setApplyResult(bool ok, const QString& message) {
     }
 }
 
+void IpConfiguratorPanel::onIpFieldEdited(const QString& text) {
+    Q_UNUSED(text);
+    auto* edit = qobject_cast<QLineEdit*>(sender());
+    if (!edit) return;
+
+    // Keep only digits (max 12 = 4 octets), then insert the dots.
+    QString digits;
+    digits.reserve(12);
+    for (const QChar ch : edit->text()) {
+        if (ch.isDigit()) {
+            digits.append(ch);
+            if (digits.size() == 12) break;
+        }
+    }
+    QString dotted;
+    dotted.reserve(15);
+    for (int i = 0; i < digits.size(); ++i) {
+        if (i == 3 || i == 6 || i == 9) dotted.append(QLatin1Char('.'));
+        dotted.append(digits.at(i));
+    }
+    edit->blockSignals(true);
+    edit->setText(dotted);
+    edit->setCursorPosition(dotted.size());
+    edit->blockSignals(false);
+}
+
+void IpConfiguratorPanel::clearEditor() {
+    modeCombo_->setCurrentIndex(0);
+    ipEdit_->clear();
+    maskEdit_->clear();
+    gatewayEdit_->clear();
+    modeCombo_->setEnabled(false);
+    applyBtn_->setEnabled(false);
+    onModeChanged(0);
+}
+
 void IpConfiguratorPanel::setAdminMode(bool isAdmin) {
     adminMode_ = isAdmin;
     refreshBtn_->setEnabled(true);
     table_->setEnabled(isAdmin);
-    modeCombo_->setEnabled(isAdmin);
+    modeCombo_->setEnabled(isAdmin && table_->currentRow() >= 0);
     applyBtn_->setEnabled(isAdmin && table_->currentRow() >= 0 && !applyInFlight_);
     onModeChanged(0); // re-apply field enable state
 }
