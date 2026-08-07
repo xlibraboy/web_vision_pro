@@ -178,10 +178,12 @@ QFrame* buildCallout(QWidget* parent) {
         "color: #F0C040; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;");
     QPushButton* stopApply = new QPushButton("Stop and Apply", callout);
     stopApply->setStyleSheet(
-        "QPushButton { background: rgba(224, 168, 0, 0.18); color: #F0C040; border: 1px solid rgba(224, 168, 0, 0.4); "
-        "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; }"
-        "QPushButton:hover { background: rgba(224, 168, 0, 0.28); border-color: #E0A800; }"
-        "QPushButton:pressed { background: rgba(224, 168, 0, 0.35); }");
+        "QPushButton { background: rgba(224, 168, 0, 0.15); color: #F0C040; border: 1px solid rgba(224, 168, 0, 0.35); "
+        "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; "
+        "transition: all 0.15s ease; }"
+        "QPushButton:hover { background: rgba(224, 168, 0, 0.30); border: 1px solid rgba(240, 192, 64, 0.7); "
+        "color: #FFD866; padding: 5px 14px; }"
+        "QPushButton:pressed { background: rgba(224, 168, 0, 0.40); border: 1px solid #E0A800; padding: 5px 12px; }");
     lay->addWidget(icon);
     lay->addWidget(text, 1);
     lay->addWidget(stopApply);
