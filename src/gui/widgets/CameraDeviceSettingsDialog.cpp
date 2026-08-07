@@ -372,23 +372,35 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
     sideLayout->setSpacing(10);
 
     statusCard_ = new QFrame(sidebar);
-    statusCard_->setStyleSheet("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; }");
+    statusCard_->setStyleSheet(
+        "QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
+        "border-left: 4px solid #30363D; }");
     QVBoxLayout* cardLayout = new QVBoxLayout(statusCard_);
     cardLayout->setContentsMargins(12, 10, 12, 10);
-    cardLayout->setSpacing(4);
+    cardLayout->setSpacing(6);
     statusTitleLabel_ = new QLabel(statusCard_);
-    statusTitleLabel_->setStyleSheet("font-size: 13px; font-weight: 600; color: #E3E3E3;");
+    statusTitleLabel_->setWordWrap(true);
+    statusTitleLabel_->setStyleSheet(
+        "font-size: 13px; font-weight: 600; color: #E3E3E3; line-height: 1.3;");
+    const QString rowPill = "background: rgba(33, 38, 45, 0.5); border-radius: 4px; padding: 3px 8px;";
     statusModelLabel_ = new QLabel(statusCard_);
-    statusModelLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    statusModelLabel_->setStyleSheet("font-size: 11px; color: #8B949E; " + rowPill);
     statusIpLabel_ = new QLabel(statusCard_);
-    statusIpLabel_->setStyleSheet("font-size: 11px; color: #8B949E; font-family: 'SF Mono', Monaco, monospace;");
+    statusIpLabel_->setStyleSheet("font-size: 11px; color: #8B949E; font-family: 'SF Mono', Monaco, monospace; " + rowPill);
     statusTempLabel_ = new QLabel(statusCard_);
-    statusTempLabel_->setStyleSheet("font-size: 11px; color: #8B949E;");
+    statusTempLabel_->setStyleSheet("font-size: 11px; color: #8B949E; " + rowPill);
+
+    QFrame* cardSep = new QFrame(statusCard_);
+    cardSep->setFrameShape(QFrame::HLine);
+    cardSep->setStyleSheet("background-color: #30363D; max-height: 1px; border: none; margin: 2px 0;");
+
     runStateBtn_ = new QPushButton(statusCard_);
     runStateBtn_->setStyleSheet(
-        "QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; }"
-        "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; background: transparent; }");
+        "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+        "color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }"
+        "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }");
     cardLayout->addWidget(statusTitleLabel_);
+    cardLayout->addWidget(cardSep);
     cardLayout->addWidget(statusModelLabel_);
     cardLayout->addWidget(statusIpLabel_);
     cardLayout->addWidget(statusTempLabel_);
@@ -813,7 +825,11 @@ void CameraDeviceSettingsDialog::applyStagedChanges() {
 
 void CameraDeviceSettingsDialog::populateUi() {
     populating_ = true;
-    statusTitleLabel_->setText(QString("%1 | %2 | %3 mm").arg(originalInfo_.name).arg(originalInfo_.location).arg(originalInfo_.machinePosition));
+    statusTitleLabel_->setText(
+        QString("<b>%1</b><br><span style='font-size:11px; color:#8B949E;'>%2 · %3 mm</span>")
+            .arg(originalInfo_.name.toHtmlEscaped(),
+                 originalInfo_.location.toHtmlEscaped(),
+                 QString::number(originalInfo_.machinePosition)));
 
     QStringList formats = defaultPixelFormats();
     if (formats.isEmpty()) {
@@ -940,31 +956,83 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         QString("QLabel { color: %1; font-size: 12px; font-weight: 600; padding: 3px 10px; border: 1px solid %1; border-radius: 10px; }")
             .arg(chipColor));
 
-    if (liveSettings_.ok) {
-        statusModelLabel_->setText(formatReadOnlyValue(liveSettings_.modelName));
-        statusIpLabel_->setText(formatReadOnlyValue(liveSettings_.ipAddress));
-    } else {
-        statusModelLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getModelName(cameraIndex_) : std::string())));
-        statusIpLabel_->setText(formatReadOnlyValue(QString::fromStdString(cameraManager_ ? cameraManager_->getIpAddress(cameraIndex_) : std::string())));
+    // Card left-border accent reflects live state
+    QString cardAccent = !reachable ? "#FF5A5A" : (running ? "#2EA043" : "#E0A800");
+    static QString lastAccent;
+    if (cardAccent != lastAccent) {
+        lastAccent = cardAccent;
+        statusCard_->setStyleSheet(
+            QString("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
+                    "border-left: 4px solid %1; }").arg(cardAccent));
     }
-    statusTempLabel_->setText(QString("Temperature: %1 C").arg(currentInfo_.temperature, 0, 'f', 1));
 
+    // Model row with label · value
+    QString modelValue;
+    if (liveSettings_.ok) {
+        modelValue = liveSettings_.modelName;
+    } else {
+        modelValue = cameraManager_ ? QString::fromStdString(cameraManager_->getModelName(cameraIndex_)) : QString();
+    }
+    bool modelOk = !modelValue.trimmed().isEmpty()
+                   && modelValue != "Not Connected" && modelValue != "Unknown Model";
+    statusModelLabel_->setText(
+        QString("<span style='color:#8B949E;'>Model</span>  "
+                "<span style='color:%1;'>%2</span>")
+            .arg(modelOk ? "#E3E3E3" : "#FF5A5A",
+                 modelOk ? modelValue.toHtmlEscaped() : "Not Connected"));
+
+    // IP row with label · value
+    QString ipValue;
+    if (liveSettings_.ok) {
+        ipValue = liveSettings_.ipAddress;
+    } else {
+        ipValue = cameraManager_ ? QString::fromStdString(cameraManager_->getIpAddress(cameraIndex_)) : QString();
+    }
+    bool ipOk = !ipValue.trimmed().isEmpty() && ipValue != "Offline";
+    statusIpLabel_->setText(
+        QString("<span style='color:#8B949E;'>IP</span>  "
+                "<span style='color:%1; font-family: SF Mono, Monaco, monospace;'>%2</span>")
+            .arg(ipOk ? "#E3E3E3" : "#FF5A5A",
+                 ipOk ? ipValue.toHtmlEscaped() : "Offline"));
+
+    // Temperature row — show dash when sensor not reporting
+    double temp = currentInfo_.temperature;
+    if (temp > 0.0) {
+        QString tempColor = temp > 50.0 ? "#FF5A5A" : "#E3E3E3";
+        statusTempLabel_->setText(
+            QString("<span style='color:#8B949E;'>Temp</span>  "
+                    "<span style='color:%1;'>%2°C</span>")
+                .arg(tempColor, QString::number(temp, 'f', 1)));
+    } else {
+        statusTempLabel_->setText(
+            "<span style='color:#8B949E;'>Temp</span>  "
+            "<span style='color:#6E7681;'>—</span>");
+    }
+
+    // Run-state button
     if (!reachable) {
         runStateBtn_->setText("Unavailable");
         runStateBtn_->setEnabled(false);
         runStateBtn_->setStyleSheet(
-            "QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; "
-            "color: #6E7681; border: 1px solid #30363D; background: transparent; }");
+            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            "color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }");
         return;
     }
     runStateBtn_->setEnabled(editable_);
     runStateBtn_->setText(running ? "Stop Camera" : "Start Camera");
-    runStateBtn_->setStyleSheet(
-        QString("QPushButton { border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; margin-top: 6px; "
-                "color: %1; border: 1px solid %1; background: transparent; }"
-                "QPushButton:hover { background: rgba(0, 229, 255, 0.08); border-color: #00E5FF; }"
-                "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }")
-            .arg(running ? "#2EA043" : "#E0A800"));
+    if (running) {
+        runStateBtn_->setStyleSheet(
+            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            "color: #2EA043; border: 1px solid #2EA043; background: rgba(46, 160, 67, 0.12); }"
+            "QPushButton:hover { background: rgba(46, 160, 67, 0.22); border-color: #3FBF5F; }"
+            "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }");
+    } else {
+        runStateBtn_->setStyleSheet(
+            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            "color: #E0A800; border: 1px solid #E0A800; background: transparent; }"
+            "QPushButton:hover { background: rgba(224, 168, 0, 0.10); border-color: #F0B800; }"
+            "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }");
+    }
 }
 
 bool CameraDeviceSettingsDialog::validateInputs(QStringList* errors) const {
