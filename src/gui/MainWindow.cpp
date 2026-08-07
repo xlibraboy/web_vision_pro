@@ -590,6 +590,11 @@ void MainWindow::setupUi() {
 void MainWindow::setupCore() {
     // 1. Initialize Components
     cameraManager_ = std::make_unique<CameraManager>();
+    if (configWindow_) {
+        // ConfigDialog is created in setupUi(), before this manager exists.
+        // Re-wire so device-settings/IP panels get the live manager.
+        configWindow_->setCameraManager(cameraManager_.get());
+    }
     opcUaClientService_ = std::make_unique<OpcUaClientService>(this);
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();

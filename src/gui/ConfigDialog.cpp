@@ -454,6 +454,10 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
 
 ConfigDialog::~ConfigDialog() = default;
 
+void ConfigDialog::setCameraManager(CameraManager* manager) {
+    cameraManager_ = manager;
+}
+
 void ConfigDialog::setupUI() {
     constexpr int kPageMargin = 16;
     constexpr int kSectionSpacing = 16;

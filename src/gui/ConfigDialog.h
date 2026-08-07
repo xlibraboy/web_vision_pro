@@ -37,6 +37,9 @@ class ConfigDialog : public QWidget {
 
 public:
     explicit ConfigDialog(CameraManager* cameraManager = nullptr, QWidget *parent = nullptr);
+    // ConfigDialog may be constructed before the CameraManager exists
+    // (MainWindow: setupUi runs before setupCore). Re-wire it once created.
+    void setCameraManager(CameraManager* manager);
     void setAdminMode(bool isAdmin);
 
     ~ConfigDialog() override;
