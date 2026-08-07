@@ -38,3 +38,6 @@ size_check.cpp
 
 # Worktrees
 .worktrees/
+
+# SDD scratch workspace
+.superpowers/
