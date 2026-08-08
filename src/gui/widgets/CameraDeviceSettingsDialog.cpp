@@ -4,6 +4,7 @@
 
 #include <QAbstractItemView>
 #include <QCheckBox>
+#include <QColor>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -26,6 +27,63 @@
 #include "../../core/CameraManager.h"
 
 namespace {
+
+QString toRgba(const QString& hex, int alpha) {
+    const QColor c(hex);
+    return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
+}
+
+// Theme-aware chrome palette for this dialog. Semantic state colors (offline
+// red, running green, staged amber) stay fixed — they carry meaning.
+struct DlgPalette {
+    QString bg;          // page / dark background
+    QString panel;       // field, card, list background
+    QString border;      // borders and dividers
+    QString text;        // primary text
+    QString muted;       // secondary text
+    QString disabled;    // disabled / placeholder text
+    QString accent;      // primary accent (focus, selection)
+    QString accentSoft;  // accent at low alpha (selected rows)
+    QString hover;       // hover background
+    QString scroll;      // scrollbar handle
+    QString scrollHover; // scrollbar handle hover
+};
+
+DlgPalette dlgPalette() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    DlgPalette p;
+    p.bg = tc.bg;
+    p.panel = tc.btnBg;
+    p.border = tc.border;
+    p.text = tc.text;
+    p.muted = toRgba(tc.text, 155);
+    p.disabled = toRgba(tc.text, 105);
+    p.accent = tc.primary;
+    p.accentSoft = toRgba(tc.primary, 26);
+    p.hover = tc.btnHover;
+    p.scroll = toRgba(tc.text, 70);
+    p.scrollHover = toRgba(tc.text, 110);
+    return p;
+}
+
+QString fieldStyle(const char* widgetName) {
+    const DlgPalette p = dlgPalette();
+    return QString("%1 { background-color: %2; border: 1px solid %3; border-radius: 6px; "
+                   "padding: 6px 8px; color: %4; font-size: 12px; }"
+                   "%1:focus { border-color: %5; }")
+        .arg(QString::fromLatin1(widgetName), p.panel, p.border, p.text, p.accent);
+}
+
+QString sectionTitleStyle() {
+    const DlgPalette p = dlgPalette();
+    return QString("font-size: 14px; font-weight: 600; color: %1;").arg(p.text);
+}
+
+QString sectionHintStyle() {
+    const DlgPalette p = dlgPalette();
+    return QString("font-size: 11px; color: %1;").arg(p.muted);
+}
+
 QString formatReadOnlyValue(const QString& value) {
     return value.trimmed().isEmpty() ? QString("Not available") : value;
 }
@@ -122,42 +180,35 @@ void persistSharedCameraSettings(int cameraIndex, const CameraInfo& info) {
 }
 
 QLabel* createInfoValueLabel(const QString& text = QString()) {
+    const DlgPalette p = dlgPalette();
     QLabel* label = new QLabel(formatReadOnlyValue(text));
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     label->setWordWrap(true);
     label->setStyleSheet(
-        "QLabel { background-color: #1C2128; border: 1px solid #30363D; "
-        "border-radius: 6px; padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
+        QString("QLabel { background-color: %1; border: 1px solid %2; "
+                "border-radius: 6px; padding: 6px 8px; color: %3; font-size: 12px; }")
+            .arg(p.panel, p.border, p.text)
     );
     return label;
 }
 
 void addFormRow(QFormLayout* layout, const QString& label, QWidget* field) {
+    const DlgPalette p = dlgPalette();
     QLabel* labelWidget = new QLabel(label);
-    labelWidget->setStyleSheet("color: #8B949E; font-size: 11px; font-weight: 500;");
+    labelWidget->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 500;").arg(p.muted));
     layout->addRow(labelWidget, field);
 }
 
 QString groupBoxStyle() {
-    return "QGroupBox { font-weight: 600; color: #00E5FF; border: 1px solid #30363D; border-radius: 8px; "
-           "margin-top: 6px; padding-top: 8px; font-size: 12px; }"
-           "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }";
+    const DlgPalette p = dlgPalette();
+    return QString("QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 8px; "
+                   "margin-top: 6px; padding-top: 8px; font-size: 12px; }"
+                   "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }")
+        .arg(p.accent, p.border);
 }
-QString comboStyle() {
-    return "QComboBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
-           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
-           "QComboBox:focus { border-color: #00E5FF; }";
-}
-QString spinStyle() {
-    return "QSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
-           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
-           "QSpinBox:focus { border-color: #00E5FF; }";
-}
-QString doubleSpinStyle() {
-    return "QDoubleSpinBox { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; "
-           "padding: 6px 8px; color: #E3E3E3; font-size: 12px; }"
-           "QDoubleSpinBox:focus { border-color: #00E5FF; }";
-}
+QString comboStyle()    { return fieldStyle("QComboBox"); }
+QString spinStyle()     { return fieldStyle("QSpinBox"); }
+QString doubleSpinStyle(){ return fieldStyle("QDoubleSpinBox"); }
 QFrame* buildCallout(QWidget* parent) {
     QFrame* callout = new QFrame(parent);
     callout->setStyleSheet(
@@ -348,14 +399,16 @@ void CameraDeviceSettingsDialog::setupUi() {
     QLabel* titleIcon = new QLabel(this);
     titleIcon->setPixmap(IconManager::instance().camera(20).pixmap(20, 20));
     titleLayout->addWidget(titleIcon);
+    const DlgPalette pal = dlgPalette();
     QLabel* titleLabel = new QLabel(QString("Camera %1 - Device Settings").arg(originalInfo_.id), this);
-    titleLabel->setStyleSheet("font-size: 17px; font-weight: 600; color: #E3E3E3;");
+    titleLabel->setStyleSheet(QString("font-size: 17px; font-weight: 600; color: %1;").arg(pal.text));
     titleLayout->addWidget(titleLabel);
     titleLayout->addStretch();
     statusChipLabel_ = new QLabel(this);
     statusChipLabel_->setStyleSheet(
-        "QLabel { color: #8B949E; font-size: 12px; font-weight: 600; "
-        "padding: 3px 10px; border: 1px solid #30363D; border-radius: 10px; }");
+        QString("QLabel { color: %1; font-size: 12px; font-weight: 600; "
+                "padding: 3px 10px; border: 1px solid %2; border-radius: 10px; }")
+            .arg(pal.muted, pal.border));
     titleLayout->addWidget(statusChipLabel_);
     rootLayout->addLayout(titleLayout);
 
@@ -384,12 +437,15 @@ void CameraDeviceSettingsDialog::setupUi() {
     rootLayout->addLayout(footerLayout);
 
     const QString buttonBase =
-        "QPushButton { border: 1px solid #30363D; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; } ";
+        QString("QPushButton { border: 1px solid %1; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; } ")
+            .arg(pal.border);
     cancelBtn_->setStyleSheet(buttonBase +
-        "QPushButton { background: transparent; color: #E3E3E3; } QPushButton:hover { border-color: #8B949E; }");
+        QString("QPushButton { background: transparent; color: %1; } QPushButton:hover { border-color: %2; }")
+            .arg(pal.text, pal.muted));
     applyStagedBtn_->setStyleSheet(buttonBase +
-        "QPushButton { background: #1C2128; color: #E0A800; } QPushButton:hover { border-color: #E0A800; }"
-        "QPushButton:disabled { color: #6E7681; border-color: #30363D; }");
+        QString("QPushButton { background: %1; color: #E0A800; } QPushButton:hover { border-color: #E0A800; }"
+                "QPushButton:disabled { color: %2; border-color: %3; }")
+            .arg(pal.panel, pal.disabled, pal.border));
     applyBtn_->setStyleSheet(buttonBase +
         "QPushButton { background: #238636; color: white; } QPushButton:hover { background: #2EA043; }");
 
@@ -448,6 +504,7 @@ void CameraDeviceSettingsDialog::setupUi() {
 }
 
 QWidget* CameraDeviceSettingsDialog::buildSidebar() {
+    const DlgPalette pal = dlgPalette();
     QWidget* sidebar = new QWidget(this);
     sidebar->setFixedWidth(230);
     QVBoxLayout* sideLayout = new QVBoxLayout(sidebar);
@@ -456,32 +513,34 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
 
     statusCard_ = new QFrame(sidebar);
     statusCard_->setStyleSheet(
-        "QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
-        "border-left: 4px solid #30363D; }");
+        QString("QFrame { background-color: %1; border: 1px solid %2; border-radius: 8px; "
+                "border-left: 4px solid %2; }").arg(pal.panel, pal.border));
     QVBoxLayout* cardLayout = new QVBoxLayout(statusCard_);
     cardLayout->setContentsMargins(12, 10, 12, 10);
     cardLayout->setSpacing(6);
     statusTitleLabel_ = new QLabel(statusCard_);
     statusTitleLabel_->setWordWrap(true);
     statusTitleLabel_->setStyleSheet(
-        "font-size: 13px; font-weight: 600; color: #E3E3E3; line-height: 1.3;");
-    const QString rowPill = "background: rgba(33, 38, 45, 0.5); border-radius: 4px; padding: 3px 8px;";
+        QString("font-size: 13px; font-weight: 600; color: %1; line-height: 1.3;").arg(pal.text));
+    const QString rowPill = QString("background: %1; border-radius: 4px; padding: 3px 8px;")
+                                .arg(toRgba(pal.panel, 160));
     statusModelLabel_ = new QLabel(statusCard_);
-    statusModelLabel_->setStyleSheet("font-size: 11px; color: #8B949E; " + rowPill);
+    statusModelLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
     statusIpLabel_ = new QLabel(statusCard_);
-    statusIpLabel_->setStyleSheet("font-size: 11px; color: #8B949E; font-family: 'SF Mono', Monaco, monospace; " + rowPill);
+    statusIpLabel_->setStyleSheet(QString("font-size: 11px; color: %1; font-family: 'SF Mono', Monaco, monospace; ").arg(pal.muted) + rowPill);
     statusTempLabel_ = new QLabel(statusCard_);
-    statusTempLabel_->setStyleSheet("font-size: 11px; color: #8B949E; " + rowPill);
+    statusTempLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
 
     QFrame* cardSep = new QFrame(statusCard_);
     cardSep->setFrameShape(QFrame::HLine);
-    cardSep->setStyleSheet("background-color: #30363D; max-height: 1px; border: none; margin: 2px 0;");
+    cardSep->setStyleSheet(QString("background-color: %1; max-height: 1px; border: none; margin: 2px 0;").arg(pal.border));
 
     runStateBtn_ = new QPushButton(statusCard_);
     runStateBtn_->setStyleSheet(
-        "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-        "color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }"
-        "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }");
+        QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+                "color: %1; border: 1px solid %2; background: %3; }"
+                "QPushButton:disabled { color: %1; border: 1px solid %2; background: %3; }")
+            .arg(pal.disabled, pal.border, toRgba(pal.border, 90)));
     cardLayout->addWidget(statusTitleLabel_);
     cardLayout->addWidget(cardSep);
     cardLayout->addWidget(statusModelLabel_);
@@ -492,26 +551,29 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
 
     navList_ = new QListWidget(sidebar);
     navList_->setStyleSheet(
-        "QListWidget { background: transparent; border: none; outline: 0; }"
-        "QListWidget::item { padding: 8px 10px; border-radius: 6px; color: #8B949E; font-size: 12px; font-weight: 500; }"
-        "QListWidget::item:hover { background-color: rgba(0, 229, 255, 0.06); color: #E3E3E3; }"
-        "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.12); color: #E3E3E3; border-left: 2px solid #00E5FF; }");
+        QString("QListWidget { background: transparent; border: none; outline: 0; }"
+                "QListWidget::item { padding: 8px 10px; border-radius: 6px; color: %1; font-size: 12px; font-weight: 500; }"
+                "QListWidget::item:hover { background-color: %2; color: %3; }"
+                "QListWidget::item:selected { background-color: %4; color: %3; border-left: 2px solid %5; }")
+            .arg(pal.muted, toRgba(pal.accent, 16), pal.text, toRgba(pal.accent, 32), pal.accent));
     navList_->setFocusPolicy(Qt::StrongFocus);
     sideLayout->addWidget(navList_, 1);
     return sidebar;
 }
 
 void CameraDeviceSettingsDialog::buildDetailPages() {
+    const DlgPalette palDetail = dlgPalette();
+
     // --- Page: Image Format (group 0) ---
     QWidget* imagePage = new QWidget(this);
     QVBoxLayout* imagePageLayout = new QVBoxLayout(imagePage);
     imagePageLayout->setContentsMargins(4, 0, 4, 0);
     imagePageLayout->setSpacing(10);
     QLabel* imageTitle = new QLabel("Image Format", imagePage);
-    imageTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    imageTitle->setStyleSheet(sectionTitleStyle());
     imagePageLayout->addWidget(imageTitle);
     QLabel* imageHint = new QLabel("Pixel format of the acquired image.", imagePage);
-    imageHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    imageHint->setStyleSheet(sectionHintStyle());
     imagePageLayout->addWidget(imageHint);
     stagedCallouts_.insert(0, buildCallout(imagePage));
     imagePageLayout->addWidget(stagedCallouts_.value(0));
@@ -536,10 +598,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     aoiPageLayout->setContentsMargins(4, 0, 4, 0);
     aoiPageLayout->setSpacing(10);
     QLabel* aoiTitle = new QLabel("AOI", aoiPage);
-    aoiTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    aoiTitle->setStyleSheet(sectionTitleStyle());
     aoiPageLayout->addWidget(aoiTitle);
     QLabel* aoiHint = new QLabel("Region of interest; requires camera stop to apply.", aoiPage);
-    aoiHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    aoiHint->setStyleSheet(sectionHintStyle());
     aoiPageLayout->addWidget(aoiHint);
     stagedCallouts_.insert(1, buildCallout(aoiPage));
     aoiPageLayout->addWidget(stagedCallouts_.value(1));
@@ -588,10 +650,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     exposurePageLayout->setContentsMargins(4, 0, 4, 0);
     exposurePageLayout->setSpacing(10);
     QLabel* exposureTitle = new QLabel("Exposure & Rate", exposurePage);
-    exposureTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    exposureTitle->setStyleSheet(sectionTitleStyle());
     exposurePageLayout->addWidget(exposureTitle);
     QLabel* exposureHint = new QLabel("Exposure and framerate apply live to the camera - no restart needed.", exposurePage);
-    exposureHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    exposureHint->setStyleSheet(sectionHintStyle());
     exposurePageLayout->addWidget(exposureHint);
     stagedCallouts_.insert(2, buildCallout(exposurePage));
     exposurePageLayout->addWidget(stagedCallouts_.value(2));
@@ -622,8 +684,8 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     exposureTimeBaseSpin_->setStyleSheet(doubleSpinStyle());
     acquisitionRateSpin_->setStyleSheet(doubleSpinStyle());
     exposureTimeRawSpin_->setStyleSheet(spinStyle());
-    enableExposureTimeBaseCheck_->setStyleSheet("color: #E3E3E3; font-size: 12px;");
-    enableAcquisitionRateCheck_->setStyleSheet("color: #E3E3E3; font-size: 12px;");
+    enableExposureTimeBaseCheck_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.text));
+    enableAcquisitionRateCheck_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.text));
     resultingRateValueLabel_ = createInfoValueLabel();
     addFormRow(exposureForm, "Exposure Time (Abs):", exposureTimeAbsSpin_);
     addFormRow(exposureForm, QString(), enableExposureTimeBaseCheck_);
@@ -642,10 +704,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     chunkPageLayout->setContentsMargins(4, 0, 4, 0);
     chunkPageLayout->setSpacing(10);
     QLabel* chunkTitle = new QLabel("Chunk Data", chunkPage);
-    chunkTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    chunkTitle->setStyleSheet(sectionTitleStyle());
     chunkPageLayout->addWidget(chunkTitle);
     QLabel* chunkHint = new QLabel("Choose chunk items included in the payload; requires camera stop.", chunkPage);
-    chunkHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    chunkHint->setStyleSheet(sectionHintStyle());
     chunkPageLayout->addWidget(chunkHint);
     stagedCallouts_.insert(3, buildCallout(chunkPage));
     chunkPageLayout->addWidget(stagedCallouts_.value(3));
@@ -657,30 +719,33 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     chunkGroupLayout->setSpacing(10);
     chunkModeActiveCheck_ = new QCheckBox("Chunk Mode Active", chunkGroup);
     chunkModeActiveCheck_->setStyleSheet(
-        "QCheckBox { color: #E3E3E3; font-size: 12px; spacing: 8px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #484F58; background: #161B22; }"
-        "QCheckBox::indicator:hover { border-color: #6E7681; background: #1C2128; }"
-        "QCheckBox::indicator:checked { background: #238636; border-color: #2EA043; image: url(none); }"
-        "QCheckBox::indicator:checked:hover { background: #2EA043; border-color: #3FBF5F; }");
+        QString("QCheckBox { color: %1; font-size: 12px; spacing: 8px; }"
+                "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid %2; background: %3; }"
+                "QCheckBox::indicator:hover { border-color: %4; background: %1; }"
+                "QCheckBox::indicator:checked { background: #238636; border-color: #2EA043; image: url(none); }"
+                "QCheckBox::indicator:checked:hover { background: #2EA043; border-color: #3FBF5F; }")
+            .arg(palDetail.text, palDetail.border, palDetail.bg, palDetail.muted));
     chunkGroupLayout->addWidget(chunkModeActiveCheck_);
     QLabel* chunkHelp = new QLabel("Choose which chunk items should be included in the payload.", chunkGroup);
     chunkHelp->setWordWrap(true);
-    chunkHelp->setStyleSheet("color: #8B949E; font-size: 11px;");
+    chunkHelp->setStyleSheet(QString("color: %1; font-size: 11px;").arg(palDetail.muted));
     chunkGroupLayout->addWidget(chunkHelp);
     chunkListWidget_ = new QListWidget(chunkGroup);
     chunkListWidget_->setSelectionMode(QAbstractItemView::NoSelection);
     chunkListWidget_->setStyleSheet(
-        "QListWidget { background-color: #1C2128; border: 1px solid #30363D; border-radius: 6px; color: #E3E3E3; outline: 0; }"
-        "QListWidget::item { padding: 7px 10px; }"
-        "QListWidget::item:hover { background-color: #252B33; }"
-        "QListWidget::item:selected { background-color: rgba(0, 229, 255, 0.10); color: #E3E3E3; }"
-        "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; border-radius: 4px; }"
-        "QScrollBar::handle:vertical { background: #3D444D; min-height: 20px; border-radius: 4px; }"
-        "QScrollBar::handle:vertical:hover { background: #4F5760; }"
-        "QScrollBar::add-line:vertical { height: 0; background: none; }"
-        "QScrollBar::sub-line:vertical { height: 0; background: none; }"
-        "QScrollBar::add-page:vertical { background: none; }"
-        "QScrollBar::sub-page:vertical { background: none; }");
+        QString("QListWidget { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; outline: 0; }"
+                "QListWidget::item { padding: 7px 10px; }"
+                "QListWidget::item:hover { background-color: %4; }"
+                "QListWidget::item:selected { background-color: %5; color: %3; }"
+                "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; border-radius: 4px; }"
+                "QScrollBar::handle:vertical { background: %6; min-height: 20px; border-radius: 4px; }"
+                "QScrollBar::handle:vertical:hover { background: %7; }"
+                "QScrollBar::add-line:vertical { height: 0; background: none; }"
+                "QScrollBar::sub-line:vertical { height: 0; background: none; }"
+                "QScrollBar::add-page:vertical { background: none; }"
+                "QScrollBar::sub-page:vertical { background: none; }")
+            .arg(palDetail.panel, palDetail.border, palDetail.text, palDetail.hover,
+                 palDetail.accentSoft, palDetail.scroll, palDetail.scrollHover));
     chunkListWidget_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     chunkGroupLayout->addWidget(chunkListWidget_);
     chunkPageLayout->addWidget(chunkGroup);
@@ -693,10 +758,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     infoPageLayout->setContentsMargins(4, 0, 4, 0);
     infoPageLayout->setSpacing(10);
     QLabel* infoTitle = new QLabel("Device Information", infoPage);
-    infoTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    infoTitle->setStyleSheet(sectionTitleStyle());
     infoPageLayout->addWidget(infoTitle);
     QLabel* infoHint = new QLabel("Read-only device identity and live connection details.", infoPage);
-    infoHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    infoHint->setStyleSheet(sectionHintStyle());
     infoPageLayout->addWidget(infoHint);
 
     QGroupBox* deviceInfoGroup = new QGroupBox("Device Information", infoPage);
@@ -731,15 +796,15 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     servicePageLayout->setContentsMargins(4, 0, 4, 0);
     servicePageLayout->setSpacing(10);
     QLabel* serviceTitle = new QLabel("Service", servicePage);
-    serviceTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #E3E3E3;");
+    serviceTitle->setStyleSheet(sectionTitleStyle());
     servicePageLayout->addWidget(serviceTitle);
     QLabel* serviceHint = new QLabel("Camera maintenance actions.", servicePage);
-    serviceHint->setStyleSheet("font-size: 11px; color: #8B949E;");
+    serviceHint->setStyleSheet(sectionHintStyle());
     servicePageLayout->addWidget(serviceHint);
 
     QLabel* serviceNote = new QLabel("Reset Device is not available in this build.", servicePage);
     serviceNote->setWordWrap(true);
-    serviceNote->setStyleSheet("color: #8B949E; font-size: 12px;");
+    serviceNote->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.muted));
     servicePageLayout->addWidget(serviceNote);
     servicePageLayout->addStretch();
     detailStack_->addWidget(servicePage);
@@ -933,9 +998,11 @@ void CameraDeviceSettingsDialog::applyStagedChanges() {
 
 void CameraDeviceSettingsDialog::populateUi() {
     populating_ = true;
+    const DlgPalette pal = dlgPalette();
     statusTitleLabel_->setText(
-        QString("<b>%1</b><br><span style='font-size:11px; color:#8B949E;'>%2 · %3 mm</span>")
+        QString("<b>%1</b><br><span style='font-size:11px; color:%2;'>%3 · %4 mm</span>")
             .arg(originalInfo_.name.toHtmlEscaped(),
+                 pal.muted,
                  originalInfo_.location.toHtmlEscaped(),
                  QString::number(originalInfo_.machinePosition)));
 
@@ -1069,10 +1136,11 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
             .arg(chipColor));
 
     // Card left-border accent reflects live state
+    const DlgPalette pal = dlgPalette();
     QString cardAccent = !reachable ? "#FF5A5A" : (running ? "#2EA043" : "#E0A800");
     statusCard_->setStyleSheet(
-        QString("QFrame { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; "
-                "border-left: 4px solid %1; }").arg(cardAccent));
+        QString("QFrame { background-color: %1; border: 1px solid %2; border-radius: 8px; "
+                "border-left: 4px solid %3; }").arg(pal.panel, pal.border, cardAccent));
 
     // Model row with label · value
     QString modelValue;
@@ -1084,9 +1152,10 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     bool modelOk = !modelValue.trimmed().isEmpty()
                    && modelValue != "Not Connected" && modelValue != "Unknown Model";
     statusModelLabel_->setText(
-        QString("<span style='color:#8B949E;'>Model</span>  "
-                "<span style='color:%1;'>%2</span>")
-            .arg(modelOk ? "#E3E3E3" : "#FF5A5A",
+        QString("<span style='color:%1;'>Model</span>  "
+                "<span style='color:%2;'>%3</span>")
+            .arg(pal.muted,
+                 modelOk ? pal.text : "#FF5A5A",
                  modelOk ? modelValue.toHtmlEscaped() : "Not Connected"));
 
     // IP row with label · value
@@ -1098,23 +1167,25 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     }
     bool ipOk = !ipValue.trimmed().isEmpty() && ipValue != "Offline";
     statusIpLabel_->setText(
-        QString("<span style='color:#8B949E;'>IP</span>  "
-                "<span style='color:%1; font-family: SF Mono, Monaco, monospace;'>%2</span>")
-            .arg(ipOk ? "#E3E3E3" : "#FF5A5A",
+        QString("<span style='color:%1;'>IP</span>  "
+                "<span style='color:%2; font-family: SF Mono, Monaco, monospace;'>%3</span>")
+            .arg(pal.muted,
+                 ipOk ? pal.text : "#FF5A5A",
                  ipOk ? ipValue.toHtmlEscaped() : "Offline"));
 
     // Temperature row — show dash when sensor not reporting
     double temp = currentInfo_.temperature;
     if (temp > 0.0) {
-        QString tempColor = temp > 50.0 ? "#FF5A5A" : "#E3E3E3";
+        QString tempColor = temp > 50.0 ? "#FF5A5A" : pal.text;
         statusTempLabel_->setText(
-            QString("<span style='color:#8B949E;'>Temp</span>  "
-                    "<span style='color:%1;'>%2°C</span>")
-                .arg(tempColor, QString::number(temp, 'f', 1)));
+            QString("<span style='color:%1;'>Temp</span>  "
+                    "<span style='color:%2;'>%3°C</span>")
+                .arg(pal.muted, tempColor, QString::number(temp, 'f', 1)));
     } else {
         statusTempLabel_->setText(
-            "<span style='color:#8B949E;'>Temp</span>  "
-            "<span style='color:#6E7681;'>—</span>");
+            QString("<span style='color:%1;'>Temp</span>  "
+                    "<span style='color:%2;'>—</span>")
+                .arg(pal.muted, pal.disabled));
     }
 
     // Run-state button
@@ -1122,24 +1193,27 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         runStateBtn_->setText("Unavailable");
         runStateBtn_->setEnabled(false);
         runStateBtn_->setStyleSheet(
-            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-            "color: #6E7681; border: 1px solid #30363D; background: rgba(48, 54, 61, 0.35); }");
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+                    "color: %1; border: 1px solid %2; background: %3; }")
+                .arg(pal.disabled, pal.border, toRgba(pal.border, 90)));
         return;
     }
     runStateBtn_->setEnabled(editable_);
     runStateBtn_->setText(running ? "Stop Camera" : "Start Camera");
     if (running) {
         runStateBtn_->setStyleSheet(
-            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-            "color: #2EA043; border: 1px solid #2EA043; background: rgba(46, 160, 67, 0.12); }"
-            "QPushButton:hover { background: rgba(46, 160, 67, 0.22); border-color: #3FBF5F; }"
-            "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }");
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+                    "color: #2EA043; border: 1px solid #2EA043; background: rgba(46, 160, 67, 0.12); }"
+                    "QPushButton:hover { background: rgba(46, 160, 67, 0.22); border-color: #3FBF5F; }"
+                    "QPushButton:disabled { color: %1; border: 1px solid %2; }")
+                .arg(pal.disabled, pal.border));
     } else {
         runStateBtn_->setStyleSheet(
-            "QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-            "color: #E0A800; border: 1px solid #E0A800; background: transparent; }"
-            "QPushButton:hover { background: rgba(224, 168, 0, 0.10); border-color: #F0B800; }"
-            "QPushButton:disabled { color: #6E7681; border: 1px solid #30363D; }");
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+                    "color: #E0A800; border: 1px solid #E0A800; background: transparent; }"
+                    "QPushButton:hover { background: rgba(224, 168, 0, 0.10); border-color: #F0B800; }"
+                    "QPushButton:disabled { color: %1; border: 1px solid %2; }")
+                .arg(pal.disabled, pal.border));
     }
 }
 

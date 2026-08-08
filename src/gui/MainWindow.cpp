@@ -18,6 +18,11 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QComboBox>
+#include <QFormLayout>
+#include <QAction>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -36,68 +41,110 @@
 Q_DECLARE_METATYPE(cv::Mat)
 
 namespace {
+
+// Draws a simple eye icon for the password visibility toggle.
+QIcon makeEyeIcon(bool visible, const QColor& color) {
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    // Eye outline
+    p.setPen(QPen(color, 1.2));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(QRectF(1.5, 4.5, 13.0, 7.0));
+    // Pupil
+    p.setBrush(color);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(QRectF(6.0, 7.0, 4.0, 4.0));
+    if (!visible) {
+        // Strike-through for the "hidden" state
+        p.setPen(QPen(color, 1.6));
+        p.drawLine(3.0, 13.0, 13.0, 3.0);
+    }
+    p.end();
+    return QIcon(pm);
+}
+
 class AdminLoginDialog : public QDialog {
 public:
     explicit AdminLoginDialog(QWidget* parent = nullptr)
         : QDialog(parent) {
         setWindowTitle("Administrator Login");
         setModal(true);
-        setFixedWidth(360);
+        setFixedWidth(340);
 
-        QVBoxLayout* rootLayout = new QVBoxLayout(this);
-        rootLayout->setContentsMargins(16, 16, 16, 16);
-        rootLayout->setSpacing(10);
+        QVBoxLayout* root = new QVBoxLayout(this);
+        root->setContentsMargins(16, 16, 16, 12);
+        root->setSpacing(10);
 
-        QLabel* titleLabel = new QLabel("System Configuration", this);
+        // ── Header ──
+        QLabel* titleLabel = new QLabel("Administrator Login", this);
         QFont titleFont = titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSize(titleFont.pointSize() + 1);
+        titleFont.setPointSize(titleFont.pointSize() + 2);
         titleLabel->setFont(titleFont);
-        rootLayout->addWidget(titleLabel);
+        root->addWidget(titleLabel);
 
-        QLabel* subtitleLabel = new QLabel("Enter the administrator password to continue.", this);
+        QLabel* subtitleLabel = new QLabel("Enter your credentials to access system configuration.", this);
         subtitleLabel->setWordWrap(true);
-        rootLayout->addWidget(subtitleLabel);
+        root->addWidget(subtitleLabel);
+        root->addSpacing(4);
 
-        QLabel* usernameLabel = new QLabel("Username:", this);
-        rootLayout->addWidget(usernameLabel);
+        // ── Form (native Qt layout) ──
+        QFormLayout* form = new QFormLayout();
+        form->setContentsMargins(0, 0, 0, 0);
+        form->setHorizontalSpacing(10);
+        form->setVerticalSpacing(8);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
         usernameCombo_ = new QComboBox(this);
         usernameCombo_->setEditable(true);
         usernameCombo_->addItem("admin");
         usernameCombo_->setCurrentText("admin");
-        usernameCombo_->setMinimumWidth(240);
-        rootLayout->addWidget(usernameCombo_);
+        usernameCombo_->setMinimumWidth(220);
+        form->addRow("Username:", usernameCombo_);
 
-        QLabel* passwordLabel = new QLabel("Password:", this);
-        rootLayout->addWidget(passwordLabel);
-
+        // Password field with a native trailing-action show/hide toggle.
         passwordEdit_ = new QLineEdit(this);
         passwordEdit_->setEchoMode(QLineEdit::Password);
-        passwordEdit_->setMinimumWidth(240);
-        rootLayout->addWidget(passwordEdit_);
+        passwordEdit_->setPlaceholderText("Enter password...");
+        passwordEdit_->setMinimumWidth(220);
+        const QColor fg = palette().color(QPalette::WindowText);
+        toggleAction_ = passwordEdit_->addAction(makeEyeIcon(false, fg), QLineEdit::TrailingPosition);
+        toggleAction_->setCheckable(true);
+        toggleAction_->setToolTip("Show password");
+        connect(toggleAction_, &QAction::toggled, this, [this, fg](bool checked) {
+            passwordEdit_->setEchoMode(checked ? QLineEdit::Normal : QLineEdit::Password);
+            toggleAction_->setIcon(makeEyeIcon(checked, fg));
+            toggleAction_->setToolTip(checked ? "Hide password" : "Show password");
+        });
+        form->addRow("Password:", passwordEdit_);
 
+        root->addLayout(form);
+        root->addSpacing(4);
+
+        // ── Error message (native label, no heavy styling) ──
         errorLabel_ = new QLabel(this);
         errorLabel_->setVisible(false);
         errorLabel_->setWordWrap(true);
-        QPalette errorPalette = errorLabel_->palette();
-        errorPalette.setColor(QPalette::WindowText, QColor(Qt::red));
-        errorLabel_->setPalette(errorPalette);
-        rootLayout->addWidget(errorLabel_);
+        errorLabel_->setStyleSheet("color: #E06060;");
+        root->addWidget(errorLabel_);
 
-        QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-        loginButton_ = buttonBox->addButton("Login", QDialogButtonBox::AcceptRole);
+        root->addStretch();
+
+        // ── Native dialog button box ──
+        QDialogButtonBox* buttonBox = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        loginButton_ = buttonBox->button(QDialogButtonBox::Ok);
+        loginButton_->setText("Login");
         loginButton_->setDefault(true);
-        QPushButton* okButton = buttonBox->button(QDialogButtonBox::Ok);
-        if (okButton) {
-            okButton->hide();
-        }
-        rootLayout->addWidget(buttonBox);
-
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        connect(loginButton_, &QPushButton::clicked, this, &QDialog::accept);
+        root->addWidget(buttonBox);
 
-        usernameCombo_->setFocus();
+        // ── Focus ──
+        passwordEdit_->setFocus();
+        connect(passwordEdit_, &QLineEdit::returnPressed, this, &QDialog::accept);
     }
 
     QString username() const {
@@ -123,6 +170,7 @@ public:
 private:
     QComboBox* usernameCombo_ = nullptr;
     QLineEdit* passwordEdit_ = nullptr;
+    QAction* toggleAction_ = nullptr;
     QLabel* errorLabel_ = nullptr;
     QPushButton* loginButton_ = nullptr;
 };

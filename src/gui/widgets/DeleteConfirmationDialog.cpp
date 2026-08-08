@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QStyleOption>
 #include "IconManager.h"
+#include "../../config/CameraConfig.h"
 
 DeleteConfirmationDialog::DeleteConfirmationDialog(QWidget* parent)
     : QDialog(parent, Qt::FramelessWindowHint | Qt::Dialog)
@@ -26,7 +27,6 @@ DeleteConfirmationDialog::DeleteConfirmationDialog(QWidget* parent)
     , shadowEffect_(nullptr)
     , fadeAnimation_(nullptr) {
     setupUI();
-    setupStyleSheet();
     setupAnimations();
 }
 
@@ -47,7 +47,6 @@ DeleteConfirmationDialog::DeleteConfirmationDialog(const QString& itemName, QWid
     , shadowEffect_(nullptr)
     , fadeAnimation_(nullptr) {
     setupUI();
-    setupStyleSheet();
     setupAnimations();
 }
 
@@ -58,6 +57,13 @@ void DeleteConfirmationDialog::setupUI() {
     setWindowModality(Qt::ApplicationModal);
     setAttribute(Qt::WA_TranslucentBackground);
 
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    // Muted secondary-text tone (text color at reduced alpha over the frame bg)
+    const QString mutedText = [&tc]() {
+        const QColor c(tc.text);
+        return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(185);
+    }();
+
     // Main layout
     mainLayout_ = new QVBoxLayout(this);
     mainLayout_->setSpacing(0);
@@ -67,6 +73,10 @@ void DeleteConfirmationDialog::setupUI() {
     contentFrame_ = new QFrame(this);
     contentFrame_->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
     contentFrame_->setMinimumWidth(400);
+    contentFrame_->setStyleSheet(
+        QString("QFrame { background-color: %1; border: 1px solid %2; border-radius: 16px; }")
+            .arg(tc.btnBg, tc.border)
+    );
 
     contentLayout_ = new QVBoxLayout(contentFrame_);
     contentLayout_->setSpacing(20);
@@ -82,7 +92,7 @@ void DeleteConfirmationDialog::setupUI() {
     titleLabel_ = new QLabel("Delete Confirmation", contentFrame_);
     titleLabel_->setAlignment(Qt::AlignCenter);
     titleLabel_->setStyleSheet(
-        "font-size: 20px; font-weight: 700; color: #E3E3E3;"
+        QString("font-size: 20px; font-weight: 700; color: %1;").arg(tc.text)
     );
     contentLayout_->addWidget(titleLabel_);
 
@@ -95,7 +105,7 @@ void DeleteConfirmationDialog::setupUI() {
     messageLabel_->setAlignment(Qt::AlignCenter);
     messageLabel_->setWordWrap(true);
     messageLabel_->setStyleSheet(
-        "font-size: 14px; color: #8B949E; line-height: 1.5;"
+        QString("font-size: 14px; color: %1; line-height: 1.5;").arg(mutedText)
     );
     contentLayout_->addWidget(messageLabel_);
 
@@ -103,9 +113,10 @@ void DeleteConfirmationDialog::setupUI() {
     itemLabel_ = new QLabel(itemName_, contentFrame_);
     itemLabel_->setAlignment(Qt::AlignCenter);
     itemLabel_->setStyleSheet(
-        "font-size: 16px; font-weight: 600; color: #E3E3E3; "
-        "padding: 12px; background-color: #21262D; border-radius: 8px; "
-        "margin: 8px 40px;"
+        QString("font-size: 16px; font-weight: 600; color: %1; "
+                "padding: 12px; background-color: %2; border-radius: 8px; "
+                "margin: 8px 40px;")
+            .arg(tc.text, tc.bg)
     );
     contentLayout_->addWidget(itemLabel_);
 
@@ -117,19 +128,20 @@ void DeleteConfirmationDialog::setupUI() {
     cancelBtn_ = new QPushButton("Cancel", contentFrame_);
     cancelBtn_->setCursor(Qt::PointingHandCursor);
     cancelBtn_->setStyleSheet(
-        "QPushButton { "
-        "  background-color: transparent; "
-        "  color: #E3E3E3; "
-        "  border: 1px solid #30363D; "
-        "  border-radius: 8px; "
-        "  padding: 12px 24px; "
-        "  font-size: 14px; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #30363D; "
-        "  border-color: #00E5FF; "
-        "}"
+        QString("QPushButton { "
+                "  background-color: transparent; "
+                "  color: %1; "
+                "  border: 1px solid %2; "
+                "  border-radius: 8px; "
+                "  padding: 12px 24px; "
+                "  font-size: 14px; "
+                "  font-weight: 500; "
+                "} "
+                "QPushButton:hover { "
+                "  background-color: %2; "
+                "  border-color: %3; "
+                "}")
+            .arg(tc.text, tc.border, tc.primary)
     );
     connect(cancelBtn_, &QPushButton::clicked, this, &DeleteConfirmationDialog::onCancelClicked);
     buttonsLayout_->addWidget(cancelBtn_);
@@ -166,16 +178,6 @@ void DeleteConfirmationDialog::setupUI() {
     shadowEffect_->setColor(QColor(0, 0, 0, 80));
     shadowEffect_->setOffset(0, 8);
     contentFrame_->setGraphicsEffect(shadowEffect_);
-}
-
-void DeleteConfirmationDialog::setupStyleSheet() {
-    contentFrame_->setStyleSheet(
-        "QFrame { "
-        "  background-color: #161B22; "
-        "  border: 1px solid #30363D; "
-        "  border-radius: 16px; "
-        "}"
-    );
 }
 
 void DeleteConfirmationDialog::setupAnimations() {

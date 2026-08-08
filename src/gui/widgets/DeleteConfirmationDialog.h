@@ -45,7 +45,6 @@ private slots:
 
 private:
     void setupUI();
-    void setupStyleSheet();
     void setupAnimations();
 
     // Layouts
