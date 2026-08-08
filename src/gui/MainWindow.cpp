@@ -36,11 +36,52 @@
 #include <QtConcurrent>
 #include <QMap>
 #include <QSet>
+#include <QTimer>
+
+#ifdef Q_OS_LINUX
+#include <X11/Xlib.h>
+#include <X11/XKBlib.h>
+// X11 headers define macros (KeyPress, FocusIn, ...) that collide with Qt
+// identifiers used in this file; drop them right after the includes.
+#undef KeyPress
+#undef KeyRelease
+#undef ButtonPress
+#undef ButtonRelease
+#undef MotionNotify
+#undef EnterNotify
+#undef LeaveNotify
+#undef FocusIn
+#undef FocusOut
+#undef None
+#undef True
+#undef False
+#undef Success
+#undef Status
+#endif
 
 // Register cv::Mat for signal/slot
 Q_DECLARE_METATYPE(cv::Mat)
 
 namespace {
+
+// Queries the real Caps Lock state from the window system (X11). Returns false
+// when the state can't be queried; the login dialog's letter-key heuristic then
+// acts as a fallback.
+bool systemCapsLockOn() {
+#ifdef Q_OS_LINUX
+    // Opened once and kept for the app lifetime (intentional; avoids reconnecting
+    // to the X server on every 400ms poll).
+    static Display* display = XOpenDisplay(nullptr);
+    if (!display) {
+        return false;
+    }
+    unsigned int state = 0;
+    const bool ok = XkbGetIndicatorState(display, XkbUseCoreKbd, &state) == 0;  // X11 Success
+    return ok && (state & 0x01);  // bit 0 = Caps Lock indicator
+#else
+    return false;
+#endif
+}
 
 // Draws a simple eye icon for the password visibility toggle.
 QIcon makeEyeIcon(bool visible, const QColor& color) {
@@ -61,6 +102,25 @@ QIcon makeEyeIcon(bool visible, const QColor& color) {
         p.setPen(QPen(color, 1.6));
         p.drawLine(3.0, 13.0, 13.0, 3.0);
     }
+    p.end();
+    return QIcon(pm);
+}
+
+// Draws the classic Caps Lock glyph (an up-arrow over a baseline bar) as a
+// compact indicator icon for the login dialog footer.
+QIcon makeCapsLockIcon(const QColor& color) {
+    QPixmap pm(18, 18);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    // Up arrow
+    p.drawLine(9.0, 3.0, 9.0, 12.0);
+    p.drawLine(9.0, 3.0, 4.0, 8.0);
+    p.drawLine(9.0, 3.0, 14.0, 8.0);
+    // Baseline bar
+    p.drawLine(4.0, 16.0, 14.0, 16.0);
     p.end();
     return QIcon(pm);
 }
@@ -132,7 +192,7 @@ public:
 
         root->addStretch();
 
-        // ── Native dialog button box ──
+        // ── Native dialog button box, with a compact Caps Lock icon on the left ──
         QDialogButtonBox* buttonBox = new QDialogButtonBox(
             QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         loginButton_ = buttonBox->button(QDialogButtonBox::Ok);
@@ -140,11 +200,38 @@ public:
         loginButton_->setDefault(true);
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        root->addWidget(buttonBox);
+
+        capsLockIconLabel_ = new QLabel(this);
+        capsLockIconLabel_->setVisible(false);
+        capsLockIconLabel_->setToolTip("Caps Lock is ON — passwords are case-sensitive.");
+        capsLockIconLabel_->setPixmap(makeCapsLockIcon(QColor("#E0A800")).pixmap(18, 18));
+
+        QHBoxLayout* footerLayout = new QHBoxLayout();
+        footerLayout->setContentsMargins(0, 0, 0, 0);
+        footerLayout->addWidget(capsLockIconLabel_, 0, Qt::AlignVCenter);
+        footerLayout->addStretch();
+        footerLayout->addWidget(buttonBox);
+        root->addLayout(footerLayout);
 
         // ── Focus ──
         passwordEdit_->setFocus();
         connect(passwordEdit_, &QLineEdit::returnPressed, this, &QDialog::accept);
+
+        // ── Caps Lock tracking ──
+        // On Linux, poll the window-system state so the hint appears the moment
+        // Caps Lock is toggled, without requiring a letter key press first.
+        // Elsewhere, the event filter's letter-key heuristic owns the state.
+        passwordEdit_->installEventFilter(this);
+#ifdef Q_OS_LINUX
+        capsLockTimer_ = new QTimer(this);
+        capsLockTimer_->setInterval(400);
+        connect(capsLockTimer_, &QTimer::timeout, this, [this]() {
+            capsLockOn_ = systemCapsLockOn();
+            updateCapsLockLabel();
+        });
+        capsLockTimer_->start();
+#endif
+        updateCapsLockLabel();
     }
 
     QString username() const {
@@ -167,12 +254,52 @@ public:
         errorLabel_->setVisible(false);
     }
 
+protected:
+    void showEvent(QShowEvent* event) override {
+        QDialog::showEvent(event);
+        // Refresh from the window system so the state is right on open.
+        capsLockOn_ = systemCapsLockOn();
+        updateCapsLockLabel();
+    }
+
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        if (obj == passwordEdit_) {
+            if (event->type() == QEvent::KeyPress) {
+                // Qt5 has no CapsLock keyboard modifier, so infer it from letter
+                // key presses: a letter that renders uppercase while Shift is not
+                // held (or lowercase while Shift is held) means Caps Lock is on.
+                auto* keyEvent = static_cast<QKeyEvent*>(event);
+                if (keyEvent->text().size() == 1) {
+                    const QChar ch = keyEvent->text().at(0);
+                    if (ch.isLetter()) {
+                        const bool shiftHeld = keyEvent->modifiers().testFlag(Qt::ShiftModifier);
+                        capsLockOn_ = ch.isUpper() != shiftHeld;
+                        updateCapsLockLabel();
+                    }
+                }
+            } else if (event->type() == QEvent::FocusIn) {
+                updateCapsLockLabel();
+            }
+        }
+        return QDialog::eventFilter(obj, event);
+    }
+
 private:
+    void updateCapsLockLabel() {
+        if (!capsLockIconLabel_) {
+            return;
+        }
+        capsLockIconLabel_->setVisible(capsLockOn_);
+    }
+
     QComboBox* usernameCombo_ = nullptr;
     QLineEdit* passwordEdit_ = nullptr;
     QAction* toggleAction_ = nullptr;
+    QLabel* capsLockIconLabel_ = nullptr;
     QLabel* errorLabel_ = nullptr;
     QPushButton* loginButton_ = nullptr;
+    QTimer* capsLockTimer_ = nullptr;
+    bool capsLockOn_ = false;
 };
 }
 

@@ -14,6 +14,7 @@ link_directories(${PYLON_ROOT}/lib)
 # Find Packages
 find_package(OpenCV REQUIRED)
 find_package(Qt5 COMPONENTS Core Widgets Gui Concurrent Svg Network OpcUa REQUIRED)
+find_package(X11 REQUIRED)
 
 # Init Sources
 set(SOURCES
@@ -81,6 +82,7 @@ add_executable(PaperVision_App ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
 target_link_libraries(PaperVision_App
     ${OpenCV_LIBS}
     Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg Qt5::Network Qt5::OpcUa
+    X11::X11
     pthread
     pylonbase
     pylonutility
