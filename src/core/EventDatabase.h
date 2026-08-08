@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <vector>
 #include <limits>
+#include "../gui/CameraInfo.h"
 
 
 /**
@@ -36,6 +37,9 @@ public:
         QString speedSampleTimeUtc;
         bool speedStale = false;
         int positionDirectionSign = 1;
+        // Camera group the trigger was wired to (CameraGroup::k*). A negative
+        // value means the trigger recorded all cameras.
+        int triggerGroup = CameraGroup::kUnassigned;
         bool permanent = false; // Excluded from automatic retention cleanup
     };
     

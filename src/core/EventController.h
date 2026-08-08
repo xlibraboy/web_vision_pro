@@ -68,8 +68,9 @@ public:
     size_t getBufferedFrameCount(int cameraId);
     size_t getBufferCapacity(int cameraId);
 
-    // Callback for when event is saved (timestamp, triggerIndex, totalFrames)
-    using EventSavedCallback = std::function<void(const std::string&, int, int)>;
+    // Callback for when event is saved
+    // (timestamp, triggerIndex, totalFrames, primaryCameraId)
+    using EventSavedCallback = std::function<void(const std::string&, int, int, int)>;
     void setEventSavedCallback(EventSavedCallback callback);
 
     // Provides the live machine speed (m/min) used to spatially align a trigger

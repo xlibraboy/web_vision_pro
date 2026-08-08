@@ -304,9 +304,9 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     
     // Register callback for EventController
     // Callback receives metadata only - frames loaded from disk to avoid memory spike
-    EventController::instance().setEventSavedCallback([this](const std::string& timestamp, int triggerIndex, int totalFrames) {
-        QMetaObject::invokeMethod(this, [this, timestamp, triggerIndex, totalFrames]() {
-            addPaperBreakEvent(timestamp, triggerIndex, totalFrames);
+    EventController::instance().setEventSavedCallback([this](const std::string& timestamp, int triggerIndex, int totalFrames, int primaryCameraId) {
+        QMetaObject::invokeMethod(this, [this, timestamp, triggerIndex, totalFrames, primaryCameraId]() {
+            addPaperBreakEvent(timestamp, triggerIndex, totalFrames, primaryCameraId);
         }, Qt::QueuedConnection);
     });
 }
@@ -2270,19 +2270,34 @@ void AnalysisView::onPlaybackTick() {
     seekToFrameIndex(nextFrameIndex);
 }
 
-void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames) {
+void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames,
+                                      int primaryCameraId) {
     QString rawTs = QString::fromStdString(timestamp);
     latestAddedEventTimestamp_ = rawTs;
     reloadEventTables();
     selectLatestEvent();
     
-    // Load RAW BINARY from disk (using new per-camera format base)
-    QString binPath = QDir(CameraConfig::getEventStoragePath()).filePath(QString("event_%1_cam1.bin").arg(rawTs));
+    // Load RAW BINARY from disk using the primary camera of the event. For a
+    // group-restricted trigger the primary camera may not be camera 1, and only
+    // that group's cam files exist on disk.
+    const int primaryCam = primaryCameraId > 0 ? primaryCameraId : 1;
+    QString binPath = QDir(CameraConfig::getEventStoragePath())
+        .filePath(QString("event_%1_cam%2.bin").arg(rawTs).arg(primaryCam));
+    if (!QFile::exists(binPath)) {
+        // Fallback: scan for whichever camera file exists for this timestamp.
+        QDir eventDir(CameraConfig::getEventStoragePath());
+        const QStringList files = eventDir.entryList(
+            QStringList() << QString("event_%1_cam*.bin").arg(rawTs), QDir::Files, QDir::Name);
+        if (!files.isEmpty()) {
+            binPath = eventDir.filePath(files.first());
+        }
+    }
     startReviewFromFile(binPath, triggerIndex);
     
 }
 
-void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow) {
+void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent,
+                               bool selectRow, int group, int defectFrame) {
     QTableWidget* targetTable = permanent ? permanentPaperBreakTable_ : paperBreakTable_;
     const int row = targetTable->rowCount();
     targetTable->insertRow(row);
@@ -2290,11 +2305,25 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     const bool isNewRecentEvent = !permanent && !latestAddedEventTimestamp_.isEmpty() && timestamp == latestAddedEventTimestamp_;
     QTableWidgetItem* timeItem = new QTableWidgetItem(formatTimestamp(timestamp));
     QTableWidgetItem* reasonItem = new QTableWidgetItem(reason);
+    const QString groupText = group >= 0 ? CameraGroup::name(group) : QStringLiteral("All");
+    QTableWidgetItem* groupItem = new QTableWidgetItem(groupText);
+    QTableWidgetItem* frameItem = new QTableWidgetItem(
+        defectFrame >= 0 ? QString::number(defectFrame) : QStringLiteral("—"));
     timeItem->setData(Qt::UserRole, timestamp);
     timeItem->setData(Qt::UserRole + 2, permanent);
     timeItem->setData(Qt::UserRole + 3, isNewRecentEvent);
     reasonItem->setData(Qt::UserRole + 2, permanent);
     reasonItem->setData(Qt::UserRole + 3, isNewRecentEvent);
+    groupItem->setData(Qt::UserRole + 1, group);
+    groupItem->setData(Qt::UserRole + 2, permanent);
+    groupItem->setData(Qt::UserRole + 3, isNewRecentEvent);
+    frameItem->setData(Qt::UserRole + 1, defectFrame);
+    frameItem->setData(Qt::UserRole + 2, permanent);
+    frameItem->setData(Qt::UserRole + 3, isNewRecentEvent);
+    frameItem->setToolTip("Frame position of the defect within the recording (0-based). The same physical defect lands at this frame in every camera of the group.");
+    groupItem->setToolTip(group >= 0
+        ? QString("Trigger wired to the %1 section. Only cameras assigned to this group were recorded.").arg(groupText)
+        : "Trigger recorded all active cameras.");
 
     if (isNewRecentEvent) {
         ThemeColors tc = CameraConfig::getThemeColors();
@@ -2316,6 +2345,8 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
 
     targetTable->setItem(row, 0, timeItem);
     targetTable->setItem(row, 1, reasonItem);
+    targetTable->setItem(row, 2, groupItem);
+    targetTable->setItem(row, 3, frameItem);
     sortLogTable(targetTable);
 
     if (selectRow) {
@@ -2336,7 +2367,8 @@ void AnalysisView::reloadEventTables() {
         const QString triggerReason = event.triggerReason.trimmed().isEmpty()
             ? QStringLiteral("Triggered")
             : event.triggerReason.trimmed();
-        addEventRow(event.timestamp, triggerReason, event.permanent, false);
+        addEventRow(event.timestamp, triggerReason, event.permanent, false,
+                    event.triggerGroup, event.triggerIndex);
     }
 
     sortLogTable(paperBreakTable_);
@@ -2727,8 +2759,8 @@ void AnalysisView::updatePermanentButtonLabel() {
 }
 
 QTableWidget* AnalysisView::createLogTable(QWidget* parent, bool deleteMode) {
-    QTableWidget* table = new QTableWidget(0, 2, parent);
-    table->setHorizontalHeaderLabels({"Trigger Time", "Reason"});
+    QTableWidget* table = new QTableWidget(0, 4, parent);
+    table->setHorizontalHeaderLabels({"Trigger Time", "Reason", "Group", "Defect Frame"});
     table->setItemDelegate(new LogSelectionDelegate(table));
     configureLogTable(table, deleteMode);
     connectLogTable(table);
@@ -2745,7 +2777,9 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->setColumnWidth(0, 154);
     table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    table->horizontalHeader()->setStretchLastSection(true);
+    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(false);
     table->setShowGrid(false);
     table->setFrameShape(QFrame::NoFrame);
     table->setSortingEnabled(false);
@@ -2875,7 +2909,30 @@ void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidg
         if (!timeItem || !reasonItem) {
             continue;
         }
-        addEventRow(timeItem->data(Qt::UserRole).toString(), reasonItem->text(), permanent, false);
+        const QString ts = timeItem->data(Qt::UserRole).toString();
+        int group = CameraGroup::kUnassigned;
+        int defectFrame = -1;
+        if (QTableWidgetItem* groupItem = sourceTable->item(row, 2)) {
+            const QVariant groupData = groupItem->data(Qt::UserRole + 1);
+            if (groupData.isValid()) {
+                group = groupData.toInt();
+            }
+        }
+        if (QTableWidgetItem* frameItem = sourceTable->item(row, 3)) {
+            const QVariant frameData = frameItem->data(Qt::UserRole + 1);
+            if (frameData.isValid()) {
+                defectFrame = frameData.toInt();
+            }
+        }
+        if (group == CameraGroup::kUnassigned && defectFrame < 0) {
+            // Legacy row (or event without metadata): recover from the database.
+            try {
+                const EventDatabase::EventInfo info = EventDatabase::instance().getEventInfo(ts);
+                group = info.triggerGroup;
+                defectFrame = info.triggerIndex;
+            } catch (...) {}
+        }
+        addEventRow(ts, reasonItem->text(), permanent, false, group, defectFrame);
         sourceTable->removeRow(row);
     }
     sortLogTable(sourceTable);

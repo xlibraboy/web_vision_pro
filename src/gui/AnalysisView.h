@@ -59,7 +59,8 @@ signals:
     void eventAdded(); // Signal emitted when a new event is added to the log
 
 public slots:
-    void addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames);
+    void addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames,
+                            int primaryCameraId = 1);
     void setPlaybackPosition(double frame);
     void updateCameraFrame(int cameraId, const QImage& frame);
     
@@ -263,7 +264,9 @@ private:
     void saveEventAnnotations();
     void applyAnnotationToSelectedFrame();
     void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
-    void addEventRow(const QString& timestamp, const QString& reason, bool permanent, bool selectRow);
+    void addEventRow(const QString& timestamp, const QString& reason, bool permanent,
+                     bool selectRow, int group = CameraGroup::kUnassigned,
+                     int defectFrame = -1);
     void reloadEventTables();
     void updateRecordCountLabel();
     void updatePermanentButtonLabel();

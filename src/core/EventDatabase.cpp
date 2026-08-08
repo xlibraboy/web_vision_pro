@@ -179,6 +179,7 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
     meta["speedSampleTimeUtc"] = event.speedSampleTimeUtc;
     meta["speedStale"] = event.speedStale;
     meta["positionDirectionSign"] = event.positionDirectionSign;
+    meta["triggerGroup"] = event.triggerGroup;
     meta["permanent"] = event.permanent;
     
     QJsonDocument doc(meta);
@@ -235,6 +236,7 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     event.speedSampleTimeUtc = meta["speedSampleTimeUtc"].toString();
     event.speedStale = meta["speedStale"].toBool(false);
     event.positionDirectionSign = meta["positionDirectionSign"].toInt(1) >= 0 ? 1 : -1;
+    event.triggerGroup = meta["triggerGroup"].toInt(CameraGroup::kUnassigned);
     event.permanent = meta["permanent"].toBool(false);
     
     return event;

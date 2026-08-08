@@ -418,6 +418,7 @@ void EventController::saveWorker() {
                 event.speedSampleTimeUtc = triggerContext.speedSampleTimeUtc;
                 event.speedStale = triggerContext.speedStale;
                 event.positionDirectionSign = triggerContext.positionDirectionSign;
+                event.triggerGroup = triggerContext.group;
                 int highestCameraId = 0;
                 for (const auto& pair : framesToSave) {
                     if (!pair.second.empty()) {
@@ -441,7 +442,7 @@ void EventController::saveWorker() {
 
                 // Notify UI with CORRECT linearized index from the primary camera
                 if (callback_) {
-                    callback_(currentTimestamp_, primaryTriggerIndex, primaryFramesCount);
+                    callback_(currentTimestamp_, primaryTriggerIndex, primaryFramesCount, primaryCameraId);
                 }
             }
             
