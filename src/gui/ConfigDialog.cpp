@@ -10,6 +10,7 @@
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
+#include "../communication/OpcUaClientService.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -42,6 +43,8 @@
 #include <QHostInfo>
 #include <QNetworkInterface>
 #include <QEventLoop>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QOpcUaClient>
 #include <QOpcUaEndpointDescription>
 #include <QOpcUaProvider>
@@ -431,6 +434,151 @@ void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint,
     opcUaDiscoveryAttempted_ = true;
 }
 
+void ConfigDialog::setOpcUaRuntimeSource(OpcUaClientService* service) {
+    if (opcUaRuntimeSource_ == service) {
+        return;
+    }
+    if (opcUaRuntimeSource_) {
+        disconnect(opcUaRuntimeSource_, nullptr, this, nullptr);
+    }
+    opcUaRuntimeSource_ = service;
+    if (service) {
+        connect(service, &OpcUaClientService::runtimeStatusChanged,
+                this, &ConfigDialog::updateOpcUaRuntimeStatus);
+    }
+}
+
+void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
+    lastOpcUaRuntimeStatus_ = status;
+
+    // Client state
+    if (opcUaStatusClientLabel_) {
+        QString dot;
+        QString color;
+        if (status.clientConnected) {
+            dot = QStringLiteral("●");
+            color = QStringLiteral("#4CAF50");
+        } else if (status.connecting) {
+            dot = QStringLiteral("◐");
+            color = QStringLiteral("#E0A800");
+        } else {
+            dot = QStringLiteral("○");
+            color = QStringLiteral("#8B949E");
+        }
+        opcUaStatusClientLabel_->setText(QStringLiteral("%1 %2").arg(dot, status.clientStateText));
+        opcUaStatusClientLabel_->setStyleSheet(
+            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(color));
+    }
+
+    refreshOpcUaSpeedDisplay();
+
+    if (!opcUaStatusTable_) {
+        return;
+    }
+
+    const int rowCount = qMin(kOpcUaTriggerSlots, opcUaStatusTable_->rowCount());
+    for (int i = 0; i < rowCount; ++i) {
+        // Identity columns (Name / Type / On) always come from the dialog's live
+        // row widgets so unsaved edits show correctly; runtime info (held,
+        // value, state, last fired) is overlaid from the service snapshot.
+        const OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
+        OpcUaTagRuntimeStatus tagStatus;
+        tagStatus.tagIndex = i;
+        tagStatus.name = row.nameEdit ? row.nameEdit->text() : QString();
+        if (tagStatus.name.isEmpty()) {
+            tagStatus.name = QStringLiteral("Trigger %1").arg(i + 1);
+        }
+        tagStatus.enabled = row.enabledCheck && row.enabledCheck->isChecked();
+        tagStatus.simulated = row.simulatedCombo && row.simulatedCombo->currentData().toBool();
+        for (const OpcUaTagRuntimeStatus& snapshotTag : status.tags) {
+            if (snapshotTag.tagIndex == i) {
+                tagStatus.held = snapshotTag.held;
+                tagStatus.active = snapshotTag.active;
+                tagStatus.valueText = snapshotTag.valueText;
+                tagStatus.lastFiredMs = snapshotTag.lastFiredMs;
+                break;
+            }
+        }
+
+        const QString typeText = tagStatus.simulated
+            ? QStringLiteral("Sim") : QStringLiteral("Live");
+        QString stateText;
+        QString stateColor;
+        if (tagStatus.held || tagStatus.active) {
+            stateText = QStringLiteral("FIRING");
+            stateColor = QStringLiteral("#E0A800");
+        } else if (!tagStatus.enabled) {
+            stateText = QStringLiteral("Off");
+            stateColor = QStringLiteral("#8B949E");
+        } else {
+            stateText = QStringLiteral("Idle");
+            stateColor = QStringLiteral("#4CAF50");
+        }
+
+        QString lastFiredText = QStringLiteral("—");
+        if (tagStatus.lastFiredMs > 0) {
+            lastFiredText = QDateTime::fromMSecsSinceEpoch(tagStatus.lastFiredMs)
+                .toString(QStringLiteral("HH:mm:ss.zzz"));
+        }
+
+        auto makeItem = [](const QString& text, const QString& color) {
+            QTableWidgetItem* item = new QTableWidgetItem(text);
+            item->setForeground(QBrush(QColor(color)));
+            item->setFlags(Qt::ItemIsEnabled);
+            return item;
+        };
+        opcUaStatusTable_->setItem(i, 0, makeItem(tagStatus.name, QStringLiteral("#E3E3E3")));
+        opcUaStatusTable_->setItem(i, 1, makeItem(typeText,
+            tagStatus.simulated ? QStringLiteral("#00E5FF") : QStringLiteral("#A9B4C2")));
+        opcUaStatusTable_->setItem(i, 2, makeItem(tagStatus.valueText, QStringLiteral("#E3E3E3")));
+        opcUaStatusTable_->setItem(i, 3, makeItem(stateText, stateColor));
+        opcUaStatusTable_->setItem(i, 4, makeItem(lastFiredText, QStringLiteral("#8B949E")));
+    }
+}
+
+void ConfigDialog::refreshOpcUaSpeedDisplay() {
+    if (!opcUaStatusSpeedLabel_) {
+        return;
+    }
+
+    const bool speedEnabled = opcUaSpeedEnabledCheck_ && opcUaSpeedEnabledCheck_->isChecked();
+    const bool speedSimulated = opcUaSpeedSimulatedCombo_
+        && opcUaSpeedSimulatedCombo_->currentData().toBool();
+
+    if (speedEnabled && speedSimulated) {
+        // Live from the dialog's simulated-speed config (works even before the
+        // settings are saved or the service is running). Matches the service's
+        // (raw * scale) + offset formula.
+        const double rawValue = opcUaSpeedSimulatedValueSpin_
+            ? opcUaSpeedSimulatedValueSpin_->value() : 0.0;
+        const double scale = opcUaSpeedScaleSpin_ ? opcUaSpeedScaleSpin_->value() : 1.0;
+        const double offset = opcUaSpeedOffsetSpin_ ? opcUaSpeedOffsetSpin_->value() : 0.0;
+        QString unit = opcUaSpeedUnitEdit_ ? opcUaSpeedUnitEdit_->text().trimmed() : QString();
+        if (unit.isEmpty()) {
+            unit = QStringLiteral("m/min");
+        }
+        opcUaStatusSpeedLabel_->setText(
+            QStringLiteral("%1 %2").arg(QString::number(rawValue * scale + offset, 'f', 2), unit));
+        opcUaStatusSpeedLabel_->setStyleSheet(
+            QStringLiteral("color: #4CAF50; font-size: 12px; font-weight: 600;"));
+        return;
+    }
+
+    if (lastOpcUaRuntimeStatus_.speedValid) {
+        const QString speedColor = lastOpcUaRuntimeStatus_.speedStale
+            ? QStringLiteral("#E0A800") : QStringLiteral("#4CAF50");
+        const QString staleSuffix = lastOpcUaRuntimeStatus_.speedStale
+            ? QStringLiteral("  (STALE)") : QString();
+        opcUaStatusSpeedLabel_->setText(lastOpcUaRuntimeStatus_.speedText + staleSuffix);
+        opcUaStatusSpeedLabel_->setStyleSheet(
+            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(speedColor));
+        return;
+    }
+
+    opcUaStatusSpeedLabel_->setText(QStringLiteral("—"));
+    opcUaStatusSpeedLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+}
+
 void ConfigDialog::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     if (networkRefreshTimer_) {
@@ -442,6 +590,12 @@ void ConfigDialog::showEvent(QShowEvent* event) {
 void ConfigDialog::hideEvent(QHideEvent* event) {
     if (networkRefreshTimer_) {
         networkRefreshTimer_->stop();
+    }
+    // Release any still-held push-hold trigger buttons so the OPC UA service
+    // never keeps firing a tag whose button release was missed (e.g. the dialog
+    // was hidden mid-press).
+    for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
+        emit opcUaManualTriggerRequested(i, false, OpcUaTriggerTagSettings{});
     }
     QWidget::hideEvent(event);
 }
@@ -830,6 +984,19 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; width: 20px; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    // Compact combo variant for the trigger grid so the extra Sim column stays tight.
+    const QString opcUaGridComboStyle = QString(
+        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 8px; min-width: 64px; } "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; width: 16px; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    // Compact push-hold trigger button style for the grid.
+    const QString opcUaTriggerBtnStyle = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 14px; font-weight: 600; } "
+        "QPushButton:hover { border-color: %4; } "
+        "QPushButton:pressed { background-color: %4; color: %2; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
 
     auto createOpcUaForm = [&](QGroupBox* group) {
         QFormLayout* form = new QFormLayout(group);
@@ -968,9 +1135,15 @@ void ConfigDialog::setupUI() {
     opcUaTriggerGrid->addWidget(new QLabel("On", opcUaTriggerGroup), 0, 0);
     opcUaTriggerGrid->addWidget(new QLabel("Name", opcUaTriggerGroup), 0, 1);
     opcUaTriggerGrid->addWidget(new QLabel("NodeId", opcUaTriggerGroup), 0, 2);
-    opcUaTriggerGrid->addWidget(new QLabel("Active", opcUaTriggerGroup), 0, 3);
-    opcUaTriggerGrid->addWidget(new QLabel("Edge", opcUaTriggerGroup), 0, 4);
-    opcUaTriggerGrid->addWidget(new QLabel("Cooldown", opcUaTriggerGroup), 0, 5);
+    QLabel* opcUaSimHeader = new QLabel("Sim", opcUaTriggerGroup);
+    opcUaSimHeader->setToolTip("Simulated: the trigger fires only from the push-hold button (no OPC UA server subscription).");
+    opcUaTriggerGrid->addWidget(opcUaSimHeader, 0, 3);
+    QLabel* opcUaHoldHeader = new QLabel("Push-Hold", opcUaTriggerGroup);
+    opcUaHoldHeader->setToolTip("Press and hold to fire this trigger repeatedly (every Repeat ms). Release to stop.");
+    opcUaTriggerGrid->addWidget(opcUaHoldHeader, 0, 4);
+    QLabel* opcUaRepeatHeader = new QLabel("Repeat", opcUaTriggerGroup);
+    opcUaRepeatHeader->setToolTip("Push-hold repeat interval: while held, a recording fires every N ms (0 = as fast as possible).");
+    opcUaTriggerGrid->addWidget(opcUaRepeatHeader, 0, 5);
 
     for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
@@ -988,23 +1161,42 @@ void ConfigDialog::setupUI() {
         row.nodeIdEdit->setStyleSheet(opcUaLineEditStyle);
         opcUaTriggerGrid->addWidget(row.nodeIdEdit, i + 1, 2);
 
-        row.activeStateCombo = new QComboBox(opcUaTriggerGroup);
-        row.activeStateCombo->setStyleSheet(opcUaComboStyle);
-        row.activeStateCombo->addItem("True", true);
-        row.activeStateCombo->addItem("False", false);
-        opcUaTriggerGrid->addWidget(row.activeStateCombo, i + 1, 3);
+        row.simulatedCombo = new QComboBox(opcUaTriggerGroup);
+        row.simulatedCombo->setStyleSheet(opcUaGridComboStyle);
+        row.simulatedCombo->addItem("Live", false);
+        row.simulatedCombo->addItem("Simulated", true);
+        row.simulatedCombo->setToolTip("Simulated: fires only from the push-hold button (no OPC UA server subscription). Live: fires when the tag reads True, plus the button as a manual override.");
+        opcUaTriggerGrid->addWidget(row.simulatedCombo, i + 1, 3);
 
-        row.edgeModeCombo = new QComboBox(opcUaTriggerGroup);
-        row.edgeModeCombo->setStyleSheet(opcUaComboStyle);
-        row.edgeModeCombo->addItem("Rising", "rising");
-        row.edgeModeCombo->addItem("Falling", "falling");
-        row.edgeModeCombo->addItem("Either", "either");
-        opcUaTriggerGrid->addWidget(row.edgeModeCombo, i + 1, 4);
+        row.manualTriggerBtn = new QPushButton("Hold", opcUaTriggerGroup);
+        row.manualTriggerBtn->setStyleSheet(opcUaTriggerBtnStyle);
+        row.manualTriggerBtn->setCursor(Qt::PointingHandCursor);
+        row.manualTriggerBtn->setToolTip("Push-hold: press and hold to fire this trigger repeatedly (every Repeat ms). Release to stop.");
+        connect(row.manualTriggerBtn, &QPushButton::pressed, this, [this, i]() {
+            // Snapshot the row's live config so the manual trigger works even
+            // before the OPC UA settings are saved.
+            const OpcUaTriggerRowWidgets& r = opcUaTriggerRows_[static_cast<size_t>(i)];
+            OpcUaTriggerTagSettings tag;
+            tag.name = r.nameEdit ? r.nameEdit->text().trimmed() : QString();
+            tag.nodeId = r.nodeIdEdit ? r.nodeIdEdit->text().trimmed() : QString();
+            tag.enabled = r.enabledCheck && r.enabledCheck->isChecked();
+            tag.simulated = r.simulatedCombo && r.simulatedCombo->currentData().toBool();
+            tag.minimumIntervalMs = r.minimumIntervalSpin ? r.minimumIntervalSpin->value() : 0;
+            if (tag.name.isEmpty()) {
+                tag.name = QStringLiteral("Trigger %1").arg(i + 1);
+            }
+            emit opcUaManualTriggerRequested(i, true, tag);
+        });
+        connect(row.manualTriggerBtn, &QPushButton::released, this, [this, i]() {
+            emit opcUaManualTriggerRequested(i, false, OpcUaTriggerTagSettings{});
+        });
+        opcUaTriggerGrid->addWidget(row.manualTriggerBtn, i + 1, 4, Qt::AlignCenter);
 
         row.minimumIntervalSpin = new QSpinBox(opcUaTriggerGroup);
         row.minimumIntervalSpin->setRange(0, 60000);
         row.minimumIntervalSpin->setSuffix(" ms");
         row.minimumIntervalSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        row.minimumIntervalSpin->setToolTip("Push-hold repeat interval: while held, fires every N ms (0 = as fast as possible).");
         opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 5);
     }
     opcUaTriggerLayout->addLayout(opcUaTriggerGrid);
@@ -1024,6 +1216,29 @@ void ConfigDialog::setupUI() {
     opcUaSpeedEnabledCheck_ = new QCheckBox("Use machine speed tag", opcUaSpeedGroup);
     opcUaSpeedEnabledCheck_->setStyleSheet(QString("color: %1;").arg(tc.text));
     opcUaSpeedForm->addRow("Speed Source:", opcUaSpeedEnabledCheck_);
+
+    opcUaSpeedSimulatedCombo_ = new QComboBox(opcUaSpeedGroup);
+    opcUaSpeedSimulatedCombo_->setStyleSheet(opcUaComboStyle);
+    opcUaSpeedSimulatedCombo_->addItem("Live (OPC UA server)", false);
+    opcUaSpeedSimulatedCombo_->addItem("Simulated (fixed value)", true);
+    opcUaSpeedSimulatedCombo_->setToolTip("Simulated: reports a fixed value without subscribing to the OPC UA server.");
+    opcUaSpeedForm->addRow("Simulated:", opcUaSpeedSimulatedCombo_);
+
+    opcUaSpeedSimulatedValueSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
+    opcUaSpeedSimulatedValueSpin_->setDecimals(4);
+    opcUaSpeedSimulatedValueSpin_->setRange(-100000.0, 100000.0);
+    opcUaSpeedSimulatedValueSpin_->setSingleStep(1.0);
+    opcUaSpeedSimulatedValueSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    opcUaSpeedSimulatedValueSpin_->setEnabled(false);
+    opcUaSpeedSimulatedValueSpin_->setToolTip("Fixed raw value reported while simulated (before Scale/Offset are applied).");
+    opcUaSpeedForm->addRow("Simulated Value:", opcUaSpeedSimulatedValueSpin_);
+
+    connect(opcUaSpeedSimulatedCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        if (opcUaSpeedSimulatedValueSpin_) {
+            opcUaSpeedSimulatedValueSpin_->setEnabled(opcUaSpeedSimulatedCombo_
+                && opcUaSpeedSimulatedCombo_->currentData().toBool());
+        }
+    });
 
     opcUaSpeedNameEdit_ = new QLineEdit(opcUaSpeedGroup);
     opcUaSpeedNameEdit_->setPlaceholderText("Machine Speed");
@@ -1065,9 +1280,92 @@ void ConfigDialog::setupUI() {
     opcUaPositionDirectionCombo_->addItem("Increase position with time", 1);
     opcUaPositionDirectionCombo_->addItem("Decrease position with time", -1);
     opcUaSpeedForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
+
+    // Keep the Live Status speed row in sync with the dialog's own simulated
+    // speed config (works even before saving / without the service running).
+    if (opcUaSpeedEnabledCheck_) {
+        connect(opcUaSpeedEnabledCheck_, &QCheckBox::toggled, this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    if (opcUaSpeedSimulatedCombo_) {
+        connect(opcUaSpeedSimulatedCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    if (opcUaSpeedSimulatedValueSpin_) {
+        connect(opcUaSpeedSimulatedValueSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    if (opcUaSpeedScaleSpin_) {
+        connect(opcUaSpeedScaleSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    if (opcUaSpeedOffsetSpin_) {
+        connect(opcUaSpeedOffsetSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    if (opcUaSpeedUnitEdit_) {
+        connect(opcUaSpeedUnitEdit_, &QLineEdit::textChanged, this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+
     opcUaSpeedTabLayout->addWidget(opcUaSpeedGroup);
     opcUaSpeedTabLayout->addStretch(1);
     opcUaTabs->addTab(opcUaSpeedTab, "Speed");
+
+    // Live Status: client state, speed, and per-tag trigger state, updated from
+    // OpcUaClientService::runtimeStatusChanged while the dialog is open.
+    QGroupBox* opcUaStatusGroup = new QGroupBox("Live Status", opcUaGroup);
+    opcUaStatusGroup->setStyleSheet(sectionStyle);
+    QVBoxLayout* opcUaStatusLayout = new QVBoxLayout(opcUaStatusGroup);
+    opcUaStatusLayout->setContentsMargins(14, 18, 14, 14);
+    opcUaStatusLayout->setSpacing(8);
+
+    QFormLayout* opcUaStatusForm = new QFormLayout();
+    opcUaStatusForm->setSpacing(6);
+    opcUaStatusForm->setHorizontalSpacing(16);
+    opcUaStatusForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    QLabel* opcUaStatusClientCaption = new QLabel("Client:", opcUaStatusGroup);
+    opcUaStatusClientCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
+    opcUaStatusClientLabel_ = new QLabel("○ Idle (OPC UA disabled)", opcUaStatusGroup);
+    opcUaStatusClientLabel_->setStyleSheet("color: #8B949E; font-size: 12px; font-weight: 600;");
+    opcUaStatusForm->addRow(opcUaStatusClientCaption, opcUaStatusClientLabel_);
+
+    QLabel* opcUaStatusSpeedCaption = new QLabel("Speed:", opcUaStatusGroup);
+    opcUaStatusSpeedCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
+    opcUaStatusSpeedLabel_ = new QLabel("—", opcUaStatusGroup);
+    opcUaStatusSpeedLabel_->setStyleSheet("color: #8B949E; font-size: 12px;");
+    opcUaStatusForm->addRow(opcUaStatusSpeedCaption, opcUaStatusSpeedLabel_);
+
+    opcUaStatusLayout->addLayout(opcUaStatusForm);
+
+    opcUaStatusTable_ = new QTableWidget(kOpcUaTriggerSlots, 5, opcUaStatusGroup);
+    opcUaStatusTable_->setHorizontalHeaderLabels(QStringList()
+        << "Name" << "Type" << "Value" << "State" << "Last Fired");
+    opcUaStatusTable_->verticalHeader()->setVisible(false);
+    opcUaStatusTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    opcUaStatusTable_->setSelectionMode(QAbstractItemView::NoSelection);
+    opcUaStatusTable_->setFocusPolicy(Qt::NoFocus);
+    opcUaStatusTable_->setShowGrid(false);
+    opcUaStatusTable_->setAlternatingRowColors(false);
+    opcUaStatusTable_->setStyleSheet(QString(
+        "QTableWidget { background: transparent; border: none; color: %1; font-size: 12px; } "
+        "QTableWidget::item { padding: 4px 8px; border: none; } "
+        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: 11px; }"
+    ).arg(tc.text, tc.primary, tc.border));
+    QHeaderView* opcUaStatusHeader = opcUaStatusTable_->horizontalHeader();
+    opcUaStatusHeader->setSectionResizeMode(0, QHeaderView::Stretch);
+    opcUaStatusHeader->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    opcUaStatusHeader->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    opcUaStatusHeader->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    opcUaStatusHeader->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    opcUaStatusLayout->addWidget(opcUaStatusTable_);
+
+    opcUaLayout->addWidget(opcUaStatusGroup);
+
+    // Populate the status table with the configured rows right away (the service
+    // refreshes it live once wired up).
+    updateOpcUaRuntimeStatus(OpcUaRuntimeStatus{});
 
     QHBoxLayout* opcUaActionsLayout = new QHBoxLayout();
     opcUaActionsLayout->addStretch();
@@ -2090,20 +2388,14 @@ void ConfigDialog::loadSettings() {
         if (row.nodeIdEdit) {
             row.nodeIdEdit->setText(tag.nodeId);
         }
-        if (row.activeStateCombo) {
-            const int activeStateIndex = row.activeStateCombo->findData(tag.activeState);
-            if (activeStateIndex != -1) {
-                row.activeStateCombo->setCurrentIndex(activeStateIndex);
-            }
-        }
-        if (row.edgeModeCombo) {
-            const int edgeModeIndex = row.edgeModeCombo->findData(tag.edgeMode);
-            if (edgeModeIndex != -1) {
-                row.edgeModeCombo->setCurrentIndex(edgeModeIndex);
-            }
-        }
         if (row.minimumIntervalSpin) {
             row.minimumIntervalSpin->setValue(tag.minimumIntervalMs);
+        }
+        if (row.simulatedCombo) {
+            const int simulatedIndex = row.simulatedCombo->findData(tag.simulated);
+            if (simulatedIndex != -1) {
+                row.simulatedCombo->setCurrentIndex(simulatedIndex);
+            }
         }
     }
 
@@ -2127,6 +2419,16 @@ void ConfigDialog::loadSettings() {
     }
     if (opcUaSpeedStaleTimeoutSpin_) {
         opcUaSpeedStaleTimeoutSpin_->setValue(opcUaSettings.speedTag.staleTimeoutMs);
+    }
+    if (opcUaSpeedSimulatedCombo_) {
+        const int simulatedIndex = opcUaSpeedSimulatedCombo_->findData(opcUaSettings.speedTag.simulated);
+        if (simulatedIndex != -1) {
+            opcUaSpeedSimulatedCombo_->setCurrentIndex(simulatedIndex);
+        }
+    }
+    if (opcUaSpeedSimulatedValueSpin_) {
+        opcUaSpeedSimulatedValueSpin_->setValue(opcUaSettings.speedTag.simulatedValue);
+        opcUaSpeedSimulatedValueSpin_->setEnabled(opcUaSettings.speedTag.simulated);
     }
     if (opcUaPositionDirectionCombo_) {
         const int directionIndex = opcUaPositionDirectionCombo_->findData(opcUaSettings.positionDirectionSign >= 0 ? 1 : -1);
@@ -2697,16 +2999,15 @@ void ConfigDialog::saveOpcUaSettings() {
         tag.enabled = row.enabledCheck && row.enabledCheck->isChecked();
         tag.name = row.nameEdit ? row.nameEdit->text().trimmed() : QString();
         tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
-        tag.activeState = row.activeStateCombo ? row.activeStateCombo->currentData().toBool() : true;
-        tag.edgeMode = row.edgeModeCombo ? row.edgeModeCombo->currentData().toString() : QStringLiteral("rising");
         tag.minimumIntervalMs = row.minimumIntervalSpin ? row.minimumIntervalSpin->value() : 0;
+        tag.simulated = row.simulatedCombo ? row.simulatedCombo->currentData().toBool() : false;
 
         if (tag.name.isEmpty()) {
             tag.name = QString("Trigger %1").arg(i + 1);
         }
         if (tag.enabled) {
             hasEnabledTrigger = true;
-            if (tag.nodeId.isEmpty()) {
+            if (!tag.simulated && tag.nodeId.isEmpty()) {
                 validationErrors.append(QString("%1 is enabled but has no NodeId.").arg(tag.name));
             }
         }
@@ -2720,6 +3021,8 @@ void ConfigDialog::saveOpcUaSettings() {
     settings.speedTag.offset = opcUaSpeedOffsetSpin_ ? opcUaSpeedOffsetSpin_->value() : 0.0;
     settings.speedTag.unit = opcUaSpeedUnitEdit_ ? opcUaSpeedUnitEdit_->text().trimmed() : QStringLiteral("m/min");
     settings.speedTag.staleTimeoutMs = opcUaSpeedStaleTimeoutSpin_ ? opcUaSpeedStaleTimeoutSpin_->value() : 2000;
+    settings.speedTag.simulated = opcUaSpeedSimulatedCombo_ && opcUaSpeedSimulatedCombo_->currentData().toBool();
+    settings.speedTag.simulatedValue = opcUaSpeedSimulatedValueSpin_ ? opcUaSpeedSimulatedValueSpin_->value() : 0.0;
     if (settings.speedTag.name.isEmpty()) {
         settings.speedTag.name = QStringLiteral("Machine Speed");
     }
@@ -2727,11 +3030,23 @@ void ConfigDialog::saveOpcUaSettings() {
         settings.speedTag.unit = QStringLiteral("m/min");
     }
 
-    if (settings.enabled) {
-        if (settings.endpointUrl.isEmpty()) {
-            validationErrors.append("Endpoint URL is required when OPC UA is enabled.");
+    bool hasRealTag = false;
+    for (const auto& tag : settings.triggerTags) {
+        if (tag.enabled && !tag.simulated && !tag.nodeId.isEmpty()) {
+            hasRealTag = true;
+            break;
         }
-        if (settings.useUsernamePassword && settings.username.isEmpty()) {
+    }
+    if (!hasRealTag && settings.speedTag.enabled && !settings.speedTag.simulated
+            && !settings.speedTag.nodeId.isEmpty()) {
+        hasRealTag = true;
+    }
+
+    if (settings.enabled) {
+        if (hasRealTag && settings.endpointUrl.isEmpty()) {
+            validationErrors.append("Endpoint URL is required when OPC UA is enabled and live tags are used.");
+        }
+        if (hasRealTag && settings.useUsernamePassword && settings.username.isEmpty()) {
             validationErrors.append("Username is required when username/password authentication is selected.");
         }
         if (!hasEnabledTrigger && !settings.speedTag.enabled) {
@@ -2739,7 +3054,7 @@ void ConfigDialog::saveOpcUaSettings() {
         }
     }
 
-    if (settings.speedTag.enabled && settings.speedTag.nodeId.isEmpty()) {
+    if (settings.speedTag.enabled && !settings.speedTag.simulated && settings.speedTag.nodeId.isEmpty()) {
         validationErrors.append("Machine speed tag is enabled but has no NodeId.");
     }
 
@@ -2888,8 +3203,8 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
         if (row.enabledCheck) row.enabledCheck->setEnabled(isAdmin);
         if (row.nameEdit) row.nameEdit->setEnabled(isAdmin);
         if (row.nodeIdEdit) row.nodeIdEdit->setEnabled(isAdmin);
-        if (row.activeStateCombo) row.activeStateCombo->setEnabled(isAdmin);
-        if (row.edgeModeCombo) row.edgeModeCombo->setEnabled(isAdmin);
+        if (row.simulatedCombo) row.simulatedCombo->setEnabled(isAdmin);
+        if (row.manualTriggerBtn) row.manualTriggerBtn->setEnabled(isAdmin);
         if (row.minimumIntervalSpin) row.minimumIntervalSpin->setEnabled(isAdmin);
     }
     if (opcUaSpeedEnabledCheck_) opcUaSpeedEnabledCheck_->setEnabled(isAdmin);
@@ -2899,6 +3214,9 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     if (opcUaSpeedOffsetSpin_) opcUaSpeedOffsetSpin_->setEnabled(isAdmin);
     if (opcUaSpeedUnitEdit_) opcUaSpeedUnitEdit_->setEnabled(isAdmin);
     if (opcUaSpeedStaleTimeoutSpin_) opcUaSpeedStaleTimeoutSpin_->setEnabled(isAdmin);
+    if (opcUaSpeedSimulatedCombo_) opcUaSpeedSimulatedCombo_->setEnabled(isAdmin);
+    if (opcUaSpeedSimulatedValueSpin_) opcUaSpeedSimulatedValueSpin_->setEnabled(isAdmin
+        && opcUaSpeedSimulatedCombo_ && opcUaSpeedSimulatedCombo_->currentData().toBool());
     if (opcUaPositionDirectionCombo_) opcUaPositionDirectionCombo_->setEnabled(isAdmin);
     if (opcUaSaveBtn_) opcUaSaveBtn_->setEnabled(isAdmin);
     eventStoragePathEdit_->setEnabled(isAdmin);

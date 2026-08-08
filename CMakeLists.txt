@@ -63,6 +63,7 @@ src/gui/widgets/DeleteConfirmationDialog.h
 src/gui/widgets/IpConfiguratorPanel.h
 src/gui/widgets/FixedIpListPanel.h
 src/communication/OpcUaClientService.h
+src/communication/OpcUaRuntimeStatus.h
 )
 
 # Include Directories

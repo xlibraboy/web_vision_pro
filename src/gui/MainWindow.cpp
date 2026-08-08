@@ -437,16 +437,30 @@ void MainWindow::applyOpcUaSettings() {
 
     bool hasEnabledNode = false;
     for (const auto& triggerTag : opcUaSettings.triggerTags) {
-        if (triggerTag.enabled && !triggerTag.nodeId.trimmed().isEmpty()) {
+        if (triggerTag.enabled && (!triggerTag.nodeId.trimmed().isEmpty() || triggerTag.simulated)) {
             hasEnabledNode = true;
             break;
         }
     }
-    if (!hasEnabledNode && opcUaSettings.speedTag.enabled && !opcUaSettings.speedTag.nodeId.trimmed().isEmpty()) {
+    if (!hasEnabledNode && opcUaSettings.speedTag.enabled
+            && (!opcUaSettings.speedTag.nodeId.trimmed().isEmpty() || opcUaSettings.speedTag.simulated)) {
         hasEnabledNode = true;
     }
 
-    if (opcUaSettings.enabled && hasNonDefaultEndpoint && hasEnabledNode) {
+    bool hasSimulatedTag = false;
+    for (const auto& triggerTag : opcUaSettings.triggerTags) {
+        if (triggerTag.enabled && triggerTag.simulated) {
+            hasSimulatedTag = true;
+            break;
+        }
+    }
+    if (!hasSimulatedTag && opcUaSettings.speedTag.enabled && opcUaSettings.speedTag.simulated) {
+        hasSimulatedTag = true;
+    }
+
+    // Simulated tags fire without a server, so a default/empty endpoint is fine
+    // when at least one enabled tag is simulated.
+    if (opcUaSettings.enabled && hasEnabledNode && (hasNonDefaultEndpoint || hasSimulatedTag)) {
         opcUaClientService_->start();
     }
 }
@@ -771,6 +785,9 @@ void MainWindow::setupCore() {
         configWindow_->setCameraManager(cameraManager_.get());
     }
     opcUaClientService_ = std::make_unique<OpcUaClientService>(this);
+    if (configWindow_) {
+        configWindow_->setOpcUaRuntimeSource(opcUaClientService_.get());
+    }
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
@@ -1141,7 +1158,22 @@ void MainWindow::ensureConfigTab() {
                     detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraIndex));
                 });
 
+        // Manual push-hold trigger buttons in the OPC UA config: forward to the
+        // service so held buttons fire triggers repeatedly (works without a server
+        // for Simulated tags, and as a manual override for Live tags).
+        connect(configWindow_, &ConfigDialog::opcUaManualTriggerRequested, this,
+                [this](int tagIndex, bool held, const OpcUaTriggerTagSettings& tagSettings) {
+            if (opcUaClientService_) {
+                opcUaClientService_->setManualTriggerHeld(tagIndex, held, tagSettings);
+            }
+        });
+
         connect(configWindow_, &QObject::destroyed, [this]() {
+            // The dialog may be destroyed mid-press (e.g. admin logout) without a
+            // hideEvent, so make sure no manual trigger stays held forever.
+            if (opcUaClientService_) {
+                opcUaClientService_->releaseAllManualTriggers();
+            }
             configTabIndex_ = -1;
             configWindow_ = nullptr;
         });

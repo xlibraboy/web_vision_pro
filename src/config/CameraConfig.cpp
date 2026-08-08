@@ -27,9 +27,8 @@ std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
         tags[i].name = QString("Trigger %1").arg(i + 1);
         tags[i].nodeId = "";
         tags[i].enabled = false;
-        tags[i].activeState = true;
-        tags[i].edgeMode = QStringLiteral("rising");
         tags[i].minimumIntervalMs = 1500;
+        tags[i].simulated = false;
     }
     return tags;
 }
@@ -50,18 +49,13 @@ OpcUaSettings defaultOpcUaSettings() {
     settings.speedTag.offset = 0.0;
     settings.speedTag.unit = QStringLiteral("m/min");
     settings.speedTag.staleTimeoutMs = 2000;
+    settings.speedTag.simulated = false;
+    settings.speedTag.simulatedValue = 0.0;
     return settings;
 }
 
-QString normalizedOpcUaEdgeMode(const QString& value) {
-    const QString normalized = value.trimmed().toLower();
-    if (normalized == "falling" || normalized == "either") {
-        return normalized;
-    }
-    return QStringLiteral("rising");
 }
 
-}
 
 // --- Configuration Implementation ---
 
@@ -302,9 +296,8 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
             tag.name = settings.value("name", tag.name).toString();
             tag.nodeId = settings.value("nodeId", tag.nodeId).toString().trimmed();
             tag.enabled = settings.value("enabled", tag.enabled).toBool();
-            tag.activeState = settings.value("activeState", tag.activeState).toBool();
-            tag.edgeMode = normalizedOpcUaEdgeMode(settings.value("edgeMode", tag.edgeMode).toString());
             tag.minimumIntervalMs = settings.value("minimumIntervalMs", tag.minimumIntervalMs).toInt();
+            tag.simulated = settings.value("simulated", tag.simulated).toBool();
             result.triggerTags.push_back(tag);
         }
     }
@@ -321,6 +314,8 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
     result.speedTag.offset = settings.value("OpcUa/SpeedTag/Offset", defaults.speedTag.offset).toDouble();
     result.speedTag.unit = settings.value("OpcUa/SpeedTag/Unit", defaults.speedTag.unit).toString().trimmed();
     result.speedTag.staleTimeoutMs = settings.value("OpcUa/SpeedTag/StaleTimeoutMs", defaults.speedTag.staleTimeoutMs).toInt();
+    result.speedTag.simulated = settings.value("OpcUa/SpeedTag/Simulated", defaults.speedTag.simulated).toBool();
+    result.speedTag.simulatedValue = settings.value("OpcUa/SpeedTag/SimulatedValue", defaults.speedTag.simulatedValue).toDouble();
     if (result.speedTag.unit.isEmpty()) {
         result.speedTag.unit = defaults.speedTag.unit;
     }
@@ -347,9 +342,8 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
         settings.setValue("name", tag.name);
         settings.setValue("nodeId", tag.nodeId.trimmed());
         settings.setValue("enabled", tag.enabled);
-        settings.setValue("activeState", tag.activeState);
-        settings.setValue("edgeMode", normalizedOpcUaEdgeMode(tag.edgeMode));
         settings.setValue("minimumIntervalMs", tag.minimumIntervalMs);
+        settings.setValue("simulated", tag.simulated);
     }
     settings.endArray();
 
@@ -362,6 +356,8 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
         ? defaults.speedTag.unit
         : opcUaSettings.speedTag.unit.trimmed());
     settings.setValue("OpcUa/SpeedTag/StaleTimeoutMs", opcUaSettings.speedTag.staleTimeoutMs);
+    settings.setValue("OpcUa/SpeedTag/Simulated", opcUaSettings.speedTag.simulated);
+    settings.setValue("OpcUa/SpeedTag/SimulatedValue", opcUaSettings.speedTag.simulatedValue);
 }
 
 std::vector<CameraInfo> CameraConfig::getCameras() {

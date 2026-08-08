@@ -42,9 +42,13 @@ struct OpcUaTriggerTagSettings {
     QString name;
     QString nodeId;
     bool enabled = false;
-    bool activeState = true;
-    QString edgeMode = QStringLiteral("rising");
+    // Push-hold repeat interval: while the trigger is held active (by the
+    // manual button, or a Live tag reading True), a trigger fires every
+    // minimumIntervalMs (0 = as fast as possible).
     int minimumIntervalMs = 1500;
+    // When true the tag is not subscribed from the OPC UA server; the trigger
+    // is driven only by the manual push-hold button.
+    bool simulated = false;
 };
 
 struct OpcUaSpeedTagSettings {
@@ -55,6 +59,10 @@ struct OpcUaSpeedTagSettings {
     double offset = 0.0;
     QString unit = QStringLiteral("m/min");
     int staleTimeoutMs = 2000;
+    // When true the tag is not subscribed from the OPC UA server; it instead
+    // reports a fixed simulated raw value (before Scale/Offset are applied).
+    bool simulated = false;
+    double simulatedValue = 0.0;
 };
 
 struct OpcUaSettings {

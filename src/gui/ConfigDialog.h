@@ -19,6 +19,8 @@
 #include <QFrame>
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
+#include "../config/CameraConfig.h"
+#include "../communication/OpcUaRuntimeStatus.h"
 #include <array>
 
 
@@ -33,6 +35,8 @@ class CameraDeviceSettingsDialog;
 class IpConfiguratorPanel;
 class FixedIpListPanel;
 class QTimer;
+class OpcUaClientService;
+class QTableWidget;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -43,6 +47,8 @@ public:
     // (MainWindow: setupUi runs before setupCore). Re-wire it once created.
     void setCameraManager(CameraManager* manager);
     void setAdminMode(bool isAdmin);
+    // Wire the live OPC UA runtime status source (owned by MainWindow).
+    void setOpcUaRuntimeSource(OpcUaClientService* service);
 
     ~ConfigDialog() override;
 
@@ -51,6 +57,11 @@ signals:
     void configUpdated(bool requiresCameraRestart);
     void themeSelectionChanged();
     void cameraDeviceSettingsChanged(int cameraIndex, const CameraInfo& info);
+    // Manual push-hold trigger button: emitted while the operator holds a row's
+    // button (true) and on release (false). Carries the row's live config so the
+    // trigger fires even before the settings are saved.
+    void opcUaManualTriggerRequested(int tagIndex, bool held,
+                                     const OpcUaTriggerTagSettings& tagSettings);
 
 private slots:
     void saveCameraConfiguration();
@@ -100,6 +111,8 @@ private:
     void clearUiSettingsModified();
     void refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint, bool allowNetworkScan);
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
+    void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
+    void refreshOpcUaSpeedDisplay();
 
 
     struct UiSettingsSnapshot {
@@ -213,8 +226,8 @@ private:
         QCheckBox* enabledCheck = nullptr;
         QLineEdit* nameEdit = nullptr;
         QLineEdit* nodeIdEdit = nullptr;
-        QComboBox* activeStateCombo = nullptr;
-        QComboBox* edgeModeCombo = nullptr;
+        QComboBox* simulatedCombo = nullptr;
+        QPushButton* manualTriggerBtn = nullptr;
         QSpinBox* minimumIntervalSpin = nullptr;
     };
 
@@ -233,11 +246,20 @@ private:
     QDoubleSpinBox* opcUaSpeedOffsetSpin_ = nullptr;
     QLineEdit* opcUaSpeedUnitEdit_ = nullptr;
     QSpinBox* opcUaSpeedStaleTimeoutSpin_ = nullptr;
+    QComboBox* opcUaSpeedSimulatedCombo_ = nullptr;
+    QDoubleSpinBox* opcUaSpeedSimulatedValueSpin_ = nullptr;
     QComboBox* opcUaPositionDirectionCombo_ = nullptr;
     QLabel* opcUaDiscoveryStatusLabel_ = nullptr;
     QPushButton* opcUaDetectEndpointBtn_ = nullptr;
     QPushButton* opcUaSaveBtn_ = nullptr;
     bool opcUaDiscoveryAttempted_ = false;
+
+    // Live Status panel
+    QLabel* opcUaStatusClientLabel_ = nullptr;
+    QLabel* opcUaStatusSpeedLabel_ = nullptr;
+    QTableWidget* opcUaStatusTable_ = nullptr;
+    OpcUaClientService* opcUaRuntimeSource_ = nullptr;
+    OpcUaRuntimeStatus lastOpcUaRuntimeStatus_;
 
 
     // Premium Camera Setup UI
