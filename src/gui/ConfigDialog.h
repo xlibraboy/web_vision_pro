@@ -31,6 +31,7 @@ class NetworkSummaryHeader;
 class DeleteConfirmationDialog;
 class CameraDeviceSettingsDialog;
 class IpConfiguratorPanel;
+class FixedIpListPanel;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -75,11 +76,18 @@ private slots:
     void onCameraCardMacChanged(const QString& mac);
     void onCameraCardDeviceSettingsClicked();
 
+    // Fixed IP List panel
+    void onFixedIpListAddRequested();
+    void onFixedIpListDeleteRequested(int cameraId);
+    void onFixedIpListIpEdited(int cameraId, const QString& ip);
+    void onFixedIpListNameEdited(int cameraId, const QString& name);
+
 private:
     void setupUI();
     void loadSettings();
     void setupUiModificationTracking();
     void createCameraWidgetBlock(const CameraInfo& cam);
+    void refreshFixedIpList();
     void refreshNetworkStatus();
     void relayoutCameraCards();
     void relayoutUiPreferencePanels();
@@ -248,6 +256,7 @@ private:
 
     CameraManager* cameraManager_;
     IpConfiguratorPanel* ipConfiguratorPanel_ = nullptr;
+    FixedIpListPanel* fixedIpListPanel_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;
 

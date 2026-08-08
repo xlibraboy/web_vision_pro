@@ -41,6 +41,7 @@ src/gui/widgets/CameraDeviceSettingsDialog.cpp
 src/gui/widgets/NetworkSummaryHeader.cpp
 src/gui/widgets/DeleteConfirmationDialog.cpp
 src/gui/widgets/IpConfiguratorPanel.cpp
+src/gui/widgets/FixedIpListPanel.cpp
 )
 
 # Header files for Qt MOC
@@ -59,6 +60,7 @@ src/gui/widgets/CameraDeviceSettingsDialog.h
 src/gui/widgets/NetworkSummaryHeader.h
 src/gui/widgets/DeleteConfirmationDialog.h
 src/gui/widgets/IpConfiguratorPanel.h
+src/gui/widgets/FixedIpListPanel.h
 src/communication/OpcUaClientService.h
 )
 

@@ -6,6 +6,7 @@
 #include "widgets/NetworkSummaryHeader.h"
 #include "widgets/DeleteConfirmationDialog.h"
 #include "widgets/IpConfiguratorPanel.h"
+#include "widgets/FixedIpListPanel.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -242,22 +243,6 @@ namespace {
         }
 
         return true;
-    }
-
-    void persistCameraNetworkSelection(int cameraId, int source, const QString& ip, const QString& mac,
-                                       const QString& mask, const QString& gateway) {
-        std::vector<CameraInfo> cameras = CameraConfig::getCameras();
-        for (auto& cam : cameras) {
-            if (cam.id != cameraId) continue;
-
-            cam.source = source;
-            cam.ipAddress = normalizeIp(ip);
-            cam.macAddress = normalizeMac(mac);
-            cam.subnetMask = normalizeIp(mask);
-            cam.defaultGateway = normalizeIp(gateway);
-            CameraConfig::saveCameras(cameras);
-            return;
-        }
     }
 
     QString joinCameraIds(const QList<int>& ids) {
@@ -696,7 +681,21 @@ void ConfigDialog::setupUI() {
     cameraCardsPageLayout->addLayout(cameraActionsLayout);
     cameraSubTabs->addTab(cameraCardsPage, "Camera Cards");
 
-    // Tab 2: IP Configurator
+    // Tab 2: Fixed IP List — master registry of fixed IPs per camera ID.
+    // The camera cards derive their count from this list: adding/removing a
+    // row here creates/removes the matching camera card.
+    fixedIpListPanel_ = new FixedIpListPanel(cameraSubTabs);
+    connect(fixedIpListPanel_, &FixedIpListPanel::addCameraRequested,
+            this, &ConfigDialog::onFixedIpListAddRequested);
+    connect(fixedIpListPanel_, &FixedIpListPanel::deleteCameraRequested,
+            this, &ConfigDialog::onFixedIpListDeleteRequested);
+    connect(fixedIpListPanel_, &FixedIpListPanel::ipEdited,
+            this, &ConfigDialog::onFixedIpListIpEdited);
+    connect(fixedIpListPanel_, &FixedIpListPanel::nameEdited,
+            this, &ConfigDialog::onFixedIpListNameEdited);
+    cameraSubTabs->addTab(fixedIpListPanel_, "Fixed IP List");
+
+    // Tab 3: IP Configurator
     ipConfiguratorPanel_ = new IpConfiguratorPanel(cameraSubTabs);
     cameraSubTabs->addTab(ipConfiguratorPanel_, "IP Configurator");
 
@@ -2022,6 +2021,7 @@ void ConfigDialog::loadSettings() {
     for (const auto& cam : cameras) {
         createCameraWidgetBlock(cam);
     }
+    refreshFixedIpList();
 
     // Load global settings
     globalFpsSpin_->setValue(CameraConfig::getFps());
@@ -2425,9 +2425,64 @@ void ConfigDialog::onCameraCardRemoveClicked() {
 
         relayoutCameraCards();
 
-        // Update network status
+        // Update network status and the fixed-IP list
         refreshNetworkStatus();
+        refreshFixedIpList();
     }
+}
+
+void ConfigDialog::onFixedIpListAddRequested() {
+    // onAddCameraConfigClicked() already refreshes the fixed-IP list.
+    onAddCameraConfigClicked();
+}
+
+void ConfigDialog::onFixedIpListDeleteRequested(int cameraId) {
+    CameraCard* card = findCameraCard(cameraId);
+    if (!card) return;
+
+    DeleteConfirmationDialog dialog(
+        QString("Camera %1: %2").arg(card->cameraId()).arg(card->name()),
+        this
+    );
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    cameraCards_.erase(std::remove(cameraCards_.begin(), cameraCards_.end(), card),
+                      cameraCards_.end());
+    cameraListLayout_->removeWidget(card);
+    delete card;
+    relayoutCameraCards();
+    refreshNetworkStatus();
+    refreshFixedIpList();
+}
+
+void ConfigDialog::onFixedIpListIpEdited(int cameraId, const QString& ip) {
+    CameraCard* card = findCameraCard(cameraId);
+    if (!card) return;
+
+    // Only the fixed IP changes here; mask/gateway stay as configured on the card.
+    card->setNetworkConfig(ip, card->subnetMask(), card->gateway());
+    refreshNetworkStatus();
+}
+
+void ConfigDialog::onFixedIpListNameEdited(int cameraId, const QString& name) {
+    CameraCard* card = findCameraCard(cameraId);
+    if (!card) return;
+    card->setName(name);
+}
+
+void ConfigDialog::refreshFixedIpList() {
+    if (!fixedIpListPanel_) {
+        return;
+    }
+
+    std::vector<CameraInfo> cameras;
+    cameras.reserve(cameraCards_.size());
+    for (auto* card : cameraCards_) {
+        cameras.push_back(card->cameraInfo());
+    }
+    fixedIpListPanel_->setCameras(cameras);
 }
 
 void ConfigDialog::onCameraCardSourceChanged(int) {
@@ -2448,9 +2503,18 @@ void ConfigDialog::onCameraCardMacChanged(const QString&) {
     }
 
     refreshNetworkStatus();
+    refreshFixedIpList();
 }
 
 void ConfigDialog::onAddCameraConfigClicked() {
+    // The Fixed IP List is the authority for the camera card count; both entry
+    // points respect the same hard limit (16).
+    if (static_cast<int>(cameraCards_.size()) >= 16) {
+        QMessageBox::information(this, "Camera Limit",
+            "Maximum of 16 cameras reached. Delete a camera first.");
+        return;
+    }
+
     CameraInfo cam;
 
     int maxId = 0;
@@ -2486,6 +2550,7 @@ void ConfigDialog::onAddCameraConfigClicked() {
 
     // Scroll to the new card
     cameraScrollArea_->ensureWidgetVisible(cameraCards_.back());
+    refreshFixedIpList();
 }
 
 void ConfigDialog::onCameraCardDeviceSettingsClicked() {
@@ -2879,6 +2944,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
         // Card handles its own edit state
     }
     if (ipConfiguratorPanel_) ipConfiguratorPanel_->setAdminMode(isAdmin);
+    if (fixedIpListPanel_) fixedIpListPanel_->setAdminMode(isAdmin);
 }
 
 void ConfigDialog::onRefreshLogsClicked() {
@@ -2978,18 +3044,17 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
         return;
     }
 
-    // Sync the matching camera card (by normalized MAC) and persist.
+    // Match the card to the physical camera (by normalized MAC) so the
+    // recovery thread below can reconnect it. Do NOT touch the card's
+    // "Configured IP": each card/ID keeps its own fixed IP assignment and is
+    // never rewritten by the IP Configurator (the live "Detected IP" row is
+    // updated by refreshNetworkStatus() instead).
     CameraCard* matchedCard = nullptr;
     for (CameraCard* card : cameraCards_) {
         if (normalizeMac(card->macAddress()) == normalizedMac) {
             matchedCard = card;
             break;
         }
-    }
-    if (matchedCard) {
-        matchedCard->setNetworkConfig(ip, mask, gateway);
-        persistCameraNetworkSelection(matchedCard->cameraId(), matchedCard->sourceType(),
-                                      ip, normalizedMac, mask, gateway);
     }
 
     // The camera that just changed IP restarts its network stack and stays
