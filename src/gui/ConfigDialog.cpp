@@ -433,7 +433,26 @@ void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint,
 
 void ConfigDialog::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
+    if (networkRefreshTimer_) {
+        networkRefreshTimer_->start();
+    }
     refreshOpcUaEndpointDiscovery(true, false);
+}
+
+void ConfigDialog::hideEvent(QHideEvent* event) {
+    if (networkRefreshTimer_) {
+        networkRefreshTimer_->stop();
+    }
+    QWidget::hideEvent(event);
+}
+
+void ConfigDialog::onNetworkRefreshTimerTick() {
+    if (!isVisible()) {
+        return;
+    }
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices();
+    // refreshNetworkStatus() also refreshes the read-only Fixed IP registry.
+    refreshNetworkStatus();
 }
 
 void ConfigDialog::resizeEvent(QResizeEvent* event) {
@@ -473,6 +492,15 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     analysisTimestampPresets_.updateStyles();
     analysisTabPresets_.updateStyles();
     setupUiModificationTracking();
+
+    // Periodically re-scan GigE devices while the config tab is visible so the
+    // Fixed IP registry's Detected IP column and the network summary stay live.
+    // GigE enumeration can block the UI thread (broadcast scan, esp. offline),
+    // so keep the cadence conservative.
+    networkRefreshTimer_ = new QTimer(this);
+    networkRefreshTimer_->setInterval(10000);
+    connect(networkRefreshTimer_, &QTimer::timeout,
+            this, &ConfigDialog::onNetworkRefreshTimerTick);
 }
 
 ConfigDialog::~ConfigDialog() = default;

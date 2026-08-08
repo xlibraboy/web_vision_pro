@@ -32,6 +32,7 @@ class DeleteConfirmationDialog;
 class CameraDeviceSettingsDialog;
 class IpConfiguratorPanel;
 class FixedIpListPanel;
+class QTimer;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -75,6 +76,7 @@ private slots:
     void onCameraCardSourceChanged(int source);
     void onCameraCardMacChanged(const QString& mac);
     void onCameraCardDeviceSettingsClicked();
+    void onNetworkRefreshTimerTick();
 
     // Fixed IP List panel
 
@@ -92,6 +94,7 @@ private:
     void emitConfigUpdated(bool requiresCameraRestart);
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void checkUiSettingsModified();
     void clearUiSettingsModified();
@@ -253,6 +256,7 @@ private:
     CameraManager* cameraManager_;
     IpConfiguratorPanel* ipConfiguratorPanel_ = nullptr;
     FixedIpListPanel* fixedIpListPanel_ = nullptr;
+    QTimer* networkRefreshTimer_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;
 
