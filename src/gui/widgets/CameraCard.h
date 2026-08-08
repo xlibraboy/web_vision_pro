@@ -61,7 +61,6 @@ public:
     QSize sizeHint() const override;
     CameraInfo cameraInfo() const;
     void setCameraInfo(const CameraInfo& info);
-    void setName(const QString& name);
 
     // Status
     QString statusText() const;

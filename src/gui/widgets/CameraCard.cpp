@@ -668,14 +668,6 @@ void CameraCard::setCameraInfo(const CameraInfo& info) {
     updateHeader(cameraInfo());
 }
 
-void CameraCard::setName(const QString& name) {
-    cameraInfo_.name = name;
-    if (nameEdit_) {
-        nameEdit_->setText(name);
-    }
-    updateHeader(cameraInfo());
-}
-
 int CameraCard::sourceType() const {
     return sourceCombo_->currentData().toInt();
 }

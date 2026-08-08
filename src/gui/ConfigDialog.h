@@ -77,10 +77,6 @@ private slots:
     void onCameraCardDeviceSettingsClicked();
 
     // Fixed IP List panel
-    void onFixedIpListAddRequested();
-    void onFixedIpListDeleteRequested(int cameraId);
-    void onFixedIpListIpEdited(int cameraId, const QString& ip);
-    void onFixedIpListNameEdited(int cameraId, const QString& name);
 
 private:
     void setupUI();
