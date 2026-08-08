@@ -10,8 +10,10 @@
 #include <atomic>
 #include <condition_variable>
 #include <map>
+#include <set>
 #include <QString>
 #include <cstdint>
+#include "../gui/CameraInfo.h"
 
 /**
  * EventController - Manages circular buffering and event recording.
@@ -37,6 +39,12 @@ public:
         bool hasSpeed = false;
         bool speedStale = false;
         int positionDirectionSign = 1;
+        // Camera group to record (CameraGroup::k*). A negative value means ALL
+        // active cameras are recorded (legacy behavior).
+        int group = CameraGroup::kUnassigned;
+        // Machine position (mm) where the trigger fired (sensor / detecting
+        // camera). 0 = spatial alignment disabled.
+        int triggerPositionMm = 0;
     };
 
 
@@ -64,6 +72,13 @@ public:
     using EventSavedCallback = std::function<void(const std::string&, int, int)>;
     void setEventSavedCallback(EventSavedCallback callback);
 
+    // Provides the live machine speed (m/min) used to spatially align a trigger
+    // across cameras: each camera's saved window is centered on when the defect
+    // passes it (offset = (P_cam - P_trigger) / V). Returns false when no valid
+    // speed is available (alignment is then disabled).
+    using SpeedProvider = std::function<bool(double* mPerMin)>;
+    void setSpeedProvider(SpeedProvider provider);
+
 private:
     EventController() : running_(false), triggering_(false), saveRequested_(false) {}
     ~EventController();
@@ -90,12 +105,24 @@ private:
         int postFramesRecorded = 0;
         std::deque<FrameData> saveQueue;
         int linearizedTriggerIndex = 0;
+        // Spatial alignment: how many frames the defect passes this camera
+        // AFTER the wall-clock trigger moment (negative = already passed).
+        int captureOffsetFrames = 0;
+        // Per-camera post-trigger frame target (postTriggerLimit_ + offset).
+        // -1 = not participating in the current event.
+        int captureTargetFrames = -1;
     };
 
     // Buffer state per camera (using 1-based indexing passed from CameraManager's config ID resolving)
     std::map<int, CameraBufferState> cameraStates_;
     std::mutex bufferMutex_;
-    
+
+    // True while the active trigger records only a specific camera group.
+    bool groupRestricted_ = false;
+    // When groupRestricted_, this holds the 1-based camera IDs whose config
+    // group matched the trigger's group.
+    std::set<int> recordCameraIds_;
+
     // Save state
     std::atomic<bool> triggering_;
     
@@ -112,4 +139,5 @@ private:
     bool saveRequested_; 
 
     EventSavedCallback callback_;
+    SpeedProvider speedProvider_;
 };

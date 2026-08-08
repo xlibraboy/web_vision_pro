@@ -53,6 +53,7 @@ public:
     QString location() const;
     QString side() const;
     int position() const;
+    int group() const;
     QString ipAddress() const;
     QString macAddress() const;
     QString subnetMask() const;
@@ -146,6 +147,7 @@ private:
     QLineEdit* nameEdit_;
     QLineEdit* locationEdit_;
     QComboBox* sideCombo_;
+    QComboBox* groupCombo_;
     QSpinBox* positionSpin_;
     QLabel* ipLabel_;
     QLabel* detectedIpLabel_;

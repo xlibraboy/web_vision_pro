@@ -29,6 +29,8 @@ std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
         tags[i].enabled = false;
         tags[i].minimumIntervalMs = 1500;
         tags[i].simulated = false;
+        tags[i].group = CameraGroup::kUnassigned;
+        tags[i].positionMm = 0;
     }
     return tags;
 }
@@ -298,6 +300,8 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
             tag.enabled = settings.value("enabled", tag.enabled).toBool();
             tag.minimumIntervalMs = settings.value("minimumIntervalMs", tag.minimumIntervalMs).toInt();
             tag.simulated = settings.value("simulated", tag.simulated).toBool();
+            tag.group = settings.value("group", tag.group).toInt();
+            tag.positionMm = settings.value("positionMm", tag.positionMm).toInt();
             result.triggerTags.push_back(tag);
         }
     }
@@ -344,6 +348,8 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
         settings.setValue("enabled", tag.enabled);
         settings.setValue("minimumIntervalMs", tag.minimumIntervalMs);
         settings.setValue("simulated", tag.simulated);
+        settings.setValue("group", tag.group);
+        settings.setValue("positionMm", tag.positionMm);
     }
     settings.endArray();
 
@@ -401,6 +407,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.chunkModeActive = settings.value("chunkModeActive", false).toBool();
         cam.enabledChunks = settings.value("enabledChunks").toStringList();
         cam.temperature = 0.0; // Runtime value
+        cam.group = settings.value("group", cam.group).toInt();
         cameras.push_back(cam);
     }
     settings.endArray();
@@ -436,6 +443,7 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("exposureTimeRaw", cam.exposureTimeRaw);
         settings.setValue("chunkModeActive", cam.chunkModeActive);
         settings.setValue("enabledChunks", cam.enabledChunks);
+        settings.setValue("group", cam.group);
     }
     settings.endArray();
 }

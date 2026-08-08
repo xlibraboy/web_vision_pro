@@ -49,6 +49,12 @@ struct OpcUaTriggerTagSettings {
     // When true the tag is not subscribed from the OPC UA server; the trigger
     // is driven only by the manual push-hold button.
     bool simulated = false;
+    // Camera group this trigger records: a CameraGroup::k* constant, or
+    // CameraGroup::kUnassigned (-1) to record all cameras.
+    int group = CameraGroup::kUnassigned;
+    // Machine position (mm) of the trigger sensor. 0 = spatial alignment
+    // disabled: every camera records the same wall-clock window.
+    int positionMm = 0;
 };
 
 struct OpcUaSpeedTagSettings {

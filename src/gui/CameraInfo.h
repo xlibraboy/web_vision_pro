@@ -3,6 +3,29 @@
 #include <QString>
 #include <QStringList>
 
+// Fixed paper-machine camera groups. Cameras are assigned to one of these on
+// their Camera Card; a trigger wired to a group records only that group's
+// cameras (group -1 in a TriggerContext means "all cameras").
+namespace CameraGroup {
+    constexpr int kUnassigned = -1;
+    constexpr int kPressPart = 0;
+    constexpr int kPreDryer = 1;
+    constexpr int kAfterDryer = 2;
+    constexpr int kCalenderReel = 3;
+    constexpr int kCount = 4;
+
+    // Display name for a group index (kUnassigned -> "Unassigned").
+    inline QString name(int group) {
+        switch (group) {
+        case kPressPart: return QStringLiteral("Press-Part");
+        case kPreDryer: return QStringLiteral("Pre-Dryer");
+        case kAfterDryer: return QStringLiteral("After-Dryer");
+        case kCalenderReel: return QStringLiteral("Calender-Reel");
+        default: return QStringLiteral("Unassigned");
+        }
+    }
+}
+
 // Camera metadata structure
 struct CameraInfo {
     int id = 0;              // Camera ID (starts from 1)
@@ -31,4 +54,5 @@ struct CameraInfo {
     double temperature = 0.0; // Temperature in Celsius (Runtime, not config)
     QString model;           // Populated at runtime
     QString imageSize;       // Populated at runtime
+    int group = CameraGroup::kUnassigned; // Paper-machine section (CameraGroup::k*)
 };

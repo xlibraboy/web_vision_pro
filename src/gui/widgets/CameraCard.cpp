@@ -264,6 +264,18 @@ void CameraCard::createContent(const CameraInfo& info) {
     sideCombo_->setStyleSheet(fieldStyle);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Side:", sideCombo_);
 
+    // Group (paper-machine section)
+    groupCombo_ = new QComboBox(basicInfoGroup_);
+    groupCombo_->addItem("Unassigned", CameraGroup::kUnassigned);
+    groupCombo_->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
+    groupCombo_->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
+    groupCombo_->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
+    groupCombo_->addItem(CameraGroup::name(CameraGroup::kCalenderReel), CameraGroup::kCalenderReel);
+    groupCombo_->setCurrentIndex(groupCombo_->findData(info.group));
+    groupCombo_->setStyleSheet(fieldStyle);
+    groupCombo_->setToolTip("Paper-machine section this camera belongs to. Triggers wired to a group record only that group's cameras.");
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Group:", groupCombo_);
+
     // Position
     positionSpin_ = new QSpinBox(basicInfoGroup_);
     positionSpin_->setRange(0, 500000);
@@ -412,6 +424,7 @@ void CameraCard::setEditable(bool editable) {
     nameEdit_->setEnabled(editable);
     locationEdit_->setEnabled(editable);
     sideCombo_->setEnabled(editable);
+    groupCombo_->setEnabled(editable);
     positionSpin_->setEnabled(editable);
     macCombo_->setEnabled(editable);
     subnetEdit_->setEnabled(editable);
@@ -656,6 +669,7 @@ CameraInfo CameraCard::cameraInfo() const {
     info.location = location();
     info.side = side();
     info.machinePosition = position();
+    info.group = group();
     info.ipAddress = ipAddress();
     info.macAddress = macAddress();
     info.subnetMask = subnetMask();
@@ -682,6 +696,10 @@ QString CameraCard::location() const {
 
 QString CameraCard::side() const {
     return sideCombo_->currentText();
+}
+
+int CameraCard::group() const {
+    return groupCombo_ ? groupCombo_->currentData().toInt() : CameraGroup::kUnassigned;
 }
 
 int CameraCard::position() const {

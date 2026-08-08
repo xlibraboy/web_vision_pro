@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QMutex>
 #include <QtOpcUa/QOpcUaClient>
 #include <QtOpcUa/QOpcUaNode>
 
@@ -26,6 +27,10 @@ public:
         bool hasSpeed = false;
         bool speedStale = false;
         int positionDirectionSign = 1;
+        // Camera group to record (CameraGroup::k*), or -1 for all cameras.
+        int group = CameraGroup::kUnassigned;
+        // Machine position (mm) of the trigger sensor (0 = no spatial alignment).
+        int positionMm = 0;
     };
 
     explicit OpcUaClientService(QObject* parent = nullptr);
@@ -45,6 +50,9 @@ public:
                               const OpcUaTriggerTagSettings& tagSettings);
     // Release every held manual trigger (e.g. the config dialog was destroyed).
     void releaseAllManualTriggers();
+    // Latest machine speed sample in m/min (for spatial trigger alignment).
+    // Returns false when no valid speed sample is available.
+    bool currentSpeedMperMin(double* mPerMin) const;
 
 signals:
     void triggerReceived(const OpcUaClientService::TriggerEvent& event);
@@ -113,6 +121,9 @@ private:
     QOpcUaClient* client_ = nullptr;
     QList<TriggerMonitorState> triggerStates_;
     QPointer<QOpcUaNode> speedNode_;
+    // latestSpeed_ is written on the GUI thread (OPC UA callbacks) and read from
+    // the camera acquisition thread (spatial trigger alignment), so it is guarded.
+    mutable QMutex speedMutex_;
     LatestSpeedSample latestSpeed_;
     QTimer* pushHoldTimer_ = nullptr;
     // Tag index -> config snapshot of the button currently held (presence = held).

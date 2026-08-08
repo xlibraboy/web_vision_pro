@@ -34,6 +34,7 @@ class DeleteConfirmationDialog;
 class CameraDeviceSettingsDialog;
 class IpConfiguratorPanel;
 class FixedIpListPanel;
+class MachineGroupsPanel;
 class QTimer;
 class OpcUaClientService;
 class QTableWidget;
@@ -97,6 +98,7 @@ private:
     void setupUiModificationTracking();
     void createCameraWidgetBlock(const CameraInfo& cam);
     void refreshFixedIpList();
+    void refreshMachineGroups();
     void refreshNetworkStatus();
     void relayoutCameraCards();
     void relayoutUiPreferencePanels();
@@ -227,6 +229,8 @@ private:
         QLineEdit* nameEdit = nullptr;
         QLineEdit* nodeIdEdit = nullptr;
         QComboBox* simulatedCombo = nullptr;
+        QComboBox* groupCombo = nullptr;
+        QSpinBox* positionMmSpin = nullptr;
         QPushButton* manualTriggerBtn = nullptr;
         QSpinBox* minimumIntervalSpin = nullptr;
     };
@@ -278,6 +282,7 @@ private:
     CameraManager* cameraManager_;
     IpConfiguratorPanel* ipConfiguratorPanel_ = nullptr;
     FixedIpListPanel* fixedIpListPanel_ = nullptr;
+    MachineGroupsPanel* machineGroupsPanel_ = nullptr;
     QTimer* networkRefreshTimer_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;

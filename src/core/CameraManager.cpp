@@ -2530,6 +2530,13 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
                      EventController::TriggerContext triggerContext;
                      triggerContext.reason = QStringLiteral("Defect Detection");
                      triggerContext.source = QStringLiteral("defect");
+                     // The defect is physically at this camera's machine position:
+                     // spatial alignment centers every camera's window on when the
+                     // defect passes it (offset = (P_cam - P_detect) / speed).
+                     if (cameraIndex >= 0) {
+                         triggerContext.triggerPositionMm =
+                             CameraConfig::getCameraInfo(cameraIndex).machinePosition;
+                     }
                      EventController::instance().triggerEvent(triggerContext);
                      cv::putText(output, "TRIGGERED!", cv::Point(10, 80), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(255), 2);
                  }

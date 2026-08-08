@@ -7,6 +7,8 @@
 #include <cstring>
 #include <algorithm>
 #include <limits>
+#include <cmath>
+#include <utility>
 #include <QDateTime>
 #include <QDir>
 #include <opencv2/imgcodecs.hpp>
@@ -47,6 +49,8 @@ void EventController::initialize(int bufferSize, double fps, int postTriggerFram
         currentEventCameraLabels_.clear();
         currentEventCameraPositions_.clear();
         currentTriggerContext_ = TriggerContext{};
+        groupRestricted_ = false;
+        recordCameraIds_.clear();
     }
     
     // Start worker thread
@@ -70,9 +74,12 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     CameraBufferState& state = cameraStates_[cameraId];
 
     // During an active event, stop extending this camera's saved window once it has
-    // collected the configured post-trigger frames. Otherwise faster cameras keep
-    // overwriting older pre-trigger frames while waiting for slower cameras.
-    if (triggering_ && state.postFramesRecorded >= postTriggerLimit_) {
+    // collected its per-camera post-trigger target (postTriggerLimit_ + the spatial
+    // alignment offset). Otherwise faster cameras keep overwriting older pre-trigger
+    // frames while waiting for slower cameras. Non-participating cameras (target -1)
+    // keep rolling their ring buffer normally.
+    if (triggering_ && state.captureTargetFrames >= 0
+            && state.postFramesRecorded >= state.captureTargetFrames) {
         return;
     }
 
@@ -103,26 +110,39 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
 
     // If we are currently collecting post-trigger frames
     if (triggering_) {
+        // Only cameras belonging to the triggered group participate in the
+        // event. Non-group cameras keep rolling their ring buffer normally.
+        if (groupRestricted_ && recordCameraIds_.count(cameraId) == 0) {
+            return;
+        }
+
         int recorded = ++state.postFramesRecorded;
-        if (recorded >= postTriggerLimit_) {
+        if (recorded >= state.captureTargetFrames) {
             // Reached limit for this camera. We don't stop the whole trigger process yet,
             // we let the saveWorker handle saving all states once requested.
-            // But we can check if all active cameras have hit the limit.
+            // But we can check if all participating cameras have hit the limit.
             bool allDone = true;
             for (const auto& pair : cameraStates_) {
-                if (pair.second.postFramesRecorded < postTriggerLimit_) {
+                if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+                    continue;
+                }
+                if (pair.second.captureTargetFrames >= 0
+                        && pair.second.postFramesRecorded < pair.second.captureTargetFrames) {
                     allDone = false;
                     break;
                 }
             }
             
             if (allDone && !saveRequested_) {
-                std::cout << "[EventController] Post-trigger capture complete for all cameras. Moving to save queue." << std::endl;
+                std::cout << "[EventController] Post-trigger capture complete for the triggered camera group. Moving to save queue." << std::endl;
                 
                 {
                     std::lock_guard<std::mutex> saveLock(saveMutex_);
                     
                     for (auto& pair : cameraStates_) {
+                        if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+                            continue;
+                        }
                         CameraBufferState& s = pair.second;
                         s.saveQueue.clear();
                         
@@ -138,8 +158,16 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
                             s.saveQueue.push_back(fd);
                         }
                         
-                        // Calculate linearized trigger index for the saved sequence
-                        s.linearizedTriggerIndex = static_cast<int>(s.currentFillSize) - s.postFramesRecorded - 1;
+                        // Calculate linearized trigger index for the saved sequence.
+                        // The ring rolls while a downstream camera waits for the
+                        // defect to arrive, so the defect lands at a stable position
+                        // (pre-trigger depth) in every camera's saved window.
+                        s.linearizedTriggerIndex = static_cast<int>(s.currentFillSize)
+                            - s.postFramesRecorded - 1 + s.captureOffsetFrames;
+                        // Guard against degenerate extreme-upstream offsets that
+                        // could push the index out of the saved window.
+                        const int maxIndex = std::max(0, static_cast<int>(s.currentFillSize) - 1);
+                        s.linearizedTriggerIndex = std::max(0, std::min(s.linearizedTriggerIndex, maxIndex));
                     }
                     saveRequested_ = true;
                 }
@@ -174,16 +202,102 @@ void EventController::triggerEvent(const TriggerContext& context) {
     currentEventCameraLabels_.clear();
     currentEventCameraPositions_.clear();
     const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+
+    // Determine which cameras participate: a group-restricted trigger only
+    // records cameras whose config group matches. A trigger with no group
+    // restriction (group < 0) records all active cameras (legacy behavior).
+    groupRestricted_ = context.group >= 0;
+    recordCameraIds_.clear();
+    if (groupRestricted_) {
+        for (size_t i = 0; i < cameras.size(); ++i) {
+            if (cameras[i].group == context.group) {
+                recordCameraIds_.insert(static_cast<int>(i) + 1);
+            }
+        }
+        if (recordCameraIds_.empty()) {
+            std::cout << "[EventController] Trigger ignored: no camera is assigned to group "
+                      << CameraGroup::name(context.group).toStdString() << std::endl;
+            return;
+        }
+    }
+
+    // Reset every camera's capture state; targets are assigned below.
     for (auto& pair : cameraStates_) {
         pair.second.postFramesRecorded = 0;
-        const int configIndex = pair.first - 1;
-        if (configIndex >= 0 && configIndex < static_cast<int>(cameras.size())) {
+        pair.second.captureTargetFrames = -1;
+        pair.second.captureOffsetFrames = 0;
+    }
+
+    // Resolve the machine speed for spatial alignment: prefer the trigger's own
+    // speed sample, else fall back to the live speed provider (e.g. the OPC UA
+    // service) so defect triggers align too.
+    double speedMperMin = 0.0;
+    bool haveSpeed = false;
+    if (context.hasSpeed && context.speedValue > 0.0) {
+        speedMperMin = context.speedValue;
+        haveSpeed = true;
+    } else if (speedProvider_ && speedProvider_(&speedMperMin) && speedMperMin > 0.0) {
+        haveSpeed = true;
+    }
+
+    const bool alignmentWanted = context.triggerPositionMm > 0;
+    const bool alignmentEnabled = alignmentWanted && haveSpeed;
+    if (alignmentEnabled) {
+        const int sign = currentTriggerContext_.positionDirectionSign >= 0 ? 1 : -1;
+        // framesPerMm = fps * (60 s/min) / (speed mm/min)
+        const double framesPerMm = fps_ * 60.0 / (speedMperMin * 1000.0);
+        std::cout << "[EventController] Spatial alignment: speed=" << speedMperMin
+                  << " m/min, trigger position=" << context.triggerPositionMm
+                  << " mm, sign=" << sign << std::endl;
+        for (auto& pair : cameraStates_) {
+            if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+                continue;
+            }
+            const int configIndex = pair.first - 1;
+            if (configIndex < 0 || configIndex >= static_cast<int>(cameras.size())) {
+                pair.second.captureTargetFrames = postTriggerLimit_;
+                continue;
+            }
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
             currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
+
+            const int deltaMm = (cameras[static_cast<size_t>(configIndex)].machinePosition
+                                 - context.triggerPositionMm) * sign;
+            int offsetFrames = static_cast<int>(std::lround(deltaMm * framesPerMm));
+            // An upstream camera cannot recover a defect that already left its
+            // pre-trigger buffer; clamp to the oldest recoverable frame.
+            if (offsetFrames < -bufferSize_) {
+                offsetFrames = -bufferSize_;
+            }
+            pair.second.captureOffsetFrames = offsetFrames;
+            // Minimum 1 so every participating camera writes at least one frame
+            // and the allDone evaluation runs (a target of 0 would early-return
+            // before the ring write and could deadlock the whole event).
+            pair.second.captureTargetFrames = std::max(1, postTriggerLimit_ + offsetFrames);
+        }
+    } else {
+        if (alignmentWanted) {
+            std::cout << "[EventController] Spatial alignment requested but no valid "
+                         "speed sample - recording the wall-clock window instead." << std::endl;
+        }
+        for (auto& pair : cameraStates_) {
+            if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+                continue;
+            }
+            const int configIndex = pair.first - 1;
+            if (configIndex >= 0 && configIndex < static_cast<int>(cameras.size())) {
+                currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
+                currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
+            }
+            pair.second.captureTargetFrames = postTriggerLimit_;
         }
     }
 
     triggering_ = true;
+}
+
+void EventController::setSpeedProvider(SpeedProvider provider) {
+    speedProvider_ = std::move(provider);
 }
 
 bool EventController::isSaving() const {

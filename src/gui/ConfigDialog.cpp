@@ -7,6 +7,7 @@
 #include "widgets/DeleteConfirmationDialog.h"
 #include "widgets/IpConfiguratorPanel.h"
 #include "widgets/FixedIpListPanel.h"
+#include "widgets/MachineGroupsPanel.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -869,7 +870,13 @@ void ConfigDialog::setupUI() {
     fixedIpListPanel_ = new FixedIpListPanel(cameraSubTabs);
     cameraSubTabs->addTab(fixedIpListPanel_, "Fixed IP List");
 
-    // Tab 3: IP Configurator
+    // Tab 3: Machine Groups — read-only registry of the 4 fixed camera groups.
+    // Assigning a camera to a group happens on its Camera Card; this panel is
+    // a display-only mirror refreshed via refreshMachineGroups().
+    machineGroupsPanel_ = new MachineGroupsPanel(cameraSubTabs);
+    cameraSubTabs->addTab(machineGroupsPanel_, "Machine Groups");
+
+    // Tab 4: IP Configurator
     ipConfiguratorPanel_ = new IpConfiguratorPanel(cameraSubTabs);
     cameraSubTabs->addTab(ipConfiguratorPanel_, "IP Configurator");
 
@@ -1123,7 +1130,7 @@ void ConfigDialog::setupUI() {
     opcUaTriggerLayout->setSpacing(8);
 
     QLabel* opcUaTriggerNote = new QLabel(
-        "Each enabled tag can trigger a recording when the configured active state edge is observed.",
+        "Each enabled tag fires a recording while it is held active (push-hold), or for Live tags when the server value reads True. Set the sensor Position (mm) to align every camera's window to when the defect passes it (uses the machine speed).",
         opcUaTriggerGroup);
     opcUaTriggerNote->setWordWrap(true);
     opcUaTriggerNote->setStyleSheet(QString("color: %1;").arg(tc.text));
@@ -1138,12 +1145,18 @@ void ConfigDialog::setupUI() {
     QLabel* opcUaSimHeader = new QLabel("Sim", opcUaTriggerGroup);
     opcUaSimHeader->setToolTip("Simulated: the trigger fires only from the push-hold button (no OPC UA server subscription).");
     opcUaTriggerGrid->addWidget(opcUaSimHeader, 0, 3);
+    QLabel* opcUaGroupHeader = new QLabel("Group", opcUaTriggerGroup);
+    opcUaGroupHeader->setToolTip("Camera group this trigger records: All, or one of the machine sections (Press-Part, Pre-Dryer, After-Dryer, Calender-Reel). Only that group's cameras are recorded.");
+    opcUaTriggerGrid->addWidget(opcUaGroupHeader, 0, 4);
+    QLabel* opcUaPositionHeader = new QLabel("Position", opcUaTriggerGroup);
+    opcUaPositionHeader->setToolTip("Machine position (mm) of the trigger sensor. When set (> 0), the recorder spatially aligns every camera: each camera's saved window is centered on when the defect passes it, using the machine speed. 0 = record the same wall-clock window for all cameras.");
+    opcUaTriggerGrid->addWidget(opcUaPositionHeader, 0, 5);
     QLabel* opcUaHoldHeader = new QLabel("Push-Hold", opcUaTriggerGroup);
     opcUaHoldHeader->setToolTip("Press and hold to fire this trigger repeatedly (every Repeat ms). Release to stop.");
-    opcUaTriggerGrid->addWidget(opcUaHoldHeader, 0, 4);
+    opcUaTriggerGrid->addWidget(opcUaHoldHeader, 0, 6);
     QLabel* opcUaRepeatHeader = new QLabel("Repeat", opcUaTriggerGroup);
     opcUaRepeatHeader->setToolTip("Push-hold repeat interval: while held, a recording fires every N ms (0 = as fast as possible).");
-    opcUaTriggerGrid->addWidget(opcUaRepeatHeader, 0, 5);
+    opcUaTriggerGrid->addWidget(opcUaRepeatHeader, 0, 7);
 
     for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
@@ -1168,6 +1181,23 @@ void ConfigDialog::setupUI() {
         row.simulatedCombo->setToolTip("Simulated: fires only from the push-hold button (no OPC UA server subscription). Live: fires when the tag reads True, plus the button as a manual override.");
         opcUaTriggerGrid->addWidget(row.simulatedCombo, i + 1, 3);
 
+        row.groupCombo = new QComboBox(opcUaTriggerGroup);
+        row.groupCombo->setStyleSheet(opcUaGridComboStyle);
+        row.groupCombo->addItem("All", CameraGroup::kUnassigned);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kCalenderReel), CameraGroup::kCalenderReel);
+        row.groupCombo->setToolTip("Camera group this trigger records. 'All' records every active camera; a specific group records only cameras assigned to it (assign cameras on their Camera Card, see Machine Groups).");
+        opcUaTriggerGrid->addWidget(row.groupCombo, i + 1, 4);
+
+        row.positionMmSpin = new QSpinBox(opcUaTriggerGroup);
+        row.positionMmSpin->setRange(0, 500000);
+        row.positionMmSpin->setSuffix(" mm");
+        row.positionMmSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        row.positionMmSpin->setToolTip("Machine position (mm) of the trigger sensor. When set (> 0), every camera's recording window is centered on when the defect passes it (uses the machine speed). 0 = no spatial alignment.");
+        opcUaTriggerGrid->addWidget(row.positionMmSpin, i + 1, 5);
+
         row.manualTriggerBtn = new QPushButton("Hold", opcUaTriggerGroup);
         row.manualTriggerBtn->setStyleSheet(opcUaTriggerBtnStyle);
         row.manualTriggerBtn->setCursor(Qt::PointingHandCursor);
@@ -1181,6 +1211,8 @@ void ConfigDialog::setupUI() {
             tag.nodeId = r.nodeIdEdit ? r.nodeIdEdit->text().trimmed() : QString();
             tag.enabled = r.enabledCheck && r.enabledCheck->isChecked();
             tag.simulated = r.simulatedCombo && r.simulatedCombo->currentData().toBool();
+            tag.group = r.groupCombo ? r.groupCombo->currentData().toInt() : CameraGroup::kUnassigned;
+            tag.positionMm = r.positionMmSpin ? r.positionMmSpin->value() : 0;
             tag.minimumIntervalMs = r.minimumIntervalSpin ? r.minimumIntervalSpin->value() : 0;
             if (tag.name.isEmpty()) {
                 tag.name = QStringLiteral("Trigger %1").arg(i + 1);
@@ -1190,14 +1222,14 @@ void ConfigDialog::setupUI() {
         connect(row.manualTriggerBtn, &QPushButton::released, this, [this, i]() {
             emit opcUaManualTriggerRequested(i, false, OpcUaTriggerTagSettings{});
         });
-        opcUaTriggerGrid->addWidget(row.manualTriggerBtn, i + 1, 4, Qt::AlignCenter);
+        opcUaTriggerGrid->addWidget(row.manualTriggerBtn, i + 1, 6, Qt::AlignCenter);
 
         row.minimumIntervalSpin = new QSpinBox(opcUaTriggerGroup);
         row.minimumIntervalSpin->setRange(0, 60000);
         row.minimumIntervalSpin->setSuffix(" ms");
         row.minimumIntervalSpin->setStyleSheet(globalFpsSpin_->styleSheet());
         row.minimumIntervalSpin->setToolTip("Push-hold repeat interval: while held, fires every N ms (0 = as fast as possible).");
-        opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 5);
+        opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 7);
     }
     opcUaTriggerLayout->addLayout(opcUaTriggerGrid);
     opcUaTriggerTabLayout->addWidget(opcUaTriggerGroup);
@@ -2397,6 +2429,15 @@ void ConfigDialog::loadSettings() {
                 row.simulatedCombo->setCurrentIndex(simulatedIndex);
             }
         }
+        if (row.groupCombo) {
+            const int groupIndex = row.groupCombo->findData(tag.group);
+            if (groupIndex != -1) {
+                row.groupCombo->setCurrentIndex(groupIndex);
+            }
+        }
+        if (row.positionMmSpin) {
+            row.positionMmSpin->setValue(tag.positionMm);
+        }
     }
 
     if (opcUaSpeedEnabledCheck_) {
@@ -2771,6 +2812,23 @@ void ConfigDialog::refreshFixedIpList() {
         detectedIps.push_back(detected);
     }
     fixedIpListPanel_->setCameras(cameras, detectedIps);
+
+    // Keep the Machine Groups registry in sync too (it shows each camera's
+    // assigned group from its card).
+    refreshMachineGroups();
+}
+
+void ConfigDialog::refreshMachineGroups() {
+    if (!machineGroupsPanel_) {
+        return;
+    }
+
+    std::vector<CameraInfo> cameras;
+    cameras.reserve(cameraCards_.size());
+    for (auto* card : cameraCards_) {
+        cameras.push_back(card->cameraInfo());
+    }
+    machineGroupsPanel_->setCameras(cameras);
 }
 
 void ConfigDialog::onCameraCardSourceChanged(int) {
@@ -3001,6 +3059,8 @@ void ConfigDialog::saveOpcUaSettings() {
         tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
         tag.minimumIntervalMs = row.minimumIntervalSpin ? row.minimumIntervalSpin->value() : 0;
         tag.simulated = row.simulatedCombo ? row.simulatedCombo->currentData().toBool() : false;
+        tag.group = row.groupCombo ? row.groupCombo->currentData().toInt() : CameraGroup::kUnassigned;
+        tag.positionMm = row.positionMmSpin ? row.positionMmSpin->value() : 0;
 
         if (tag.name.isEmpty()) {
             tag.name = QString("Trigger %1").arg(i + 1);
@@ -3204,6 +3264,8 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
         if (row.nameEdit) row.nameEdit->setEnabled(isAdmin);
         if (row.nodeIdEdit) row.nodeIdEdit->setEnabled(isAdmin);
         if (row.simulatedCombo) row.simulatedCombo->setEnabled(isAdmin);
+        if (row.groupCombo) row.groupCombo->setEnabled(isAdmin);
+        if (row.positionMmSpin) row.positionMmSpin->setEnabled(isAdmin);
         if (row.manualTriggerBtn) row.manualTriggerBtn->setEnabled(isAdmin);
         if (row.minimumIntervalSpin) row.minimumIntervalSpin->setEnabled(isAdmin);
     }

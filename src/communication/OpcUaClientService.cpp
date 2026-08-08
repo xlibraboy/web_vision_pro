@@ -225,7 +225,10 @@ void OpcUaClientService::handleAttributeUpdated(QOpcUa::NodeAttribute attribute,
 }
 
 void OpcUaClientService::resetRuntimeState() {
-    latestSpeed_ = LatestSpeedSample{};
+    {
+        QMutexLocker locker(&speedMutex_);
+        latestSpeed_ = LatestSpeedSample{};
+    }
     for (TriggerMonitorState& state : triggerStates_) {
         state.hasLastValue = false;
         state.lastValue = QVariant();
@@ -365,6 +368,24 @@ void OpcUaClientService::setManualTriggerHeld(int tagIndex, bool held,
     }
 }
 
+bool OpcUaClientService::currentSpeedMperMin(double* mPerMin) const {
+    if (!mPerMin) {
+        return false;
+    }
+    QMutexLocker locker(&speedMutex_);
+    if (!latestSpeed_.valid) {
+        return false;
+    }
+    // Refuse to align against a speed sample that has gone stale: a dead speed
+    // would produce wrong frame offsets across the camera group.
+    if ((QDateTime::currentMSecsSinceEpoch() - latestSpeed_.receivedAtMs)
+            > settings_.speedTag.staleTimeoutMs) {
+        return false;
+    }
+    *mPerMin = latestSpeed_.value;
+    return true;
+}
+
 void OpcUaClientService::releaseAllManualTriggers() {
     manualTriggerHeld_.clear();
     manualLastFiredMs_.clear();
@@ -442,14 +463,17 @@ OpcUaRuntimeStatus OpcUaClientService::currentRuntimeStatus() const {
         status.clientStateText = QStringLiteral("Disconnected");
     }
 
-    if (latestSpeed_.valid) {
-        status.speedValid = true;
-        status.speedText = QString::number(latestSpeed_.value, 'f', 2)
-            + QStringLiteral(" ") + latestSpeed_.unit;
-        status.speedStale = (QDateTime::currentMSecsSinceEpoch() - latestSpeed_.receivedAtMs)
-            > settings_.speedTag.staleTimeoutMs;
-    } else {
-        status.speedText = QStringLiteral("—");
+    {
+        QMutexLocker locker(&speedMutex_);
+        if (latestSpeed_.valid) {
+            status.speedValid = true;
+            status.speedText = QString::number(latestSpeed_.value, 'f', 2)
+                + QStringLiteral(" ") + latestSpeed_.unit;
+            status.speedStale = (QDateTime::currentMSecsSinceEpoch() - latestSpeed_.receivedAtMs)
+                > settings_.speedTag.staleTimeoutMs;
+        } else {
+            status.speedText = QStringLiteral("—");
+        }
     }
 
     const int tagCount = static_cast<int>(settings_.triggerTags.size());
@@ -543,15 +567,20 @@ void OpcUaClientService::dispatchTriggerFor(const OpcUaTriggerTagSettings& tagSe
     triggerEvent.tagName = tagSettings.name;
     triggerEvent.nodeId = normalizedNodeId(tagSettings.nodeId);
     triggerEvent.positionDirectionSign = settings_.positionDirectionSign >= 0 ? 1 : -1;
+    triggerEvent.group = tagSettings.group;
+    triggerEvent.positionMm = tagSettings.positionMm;
 
-    if (latestSpeed_.valid) {
-        triggerEvent.speedTagName = latestSpeed_.tagName;
-        triggerEvent.speedTagNodeId = latestSpeed_.nodeId;
-        triggerEvent.speedUnit = latestSpeed_.unit;
-        triggerEvent.speedSampleTimeUtc = latestSpeed_.sampleTimeUtc;
-        triggerEvent.speedValue = latestSpeed_.value;
-        triggerEvent.hasSpeed = true;
-        triggerEvent.speedStale = (nowMs - latestSpeed_.receivedAtMs) > settings_.speedTag.staleTimeoutMs;
+    {
+        QMutexLocker locker(&speedMutex_);
+        if (latestSpeed_.valid) {
+            triggerEvent.speedTagName = latestSpeed_.tagName;
+            triggerEvent.speedTagNodeId = latestSpeed_.nodeId;
+            triggerEvent.speedUnit = latestSpeed_.unit;
+            triggerEvent.speedSampleTimeUtc = latestSpeed_.sampleTimeUtc;
+            triggerEvent.speedValue = latestSpeed_.value;
+            triggerEvent.hasSpeed = true;
+            triggerEvent.speedStale = (nowMs - latestSpeed_.receivedAtMs) > settings_.speedTag.staleTimeoutMs;
+        }
     }
 
     dispatchTriggerEvent(triggerEvent);
@@ -564,13 +593,16 @@ void OpcUaClientService::processSpeedValue(const QVariant& value) {
         return;
     }
 
-    latestSpeed_.valid = true;
-    latestSpeed_.tagName = settings_.speedTag.name;
-    latestSpeed_.nodeId = normalizedNodeId(settings_.speedTag.nodeId);
-    latestSpeed_.unit = settings_.speedTag.unit;
-    latestSpeed_.value = (rawValue * settings_.speedTag.scale) + settings_.speedTag.offset;
-    latestSpeed_.sampleTimeUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    latestSpeed_.receivedAtMs = QDateTime::currentMSecsSinceEpoch();
+    {
+        QMutexLocker locker(&speedMutex_);
+        latestSpeed_.valid = true;
+        latestSpeed_.tagName = settings_.speedTag.name;
+        latestSpeed_.nodeId = normalizedNodeId(settings_.speedTag.nodeId);
+        latestSpeed_.unit = settings_.speedTag.unit;
+        latestSpeed_.value = (rawValue * settings_.speedTag.scale) + settings_.speedTag.offset;
+        latestSpeed_.sampleTimeUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        latestSpeed_.receivedAtMs = QDateTime::currentMSecsSinceEpoch();
+    }
 }
 
 bool OpcUaClientService::extractBooleanValue(const QVariant& value, bool* result) const {

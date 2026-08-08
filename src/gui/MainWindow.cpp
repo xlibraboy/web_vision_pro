@@ -788,6 +788,11 @@ void MainWindow::setupCore() {
     if (configWindow_) {
         configWindow_->setOpcUaRuntimeSource(opcUaClientService_.get());
     }
+    // Feed the live machine speed to the recorder so defect/OPC UA triggers can
+    // spatially align every camera's window to when the defect passes it.
+    EventController::instance().setSpeedProvider([this](double* mPerMin) {
+        return opcUaClientService_ && opcUaClientService_->currentSpeedMperMin(mPerMin);
+    });
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
@@ -820,6 +825,8 @@ void MainWindow::setupCore() {
             triggerContext.speedSampleTimeUtc = event.speedSampleTimeUtc;
             triggerContext.speedValue = event.speedValue;
             triggerContext.hasSpeed = event.hasSpeed;
+            triggerContext.group = event.group;
+            triggerContext.triggerPositionMm = event.positionMm;
             triggerContext.speedStale = event.speedStale;
             triggerContext.positionDirectionSign = event.positionDirectionSign;
             EventController::instance().triggerEvent(triggerContext);
