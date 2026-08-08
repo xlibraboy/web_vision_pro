@@ -65,6 +65,8 @@ private slots:
     void onToggleLogsClicked();
     void onIpConfiguratorApplyRequested(const QString& mac, const QString& mode, const QString& ip,
                                         const QString& mask, const QString& gateway);
+    void onIpConfiguratorForceIpRequested(const QString& mac, const QString& tempIp,
+                                          const QString& mask, const QString& gateway);
 
     // Camera card slots
     void onCameraCardRemoveClicked();

@@ -25,6 +25,10 @@ public:
 signals:
     void applyRequested(const QString& mac, const QString& mode, const QString& ip,
                         const QString& mask, const QString& gateway);
+    // Assign a temporary IP ("Force IP") to the camera so it becomes reachable;
+    // no camera-card sync is performed for this temporary assignment.
+    void forceIpRequested(const QString& mac, const QString& tempIp,
+                          const QString& mask, const QString& gateway);
     void statusMessage(const QString& message);
 
 private slots:
@@ -32,6 +36,7 @@ private slots:
     void onTableSelectionChanged();
     void onModeChanged(int index);
     void onApplyClicked();
+    void onForceIpClicked();
 
 private:
     void setupUI();
@@ -39,6 +44,8 @@ private:
     void loadRowIntoEditor(int row);
     void clearEditor();
     static bool isValidIpv4(const QString& text);
+    static bool ipv4OnLocalSubnet(const QString& ip);
+    static QStringList hostIpv4Addresses();
 
     QTableWidget* table_;
     QLabel* statusLabel_;
@@ -46,7 +53,9 @@ private:
     FixedDotIpEdit* ipEdit_ = nullptr;
     FixedDotIpEdit* maskEdit_ = nullptr;
     FixedDotIpEdit* gatewayEdit_ = nullptr;
+    FixedDotIpEdit* forceIpEdit_ = nullptr;
     QPushButton* applyBtn_;
+    QPushButton* forceIpBtn_ = nullptr;
     QPushButton* refreshBtn_;
 
     std::vector<GigEDeviceInfo> devices_;

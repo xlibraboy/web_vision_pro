@@ -168,6 +168,42 @@ namespace {
         return normalized;
     }
 
+    bool isValidIpv4String(const QString& text) {
+        QHostAddress addr;
+        return addr.setAddress(text.trimmed()) && addr.protocol() == QAbstractSocket::IPv4Protocol;
+    }
+
+    // Returns the netmask of the local interface whose subnet contains `ip`, or
+    // a /16 fallback when no interface matches (used for the Force-IP flow so
+    // the temporary address stays reachable from this host).
+    QString subnetMaskForIp(const QString& ip) {
+        QHostAddress addr;
+        if (!addr.setAddress(ip.trimmed())) {
+            return QStringLiteral("255.255.0.0");
+        }
+        const quint32 target = addr.toIPv4Address();
+        const QList<QNetworkInterface> ifaces = QNetworkInterface::allInterfaces();
+        for (const QNetworkInterface& iface : ifaces) {
+            if (!(iface.flags() & QNetworkInterface::IsUp) || (iface.flags() & QNetworkInterface::IsLoopBack)) {
+                continue;
+            }
+            for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+                if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol) {
+                    continue;
+                }
+                const QHostAddress netmask = entry.netmask();
+                if (netmask.isNull()) {
+                    continue;
+                }
+                if ((entry.ip().toIPv4Address() & netmask.toIPv4Address())
+                        == (target & netmask.toIPv4Address())) {
+                    return netmask.toString();
+                }
+            }
+        }
+        return QStringLiteral("255.255.0.0");
+    }
+
     bool cameraConfigEqual(const CameraInfo& lhs, const CameraInfo& rhs) {
         return lhs.id == rhs.id
             && lhs.source == rhs.source
@@ -436,6 +472,8 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
 
     connect(ipConfiguratorPanel_, &IpConfiguratorPanel::applyRequested,
             this, &ConfigDialog::onIpConfiguratorApplyRequested);
+    connect(ipConfiguratorPanel_, &IpConfiguratorPanel::forceIpRequested,
+            this, &ConfigDialog::onIpConfiguratorForceIpRequested);
     connect(ipConfiguratorPanel_, &IpConfiguratorPanel::statusMessage,
             this, [this](const QString& message) {
         if (connectionLogsBrowser_) connectionLogsBrowser_->append(message);
@@ -2911,10 +2949,9 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
     }
 
     // Stop acquisition while the camera network stack is reconfigured.
-    bool wasRunning = false;
+    const bool wasRunning = cameraManager_ && cameraManager_->isAcquiring();
     if (cameraManager_) {
         cameraManager_->stopAcquisition();
-        wasRunning = true;
     }
 
     const IpConfigResult result = CameraManager::configureIpConfiguration(
@@ -2922,6 +2959,12 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
         ip.toStdString(), mask.toStdString(), gateway.toStdString());
 
     if (wasRunning && cameraManager_) {
+        // stopAcquisition() destroyed the runtime camera objects, so
+        // startAcquisition() alone cannot re-attach them. Mirror MainWindow's
+        // restart pattern (initialize() + startAcquisition()) to bring the
+        // remaining cameras back; the camera that just changed IP is still
+        // rebooting and is reconnected via the recovery thread below.
+        cameraManager_->initialize();
         cameraManager_->startAcquisition();
     }
 
@@ -2949,6 +2992,19 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
                                       ip, normalizedMac, mask, gateway);
     }
 
+    // The camera that just changed IP restarts its network stack and stays
+    // unreachable for a few seconds, so initialize() above could not attach it.
+    // Have the recovery thread reconnect it as soon as it reappears.
+    if (wasRunning && cameraManager_ && matchedCard) {
+        const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+        for (size_t i = 0; i < cameras.size(); ++i) {
+            if (cameras[i].id == matchedCard->cameraId()) {
+                cameraManager_->requestCameraReconnect(static_cast<int>(i));
+                break;
+            }
+        }
+    }
+
     currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
     refreshNetworkStatus();
     if (connectionLogsBrowser_) {
@@ -2971,6 +3027,68 @@ void ConfigDialog::onIpConfiguratorApplyRequested(const QString& mac, const QStr
 
     // The camera disappears from discovery while it restarts its network
     // stack; refresh again shortly so camera cards show the new detected IP.
+    QTimer::singleShot(8000, this, [this]() {
+        currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
+        refreshNetworkStatus();
+    });
+}
+
+void ConfigDialog::onIpConfiguratorForceIpRequested(const QString& mac, const QString& tempIp,
+                                                    const QString& mask, const QString& gateway) {
+    const QString normalizedMac = normalizeMac(mac);
+    if (normalizedMac.isEmpty() || !isValidIpv4String(tempIp)) {
+        ipConfiguratorPanel_->setApplyResult(false, "Invalid MAC address or temporary IP.");
+        return;
+    }
+
+    // The temporary IP must live on a host subnet so the camera stays
+    // reachable; derive a matching netmask when the panel did not provide one.
+    QString usedMask = mask.trimmed();
+    if (!isValidIpv4String(usedMask)) {
+        usedMask = subnetMaskForIp(tempIp);
+    }
+    const QString usedGateway = isValidIpv4String(gateway.trimmed())
+        ? gateway.trimmed() : QStringLiteral("0.0.0.0");
+
+    const bool wasRunning = cameraManager_ && cameraManager_->isAcquiring();
+    if (cameraManager_) {
+        cameraManager_->stopAcquisition();
+    }
+
+    const IpConfigResult result = CameraManager::configureIpConfiguration(
+        normalizedMac.toStdString(), "Static",
+        tempIp.toStdString(), usedMask.toStdString(), usedGateway.toStdString());
+
+    if (wasRunning && cameraManager_) {
+        cameraManager_->initialize();
+        cameraManager_->startAcquisition();
+    }
+
+    if (result != IpConfigResult::Success) {
+        const QString message = (result == IpConfigResult::DeviceNotFound)
+            ? "Camera " + mac + " is not currently visible in GigE discovery.\n"
+              "Check that it is powered on and connected, then click Refresh and try again."
+            : "Failed to assign temporary IP " + tempIp + " to camera " + mac + ".\n"
+              "Check the connection and that the camera supports this operation.";
+        ipConfiguratorPanel_->setApplyResult(false, message);
+        return;
+    }
+
+    currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
+    refreshNetworkStatus();
+    if (connectionLogsBrowser_) {
+        connectionLogsBrowser_->append(QString("[%1] Temporary IP assigned: MAC=%2 IP=%3 mask=%4")
+            .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"), mac, tempIp, usedMask));
+    }
+
+    QString message = QString("Temporary IP %1 assigned to %2. The camera restarts its network "
+                              "interface and reappears at this address within a few seconds. ")
+        .arg(tempIp, mac);
+    message += "Then select the camera again and click Apply to set the permanent IP configuration.\n\n"
+               "Note: on this camera the temporary address is stored persistently; the final Apply "
+               "overwrites it with the permanent configuration.";
+    ipConfiguratorPanel_->setApplyResult(true, message);
+
     QTimer::singleShot(8000, this, [this]() {
         currentGigEDevices_ = CameraManager::enumerateGigEDevices(/*forceRefresh=*/true);
         refreshNetworkStatus();

@@ -91,6 +91,15 @@ public:
     // Stop acquisition
     void stopAcquisition();
 
+    // True while the acquisition runtime is streaming at least one camera.
+    bool isAcquiring() const { return acquiring_; }
+
+    // Ask the background recovery thread to reconnect the given camera slot
+    // (config array index) as soon as it reappears on the network. Used after
+    // an IP-config change, when the camera restarts its network stack and
+    // briefly disappears from discovery.
+    void requestCameraReconnect(int configArrayIndex);
+
     // Pause/Resume grab
     void pauseGrabbing(bool pause);
     bool isGrabbingPaused() const;

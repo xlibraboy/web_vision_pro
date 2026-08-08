@@ -6,7 +6,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <cstring>
 #include <memory>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <pylon/gige/GigETransportLayer.h>
 #include <pylon/gige/BaslerGigEInstantCamera.h>
 #include <QDateTime>
@@ -26,6 +35,168 @@ std::string normalizeMacAddress(const std::string& mac) {
     }
     return normalized;
 }
+
+// ---------------------------------------------------------------------------
+// Temporary link-local ("assign temporary IP") bridge
+//
+// A camera stuck in AutoIP mode (current IP 169.254.x.x) is not reachable
+// from the host subnet. The scA780 family ignores the GVCP force-IP
+// broadcast (IGigETransportLayer::BroadcastIpConfiguration returns false),
+// so the only working way to reach such a camera is to give the host NIC a
+// temporary link-local address, which makes the camera's AutoIP address
+// routable. The address is added as a SECONDARY address (netlink), so the
+// interface's primary address is never touched, and it is removed again as
+// soon as the IP write completes.
+// ---------------------------------------------------------------------------
+
+// Adds or removes a secondary IPv4 address on an interface without touching
+// the primary address. Returns true on success.
+bool setSecondaryIpv4Address(int ifindex, const std::string& addr, int prefixLen, bool add) {
+    struct {
+        struct nlmsghdr n;
+        struct ifaddrmsg i;
+        char buf[128];
+    } req = {};
+    req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
+    req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | (add ? (NLM_F_CREATE | NLM_F_EXCL) : 0);
+    req.n.nlmsg_type = add ? RTM_NEWADDR : RTM_DELADDR;
+    req.i.ifa_family = AF_INET;
+    req.i.ifa_prefixlen = static_cast<unsigned char>(prefixLen);
+    req.i.ifa_scope = RT_SCOPE_UNIVERSE;
+    req.i.ifa_index = ifindex;
+
+    struct in_addr in;
+    if (inet_pton(AF_INET, addr.c_str(), &in) != 1) {
+        return false;
+    }
+
+    struct rtattr* rta = reinterpret_cast<struct rtattr*>(reinterpret_cast<char*>(&req) + NLMSG_ALIGN(req.n.nlmsg_len));
+    rta->rta_type = IFA_LOCAL;
+    rta->rta_len = RTA_LENGTH(sizeof(in));
+    std::memcpy(RTA_DATA(rta), &in, sizeof(in));
+    req.n.nlmsg_len = NLMSG_ALIGN(req.n.nlmsg_len) + RTA_ALIGN(rta->rta_len);
+
+    rta = reinterpret_cast<struct rtattr*>(reinterpret_cast<char*>(&req) + NLMSG_ALIGN(req.n.nlmsg_len));
+    rta->rta_type = IFA_ADDRESS;
+    rta->rta_len = RTA_LENGTH(sizeof(in));
+    std::memcpy(RTA_DATA(rta), &in, sizeof(in));
+    req.n.nlmsg_len = NLMSG_ALIGN(req.n.nlmsg_len) + RTA_ALIGN(rta->rta_len);
+
+    const int fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    if (fd < 0) {
+        return false;
+    }
+    struct sockaddr_nl sa = {};
+    sa.nl_family = AF_NETLINK;
+    bool ok = false;
+    if (sendto(fd, &req.n, req.n.nlmsg_len, 0, reinterpret_cast<struct sockaddr*>(&sa), sizeof(sa)) >= 0) {
+        char buf[8192];
+        const ssize_t len = recv(fd, buf, sizeof(buf), 0);
+        if (len >= 0) {
+            unsigned int remaining = static_cast<unsigned int>(len);
+            for (struct nlmsghdr* h = reinterpret_cast<struct nlmsghdr*>(buf);
+                 NLMSG_OK(h, remaining);
+                 h = NLMSG_NEXT(h, remaining)) {
+                if (h->nlmsg_type == NLMSG_ERROR) {
+                    const struct nlmsgerr* err = reinterpret_cast<struct nlmsgerr*>(NLMSG_DATA(h));
+                    ok = (err->error == 0);
+                    break;
+                }
+            }
+        }
+    }
+    close(fd);
+    return ok;
+}
+
+// Returns the ifindex of the first up, non-loopback IPv4 interface whose
+// subnet contains `targetIp`, or -1 if none matches.
+int interfaceIndexContaining(const std::string& targetIp) {
+    struct in_addr t = {};
+    if (inet_pton(AF_INET, targetIp.c_str(), &t) != 1) {
+        return -1;
+    }
+    struct ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) != 0) {
+        return -1;
+    }
+    int result = -1;
+    for (struct ifaddrs* p = ifa; p != nullptr; p = p->ifa_next) {
+        if (p->ifa_addr == nullptr || p->ifa_netmask == nullptr || p->ifa_addr->sa_family != AF_INET) {
+            continue;
+        }
+        if ((p->ifa_flags & IFF_UP) == 0 || (p->ifa_flags & IFF_LOOPBACK) != 0) {
+            continue;
+        }
+        const struct sockaddr_in* ip = reinterpret_cast<const struct sockaddr_in*>(p->ifa_addr);
+        const struct sockaddr_in* mask = reinterpret_cast<const struct sockaddr_in*>(p->ifa_netmask);
+        if ((ip->sin_addr.s_addr & mask->sin_addr.s_addr) == (t.s_addr & mask->sin_addr.s_addr)) {
+            result = if_nametoindex(p->ifa_name);
+            break;
+        }
+    }
+    freeifaddrs(ifa);
+    return result;
+}
+
+// True if any interface already has a 169.254.0.0/16 (link-local) address, in
+// which case AutoIP cameras are already reachable and no bridge is needed.
+bool hasLinkLocalAddress() {
+    struct ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) != 0) {
+        return false;
+    }
+    bool found = false;
+    for (struct ifaddrs* p = ifa; p != nullptr; p = p->ifa_next) {
+        if (p->ifa_addr == nullptr || p->ifa_addr->sa_family != AF_INET) {
+            continue;
+        }
+        const struct sockaddr_in* ip = reinterpret_cast<const struct sockaddr_in*>(p->ifa_addr);
+        const uint32_t host = ntohl(ip->sin_addr.s_addr);
+        if ((host >> 16) == 0xA9FE) { // 169.254.x.x
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(ifa);
+    return found;
+}
+
+// Deterministic per-camera link-local address derived from the last two octets
+// of the camera MAC, e.g. 0030531A568E -> 169.254.86.142. Keeps the temporary
+// address unique per camera so multiple cameras on the same link never clash.
+std::string linkLocalAddressForMac(const std::string& mac) {
+    const auto hexVal = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return 0;
+    };
+    if (mac.size() < 4) {
+        return "169.254.0.1";
+    }
+    const std::string tail = mac.substr(mac.size() - 4);
+    const int b1 = hexVal(tail[0]) * 16 + hexVal(tail[1]);
+    const int b2 = hexVal(tail[2]) * 16 + hexVal(tail[3]);
+    return "169.254." + std::to_string(b1) + "." + std::to_string(b2);
+}
+
+// RAII-style holder for the temporary link-local address; removes it on
+// destruction so every early-return path cleans up after the IP write.
+struct LinkLocalBridgeGuard {
+    int ifindex = -1;
+    std::string addr;
+    bool active = false;
+
+    ~LinkLocalBridgeGuard() {
+        if (active) {
+            setSecondaryIpv4Address(ifindex, addr, 16, /*add=*/false);
+            std::cout << "[CameraManager] Removed temporary link-local address "
+                      << addr << " from interface index " << ifindex << std::endl;
+            active = false;
+        }
+    }
+};
 
 int clampNodeValue(GenApi::CIntegerPtr node, int requested, const char* nodeName) {
     if (!node || !IsWritable(node)) {
@@ -547,6 +718,19 @@ void CameraManager::joinRecoveryThread() {
     if (recoveryThread_.joinable()) {
         recoveryThread_.join();
     }
+}
+
+void CameraManager::requestCameraReconnect(int configArrayIndex) {
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(disconnectedMutex_);
+        disconnectedCameras_.insert(static_cast<uint32_t>(configArrayIndex));
+    }
+    // If a recovery thread is already running it will pick up the new index on
+    // its next poll; otherwise start one now.
+    startRecoveryThreadIfNeeded();
 }
 
 bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
@@ -2589,10 +2773,49 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
                   << " mask=" << mask
                   << " gateway=" << gateway << std::endl;
 
+        // A camera stuck in AutoIP mode (current IP 169.254.x.x) is not
+        // reachable from the host subnet. The scA780 family ignores the GVCP
+        // force-IP broadcast (BroadcastIpConfiguration returns false), so the
+        // only working path is to temporarily add a link-local (169.254.0.0/16)
+        // address to the camera NIC — the "assign temporary IP" mechanism. This
+        // makes the camera's AutoIP address routable so the direct device API
+        // below can open it and write the real static configuration. The
+        // address is added as a SECONDARY address (never replaces the primary
+        // host IP) and is removed again once the write completes.
+        LinkLocalBridgeGuard linkLocalBridge;
+        if (currentIp.rfind("169.254.", 0) == 0 && !hasLinkLocalAddress()) {
+            const int ifindex = interfaceIndexContaining(ip);
+            if (ifindex >= 0) {
+                const std::string llAddr = linkLocalAddressForMac(targetMac);
+                if (setSecondaryIpv4Address(ifindex, llAddr, 16, /*add=*/true)) {
+                    linkLocalBridge.ifindex = ifindex;
+                    linkLocalBridge.addr = llAddr;
+                    linkLocalBridge.active = true;
+                    std::cout << "[CameraManager] AutoIP camera " << targetMac
+                              << " not reachable; added temporary link-local address "
+                              << llAddr << "/16 (secondary) on interface index "
+                              << ifindex << " to write the IP configuration." << std::endl;
+                } else {
+                    std::cerr << "[CameraManager] Failed to add temporary link-local address for camera "
+                              << targetMac << "; direct API will likely time out." << std::endl;
+                }
+            } else {
+                std::cerr << "[CameraManager] No host interface matches the target subnet for camera "
+                          << targetMac << "; cannot reach an AutoIP camera." << std::endl;
+            }
+        }
+
         // Direct device API: the reliable path on cameras that ignore GVCP
         // broadcast IP configuration (e.g. scA780). It writes the persistent
         // IP settings and switches the configuration mode on the device itself.
-        auto tryDirect = [&](const Pylon::CDeviceInfo& devInfo) -> bool {
+        //
+        // Newer camera models restart their network interface IMMEDIATELY when
+        // the configuration is changed, which can make the final Close() fail
+        // (device unreachable mid-teardown). The apply has already gone through
+        // in that case, so a teardown failure after a successful write must NOT
+        // be reported as an apply failure.
+        auto tryDirect = [&](const Pylon::CDeviceInfo& devInfo, bool* applied) -> bool {
+            *applied = false;
             try {
                 std::unique_ptr<Pylon::IPylonDevice> device(TlFactory.CreateDevice(devInfo));
                 Pylon::CBaslerGigEInstantCamera camera(device.release());
@@ -2601,25 +2824,50 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
                     camera.SetPersistentIpAddress(ip.c_str(), mask.c_str(), gateway.c_str());
                 }
                 camera.ChangeIpConfiguration(isStatic, isDhcp);
+                *applied = true; // config write succeeded; camera may reboot now
                 camera.Close();
                 std::cout << "[CameraManager] Successfully changed IP config for MAC " << targetMac
                           << " mode=" << mode << (isStatic ? (" to " + ip) : "")
                           << " using direct GigE device API." << std::endl;
                 return true;
             } catch (const Pylon::GenericException& e) {
-                std::cerr << "[CameraManager] Direct GigE IP configuration attempt failed for MAC " << targetMac
-                          << ": " << e.GetDescription() << std::endl;
-                return false;
+                std::cerr << "[CameraManager] Direct GigE IP configuration attempt for MAC " << targetMac
+                          << " failed: " << e.GetDescription() << std::endl;
+                // Close() failure after a successful write means the camera
+                // restarted its network stack — expected, not an error.
+                return *applied;
             }
         };
 
         // Retry the direct path: right after a mode/IP change the camera
         // restarts its network stack and is unreachable for a few seconds.
+        // Re-discover the device by MAC on every attempt — after the first
+        // write the camera may answer at a NEW address, and reusing the stale
+        // device info (captured at the old address) would make every retry fail.
         for (int attempt = 0; attempt < 3; ++attempt) {
             if (attempt > 0) {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
-            if (tryDirect(matchedDeviceInfo)) {
+
+            if (attempt > 0) {
+                lstDevices.clear();
+                pTl->EnumerateAllDevices(lstDevices);
+                bool rediscovered = false;
+                for (const auto& dev : lstDevices) {
+                    if (normalizeMacAddress(dev.GetMacAddress().c_str()) == targetMac) {
+                        matchedDeviceInfo = dev;
+                        rediscovered = true;
+                        break;
+                    }
+                }
+                if (!rediscovered) {
+                    // Camera is still restarting its network stack; wait for it.
+                    continue;
+                }
+            }
+
+            bool applied = false;
+            if (tryDirect(matchedDeviceInfo, &applied)) {
                 // Mirror Utility_IpConfig: restart the camera's IP stack so the
                 // new persistent configuration takes effect on the LIVE
                 // interface (scA780 does not apply it otherwise).

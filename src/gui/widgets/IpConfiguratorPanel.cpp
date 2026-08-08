@@ -14,6 +14,8 @@
 #include <QDateTime>
 #include <QHostAddress>
 #include <QAbstractSocket>
+#include <QNetworkInterface>
+#include <QStringList>
 #include <QFont>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -312,6 +314,21 @@ void IpConfiguratorPanel::setupUI() {
     connect(applyBtn_, &QPushButton::clicked, this, &IpConfiguratorPanel::onApplyClicked);
     editLayout->addWidget(applyBtn_, 4, 0, 1, 2);
 
+    // Force IP: assign a temporary IP on the host subnet so an unreachable
+    // camera (e.g. stuck in AutoIP) becomes reachable, then Apply the
+    // permanent configuration afterwards.
+    forceIpEdit_ = new FixedDotIpEdit(editGroup);
+    forceIpEdit_->setPlaceholderText("e.g. 172.20.2.250");
+    editLayout->addWidget(new QLabel("Force IP:", editGroup), 5, 0);
+    editLayout->addWidget(forceIpEdit_, 5, 1);
+    forceIpBtn_ = new QPushButton("Force IP", editGroup);
+    forceIpBtn_->setEnabled(false);
+    forceIpBtn_->setToolTip("Assign a temporary IP on this computer's subnet to the selected camera "
+                            "so it becomes reachable, then select it again and Apply the permanent "
+                            "IP configuration.");
+    connect(forceIpBtn_, &QPushButton::clicked, this, &IpConfiguratorPanel::onForceIpClicked);
+    editLayout->addWidget(forceIpBtn_, 6, 0, 1, 2);
+
     layout->addWidget(editGroup);
     clearEditor();
 }
@@ -365,6 +382,7 @@ void IpConfiguratorPanel::onTableSelectionChanged() {
     }
     modeCombo_->setEnabled(adminMode_);
     applyBtn_->setEnabled(adminMode_ && !applyInFlight_);
+    forceIpBtn_->setEnabled(adminMode_ && !applyInFlight_);
     loadRowIntoEditor(row);
     onModeChanged(0);
 }
@@ -405,6 +423,13 @@ void IpConfiguratorPanel::onApplyClicked() {
                 "Leave the gateway empty for no gateway (0.0.0.0).");
             return;
         }
+        if (hostIpv4Addresses().contains(ip)) {
+            QMessageBox::warning(this, "Apply IP",
+                "IP address " + ip + " is this computer's own address.\n"
+                "Assigning it to a camera would create an IP conflict on the network.\n"
+                "Use a different address (e.g. 172.20.2.1 or 172.20.2.2).");
+            return;
+        }
         if (gateway == QStringLiteral("0.0.0.0")) {
             QMessageBox::information(this, "Gateway 0.0.0.0",
                 "0.0.0.0 (no gateway) will be stored as the persistent setting, but this camera model "
@@ -422,6 +447,7 @@ void IpConfiguratorPanel::onApplyClicked() {
 void IpConfiguratorPanel::setApplyResult(bool ok, const QString& message) {
     applyInFlight_ = false;
     applyBtn_->setEnabled(table_->currentRow() >= 0 && adminMode_);
+    forceIpBtn_->setEnabled(table_->currentRow() >= 0 && adminMode_);
     statusLabel_->setText(message);
     // Refresh on success (camera restarts its network stack) and on failure
     // (the discovery list may have gone stale since the last scan).
@@ -436,8 +462,10 @@ void IpConfiguratorPanel::clearEditor() {
     ipEdit_->setOctets(QString());
     maskEdit_->setOctets(QString());
     gatewayEdit_->setOctets(QString());
+    forceIpEdit_->setOctets(QString());
     modeCombo_->setEnabled(false);
     applyBtn_->setEnabled(false);
+    forceIpBtn_->setEnabled(false);
     onModeChanged(0);
 }
 
@@ -447,10 +475,88 @@ void IpConfiguratorPanel::setAdminMode(bool isAdmin) {
     table_->setEnabled(isAdmin);
     modeCombo_->setEnabled(isAdmin && table_->currentRow() >= 0);
     applyBtn_->setEnabled(isAdmin && table_->currentRow() >= 0 && !applyInFlight_);
+    forceIpBtn_->setEnabled(isAdmin && table_->currentRow() >= 0 && !applyInFlight_);
     onModeChanged(0); // re-apply field enable state
 }
 
 bool IpConfiguratorPanel::isValidIpv4(const QString& text) {
     QHostAddress addr;
     return addr.setAddress(text.trimmed()) && addr.protocol() == QAbstractSocket::IPv4Protocol;
+}
+
+QStringList IpConfiguratorPanel::hostIpv4Addresses() {
+    QStringList addresses;
+    const QList<QNetworkInterface> ifaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface& iface : ifaces) {
+        for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+            if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol
+                    && !entry.ip().isLoopback()) {
+                addresses << entry.ip().toString();
+            }
+        }
+    }
+    addresses.removeDuplicates();
+    return addresses;
+}
+
+bool IpConfiguratorPanel::ipv4OnLocalSubnet(const QString& ip) {
+    QHostAddress addr;
+    if (!addr.setAddress(ip.trimmed()) || addr.protocol() != QAbstractSocket::IPv4Protocol) {
+        return false;
+    }
+    const quint32 target = addr.toIPv4Address();
+    const QList<QNetworkInterface> ifaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface& iface : ifaces) {
+        if (!(iface.flags() & QNetworkInterface::IsUp) || (iface.flags() & QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+        for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+            if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol) {
+                continue;
+            }
+            const QHostAddress netmask = entry.netmask();
+            if (netmask.isNull()) {
+                continue;
+            }
+            if ((entry.ip().toIPv4Address() & netmask.toIPv4Address())
+                    == (target & netmask.toIPv4Address())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void IpConfiguratorPanel::onForceIpClicked() {
+    const int row = table_->currentRow();
+    if (row < 0 || row >= static_cast<int>(devices_.size())) {
+        return;
+    }
+    const QString mac = QString::fromStdString(devices_[static_cast<size_t>(row)].macAddress);
+    const QString tempIp = forceIpEdit_->text().trimmed();
+
+    if (!isValidIpv4(tempIp)) {
+        QMessageBox::warning(this, "Force IP",
+            "Enter a complete IPv4 address for the temporary IP (e.g. 172.20.2.250).");
+        return;
+    }
+    if (!ipv4OnLocalSubnet(tempIp)) {
+        QMessageBox::warning(this, "Force IP",
+            "The temporary IP must be in a subnet of this computer, otherwise the camera "
+            "would become unreachable. Use an address in the same subnet as the host NIC "
+            "(this host is on 172.20.0.0/16).");
+        return;
+    }
+    if (hostIpv4Addresses().contains(tempIp)) {
+        QMessageBox::warning(this, "Force IP",
+            "Temporary IP " + tempIp + " is this computer's own address.\n"
+            "Assigning it to a camera would create an IP conflict on the network.");
+        return;
+    }
+
+    applyInFlight_ = true;
+    applyBtn_->setEnabled(false);
+    forceIpBtn_->setEnabled(false);
+    statusLabel_->setText(QString("Assigning temporary IP %1 to %2 ...").arg(tempIp, mac));
+    emit forceIpRequested(mac, tempIp, maskEdit_->text().trimmed(), gatewayEdit_->text().trimmed());
 }
