@@ -641,6 +641,15 @@ void MainWindow::setupUi() {
     });
     liveControlsLayout->addWidget(defectDetectionCheck_);
     liveControlsLayout->addStretch();
+
+    // Emulation-mode badge: visible only when the app runs on emulated cameras
+    // (PYLON_CAMEMU or the Camera Mode selector in Settings > Recording & Triggers).
+    emulationBadge_ = new QLabel("\u26A1 Emulation Mode", liveTab);
+    emulationBadge_->setObjectName("emulationBadge");
+    emulationBadge_->setToolTip("Running on emulated cameras (no real hardware). "
+                                "Configured in Settings > Recording & Triggers > Camera Mode.");
+    emulationBadge_->setVisible(CameraConfig::isEmulationActive());
+    liveControlsLayout->addWidget(emulationBadge_);
     
     liveLayout->addLayout(liveControlsLayout);
 
@@ -1377,6 +1386,10 @@ void MainWindow::applyGlobalTheme() {
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: #888888; }"
         "QLabel#adminStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
         "QLabel#adminStatusLabel[adminActive='true'] { color: %5; }"
+        // Emulation-mode badge (cyan accent matches the emulated status color)
+        "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
+        "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "
+        "  font-weight: bold; font-size: 12px; }"
         // Toolbars and Borders
         "QToolBar, QMenuBar { background-color: %3; border-bottom: 1px solid %2; color: %8; }"
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"

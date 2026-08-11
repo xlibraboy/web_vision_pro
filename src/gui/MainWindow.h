@@ -72,6 +72,7 @@ private:
     QPushButton* pauseBtn_;
     ToggleSwitch* defectDetectionCheck_;
     QLabel* adminStatusLabel_ = nullptr;
+    QLabel* emulationBadge_ = nullptr;
     QAction* adminLoginAction_; // Login toggle
     QAction* customLayoutAction_;
     QAction* configAction_;

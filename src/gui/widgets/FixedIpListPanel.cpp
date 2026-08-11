@@ -73,7 +73,9 @@ void FixedIpListPanel::setCameras(const std::vector<CameraInfo>& cameras,
         QColor fg = kOfflineColor;
         if (display == QLatin1String("Emulated")) {
             fg = kEmulatedColor;
-        } else if (display != QLatin1String("Offline")) {
+        } else if (!display.startsWith(QLatin1String("Offline"))) {
+            // A real IP means the camera is reachable (green); "Offline",
+            // "Offline - no hardware", etc. stay muted gray.
             fg = kOnlineColor;
         }
         detectedItem->setForeground(fg);

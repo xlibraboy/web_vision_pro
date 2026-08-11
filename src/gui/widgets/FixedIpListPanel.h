@@ -30,7 +30,8 @@ public:
 
     // Repopulate the table from the current camera set (one row per camera).
     // detectedIps must be parallel to cameras and holds each camera's live
-    // detected IP (or "Offline" / "Emulated").
+    // detected IP, or a status marker: "Offline", "Offline - no hardware"
+    // (Real card with no device while emulation is active), or "Emulated".
     void setCameras(const std::vector<CameraInfo>& cameras,
                     const std::vector<QString>& detectedIps);
 
