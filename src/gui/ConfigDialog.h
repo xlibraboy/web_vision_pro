@@ -170,6 +170,7 @@ private:
 
     // Global settings UI
     QSpinBox* globalFpsSpin_;
+    QComboBox* cameraSourceCombo_ = nullptr;
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
     QSpinBox* eventRetentionSpin_;

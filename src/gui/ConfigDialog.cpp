@@ -28,6 +28,7 @@
 #include <QFileDialog>
 #include <QDir>
 #include <QFileInfo>
+#include <cstdlib>
 #include <QEvent>
 #include <QDateTime>
 #include <QDebug>
@@ -943,6 +944,38 @@ void ConfigDialog::setupUI() {
     postTriggerSpin_->setSuffix(" sec");
     postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
+
+    // Camera Mode: Real hardware vs. Emulated cameras (no hardware needed).
+    // Defaults to Real; switching takes effect on the next app start because
+    // Pylon initializes the emulated devices once at startup.
+    QFormLayout* cameraModeForm = createSectionForm("Camera Mode");
+
+    cameraSourceCombo_ = new QComboBox(bufferGroup);
+    cameraSourceCombo_->addItem("Real Cameras (hardware)", static_cast<int>(CameraConfig::CameraSource::RealCamera));
+    cameraSourceCombo_->addItem("Emulated Cameras (no hardware)", static_cast<int>(CameraConfig::CameraSource::Emulation));
+    cameraSourceCombo_->setStyleSheet(QString(
+        "QComboBox { "
+        "  background-color: %1; "
+        "  border: 1px solid %2; "
+        "  border-radius: 6px; "
+        "  padding: 6px 10px; "
+        "  color: %3; "
+        "  min-width: 180px; "
+        "} "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; width: 22px; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    cameraModeForm->addRow("Camera Source:", cameraSourceCombo_);
+
+    QLabel* cameraModeNote = new QLabel(
+        "Emulated cameras need no hardware and are handy for testing without a "
+        "machine. This switch only activates the \"Emulated\" Source setting on "
+        "individual camera cards - cards left on Real still use hardware. The "
+        "switch takes effect after the application restarts.", bufferGroup);
+    cameraModeNote->setWordWrap(true);
+    cameraModeNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
+    cameraModeForm->addRow("", cameraModeNote);
 
     QFormLayout* retentionForm = createSectionForm("Record Storage");
 
@@ -2379,6 +2412,13 @@ void ConfigDialog::loadSettings() {
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
     eventRetentionSpin_->setValue(CameraConfig::getEventRetentionCount());
+    if (cameraSourceCombo_) {
+        const int sourceIndex = cameraSourceCombo_->findData(
+            static_cast<int>(CameraConfig::getCameraSource()));
+        if (sourceIndex != -1) {
+            cameraSourceCombo_->setCurrentIndex(sourceIndex);
+        }
+    }
     const OpcUaSettings opcUaSettings = CameraConfig::getOpcUaSettings();
     const OpcUaSettings defaultOpcUaSettings = CameraConfig::getDefaultOpcUaSettings();
     if (opcUaEnabledCheck_) {
@@ -3029,8 +3069,18 @@ void ConfigDialog::saveRecordingSettings() {
     CameraConfig::setPreTriggerSeconds(preTriggerSpin_->value());
     CameraConfig::setPostTriggerSeconds(postTriggerSpin_->value());
     CameraConfig::setEventRetentionCount(eventRetentionSpin_->value());
+    bool cameraModeChanged = false;
+    if (cameraSourceCombo_) {
+        const auto newSource =
+            static_cast<CameraConfig::CameraSource>(cameraSourceCombo_->currentData().toInt());
+        cameraModeChanged = CameraConfig::getCameraSource() != newSource;
+        CameraConfig::setCameraSource(newSource);
+    }
 
-    QMessageBox::information(this, "Recording Settings Saved", "Recording settings saved.");
+    QMessageBox::information(this, "Recording Settings Saved",
+        cameraModeChanged
+            ? QStringLiteral("Recording settings saved.\n\nCamera mode change takes effect after the application restarts.")
+            : QStringLiteral("Recording settings saved."));
     emitConfigUpdated(false);
 }
 void ConfigDialog::saveOpcUaSettings() {
@@ -3252,6 +3302,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     preTriggerSpin_->setEnabled(isAdmin);
     postTriggerSpin_->setEnabled(isAdmin);
     eventRetentionSpin_->setEnabled(isAdmin);
+    if (cameraSourceCombo_) cameraSourceCombo_->setEnabled(isAdmin);
     if (opcUaEnabledCheck_) opcUaEnabledCheck_->setEnabled(isAdmin);
     if (opcUaEndpointEdit_) opcUaEndpointEdit_->setEnabled(isAdmin);
     if (opcUaAuthModeCombo_) opcUaAuthModeCombo_->setEnabled(isAdmin);
@@ -3571,6 +3622,11 @@ bool ConfigDialog::validateConfiguration(QStringList* errors) const {
 }
 
 void ConfigDialog::refreshNetworkStatus() {
+    // Emulation active when the env var is set (docker/CI) or the persisted
+    // Camera Mode selector is Emulated. When active, Real cards cannot attach
+    // (no real hardware is present) and Emulated cards are the ones that run.
+    const bool emulationActive = CameraConfig::isEmulationActive();
+
     QMap<QString, QList<QString>> liveIpToMacs;
     QMap<QString, GigEDeviceInfo> macToDevice;
 
@@ -3646,17 +3702,34 @@ void ConfigDialog::refreshNetworkStatus() {
                 blockingCount++;
                 errorCount++;
             } else if (source == 1 && (configuredMac.isEmpty() || configuredMac == "NONE/AUTO")) {
-                missingCount++;
-                warningCount++;
+                if (emulationActive) {
+                    // Emulation is on but this card is Real: there is no real
+                    // hardware to attach to, and the MAC requirement is moot.
+                    statusText = "Offline - no hardware";
+                    statusColor = QColor("#6E7681");
+                    missingCount++;
+                    offlineCount++;
+                } else {
+                    missingCount++;
+                    warningCount++;
+                }
             } else if (source == 1 && duplicateConfiguredMacs.contains(configuredMac)) {
                 statusText = "Duplicate MAC";
                 statusColor = QColor("#FF5A5A");
                 blockingCount++;
                 errorCount++;
             } else if (source == 0) {
-                statusText = "Emulated";
-                statusColor = QColor("#4CAF50");
-                onlineCount++;
+                if (emulationActive) {
+                    statusText = "Emulated";
+                    statusColor = QColor("#4CAF50");
+                    onlineCount++;
+                } else {
+                    // Selector is OFF: emulated devices are not created, so a
+                    // card set to Emulated cannot activate until it is switched on.
+                    statusText = "Offline - emulation off";
+                    statusColor = QColor("#6E7681");
+                    offlineCount++;
+                }
             } else if (macToDevice.contains(configuredMac)) {
                 const GigEDeviceInfo& dev = macToDevice[configuredMac];
                 detectedIp = QString::fromStdString(dev.ipAddress);
@@ -3679,10 +3752,19 @@ void ConfigDialog::refreshNetworkStatus() {
                     warningCount++;
                 }
             } else if (source == 1) {
-                statusText = "Offline";
-                statusColor = QColor("#6E7681");
-                missingCount++;
-                offlineCount++;
+                if (emulationActive) {
+                    // Emulation is on but this Real card has no matching real
+                    // device - explain the cause instead of a generic Offline.
+                    statusText = "Offline - no hardware";
+                    statusColor = QColor("#6E7681");
+                    missingCount++;
+                    offlineCount++;
+                } else {
+                    statusText = "Offline";
+                    statusColor = QColor("#6E7681");
+                    missingCount++;
+                    offlineCount++;
+                }
             }
         } else {
             offlineCount++;

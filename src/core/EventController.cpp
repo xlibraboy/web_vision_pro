@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
+#include <chrono>
 #include <utility>
 #include <QDateTime>
 #include <QDir>
@@ -62,6 +63,19 @@ void EventController::initialize(int bufferSize, double fps, int postTriggerFram
               << std::endl;
 }
 
+int64_t EventController::nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+bool EventController::isCameraLive(const CameraBufferState& state, int64_t now) {
+    // A camera that has never delivered a frame is not live. Otherwise it stays
+    // live as long as frames keep arriving (e.g. 10 fps → a frame every 100 ms,
+    // well inside the 4 s window even with hiccups).
+    return state.lastFrameArrivalMs != 0
+        && (now - state.lastFrameArrivalMs) <= kCameraLiveWindowMs;
+}
+
 void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter) {
     std::lock_guard<std::mutex> lock(bufferMutex_);
     
@@ -72,6 +86,7 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     }
     
     CameraBufferState& state = cameraStates_[cameraId];
+    state.lastFrameArrivalMs = nowMs();
 
     // During an active event, stop extending this camera's saved window once it has
     // collected its per-camera post-trigger target (postTriggerLimit_ + the spatial
@@ -118,73 +133,105 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
 
         int recorded = ++state.postFramesRecorded;
         if (recorded >= state.captureTargetFrames) {
-            // Reached limit for this camera. We don't stop the whole trigger process yet,
-            // we let the saveWorker handle saving all states once requested.
-            // But we can check if all participating cameras have hit the limit.
-            bool allDone = true;
-            for (const auto& pair : cameraStates_) {
-                if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
-                    continue;
-                }
-                if (pair.second.captureTargetFrames >= 0
-                        && pair.second.postFramesRecorded < pair.second.captureTargetFrames) {
-                    allDone = false;
-                    break;
-                }
-            }
-            
-            if (allDone && !saveRequested_) {
-                std::cout << "[EventController] Post-trigger capture complete for the triggered camera group. Moving to save queue." << std::endl;
-                
-                {
-                    std::lock_guard<std::mutex> saveLock(saveMutex_);
-                    
-                    for (auto& pair : cameraStates_) {
-                        if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
-                            continue;
-                        }
-                        CameraBufferState& s = pair.second;
-                        s.saveQueue.clear();
-                        
-                        size_t tail = (s.currentFillSize < s.circularBuffer.size()) ? 0 : s.writeIndex;
-                        
-                        for (size_t i = 0; i < s.currentFillSize; ++i) {
-                            size_t idx = (tail + i) % s.circularBuffer.size();
-                            // Deep copy for saving
-                            FrameData fd;
-                            fd.image = s.circularBuffer[idx].image.clone();
-                            fd.timestamp = s.circularBuffer[idx].timestamp;
-                            fd.frameCounter = s.circularBuffer[idx].frameCounter;
-                            s.saveQueue.push_back(fd);
-                        }
-                        
-                        // Calculate linearized trigger index for the saved sequence.
-                        // The ring rolls while a downstream camera waits for the
-                        // defect to arrive, so the defect lands at a stable position
-                        // (pre-trigger depth) in every camera's saved window.
-                        s.linearizedTriggerIndex = static_cast<int>(s.currentFillSize)
-                            - s.postFramesRecorded - 1 + s.captureOffsetFrames;
-                        // Guard against degenerate extreme-upstream offsets that
-                        // could push the index out of the saved window.
-                        const int maxIndex = std::max(0, static_cast<int>(s.currentFillSize) - 1);
-                        s.linearizedTriggerIndex = std::max(0, std::min(s.linearizedTriggerIndex, maxIndex));
-                    }
-                    saveRequested_ = true;
-                }
-                
-                triggering_ = false;
-                saveCv_.notify_one();
-            }
+            // Reached limit for this camera. Try to complete the event: this only
+            // succeeds when every *live* participating camera has also reached its
+            // target. Cameras that stopped streaming are skipped so the trigger
+            // completes with whatever live cameras remain.
+            tryCompleteEventLocked(nowMs());
         }
     }
 }
 
-void EventController::triggerEvent() {
-    triggerEvent(TriggerContext{});
+bool EventController::tryCompleteEventLocked(int64_t now) {
+    // Requires bufferMutex_ held. Evaluates completion and, when ready, moves
+    // the participating live cameras' ring buffers into their save queues.
+    if (saveRequested_ || !triggering_) {
+        return false;
+    }
+
+    bool allDone = true;
+    for (const auto& pair : cameraStates_) {
+        if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+            continue;
+        }
+        if (pair.second.captureTargetFrames < 0) {
+            continue;
+        }
+        // A camera that stopped streaming (disconnected, offline, or not
+        // started) can never reach its target. Skip it so the trigger
+        // completes with whatever live cameras remain.
+        if (!isCameraLive(pair.second, now)) {
+            continue;
+        }
+        if (pair.second.postFramesRecorded < pair.second.captureTargetFrames) {
+            allDone = false;
+            break;
+        }
+    }
+    if (!allDone) {
+        return false;
+    }
+
+    std::cout << "[EventController] Post-trigger capture complete for the triggered camera group. Moving to save queue." << std::endl;
+
+    {
+        std::lock_guard<std::mutex> saveLock(saveMutex_);
+
+        for (auto& pair : cameraStates_) {
+            if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+                continue;
+            }
+            CameraBufferState& s = pair.second;
+            // Only save cameras that actually participated and are (or were just)
+            // streaming. A camera that stopped before the trigger fires has a
+            // stale buffer and must not be saved.
+            if (!isCameraLive(s, now)) {
+                continue;
+            }
+            s.saveQueue.clear();
+
+            size_t tail = (s.currentFillSize < s.circularBuffer.size()) ? 0 : s.writeIndex;
+
+            for (size_t i = 0; i < s.currentFillSize; ++i) {
+                size_t idx = (tail + i) % s.circularBuffer.size();
+                // Deep copy for saving
+                FrameData fd;
+                fd.image = s.circularBuffer[idx].image.clone();
+                fd.timestamp = s.circularBuffer[idx].timestamp;
+                fd.frameCounter = s.circularBuffer[idx].frameCounter;
+                s.saveQueue.push_back(fd);
+            }
+
+            // Calculate linearized trigger index for the saved sequence.
+            // The ring rolls while a downstream camera waits for the defect to
+            // arrive, so the defect lands at a stable position (pre-trigger depth)
+            // in every camera's saved window.
+            s.linearizedTriggerIndex = static_cast<int>(s.currentFillSize)
+                - s.postFramesRecorded - 1 + s.captureOffsetFrames;
+            // Guard against degenerate extreme-upstream offsets that could push
+            // the index out of the saved window.
+            const int maxIndex = std::max(0, static_cast<int>(s.currentFillSize) - 1);
+            s.linearizedTriggerIndex = std::max(0, std::min(s.linearizedTriggerIndex, maxIndex));
+        }
+        saveRequested_ = true;
+    }
+
+    triggering_ = false;
+    saveCv_.notify_one();
+    return true;
 }
 
-void EventController::triggerEvent(const TriggerContext& context) {
-    if (triggering_) return;
+bool EventController::tryCompleteEvent(int64_t now) {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    return tryCompleteEventLocked(now);
+}
+
+bool EventController::triggerEvent() {
+    return triggerEvent(TriggerContext{});
+}
+
+bool EventController::triggerEvent(const TriggerContext& context) {
+    if (triggering_) return false;
 
     const QString reason = context.reason.isEmpty() ? QStringLiteral("Triggered") : context.reason;
     std::cout << "[EventController] EVENT TRIGGERED! Reason: " << reason.toStdString() << std::endl;
@@ -217,7 +264,7 @@ void EventController::triggerEvent(const TriggerContext& context) {
         if (recordCameraIds_.empty()) {
             std::cout << "[EventController] Trigger ignored: no camera is assigned to group "
                       << CameraGroup::name(context.group).toStdString() << std::endl;
-            return;
+            return false;
         }
     }
 
@@ -293,7 +340,29 @@ void EventController::triggerEvent(const TriggerContext& context) {
         }
     }
 
+    // If no participating camera is actually streaming frames right now (never
+    // streamed, or stopped streaming recently), the event could never complete
+    // and triggering_ would stay set forever, silently swallowing every later
+    // trigger. Bail out cleanly instead.
+    const int64_t now = nowMs();
+    bool anyParticipantLive = false;
+    for (const auto& pair : cameraStates_) {
+        if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
+            continue;
+        }
+        if (pair.second.captureTargetFrames >= 0 && isCameraLive(pair.second, now)) {
+            anyParticipantLive = true;
+            break;
+        }
+    }
+    if (!anyParticipantLive) {
+        std::cout << "[EventController] Trigger ignored: no active camera is "
+                     "streaming frames right now." << std::endl;
+        return false;
+    }
+
     triggering_ = true;
+    return true;
 }
 
 void EventController::setSpeedProvider(SpeedProvider provider) {
@@ -329,10 +398,31 @@ void EventController::setEventSavedCallback(EventSavedCallback callback) {
 void EventController::saveWorker() {
     while (running_) {
         std::unique_lock<std::mutex> lock(saveMutex_);
-        saveCv_.wait(lock, [this] { return saveRequested_ || !running_; });
-        
+        // Wait for a save request or, while an event is armed, a watchdog
+        // tick. The watchdog re-evaluates completion so a trigger whose
+        // cameras all stopped streaming mid-event still clears triggering_
+        // instead of wedging it forever (blocking all later triggers).
+        bool watchdogTick = false;
+        while (!saveRequested_ && running_) {
+            if (saveCv_.wait_for(lock,
+                    std::chrono::milliseconds(kEventWatchdogIntervalMs))
+                    == std::cv_status::timeout && triggering_) {
+                watchdogTick = true;
+                break;
+            }
+        }
+
         if (!running_) break;
-        
+
+        if (watchdogTick) {
+            // Do not hold saveMutex_ while taking bufferMutex_ (addFrame takes
+            // bufferMutex_ then saveMutex_, so the reverse order would deadlock).
+            lock.unlock();
+            tryCompleteEvent(nowMs());
+            lock.lock();
+            continue;
+        }
+
         if (saveRequested_) {
             // Swap to local queues per camera
             std::map<int, std::deque<FrameData>> framesToSave;

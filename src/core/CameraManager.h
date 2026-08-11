@@ -263,7 +263,7 @@ private:
     int numCameras_;
     std::atomic<bool> acquiring_; // Threading
     std::atomic<bool> paused_{false}; // Paused Grab
-    
+
     // Device Removal Recovery
     std::atomic<bool> recovering_;
     std::thread recoveryThread_;

@@ -3,6 +3,7 @@
 #include "../config/CameraConfig.h"
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
+#include <cstdlib>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QDateTime>
@@ -364,12 +365,20 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 bool MainWindow::validateSavedCameraConfiguration(QStringList* errors) const {
+    // The global Camera Mode selector (or PYLON_CAMEMU) is a gate that only
+    // activates the per-card "Emulated" Source setting. In emulation mode the
+    // Real + MAC requirement is relaxed: Real cards simply stay offline instead
+    // of blocking startup, while Emulated cards attach to the emulated devices.
+    const bool emulationMode = CameraConfig::isEmulationActive();
     const std::vector<CameraInfo> cams = CameraConfig::getCameras();
     QMap<QString, QList<int>> ipUsage;
     QMap<QString, QList<int>> macUsage;
 
     for (const auto& cam : cams) {
         if (cam.source == 2) {
+            continue;
+        }
+        if (emulationMode) {
             continue;
         }
 
@@ -1316,7 +1325,9 @@ void MainWindow::manualTrigger() {
     EventController::TriggerContext triggerContext;
     triggerContext.reason = QStringLiteral("Manual Trigger");
     triggerContext.source = QStringLiteral("manual");
-    EventController::instance().triggerEvent(triggerContext);
+    if (!EventController::instance().triggerEvent(triggerContext)) {
+        statusBar()->showMessage("Trigger ignored: no active camera is streaming frames.", 4000);
+    }
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {

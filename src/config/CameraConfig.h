@@ -119,6 +119,12 @@ public:
     // Camera Source
     static CameraSource getCameraSource();
     static void setCameraSource(CameraSource source);
+
+    // True when emulation is active: the PYLON_CAMEMU env var (docker/CI) is
+    // set OR the persisted Camera Mode selector is Emulated. Used to gate the
+    // per-card "Emulated" Source setting and to label Real cards that cannot
+    // attach because no real hardware is present.
+    static bool isEmulationActive();
     
     // Global FPS
     static int getFps();

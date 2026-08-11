@@ -58,8 +58,11 @@ public:
     void addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter);
 
     // Trigger an event (Paper Break) - captures post-trigger for ALL active cameras
-    void triggerEvent();
-    void triggerEvent(const TriggerContext& context);
+    // Returns true when the trigger was accepted (recording armed). Returns false
+    // when it was ignored (e.g. no streaming camera or empty group) so callers can
+    // surface the reason to the user.
+    bool triggerEvent();
+    bool triggerEvent(const TriggerContext& context);
 
     // Check if currently saving
     bool isSaving() const;
@@ -112,9 +115,34 @@ private:
         // Per-camera post-trigger frame target (postTriggerLimit_ + offset).
         // -1 = not participating in the current event.
         int captureTargetFrames = -1;
+        // Wall-clock (steady) arrival time of the most recent frame, in ms.
+        // Used to detect cameras that stopped streaming so a trigger with at
+        // least one live camera still completes without waiting on dead ones.
+        int64_t lastFrameArrivalMs = 0;
     };
 
     // Buffer state per camera (using 1-based indexing passed from CameraManager's config ID resolving)
+    // A camera is considered live if a frame arrived within this window. Used to
+    // let a trigger complete with only the cameras that are actually streaming
+    // (a disconnected camera must not block allDone forever).
+    static constexpr int64_t kCameraLiveWindowMs = 4000;
+    // How often the save worker re-evaluates an armed event while no camera is
+    // delivering frames. Self-heals the case where every live camera dies
+    // mid-event (stale ring buffers are dropped, the event completes with
+    // nothing to save, and triggering_ clears so future triggers work again).
+    static constexpr int64_t kEventWatchdogIntervalMs = 1000;
+
+    static int64_t nowMs();
+    static bool isCameraLive(const CameraBufferState& state, int64_t now);
+
+    // Evaluates whether the armed event can complete (all *live* participants
+    // reached their target) and, if so, moves their ring buffers into the save
+    // queue and signals the save worker. Returns true when it completed.
+    // The _Locked variant requires bufferMutex_ to be held; the public wrapper
+    // takes it itself (used by the saveWorker watchdog).
+    bool tryCompleteEventLocked(int64_t now);
+    bool tryCompleteEvent(int64_t now);
+
     std::map<int, CameraBufferState> cameraStates_;
     std::mutex bufferMutex_;
 

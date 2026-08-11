@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cctype>
 #include <cstring>
+#include <cstdlib>
+#include <string>
 #include <memory>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -654,13 +656,51 @@ CameraManager::CameraManager(int numCameras)
     prevTempStatus_.assign(numCameras, TemperatureStatus::Unknown);
     // Pylon requires initialization
     
-    // Check environment for emulation mode (set externally via docker-compose or workflow script)
+    // Emulation can be enabled two ways: the PYLON_CAMEMU env var (docker/CI) or
+    // the persisted Camera Source setting in System Configuration (default Real).
+    // The global selector is a GATE: it only activates the per-card "Emulated"
+    // Source setting. If no camera card is set to Emulated, emulation stays off
+    // even when the selector is on.
     const char* pylonCamEmu = getenv("PYLON_CAMEMU");
+    if (!pylonCamEmu && CameraConfig::isEmulationActive()) {
+        int emulatedCards = 0;
+        for (const CameraInfo& cam : CameraConfig::getCameras()) {
+            if (cam.source == 0) {
+                ++emulatedCards;
+            }
+        }
+        if (emulatedCards > 0) {
+            setenv("PYLON_CAMEMU", std::to_string(emulatedCards).c_str(), 1);
+            pylonCamEmu = getenv("PYLON_CAMEMU");
+            std::cout << "[CameraManager] Camera Source = Emulated in settings; enabled "
+                      << emulatedCards << " emulated device(s) for the camera card(s) "
+                      << "set to Emulated." << std::endl;
+        } else {
+            std::cout << "[CameraManager] Camera Source = Emulated in settings, but no "
+                         "camera card has its Source set to Emulated; staying on REAL "
+                         "cameras. Set a card's Source to Emulated to activate it."
+                      << std::endl;
+        }
+    }
     if (pylonCamEmu) {
         std::cout << "[CameraManager] PYLON_CAMEMU detected in environment (value=" << pylonCamEmu 
                   << "). Running in EMULATION mode." << std::endl;
     } else {
         std::cout << "[CameraManager] No PYLON_CAMEMU in environment. Searching for REAL cameras." << std::endl;
+        // Cards set to Emulated stay offline while the global Camera Mode is
+        // Real - explain that once instead of it looking like a hardware fault.
+        int emulatedCards = 0;
+        for (const CameraInfo& cam : CameraConfig::getCameras()) {
+            if (cam.source == 0) {
+                ++emulatedCards;
+            }
+        }
+        if (emulatedCards > 0) {
+            std::cout << "[CameraManager] Note: " << emulatedCards
+                      << " camera card(s) are set to Emulated but Camera Mode is Real - "
+                         "they will stay offline. Enable Emulated in Settings > "
+                         "Recording & Triggers to activate them." << std::endl;
+        }
     }
 
     try {
@@ -743,6 +783,9 @@ bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInf
 
     CameraRuntime& runtime = cameraRuntimes_[configArrayIndex];
     runtime.configId = camInfo.id;
+    // The per-camera Source field is always honored. When the global Camera Mode
+    // selector is set to Emulated, ONLY camera cards whose Source is Emulated
+    // attach to the emulated devices; cards set to Real still try hardware.
     runtime.source = camInfo.source;
     runtime.connected = false;
     runtime.targetDevice = Pylon::CDeviceInfo();
@@ -769,6 +812,11 @@ bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInf
         const bool isEmulatedDevice = (dev.GetDeviceClass() == "BaslerCamEmu");
         bool canMatch = false;
 
+        // The per-camera Source field decides what each card attaches to.
+        // Emulated cards (source==0) pair with the PYLON_CAMEMU devices; Real
+        // cards (source==1) pair with real hardware by MAC. The global Camera
+        // Mode selector only gates whether the emulated devices exist at all
+        // (see the constructor) - it never overrides a card's own setting.
         if (camInfo.source == 0 && isEmulatedDevice) {
             canMatch = true;
         } else if (camInfo.source == 1 && !isEmulatedDevice && !camInfo.macAddress.isEmpty() &&
@@ -784,8 +832,18 @@ bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInf
     }
 
     if (matchedDeviceIndex < 0) {
-        std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID "
-                  << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+        const bool emulationActive = CameraConfig::isEmulationActive();
+        if (camInfo.source == 1 && emulationActive) {
+            // Emulation is on but this card is Real - there is no real hardware
+            // to attach to. State the cause instead of a generic device warning.
+            std::cerr << "[CameraManager] Camera ID " << camInfo.id
+                      << " is set to Real but Camera Mode is Emulated: no real hardware "
+                         "is present. Card stays OFFLINE (no hardware). Set its Source "
+                         "to Emulated to run it on an emulated device." << std::endl;
+        } else {
+            std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID "
+                      << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+        }
         if (!suppressBlank) {
             clearCameraTile(configArrayIndex);
         }

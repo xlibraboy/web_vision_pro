@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QSettings>
+#include <cstdlib>
 
 namespace {
 QString defaultCameraIp(int id) {
@@ -70,6 +71,11 @@ CameraConfig::CameraSource CameraConfig::getCameraSource() {
 void CameraConfig::setCameraSource(CameraSource source) {
     QSettings settings("PaperVision", "SystemConfig");
     settings.setValue("CameraSource", static_cast<int>(source));
+}
+
+bool CameraConfig::isEmulationActive() {
+    return std::getenv("PYLON_CAMEMU") != nullptr
+        || getCameraSource() == CameraSource::Emulation;
 }
 
 int CameraConfig::getFps() {
