@@ -146,7 +146,6 @@ private:
     ToggleSwitch* enableDeleteCheck_;
     QLabel* recentRecordsLabel_ = nullptr;
     QLabel* permanentRecordsLabel_ = nullptr;
-    QLabel* emulationBadge_ = nullptr;
     QTableWidget* paperBreakTable_;
     QTableWidget* permanentPaperBreakTable_;
     QWidget* permanentSectionWidget_;

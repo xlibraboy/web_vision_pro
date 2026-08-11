@@ -780,17 +780,8 @@ void AnalysisView::setupMainArea() {
     metadataLayout->addWidget(metadataLabel);
     metadataLayout->addWidget(metadataDisplayCombo_);
 
-    // Emulation-mode badge: same style and visibility rule as the Live View badge.
-    emulationBadge_ = new QLabel("\u26A1 Emulation Mode", metadataHeaderWidget_);
-    emulationBadge_->setObjectName("emulationBadge");
-    emulationBadge_->setToolTip("Running on emulated cameras (no real hardware). "
-                                "Configured in Settings > Recording & Triggers > Camera Mode.");
-    emulationBadge_->setStyleSheet(QStringLiteral(
-        "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
-        "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "
-        "  font-weight: bold; font-size: 12px; }"));
-    emulationBadge_->setVisible(CameraConfig::isEmulationActive());
-    metadataLayout->addWidget(emulationBadge_);
+    // (Emulation-mode badge now lives on the MainWindow status bar bottom line,
+    // shared by Live View, Detail View, and Analysis View.)
     detailToolsWidget_->setVisible(false);
     
     selectedCameraWidget_ = new AnalysisVideoWidget(-1, "Select a camera", singleCameraTab_);

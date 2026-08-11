@@ -662,6 +662,17 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
             this, &ConfigDialog::onNetworkRefreshTimerTick);
 }
 
+void ConfigDialog::showRecordingSettingsPage() {
+    if (!sidebar_)
+        return;
+    for (int i = 0; i < sidebar_->count(); ++i) {
+        if (sidebar_->item(i)->text() == QLatin1String("Recording & Triggers")) {
+            sidebar_->setCurrentRow(i);
+            return;
+        }
+    }
+}
+
 ConfigDialog::~ConfigDialog() = default;
 
 void ConfigDialog::setCameraManager(CameraManager* manager) {
@@ -751,7 +762,7 @@ void ConfigDialog::setupUI() {
     };
     
     // Create list widget for sidebar navigation
-    QListWidget* sidebar = new QListWidget(this);
+    QListWidget* sidebar = sidebar_ = new QListWidget(this);
     sidebar->setIconSize(QSize(20, 20));
     sidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     sidebar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);

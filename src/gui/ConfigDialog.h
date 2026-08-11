@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QComboBox>
+#include <QListWidget>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QButtonGroup>
@@ -50,6 +51,9 @@ public:
     void setAdminMode(bool isAdmin);
     // Wire the live OPC UA runtime status source (owned by MainWindow).
     void setOpcUaRuntimeSource(OpcUaClientService* service);
+    // Switch the left sidebar to the Recording & Triggers page (used when the
+    // operator clicks the low-disk badge in the status bar).
+    void showRecordingSettingsPage();
 
     ~ConfigDialog() override;
 
@@ -299,6 +303,7 @@ private:
 
 
     // Premium Camera Setup UI
+    QListWidget* sidebar_ = nullptr;
     NetworkSummaryHeader* networkSummaryHeader_;
     QPushButton* addCameraBtn_;
 

@@ -38,6 +38,7 @@
 #include <QMap>
 #include <QSet>
 #include <QTimer>
+#include <QStorageInfo>
 
 #ifdef Q_OS_LINUX
 #include <X11/Xlib.h>
@@ -641,15 +642,6 @@ void MainWindow::setupUi() {
     });
     liveControlsLayout->addWidget(defectDetectionCheck_);
     liveControlsLayout->addStretch();
-
-    // Emulation-mode badge: visible only when the app runs on emulated cameras
-    // (PYLON_CAMEMU or the Camera Mode selector in Settings > Recording & Triggers).
-    emulationBadge_ = new QLabel("\u26A1 Emulation Mode", liveTab);
-    emulationBadge_->setObjectName("emulationBadge");
-    emulationBadge_->setToolTip("Running on emulated cameras (no real hardware). "
-                                "Configured in Settings > Recording & Triggers > Camera Mode.");
-    emulationBadge_->setVisible(CameraConfig::isEmulationActive());
-    liveControlsLayout->addWidget(emulationBadge_);
     
     liveLayout->addLayout(liveControlsLayout);
 
@@ -784,6 +776,31 @@ void MainWindow::setupUi() {
     QMenu* helpMenu = menu->addMenu("Help");
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
+
+    // Emulation-mode badge: lives on the bottom status line (shared by Live
+    // View, Detail View, and Analysis View). Visible only when the app runs on
+    // emulated cameras (PYLON_CAMEMU or the Camera Mode selector in Settings).
+    emulationBadge_ = new QLabel("\u26A1 Emulation Mode", this);
+    emulationBadge_->setObjectName("emulationBadge");
+    emulationBadge_->setToolTip("Running on emulated cameras (no real hardware). "
+                                "Configured in Settings > Recording & Triggers > Camera Mode.");
+    emulationBadge_->setVisible(CameraConfig::isEmulationActive());
+    statusBar()->addPermanentWidget(emulationBadge_);
+
+    // Low-disk warning badge: hidden while storage is healthy, turns amber/red
+    // when free space drops below the configured threshold (Settings > Recording
+    // & Triggers > Record Storage). Clicking it opens the Recording & Triggers
+    // settings page. Refreshed on a slow timer.
+    diskBadge_ = new QPushButton(this);
+    diskBadge_->setObjectName("diskBadge");
+    diskBadge_->setFlat(true);
+    diskBadge_->setCursor(Qt::PointingHandCursor);
+    diskBadge_->setVisible(false);
+    connect(diskBadge_, &QPushButton::clicked, this, &MainWindow::openRecordingSettings);
+    statusBar()->addPermanentWidget(diskBadge_);
+    connect(&diskBadgeTimer_, &QTimer::timeout, this, &MainWindow::refreshDiskBadge);
+    diskBadgeTimer_.start(15000);
+    refreshDiskBadge();
 
     adminStatusLabel_ = new QLabel(this);
     adminStatusLabel_->setObjectName("adminStatusLabel");
@@ -1101,6 +1118,55 @@ void MainWindow::updateAdminStatusIndicator() {
     adminStatusLabel_->style()->polish(adminStatusLabel_);
 }
 
+void MainWindow::openRecordingSettings() {
+    // Reuse the full flow: admin login check, config-tab creation, access update,
+    // and switching to the tab. Then drill into the Recording & Triggers page.
+    openSystemConfiguration();
+    if (configWindow_) {
+        configWindow_->showRecordingSettingsPage();
+    }
+}
+
+void MainWindow::refreshDiskBadge() {
+    if (!diskBadge_)
+        return;
+
+    // Check the event storage volume (same path as the Record Storage stats).
+    const QString path = CameraConfig::getEventStoragePath();
+    QStorageInfo storage(path);
+    if (!storage.isValid() || storage.bytesTotal() <= 0) {
+        diskBadge_->setVisible(false);
+        return;
+    }
+
+    const double freePct = (100.0 * storage.bytesAvailable()) / storage.bytesTotal();
+    const double warningPct = CameraConfig::getLowDiskWarningPct();
+    const double criticalPct = qMax(1.0, warningPct / 2.0);
+
+    if (freePct >= warningPct) {
+        diskBadge_->setVisible(false);
+        return;
+    }
+
+    const bool critical = freePct < criticalPct;
+    diskBadge_->setProperty("critical", critical);
+    diskBadge_->setText(QString("\u26A0 Disk: %1% free").arg(QString::number(freePct, 'f', 0)));
+    diskBadge_->setToolTip(QStringLiteral(
+        "Low disk space on the event storage volume (%1).\n"
+        "Free: %2 MB of %3 MB (%4%).\n"
+        "Threshold: %5% (warning), %6% (critical). "
+        "Consider freeing space or increasing storage capacity.")
+        .arg(path,
+             QString::number(storage.bytesAvailable() / (1024.0 * 1024.0), 'f', 1),
+             QString::number(storage.bytesTotal() / (1024.0 * 1024.0), 'f', 1),
+             QString::number(freePct, 'f', 1),
+             QString::number(warningPct, 'f', 0),
+             QString::number(criticalPct, 'f', 0)));
+    diskBadge_->style()->unpolish(diskBadge_);
+    diskBadge_->style()->polish(diskBadge_);
+    diskBadge_->setVisible(true);
+}
+
 void MainWindow::ensureConfigTab() {
     if (!mainTabWidget_) {
         return;
@@ -1390,6 +1456,15 @@ void MainWindow::applyGlobalTheme() {
         "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
         "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "
         "  font-weight: bold; font-size: 12px; }"
+        // Low-disk badge (clickable): amber below threshold, red at critical (< half threshold)
+        "QPushButton#diskBadge { background-color: rgba(255, 176, 32, 0.16); color: #FFB020; "
+        "  border: 1px solid #FFB020; border-radius: 10px; padding: 3px 12px; "
+        "  font-weight: bold; font-size: 12px; }"
+        "QPushButton#diskBadge:hover { background-color: rgba(255, 176, 32, 0.32); }"
+        "QPushButton#diskBadge:focus { outline: none; }"
+        "QPushButton#diskBadge[critical='true'] { background-color: rgba(255, 90, 90, 0.18); "
+        "  color: #FF5A5A; border: 1px solid #FF5A5A; }"
+        "QPushButton#diskBadge[critical='true']:hover { background-color: rgba(255, 90, 90, 0.34); }"
         // Toolbars and Borders
         "QToolBar, QMenuBar { background-color: %3; border-bottom: 1px solid %2; color: %8; }"
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"

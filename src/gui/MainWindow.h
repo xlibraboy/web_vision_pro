@@ -58,6 +58,8 @@ private:
     void ensureConfigTab();
     void updateConfigTabAccess();
     void updateAdminStatusIndicator();
+    void refreshDiskBadge();
+    void openRecordingSettings();
 
     // GUI
     QTabWidget* mainTabWidget_;
@@ -73,6 +75,8 @@ private:
     ToggleSwitch* defectDetectionCheck_;
     QLabel* adminStatusLabel_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
+    QPushButton* diskBadge_ = nullptr;
+    QTimer  diskBadgeTimer_;
     QAction* adminLoginAction_; // Login toggle
     QAction* customLayoutAction_;
     QAction* configAction_;
