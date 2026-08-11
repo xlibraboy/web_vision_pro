@@ -27,6 +27,8 @@
 #include <QKeySequence>
 #include <QFrame>
 #include <QPainter>
+#include <QPolygonF>
+#include <QPainterPath>
 #include <QStyledItemDelegate>
 #include <algorithm>
 #include <limits>
@@ -51,6 +53,53 @@ public:
         painter->restore();
     }
 };
+
+// Render a small trend sparkline from a series of samples. The highest
+// sample maps to ~90% of the height; the line is colored by severity.
+static QPixmap makeSparklinePixmap(const std::vector<double>& samples,
+                                   const QColor& lineColor,
+                                   int width = 56, int height = 18)
+{
+    QPixmap pm(width, height);
+    pm.fill(Qt::transparent);
+    if (samples.size() < 2)
+        return pm;
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    double maxV = 0.5; // floor so sub-1 drops/s micro-trends stay visible
+    for (double v : samples)
+        if (v > maxV) maxV = v;
+
+    QPolygonF poly;
+    poly.reserve(static_cast<int>(samples.size()));
+    const double plotH = height - 4.0; // leave headroom above the peak
+    for (size_t i = 0; i < samples.size(); ++i) {
+        const double x = 1.0 + (width - 2.0) * static_cast<double>(i) / static_cast<double>(samples.size() - 1);
+        const double y = 2.0 + plotH * (1.0 - samples[i] / maxV);
+        poly << QPointF(x, y);
+    }
+
+    // Soft area fill under the curve
+    QPainterPath area(poly.first());
+    for (int i = 1; i < poly.size(); ++i)
+        area.lineTo(poly.at(i));
+    area.lineTo(poly.last().x(), height - 1);
+    area.lineTo(poly.first().x(), height - 1);
+    area.closeSubpath();
+    QColor fill = lineColor;
+    fill.setAlpha(60);
+    p.fillPath(area, fill);
+
+    // Line + endpoint dot
+    p.setPen(QPen(lineColor, 1.4));
+    p.drawPolyline(poly);
+    p.setBrush(lineColor);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(poly.last(), 2.0, 2.0);
+    return pm;
+}
 
 static QString makeSidebarPanelStyle(const ThemeColors& tc) {
     const QString divider = QColor(tc.border).lighter(112).name();
@@ -3032,7 +3081,7 @@ void AnalysisView::setupDiagnosticTab() {
     diagTable_->setColumnWidth(9, 95);   // RAM Frames
     diagTable_->setColumnWidth(10, 85);  // RAM MB
     diagTable_->setColumnWidth(11, 90);  // Drops
-    diagTable_->setColumnWidth(12, 70);  // Drops/s
+    diagTable_->setColumnWidth(12, 130); // Drops/s (rate + trend sparkline)
     diagTable_->setColumnWidth(13, 140); // Stream Health
     diagTable_->setColumnWidth(14, 90);  // Link
     diagTable_->horizontalHeader()->setSectionResizeMode(13, QHeaderView::Stretch); // Stream Health
@@ -3094,6 +3143,13 @@ void AnalysisView::refreshDiagTable() {
         item->setForeground(QColor(tc.border));
         return item;
     };
+    // Helper: clear the Drops/s trend history for a row (used when a camera
+    // is disabled or offline so a stale sparkline never reappears).
+    auto clearDropHistory = [this](int row) {
+        if (static_cast<size_t>(row) >= diagDropRateHistory_.size())
+            diagDropRateHistory_.resize(row + 1);
+        diagDropRateHistory_[row].clear();
+    };
 
     auto applyRowColors = [&](int row, const QColor& background, const QColor& foreground) {
         for (int col = 0; col < diagTable_->columnCount(); ++col) {
@@ -3124,6 +3180,7 @@ void AnalysisView::refreshDiagTable() {
             for (int col = 2; col <= 14; ++col)
                 diagTable_->setItem(row, col, makeNA());
             applyRowColors(row, QColor(55, 55, 55, 140), QColor(tc.border));
+            clearDropHistory(row);
             continue;
         }
 
@@ -3265,21 +3322,36 @@ void AnalysisView::refreshDiagTable() {
             }
             QTableWidgetItem* rateItem = nullptr;
             if (cameraManager_ && isConnected) {
+                // Append this sample to the trend history (capped at N samples).
+                if (static_cast<size_t>(row) >= diagDropRateHistory_.size())
+                    diagDropRateHistory_.resize(row + 1);
+                std::vector<double>& history = diagDropRateHistory_[row];
+                history.push_back(dropsPerSec);
+                if (static_cast<int>(history.size()) > kDiagDropRateHistoryMax)
+                    history.erase(history.begin());
+
                 rateItem = makeItem(dropsPerSec > 0.0
                     ? QString::number(dropsPerSec, 'f', 1)
                     : QString("0.0"));
                 rateItem->setToolTip("Incomplete grabs per second since the last refresh (~3s). "
-                                     "0.0 = healthy. Rising values = bandwidth/packet-loss trend.");
+                                     "0.0 = healthy. Rising values = bandwidth/packet-loss trend. "
+                                     "The mini chart shows the last "
+                                     + QString::number(kDiagDropRateHistoryMax) + " samples.");
+                QColor sparkColor("#4CAF50");
                 if (dropsPerSec >= 10.0) {
                     rateItem->setBackground(QColor(0xFF, 0x40, 0x40, 180));
                     rateItem->setForeground(QColor("#FFFFFF"));
+                    sparkColor = QColor("#FF4040");
                 } else if (dropsPerSec > 0.0) {
                     rateItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
                     rateItem->setForeground(QColor("#1A1A1A"));
+                    sparkColor = QColor("#FFAA00");
                 } else {
                     rateItem->setForeground(QColor("#4CAF50"));
                 }
+                rateItem->setIcon(QIcon(makeSparklinePixmap(history, sparkColor)));
             } else {
+                clearDropHistory(row);
                 rateItem = makeNA();
             }
             diagTable_->setItem(row, 12, rateItem);

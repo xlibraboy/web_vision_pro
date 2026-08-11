@@ -180,6 +180,11 @@ private:
     std::vector<uint64_t> diagPrevDropCount_;
     std::vector<qint64>   diagPrevDropSampleMs_;
 
+    // Per-camera Drops/s sample history for the trend sparkline (last N
+    // samples, indexed by camera row). Reset when a camera goes offline.
+    std::vector<std::vector<double>> diagDropRateHistory_;
+    static const int kDiagDropRateHistoryMax = 60; // ~3 min at 3 s refresh
+
     // CameraManager pointer (set from MainWindow after construction)
     CameraManager* cameraManager_ = nullptr;
 
