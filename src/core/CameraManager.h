@@ -225,6 +225,12 @@ public:
     // GigE Network / Stream Health
     uint64_t getIncompleteGrabCount(int configArrayIndex) const;
     uint64_t getConsecutiveIncompleteGrabCount(int configArrayIndex) const;
+
+    // Negotiated NIC link speed (Mbps) for the interface that carries the
+    // camera's subnet, or -1 when the link/camera is unavailable. Reads the
+    // sysfs 'speed' node (e.g. 1000, 100, 10).
+    static int getLinkSpeedMbpsForIp(const QString& ipAddress);
+    int getCameraLinkSpeedMbps(int configArrayIndex) const;
     static std::vector<GigEDeviceInfo> enumerateGigEDevices(bool forceRefresh = false);
     static IpConfigResult configureIpConfiguration(const std::string& mac, const std::string& mode, const std::string& ip, const std::string& mask, const std::string& gateway);
 
@@ -236,6 +242,10 @@ private:
         int configId = -1;
         int source = 2;
         bool connected = false;
+        // Drop counters. Written by the acquisition (grab) thread, reset on
+        // (re)connect by the attach/recovery thread, read by the UI. Existing
+        // code already accesses these unsynchronized from the UI thread, so a
+        // benign race on a 3s-polled diagnostic is accepted.
         uint64_t incompleteGrabCount = 0;
         uint64_t consecutiveIncompleteGrabCount = 0;
     };

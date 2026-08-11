@@ -111,6 +111,9 @@ private:
     void resizeEvent(QResizeEvent* event) override;
     void checkUiSettingsModified();
     void clearUiSettingsModified();
+    void checkRecordingSettingsModified();
+    void clearRecordingSettingsModified();
+    void refreshStorageStats();
     void refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint, bool allowNetworkScan);
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
@@ -118,7 +121,6 @@ private:
 
 
     struct UiSettingsSnapshot {
-        QString eventStoragePath;
         int themePreset;
         QString liveViewGridTitleFont;
         int liveViewGridTitleSize;
@@ -136,8 +138,7 @@ private:
         QString analysisPlaybackSurface;
 
         bool operator==(const UiSettingsSnapshot& other) const {
-            return eventStoragePath == other.eventStoragePath
-                && themePreset == other.themePreset
+            return themePreset == other.themePreset
                 && liveViewGridTitleFont == other.liveViewGridTitleFont
                 && liveViewGridTitleSize == other.liveViewGridTitleSize
                 && liveViewDetailTitleFont == other.liveViewDetailTitleFont
@@ -160,6 +161,32 @@ private:
 
     UiSettingsSnapshot captureCurrentSettings() const;
 
+    // --- Recording & Triggers modified tracking ---
+    struct RecordingSettingsSnapshot {
+        int fps;
+        int preTrigger;
+        int postTrigger;
+        int retention;
+        int lowDiskWarningPct;
+        int cameraSource;
+        QString eventStoragePath;
+
+        bool operator==(const RecordingSettingsSnapshot& other) const {
+            return fps == other.fps
+                && preTrigger == other.preTrigger
+                && postTrigger == other.postTrigger
+                && retention == other.retention
+                && lowDiskWarningPct == other.lowDiskWarningPct
+                && cameraSource == other.cameraSource
+                && eventStoragePath == other.eventStoragePath;
+        }
+        bool operator!=(const RecordingSettingsSnapshot& other) const {
+            return !(*this == other);
+        }
+    };
+
+    RecordingSettingsSnapshot captureRecordingSettings() const;
+
     // New premium methods
     void setupPremiumUI();
     void updateCameraCardStatuses();
@@ -174,6 +201,7 @@ private:
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
     QSpinBox* eventRetentionSpin_;
+    QSpinBox* lowDiskThresholdSpin_ = nullptr;
     QButtonGroup* themeButtonGroup_ = nullptr;
     QPushButton* themeCards_[8] = {};
     int selectedThemeIndex_ = 0;
@@ -223,6 +251,9 @@ private:
     QPushButton* uiApplyBtn_ = nullptr;
     QLabel* uiUnsavedIndicator_ = nullptr;
     UiSettingsSnapshot originalValues_;
+    RecordingSettingsSnapshot originalRecordingValues_;
+    QLabel* recordingUnsavedIndicator_ = nullptr;
+    QLabel* storageStatsLabel_ = nullptr;
     static constexpr int kOpcUaTriggerSlots = 4;
 
     struct OpcUaTriggerRowWidgets {

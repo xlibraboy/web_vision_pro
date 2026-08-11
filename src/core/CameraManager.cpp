@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <fstream>
 #include <memory>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -139,6 +140,47 @@ int interfaceIndexContaining(const std::string& targetIp) {
     }
     freeifaddrs(ifa);
     return result;
+}
+
+// Negotiated link speed (Mbps) of the interface whose subnet contains
+// `targetIp`, or -1 when no matching interface or speed node exists.
+int linkSpeedMbpsForIp(const std::string& targetIp) {
+    struct in_addr t = {};
+    if (inet_pton(AF_INET, targetIp.c_str(), &t) != 1) {
+        return -1;
+    }
+    struct ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) != 0) {
+        return -1;
+    }
+    std::string ifaceName;
+    for (struct ifaddrs* p = ifa; p != nullptr; p = p->ifa_next) {
+        if (p->ifa_addr == nullptr || p->ifa_netmask == nullptr || p->ifa_addr->sa_family != AF_INET) {
+            continue;
+        }
+        if ((p->ifa_flags & IFF_UP) == 0 || (p->ifa_flags & IFF_LOOPBACK) != 0) {
+            continue;
+        }
+        const struct sockaddr_in* ip = reinterpret_cast<const struct sockaddr_in*>(p->ifa_addr);
+        const struct sockaddr_in* mask = reinterpret_cast<const struct sockaddr_in*>(p->ifa_netmask);
+        if ((ip->sin_addr.s_addr & mask->sin_addr.s_addr) == (t.s_addr & mask->sin_addr.s_addr)) {
+            ifaceName = p->ifa_name;
+            break;
+        }
+    }
+    freeifaddrs(ifa);
+    if (ifaceName.empty()) {
+        return -1;
+    }
+
+    // sysfs speed node is in Mbps (1000, 100, 10). Absent on some virtual NICs.
+    const std::string speedPath = "/sys/class/net/" + ifaceName + "/speed";
+    std::ifstream speedFile(speedPath);
+    int mbps = -1;
+    if (speedFile.is_open()) {
+        speedFile >> mbps;
+    }
+    return (mbps > 0) ? mbps : -1;
 }
 
 // True if any interface already has a 169.254.0.0/16 (link-local) address, in
@@ -603,6 +645,21 @@ void loadCameraDefaultUserSet(Pylon::CInstantCamera& camera) {
 }
 }
 
+int CameraManager::getLinkSpeedMbpsForIp(const QString& ipAddress) {
+    if (ipAddress.isEmpty()) {
+        return -1;
+    }
+    return linkSpeedMbpsForIp(ipAddress.toStdString());
+}
+
+int CameraManager::getCameraLinkSpeedMbps(int configArrayIndex) const {
+    if (configArrayIndex < 0) {
+        return -1;
+    }
+    const CameraInfo info = CameraConfig::getCameraInfo(configArrayIndex);
+    return getLinkSpeedMbpsForIp(info.ipAddress);
+}
+
 // DeviceRemovalHandler Implementation
 void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantCamera& camera) {
     try {
@@ -861,6 +918,11 @@ bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInf
         runtime.targetDevice = matchedDevice;
         runtime.connected = true;
 
+        // Fresh connection: clear the drop counters from any previous session so
+        // the Diagnostic Drops/Drops-s columns reflect only this connection.
+        runtime.incompleteGrabCount = 0;
+        runtime.consecutiveIncompleteGrabCount = 0;
+
         configArrayIndexToPylonIndex_[configArrayIndex] = configArrayIndex;
         pylonIndexToConfigArrayIndex_[configArrayIndex] = configArrayIndex;
 
@@ -992,6 +1054,9 @@ bool CameraManager::startCamera(int configArrayIndex, const CameraInfo& config) 
             camera->StartGrabbing(GrabStrategy_LatestImageOnly, GrabLoop_ProvidedByUser);
         }
         cameraRuntimes_[configArrayIndex].connected = true;
+        // Fresh session: drop counters start at zero for this connection.
+        cameraRuntimes_[configArrayIndex].incompleteGrabCount = 0;
+        cameraRuntimes_[configArrayIndex].consecutiveIncompleteGrabCount = 0;
         if (!cameraRuntimes_[configArrayIndex].grabThread.joinable()) {
             cameraRuntimes_[configArrayIndex].grabThread = std::thread(&CameraManager::acquisitionLoop, this, configArrayIndex);
         }

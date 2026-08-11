@@ -108,6 +108,16 @@ void CameraConfig::setEventRetentionCount(int count) {
     settings.setValue("EventRetentionCount", count);
 }
 
+int CameraConfig::getLowDiskWarningPct() {
+    QSettings settings("PaperVision", "SystemConfig");
+    return qBound(1, settings.value("LowDiskWarningPct", 10).toInt(), 99);
+}
+
+void CameraConfig::setLowDiskWarningPct(int pct) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("LowDiskWarningPct", qBound(1, pct, 99));
+}
+
 QString CameraConfig::getEventStoragePath() {
     QSettings settings("PaperVision", "SystemConfig");
     return QDir::cleanPath(settings.value("EventStoragePath", defaultEventStoragePath()).toString());

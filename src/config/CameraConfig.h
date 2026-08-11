@@ -138,6 +138,10 @@ public:
     static int getEventRetentionCount();
     static void setEventRetentionCount(int count);
 
+    // Low-disk warning threshold: free space below this %% of volume is amber.
+    static int getLowDiskWarningPct();
+    static void setLowDiskWarningPct(int pct);
+
     // Root folder used for event save/load operations.
     static QString getDefaultEventStoragePath();
     static QString getEventStoragePath();

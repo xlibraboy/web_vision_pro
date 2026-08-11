@@ -146,6 +146,7 @@ private:
     ToggleSwitch* enableDeleteCheck_;
     QLabel* recentRecordsLabel_ = nullptr;
     QLabel* permanentRecordsLabel_ = nullptr;
+    QLabel* emulationBadge_ = nullptr;
     QTableWidget* paperBreakTable_;
     QTableWidget* permanentPaperBreakTable_;
     QWidget* permanentSectionWidget_;
@@ -174,6 +175,11 @@ private:
     QTimer*       diagRefreshTimer_  = nullptr;
     QPushButton*  diagRefreshBtn_    = nullptr;
     QCheckBox*    diagAutoRefreshChk_= nullptr;
+
+    // Per-camera drop-rate tracking: previous cumulative drop count and the
+    // wall-clock time it was sampled, indexed by camera row.
+    std::vector<uint64_t> diagPrevDropCount_;
+    std::vector<qint64>   diagPrevDropSampleMs_;
 
     // CameraManager pointer (set from MainWindow after construction)
     CameraManager* cameraManager_ = nullptr;

@@ -165,6 +165,10 @@ void NetworkSummaryHeader::setupUI() {
     warningIndicator_ = createIndicator("Warning", QColor("#E0A800"));
     errorIndicator_ = createIndicator("Error", QColor("#FF5A5A"));
     offlineIndicator_ = createIndicator("Offline", QColor("#6E7681"));
+    linkIndicator_ = createIndicator("Link", QColor("#6E7681"));
+    linkIndicator_->setText("Link: --");
+    linkIndicator_->setToolTip("Negotiated speed of the vision NIC carrying the camera subnets. "
+                               "Below 1 Gb/s, high-FPS streams drop frames.");
 
     statusLayout_->addWidget(indicatorsWidget_);
     mainLayout_->addLayout(statusLayout_);
@@ -203,6 +207,31 @@ void NetworkSummaryHeader::setCameraCounts(int total, int online, int warning, i
     warningIndicator_->setText(QString("Warning: %1").arg(warning));
     errorIndicator_->setText(QString("Error: %1").arg(error));
     offlineIndicator_->setText(QString("Offline: %1").arg(offline));
+}
+
+void NetworkSummaryHeader::setLinkSpeedMbps(int mbps) {
+    if (!linkIndicator_) {
+        return;
+    }
+    if (mbps <= 0) {
+        linkIndicator_->setText("Link: --");
+        linkIndicator_->setStyleSheet(
+            "font-size: 12px; font-weight: 500; "
+            "padding: 5px 10px; border-radius: 12px; "
+            "background-color: #30363D; color: #8B949E;");
+        return;
+    }
+    const QString text = (mbps >= 1000)
+        ? QString("Link: %1 Gb/s").arg(mbps / 1000.0, 0, 'f', mbps % 1000 == 0 ? 0 : 1)
+        : QString("Link: %1 Mb/s").arg(mbps);
+    const QColor color = (mbps >= 1000) ? QColor("#4CAF50")
+                       : QColor("#E0A800"); // <1 Gb/s: warning
+    linkIndicator_->setText(text);
+    linkIndicator_->setStyleSheet(QString(
+        "font-size: 12px; font-weight: 600; "
+        "padding: 5px 10px; border-radius: 12px; "
+        "background-color: %1; color: white;"
+    ).arg(color.name()));
 }
 
 void NetworkSummaryHeader::updateSummary(const QString& summary, const QColor& color) {

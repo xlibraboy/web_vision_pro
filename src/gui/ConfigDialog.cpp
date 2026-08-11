@@ -28,6 +28,7 @@
 #include <QFileDialog>
 #include <QDir>
 #include <QFileInfo>
+#include <QStorageInfo>
 #include <cstdlib>
 #include <QEvent>
 #include <QDateTime>
@@ -609,6 +610,8 @@ void ConfigDialog::onNetworkRefreshTimerTick() {
     currentGigEDevices_ = CameraManager::enumerateGigEDevices();
     // refreshNetworkStatus() also refreshes the read-only Fixed IP registry.
     refreshNetworkStatus();
+    // Keep the storage statistics fresh (new events appear while open).
+    refreshStorageStats();
 }
 
 void ConfigDialog::resizeEvent(QResizeEvent* event) {
@@ -985,6 +988,74 @@ void ConfigDialog::setupUI() {
     eventRetentionSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     retentionForm->addRow("Keep Recent Records:", eventRetentionSpin_);
 
+    // Event storage folder (moved here from UI Preferences; saved with recording settings)
+    QWidget* eventStorageRowWidget = new QWidget(bufferGroup);
+    QHBoxLayout* eventStorageRowLayout = new QHBoxLayout(eventStorageRowWidget);
+    eventStorageRowLayout->setContentsMargins(0, 0, 0, 0);
+    eventStorageRowLayout->setSpacing(8);
+
+    eventStoragePathEdit_ = new QLineEdit(eventStorageRowWidget);
+    eventStoragePathEdit_->setReadOnly(true);
+    eventStoragePathEdit_->setStyleSheet(QString(
+        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: 11px; }"
+    ).arg(tc.btnBg, tc.text, tc.border));
+    eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
+
+    browseEventStorageBtn_ = new QPushButton("Browse", eventStorageRowWidget);
+    browseEventStorageBtn_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 500; } "
+        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    browseEventStorageBtn_->setToolTip("Choose a different folder for event storage.");
+    connect(browseEventStorageBtn_, &QPushButton::clicked, this, [this]() {
+        const QString selectedDir = QFileDialog::getExistingDirectory(
+            this,
+            "Select Event Storage Folder",
+            eventStoragePathEdit_ ? eventStoragePathEdit_->text() : CameraConfig::getEventStoragePath());
+        if (!selectedDir.isEmpty() && eventStoragePathEdit_) {
+            eventStoragePathEdit_->setText(QDir::cleanPath(selectedDir));
+        }
+    });
+    eventStorageRowLayout->addWidget(browseEventStorageBtn_);
+
+    resetEventStorageBtn_ = new QPushButton("Default", eventStorageRowWidget);
+    resetEventStorageBtn_->setStyleSheet(browseEventStorageBtn_->styleSheet());
+    resetEventStorageBtn_->setToolTip("Restore the default event storage path.");
+    connect(resetEventStorageBtn_, &QPushButton::clicked, this, [this]() {
+        if (eventStoragePathEdit_) {
+            eventStoragePathEdit_->setText(CameraConfig::getDefaultEventStoragePath());
+        }
+    });
+    eventStorageRowLayout->addWidget(resetEventStorageBtn_);
+
+    QLabel* storageFolderLabel = new QLabel("Folder:", bufferGroup);
+    storageFolderLabel->setToolTip("Directory where event recordings and metadata are saved.");
+    retentionForm->addRow(storageFolderLabel, eventStorageRowWidget);
+
+    QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", bufferGroup);
+    eventStorageNote->setWordWrap(true);
+    eventStorageNote->setStyleSheet(QString("color: %1; font-size: 11px; font-style: italic;").arg(tc.text));
+    retentionForm->addRow("", eventStorageNote);
+
+    // Live storage statistics for the configured event folder.
+    storageStatsLabel_ = new QLabel(bufferGroup);
+    storageStatsLabel_->setWordWrap(true);
+    storageStatsLabel_->setStyleSheet(QString(
+        "color: %1; font-size: 11px; padding-top: 4px;"
+    ).arg(tc.text));
+    retentionForm->addRow("Storage:", storageStatsLabel_);
+
+    // Configurable low-disk warning threshold (percent of volume free).
+    lowDiskThresholdSpin_ = new QSpinBox(bufferGroup);
+    lowDiskThresholdSpin_->setRange(1, 99);
+    lowDiskThresholdSpin_->setSuffix(" %");
+    lowDiskThresholdSpin_->setValue(CameraConfig::getLowDiskWarningPct());
+    lowDiskThresholdSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    lowDiskThresholdSpin_->setToolTip(
+        "When free space drops below this percentage of the storage volume, "
+        "the Storage row turns amber (red below half of this value).");
+    retentionForm->addRow("Low Disk Warning:", lowDiskThresholdSpin_);
+
     QFormLayout* triggerForm = createSectionForm("Triggering");
 
     QLabel* defectNote = new QLabel("Defect trigger is controlled from the Live screen for immediate operation.", bufferGroup);
@@ -992,10 +1063,34 @@ void ConfigDialog::setupUI() {
     defectNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
     triggerForm->addRow("Defect Trigger:", defectNote);
 
+    // Unsaved-changes tracking for the recording settings.
+    connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(preTriggerSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(postTriggerSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(eventRetentionSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(lowDiskThresholdSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(lowDiskThresholdSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::refreshStorageStats);
+    connect(cameraSourceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkRecordingSettingsModified);
+    // Browse/Default buttons only call setText() on the path edit, so the
+    // textChanged connection above covers them too.
+    connect(eventStoragePathEdit_, &QLineEdit::textChanged, this, &ConfigDialog::checkRecordingSettingsModified);
+    connect(eventStoragePathEdit_, &QLineEdit::textChanged, this, &ConfigDialog::refreshStorageStats);
+
     bufferLayout->addStretch();
 
     QHBoxLayout* recordingActionsLayout = new QHBoxLayout();
     recordingActionsLayout->addStretch();
+
+    // Unsaved-changes indicator for the Recording & Triggers page.
+    recordingUnsavedIndicator_ = new QLabel(bufferGroup);
+    recordingUnsavedIndicator_->setStyleSheet(QString(
+        "color: #FFB020; font-size: 11px; font-weight: 600;"
+    ));
+    recordingUnsavedIndicator_->setText("");
+    recordingUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
+    recordingActionsLayout->addWidget(recordingUnsavedIndicator_, 0, Qt::AlignVCenter);
+    recordingActionsLayout->addSpacing(8);
+
     recordingSaveBtn_ = new QPushButton("Save Recording Settings", bufferGroup);
     recordingSaveBtn_->setIcon(IconManager::instance().save(16));
     stylePrimaryActionButton(recordingSaveBtn_, tc);
@@ -1462,7 +1557,7 @@ void ConfigDialog::setupUI() {
     uiPageLayout->addWidget(uiHeaderLabel);
 
     QLabel* uiDescriptionLabel = new QLabel(
-        "Customize storage, theme, and screen typography.", uiGroup);
+        "Customize theme and screen typography.", uiGroup);
     uiDescriptionLabel->setWordWrap(true);
     uiDescriptionLabel->setStyleSheet(QString(
         "color: %1; font-size: 11px; padding-bottom: 2px;"
@@ -1504,12 +1599,13 @@ void ConfigDialog::setupUI() {
         form->setHorizontalSpacing(10);
         form->setContentsMargins(10, 14, 10, 8);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        uiPanelLayout->addWidget(group, uiSectionIndex / 2, uiSectionIndex % 2);
+        // With the Data Storage section moved out, each remaining section spans
+        // the full width for a balanced layout.
+        uiPanelLayout->addWidget(group, uiSectionIndex, 0, 1, 2);
         ++uiSectionIndex;
         return form;
     };
 
-    QFormLayout* storageForm = createUiSectionForm("Data Storage");
     QFormLayout* themeForm = createUiSectionForm("Appearance");
 
     QTabWidget* uiDetailTabs = new QTabWidget(uiPanel);
@@ -1590,54 +1686,6 @@ void ConfigDialog::setupUI() {
 
         return labelWidget;
     };
-
-    QWidget* eventStorageRowWidget = new QWidget(uiGroup);
-    QHBoxLayout* eventStorageRowLayout = new QHBoxLayout(eventStorageRowWidget);
-    eventStorageRowLayout->setContentsMargins(0, 0, 0, 0);
-    eventStorageRowLayout->setSpacing(8);
-
-    eventStoragePathEdit_ = new QLineEdit(eventStorageRowWidget);
-    eventStoragePathEdit_->setReadOnly(true);
-    eventStoragePathEdit_->setStyleSheet(QString(
-        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: 11px; }"
-    ).arg(tc.btnBg, tc.text, tc.border));
-    eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
-
-    browseEventStorageBtn_ = new QPushButton("Browse", eventStorageRowWidget);
-    browseEventStorageBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 500; } "
-        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
-    browseEventStorageBtn_->setToolTip("Choose a different folder for event storage.");
-    connect(browseEventStorageBtn_, &QPushButton::clicked, this, [this]() {
-        const QString selectedDir = QFileDialog::getExistingDirectory(
-            this,
-            "Select Event Storage Folder",
-            eventStoragePathEdit_ ? eventStoragePathEdit_->text() : CameraConfig::getEventStoragePath());
-        if (!selectedDir.isEmpty() && eventStoragePathEdit_) {
-            eventStoragePathEdit_->setText(QDir::cleanPath(selectedDir));
-        }
-    });
-    eventStorageRowLayout->addWidget(browseEventStorageBtn_);
-
-    resetEventStorageBtn_ = new QPushButton("Default", eventStorageRowWidget);
-    resetEventStorageBtn_->setStyleSheet(browseEventStorageBtn_->styleSheet());
-    resetEventStorageBtn_->setToolTip("Restore the default event storage path.");
-    connect(resetEventStorageBtn_, &QPushButton::clicked, this, [this]() {
-        if (eventStoragePathEdit_) {
-            eventStoragePathEdit_->setText(CameraConfig::getDefaultEventStoragePath());
-        }
-    });
-    eventStorageRowLayout->addWidget(resetEventStorageBtn_);
-
-    QLabel* storageFolderLabel = new QLabel("Folder:", uiGroup);
-    storageFolderLabel->setToolTip("Directory where event recordings and metadata are saved.");
-    storageForm->addRow(storageFolderLabel, eventStorageRowWidget);
-
-    QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", uiGroup);
-    eventStorageNote->setWordWrap(true);
-    eventStorageNote->setStyleSheet(QString("color: %1; font-size: 11px; font-style: italic;").arg(tc.text));
-    storageForm->addRow("", eventStorageNote);
 
     // Theme selection dropdown
     themeGridWidget_ = nullptr;
@@ -2412,6 +2460,7 @@ void ConfigDialog::loadSettings() {
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
     eventRetentionSpin_->setValue(CameraConfig::getEventRetentionCount());
+    if (lowDiskThresholdSpin_) lowDiskThresholdSpin_->setValue(CameraConfig::getLowDiskWarningPct());
     if (cameraSourceCombo_) {
         const int sourceIndex = cameraSourceCombo_->findData(
             static_cast<int>(CameraConfig::getCameraSource()));
@@ -2533,6 +2582,7 @@ void ConfigDialog::loadSettings() {
     }
 
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
+    refreshStorageStats();
     selectedThemeIndex_ = CameraConfig::getThemePreset();
     const int savedThemeIdx = selectedThemeIndex_;
     if (themeCombo_) {
@@ -2584,7 +2634,6 @@ void ConfigDialog::loadSettings() {
 }
 
 void ConfigDialog::setupUiModificationTracking() {
-    connect(eventStoragePathEdit_, &QLineEdit::textChanged, this, &ConfigDialog::checkUiSettingsModified);
     connect(this, &ConfigDialog::themeSelectionChanged, this, &ConfigDialog::checkUiSettingsModified);
     connect(liveViewGridTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(liveViewGridTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkUiSettingsModified);
@@ -2600,17 +2649,16 @@ void ConfigDialog::setupUiModificationTracking() {
     connect(analysisTabFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisTabSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisPlaybackSurfaceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
-    connect(browseEventStorageBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
-    connect(resetEventStorageBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
     connect(liveViewResetBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisResetBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
 
     originalValues_ = captureCurrentSettings();
+    originalRecordingValues_ = captureRecordingSettings();
+    clearRecordingSettingsModified();
 }
 
 ConfigDialog::UiSettingsSnapshot ConfigDialog::captureCurrentSettings() const {
     UiSettingsSnapshot snap;
-    snap.eventStoragePath = eventStoragePathEdit_ ? eventStoragePathEdit_->text() : QString();
     snap.themePreset = selectedThemeIndex_;
     snap.liveViewGridTitleFont = liveViewGridTitleFontCombo_ ? currentCuratedFontFamily(liveViewGridTitleFontCombo_) : QString();
     snap.liveViewGridTitleSize = liveViewGridTitleSizeSpin_ ? liveViewGridTitleSizeSpin_->value() : 0;
@@ -2839,6 +2887,7 @@ void ConfigDialog::refreshFixedIpList() {
         return;
     }
 
+    const bool emulationActive = CameraConfig::isEmulationActive();
     std::vector<CameraInfo> cameras;
     std::vector<QString> detectedIps;
     cameras.reserve(cameraCards_.size());
@@ -2848,6 +2897,11 @@ void ConfigDialog::refreshFixedIpList() {
         QString detected = card->detectedIp();
         if (card->sourceType() == 0) {
             detected = QStringLiteral("Emulated");
+        } else if (emulationActive && card->sourceType() == 1 &&
+                   (detected.isEmpty() || detected == QStringLiteral("Offline"))) {
+            // Emulation is on but this Real card has no matching device - mirror
+            // the camera card status instead of a bare "Offline".
+            detected = QStringLiteral("Offline - no hardware");
         }
         detectedIps.push_back(detected);
     }
@@ -3065,10 +3119,19 @@ void ConfigDialog::saveCameraConfiguration() {
 void ConfigDialog::saveRecordingSettings() {
     qInfo() << "[ConfigDialog] Recording save requested";
 
+    QString eventStoragePath;
+    QString eventStorageError;
+    if (!validateAndPrepareEventStorage(&eventStoragePath, &eventStorageError)) {
+        QMessageBox::warning(this, "Invalid Event Storage", eventStorageError);
+        return;
+    }
+
     CameraConfig::setFps(globalFpsSpin_->value());
     CameraConfig::setPreTriggerSeconds(preTriggerSpin_->value());
     CameraConfig::setPostTriggerSeconds(postTriggerSpin_->value());
     CameraConfig::setEventRetentionCount(eventRetentionSpin_->value());
+    if (lowDiskThresholdSpin_) CameraConfig::setLowDiskWarningPct(lowDiskThresholdSpin_->value());
+    CameraConfig::setEventStoragePath(eventStoragePath);
     bool cameraModeChanged = false;
     if (cameraSourceCombo_) {
         const auto newSource =
@@ -3081,6 +3144,9 @@ void ConfigDialog::saveRecordingSettings() {
         cameraModeChanged
             ? QStringLiteral("Recording settings saved.\n\nCamera mode change takes effect after the application restarts.")
             : QStringLiteral("Recording settings saved."));
+    originalRecordingValues_ = captureRecordingSettings();
+    clearRecordingSettingsModified();
+    refreshStorageStats();
     emitConfigUpdated(false);
 }
 void ConfigDialog::saveOpcUaSettings() {
@@ -3182,14 +3248,6 @@ void ConfigDialog::saveOpcUaSettings() {
 void ConfigDialog::saveUiSettings() {
     qInfo() << "[ConfigDialog] UI save requested";
 
-    QString eventStoragePath;
-    QString eventStorageError;
-    if (!validateAndPrepareEventStorage(&eventStoragePath, &eventStorageError)) {
-        QMessageBox::warning(this, "Invalid Event Storage", eventStorageError);
-        return;
-    }
-
-    CameraConfig::setEventStoragePath(eventStoragePath);
     CameraConfig::setThemePreset(selectedThemeIndex_);
     CameraConfig::setLiveViewCardStyle({
         currentCuratedFontFamily(liveViewGridTitleFontCombo_),
@@ -3219,14 +3277,6 @@ void ConfigDialog::saveUiSettings() {
 void ConfigDialog::applyUiSettings() {
     qInfo() << "[ConfigDialog] UI apply requested";
 
-    QString eventStoragePath;
-    QString eventStorageError;
-    if (!validateAndPrepareEventStorage(&eventStoragePath, &eventStorageError)) {
-        QMessageBox::warning(this, "Invalid Event Storage", eventStorageError);
-        return;
-    }
-
-    CameraConfig::setEventStoragePath(eventStoragePath);
     CameraConfig::setThemePreset(selectedThemeIndex_);
     CameraConfig::setLiveViewCardStyle({
         currentCuratedFontFamily(liveViewGridTitleFontCombo_),
@@ -3260,6 +3310,110 @@ void ConfigDialog::clearUiSettingsModified() {
         uiApplyBtn_->setEnabled(false);
     }
 }
+
+ConfigDialog::RecordingSettingsSnapshot ConfigDialog::captureRecordingSettings() const {
+    RecordingSettingsSnapshot snap;
+    snap.fps = globalFpsSpin_ ? globalFpsSpin_->value() : 0;
+    snap.preTrigger = preTriggerSpin_ ? preTriggerSpin_->value() : 0;
+    snap.postTrigger = postTriggerSpin_ ? postTriggerSpin_->value() : 0;
+    snap.retention = eventRetentionSpin_ ? eventRetentionSpin_->value() : 0;
+    snap.lowDiskWarningPct = lowDiskThresholdSpin_ ? lowDiskThresholdSpin_->value() : 0;
+    snap.cameraSource = cameraSourceCombo_ ? cameraSourceCombo_->currentData().toInt() : 0;
+    snap.eventStoragePath = eventStoragePathEdit_ ? eventStoragePathEdit_->text() : QString();
+    return snap;
+}
+
+void ConfigDialog::checkRecordingSettingsModified() {
+    if (!recordingUnsavedIndicator_) {
+        return;
+    }
+    const bool modified = (captureRecordingSettings() != originalRecordingValues_);
+    recordingUnsavedIndicator_->setText(modified ? "Unsaved changes - save to apply" : "");
+}
+
+void ConfigDialog::clearRecordingSettingsModified() {
+    if (recordingUnsavedIndicator_) {
+        recordingUnsavedIndicator_->setText("");
+    }
+}
+
+void ConfigDialog::refreshStorageStats() {
+    if (!storageStatsLabel_) {
+        return;
+    }
+
+    const QString path = eventStoragePathEdit_
+        ? eventStoragePathEdit_->text().trimmed()
+        : CameraConfig::getEventStoragePath();
+
+    // Count event data files and their total size.
+    qint64 totalBytes = 0;
+    int fileCount = 0;
+    QDir dir(path);
+    if (dir.exists()) {
+        const QStringList filters = {
+            QStringLiteral("event_*.json"),
+            QStringLiteral("event_*.bin"),
+        };
+        const QFileInfoList entries = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+        for (const QFileInfo& info : entries) {
+            totalBytes += info.size();
+            ++fileCount;
+        }
+    }
+
+    // Disk capacity and free space for the storage volume.
+    QStorageInfo storage(path);
+    QString capMb;
+    QString freeMb;
+    QString freePctStr = QStringLiteral("--");
+    double freePct = 100.0;
+    if (storage.isValid()) {
+        capMb = QString::number(storage.bytesTotal() / (1024.0 * 1024.0), 'f', 1);
+        freeMb = QString::number(storage.bytesAvailable() / (1024.0 * 1024.0), 'f', 1);
+        if (storage.bytesTotal() > 0) {
+            freePct = (100.0 * storage.bytesAvailable()) / storage.bytesTotal();
+        }
+        freePctStr = QString::number(freePct, 'f', 1);
+    } else {
+        capMb = QStringLiteral("unavailable");
+        freeMb = QStringLiteral("unavailable");
+    }
+
+    // Low-disk warning: amber below the configured threshold, red below half of it.
+    const double warningPct = CameraConfig::getLowDiskWarningPct();
+    const double criticalPct = qMax(1.0, warningPct / 2.0);
+    const ThemeColors themeColors = CameraConfig::getThemeColors();
+    QString warningMarker;
+    QString warningColor;
+    if (storage.isValid() && freePct < warningPct) {
+        warningMarker = QStringLiteral("\u26A0 ");
+        warningColor = freePct < criticalPct ? QStringLiteral("#FF5A5A")
+                                             : QStringLiteral("#FFB020");
+    }
+    storageStatsLabel_->setStyleSheet(QString(
+        "color: %1; font-size: 11px; padding-top: 4px;")
+        .arg(warningColor.isEmpty() ? themeColors.text : warningColor));
+
+    const QString sizeMb = QString::number(totalBytes / (1024.0 * 1024.0), 'f', 1);
+    const QString fileCountStr = QString::number(fileCount);
+
+    storageStatsLabel_->setText(QStringLiteral(
+        "%1Data: %2 MB  \u00B7  Files: %3  \u00B7  Disk: %4 MB  \u00B7  Free: %5 MB (%6%)")
+        .arg(warningMarker, sizeMb, fileCountStr, capMb, freeMb, freePctStr));
+    storageStatsLabel_->setToolTip(QStringLiteral(
+        "Total recorded data: %1 MB across %2 files\n"
+        "Disk capacity: %3 MB, free: %4 MB (%5% free)\n"
+        "%6")
+        .arg(sizeMb, fileCountStr, capMb, freeMb, freePctStr,
+             storage.isValid()
+                 ? (warningColor.isEmpty()
+                        ? QStringLiteral("Storage is healthy.")
+                        : QStringLiteral("Low disk space: free space is below the warning "
+                                         "threshold. Consider freeing space or increasing capacity."))
+                 : QStringLiteral("Storage info unavailable for this path.")));
+}
+
 
 void ConfigDialog::resetLiveViewCardSettings() {
     const LiveViewCardStyle defaults = CameraConfig::getDefaultLiveViewCardStyle();
@@ -3302,7 +3456,10 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     preTriggerSpin_->setEnabled(isAdmin);
     postTriggerSpin_->setEnabled(isAdmin);
     eventRetentionSpin_->setEnabled(isAdmin);
+    if (lowDiskThresholdSpin_) lowDiskThresholdSpin_->setEnabled(isAdmin);
     if (cameraSourceCombo_) cameraSourceCombo_->setEnabled(isAdmin);
+    if (recordingSaveBtn_) recordingSaveBtn_->setEnabled(isAdmin);
+    if (recordingUnsavedIndicator_) recordingUnsavedIndicator_->setVisible(isAdmin);
     if (opcUaEnabledCheck_) opcUaEnabledCheck_->setEnabled(isAdmin);
     if (opcUaEndpointEdit_) opcUaEndpointEdit_->setEnabled(isAdmin);
     if (opcUaAuthModeCombo_) opcUaAuthModeCombo_->setEnabled(isAdmin);
@@ -3777,6 +3934,19 @@ void ConfigDialog::refreshNetworkStatus() {
     // Update network summary header
     int totalCount = cameraCards_.size();
     networkSummaryHeader_->setCameraCounts(totalCount, onlineCount, warningCount, errorCount, offlineCount);
+
+    // Vision NIC link speed: use the first configured Real camera's IP to find
+    // the interface (all cameras usually share the same vision NIC).
+    {
+        int linkMbps = -1;
+        for (const auto& cam : CameraConfig::getCameras()) {
+            if (cam.source == 1 && !cam.ipAddress.isEmpty()) {
+                linkMbps = CameraManager::getLinkSpeedMbpsForIp(cam.ipAddress);
+                break;
+            }
+        }
+        networkSummaryHeader_->setLinkSpeedMbps(linkMbps);
+    }
 
     // Update summary text
     QStringList summary;

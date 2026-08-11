@@ -31,6 +31,7 @@ public:
     // Status update methods
     void setNetworkStatus(const QString& status, const QColor& color);
     void setCameraCounts(int total, int online, int warning, int error, int offline);
+    void setLinkSpeedMbps(int mbps);
     void updateSummary(const QString& summary, const QColor& color = QColor("#4CAF50"));
 
     // Getters for button connections
@@ -78,6 +79,7 @@ private:
     QLabel* warningIndicator_;
     QLabel* errorIndicator_;
     QLabel* offlineIndicator_;
+    QLabel* linkIndicator_ = nullptr;
 
     // Action buttons
     QPushButton* refreshBtn_;

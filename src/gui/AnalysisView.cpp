@@ -779,6 +779,18 @@ void AnalysisView::setupMainArea() {
     metadataLayout->addSpacing(4);
     metadataLayout->addWidget(metadataLabel);
     metadataLayout->addWidget(metadataDisplayCombo_);
+
+    // Emulation-mode badge: same style and visibility rule as the Live View badge.
+    emulationBadge_ = new QLabel("\u26A1 Emulation Mode", metadataHeaderWidget_);
+    emulationBadge_->setObjectName("emulationBadge");
+    emulationBadge_->setToolTip("Running on emulated cameras (no real hardware). "
+                                "Configured in Settings > Recording & Triggers > Camera Mode.");
+    emulationBadge_->setStyleSheet(QStringLiteral(
+        "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
+        "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "
+        "  font-weight: bold; font-size: 12px; }"));
+    emulationBadge_->setVisible(CameraConfig::isEmulationActive());
+    metadataLayout->addWidget(emulationBadge_);
     detailToolsWidget_->setVisible(false);
     
     selectedCameraWidget_ = new AnalysisVideoWidget(-1, "Select a camera", singleCameraTab_);
@@ -3001,7 +3013,7 @@ void AnalysisView::setupDiagnosticTab() {
     const QStringList headers = {
         "ID", "Name", "Temp (C)", "FPS", "Shutter [us]",
         "Gain", "Gamma", "WDR High", "WDR Low",
-        "RAM Frames", "RAM [MB]", "Drops", "Stream Health"
+        "RAM Frames", "RAM [MB]", "Drops", "Drops/s", "Stream Health", "Link"
     };
 
     diagTable_ = new QTableWidget(0, headers.size(), diagnosticTab_);
@@ -3029,8 +3041,10 @@ void AnalysisView::setupDiagnosticTab() {
     diagTable_->setColumnWidth(9, 95);   // RAM Frames
     diagTable_->setColumnWidth(10, 85);  // RAM MB
     diagTable_->setColumnWidth(11, 90);  // Drops
-    diagTable_->setColumnWidth(12, 140); // Stream Health
-    diagTable_->horizontalHeader()->setStretchLastSection(true);
+    diagTable_->setColumnWidth(12, 70);  // Drops/s
+    diagTable_->setColumnWidth(13, 140); // Stream Health
+    diagTable_->setColumnWidth(14, 90);  // Link
+    diagTable_->horizontalHeader()->setSectionResizeMode(13, QHeaderView::Stretch); // Stream Health
 
     // Stylesheet (re-use project table style)
     diagTable_->setStyleSheet(makeTableStyle(tc, false));
@@ -3116,7 +3130,7 @@ void AnalysisView::refreshDiagTable() {
         if (info.source == 2) {
             diagTable_->setItem(row, 0,  makeItem(QString::number(info.id)));
             diagTable_->setItem(row, 1,  makeItem(info.name));
-            for (int col = 2; col <= 12; ++col)
+            for (int col = 2; col <= 14; ++col)
                 diagTable_->setItem(row, col, makeNA());
             applyRowColors(row, QColor(55, 55, 55, 140), QColor(tc.border));
             continue;
@@ -3226,10 +3240,96 @@ void AnalysisView::refreshDiagTable() {
             ? makeItem(dropText)
             : makeNA());
 
+        // Col 12: Drops/s — rate of incomplete grabs since the last refresh
+        // (~3s). Tracks the delta of the cumulative counter, so a healthy
+        // stream reads 0.0 while a failing link climbs quickly.
+        double dropsPerSec = 0.0;
+        {
+            const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+            if (cameraManager_ && isConnected) {
+                if (static_cast<size_t>(row) < diagPrevDropCount_.size()
+                    && diagPrevDropSampleMs_[row] > 0) {
+                    const uint64_t prev = diagPrevDropCount_[row];
+                    const qint64 elapsedMs = nowMs - diagPrevDropSampleMs_[row];
+                    if (elapsedMs > 0 && dropCount >= prev) {
+                        dropsPerSec = static_cast<double>(dropCount - prev)
+                                    * 1000.0 / static_cast<double>(elapsedMs);
+                    }
+                }
+                if (static_cast<size_t>(row) >= diagPrevDropCount_.size()) {
+                    diagPrevDropCount_.resize(row + 1, 0);
+                    diagPrevDropSampleMs_.resize(row + 1, 0);
+                }
+                diagPrevDropCount_[row] = dropCount;
+                diagPrevDropSampleMs_[row] = nowMs;
+            } else {
+                // Camera offline: reset the sample so the rate starts clean
+                // when it reconnects.
+                if (static_cast<size_t>(row) >= diagPrevDropCount_.size()) {
+                    diagPrevDropCount_.resize(row + 1, 0);
+                    diagPrevDropSampleMs_.resize(row + 1, 0);
+                }
+                diagPrevDropCount_[row] = 0;
+                diagPrevDropSampleMs_[row] = 0;
+            }
+            QTableWidgetItem* rateItem = nullptr;
+            if (cameraManager_ && isConnected) {
+                rateItem = makeItem(dropsPerSec > 0.0
+                    ? QString::number(dropsPerSec, 'f', 1)
+                    : QString("0.0"));
+                rateItem->setToolTip("Incomplete grabs per second since the last refresh (~3s). "
+                                     "0.0 = healthy. Rising values = bandwidth/packet-loss trend.");
+                if (dropsPerSec >= 10.0) {
+                    rateItem->setBackground(QColor(0xFF, 0x40, 0x40, 180));
+                    rateItem->setForeground(QColor("#FFFFFF"));
+                } else if (dropsPerSec > 0.0) {
+                    rateItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
+                    rateItem->setForeground(QColor("#1A1A1A"));
+                } else {
+                    rateItem->setForeground(QColor("#4CAF50"));
+                }
+            } else {
+                rateItem = makeNA();
+            }
+            diagTable_->setItem(row, 12, rateItem);
+        }
+
+        // Col 14: Link speed (Mbps) of the NIC carrying this camera's subnet.
+        const int linkMbps = (cameraManager_ && isConnected)
+            ? cameraManager_->getCameraLinkSpeedMbps(configIndex)
+            : -1;
+        {
+            QTableWidgetItem* linkItem = nullptr;
+            if (linkMbps <= 0) {
+                linkItem = makeNA();
+            } else {
+                const QString linkText = (linkMbps >= 1000)
+                    ? QString::number(linkMbps / 1000.0, 'f', linkMbps % 1000 == 0 ? 0 : 1) + " Gb/s"
+                    : QString::number(linkMbps) + " Mb/s";
+                linkItem = makeItem(linkText);
+                linkItem->setToolTip(QString(
+                    "Negotiated NIC link speed for this camera's subnet: %1 Mb/s. "
+                    "A 100 Mb/s link cannot carry a 50 fps 780x580 Mono8 stream "
+                    "(~181 Mb/s) and causes incomplete grabs / 0 frames.")
+                    .arg(linkMbps));
+                if (linkMbps < 1000) {
+                    linkItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));   // slow link
+                    linkItem->setForeground(QColor("#1A1A1A"));
+                } else {
+                    linkItem->setForeground(QColor("#4CAF50"));
+                }
+            }
+            diagTable_->setItem(row, 14, linkItem);
+        }
+
+        // Slow link (<1 Gb/s) is itself a warning even without drops yet.
+        const bool slowLink = linkMbps > 0 && linkMbps < 1000;
         const QString healthText = (cameraManager_ && isConnected)
-            ? (consecutiveDrops > 0 ? QString("WARNING") : (dropCount > 0 ? QString("Recovered") : QString("OK")))
+            ? (consecutiveDrops > 0 || slowLink
+                   ? QString("WARNING")
+                   : (dropCount > 0 ? QString("Recovered") : QString("OK")))
             : QString("Offline");
-        diagTable_->setItem(row, 12, (cameraManager_ && isConnected)
+        diagTable_->setItem(row, 13, (cameraManager_ && isConnected)
             ? makeItem(healthText)
             : makeItem(healthText));
 
@@ -3253,9 +3353,9 @@ void AnalysisView::refreshDiagTable() {
             }
         }
 
-        QTableWidgetItem* healthItem = diagTable_->item(row, 12);
+        QTableWidgetItem* healthItem = diagTable_->item(row, 13);
         if (healthItem) {
-            healthItem->setToolTip("OK: no incomplete grabs. Recovered: drops occurred earlier. WARNING: ongoing incomplete grabs (usually bandwidth/packet timing/exposure load issue).");
+            healthItem->setToolTip("OK: no incomplete grabs. Recovered: drops occurred earlier. WARNING: ongoing incomplete grabs or a slow NIC link (<1 Gb/s) - usually bandwidth/packet timing/cable or switch port issue.");
             if (healthText == "WARNING") {
                 healthItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
                 healthItem->setForeground(QColor("#1A1A1A"));
