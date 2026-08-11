@@ -80,6 +80,12 @@ public slots:
     void updateTheme(); // Dynamically update widget theme colors
     void setCameraManager(CameraManager* manager); // Wire live camera data for Diagnostic tab
     void reloadEventStorage();
+    // Push the real vision-system state (from MainWindow's camera lifecycle)
+    // into the Control Panel button so it reflects reality, not just clicks.
+    void setServerRunning(bool running);
+    // Show the intermediate "Connecting…" state while camera startup runs
+    // (instead of flipping straight from Offline to Online).
+    void setServerConnecting(bool connecting);
     
 private slots:
     void onServerButtonClicked();
@@ -111,6 +117,11 @@ private slots:
     // Diagnostic tab refresh slots
     void refreshDiagTable();
     void onDiagAutoRefreshToggled(bool enabled);
+
+    // Server-button Connecting… animation
+    void onServerConnectingTick();
+    // New-event row highlight pulse animation
+    void onNewEventPulseTick();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -222,10 +233,18 @@ private:
     // QPushButton* deleteButton_; // Moved to Main Window Menu
     QPushButton* deleteButton_; // For deleting events
     QPushButton* permanentButton_;
+    // Segmented "Mark Permanent | Delete Selected" row (one compact control).
+    QWidget* splitActionRow_ = nullptr;
+    QFrame* deleteActionDivider_ = nullptr;
 
     
     // State
     bool serverRunning_;
+    bool serverConnecting_ = false; // True while camera startup is in progress
+    // Animated-ellipsis timer for the Connecting… button state.
+    QTimer* serverConnectingTimer_ = nullptr;
+    int serverConnectingDots_ = 0;
+    bool adminMode_ = false; // Tracks admin login state for the Login/Logout button
     bool isRecording_;
     
     // Theme State
@@ -282,12 +301,36 @@ private:
     void updatePermanentButtonLabel();
     QTableWidget* createLogTable(QWidget* parent, bool deleteMode);
     void configureLogTable(QTableWidget* table, bool deleteMode);
+    // Size the Reason column so Trigger Time + Reason exactly fill the visible
+    // table width (proportional), leaving Group + Defect Frame behind the
+    // horizontal scroll.
+    void updateLogTableReasonWidths();
     void connectLogTable(QTableWidget* table);
     void sortLogTable(QTableWidget* table);
     void selectLatestEvent();
     void moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidget* targetTable, bool permanent);
+    // Animate the newest-event row highlight: a brief bright pulse that decays
+    // onto the static tint. Called from addEventRow after insert + sort; every
+    // tick re-locates the flagged row (and re-validates), so the animation
+    // survives re-sorts and stops cleanly when the row is rebuilt, moved, or
+    // the highlight is acknowledged by a click.
+    void startNewEventPulse(QTableWidget* table);
+    void stopNewEventPulse();
+    void applyNewEventPulseAlpha(QTableWidget* table, int row, int alpha);
+    // Row (or -1) whose column-0 item still carries the new-event flag.
+    int locateNewEventRow(QTableWidget* table) const;
+    static int newEventPulseAlphaForStep(int step);
     QString latestAddedEventTimestamp_;
     bool suppressNewEventIndicatorClear_ = false;
+    // New-event row pulse animation state.
+    QTimer* newEventPulseTimer_ = nullptr;
+    QTableWidget* newEventPulseTable_ = nullptr;
+    int newEventPulseRow_ = -1;
+    int newEventPulseSteps_ = 0;
+    static constexpr int kNewEventPulseTickMs = 40;
+    static constexpr int kNewEventPulseDurationMs = 1200;
+    static constexpr int kNewEventPulseBaseAlpha = 36;   // static tint
+    static constexpr int kNewEventPulseAmplitude = 190;  // peak flash above base
     QString currentAnnotationPath_;
     QStringList currentEventCameraLabels_;
     QJsonObject eventAnnotations_;

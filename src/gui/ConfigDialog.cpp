@@ -960,8 +960,9 @@ void ConfigDialog::setupUI() {
     recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
 
     // Camera Mode: Real hardware vs. Emulated cameras (no hardware needed).
-    // Defaults to Real; switching takes effect on the next app start because
-    // Pylon initializes the emulated devices once at startup.
+    // Defaults to Real. Switching re-runs the camera lifecycle (Pylon is
+    // re-initialized with the new PYLON_CAMEMU device set), so it applies on
+    // save or on the next Server-button start - no app restart required.
     QFormLayout* cameraModeForm = createSectionForm("Camera Mode");
 
     cameraSourceCombo_ = new QComboBox(bufferGroup);
@@ -986,7 +987,8 @@ void ConfigDialog::setupUI() {
         "Emulated cameras need no hardware and are handy for testing without a "
         "machine. This switch only activates the \"Emulated\" Source setting on "
         "individual camera cards - cards left on Real still use hardware. The "
-        "switch takes effect after the application restarts.", bufferGroup);
+        "switch applies when the camera system is (re)started, e.g. saving this "
+        "page or toggling the Server button in the Analysis View.", bufferGroup);
     cameraModeNote->setWordWrap(true);
     cameraModeNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
     cameraModeForm->addRow("", cameraModeNote);
@@ -3153,12 +3155,18 @@ void ConfigDialog::saveRecordingSettings() {
 
     QMessageBox::information(this, "Recording Settings Saved",
         cameraModeChanged
-            ? QStringLiteral("Recording settings saved.\n\nCamera mode change takes effect after the application restarts.")
+            ? QStringLiteral("Recording settings saved.\n\nCamera mode change applied - acquisition is restarting with the new camera mode.")
             : QStringLiteral("Recording settings saved."));
     originalRecordingValues_ = captureRecordingSettings();
     clearRecordingSettingsModified();
     refreshStorageStats();
-    emitConfigUpdated(false);
+    // Camera Mode may have switched: re-evaluate the camera cards' online
+    // status and the Fixed IP registry immediately (both depend on whether
+    // emulation is active) instead of waiting for the next network poll.
+    refreshNetworkStatus();
+    // A Camera Mode switch changes which Pylon devices exist, so it must run
+    // through the camera lifecycle (stop + re-initialize) to take effect.
+    emitConfigUpdated(cameraModeChanged);
 }
 void ConfigDialog::saveOpcUaSettings() {
     qInfo() << "[ConfigDialog] OPC UA save requested";

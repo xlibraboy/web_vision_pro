@@ -486,6 +486,12 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
         qWarning() << "[MainWindow] Camera lifecycle request ignored"
                    << "cameraManager=" << (cameraManager_ != nullptr)
                    << "inProgress=" << cameraLifecycleInProgress_;
+        // Keep the Control Panel button honest when a request is ignored. If a
+        // lifecycle is already running, leave the Connecting… state alone — its
+        // own finished handler sets the final Online/Offline state.
+        if (analysisView_ && !cameraManager_) {
+            analysisView_->setServerRunning(false);
+        }
         return;
     }
 
@@ -496,6 +502,9 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
         statusBar()->showMessage("Camera startup blocked by invalid network configuration.", 5000);
         QMessageBox::warning(this, "Invalid Camera Configuration", message);
         pauseBtn_->setEnabled(false);
+        if (analysisView_) {
+            analysisView_->setServerRunning(false);
+        }
         if (configWindow_) {
             configWindow_->setEnabled(true);
         }
@@ -518,11 +527,18 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
                 if (configWindow_) {
                     configWindow_->setEnabled(true);
                 }
+                // Reflect the real state in the Analysis Control Panel button.
+                if (analysisView_) {
+                    analysisView_->setServerRunning(true);
+                }
                 return;
             }
 
             statusBar()->showMessage("Camera startup failed. Check camera connections and configuration.", 5000);
             pauseBtn_->setEnabled(false);
+            if (analysisView_) {
+                analysisView_->setServerRunning(false);
+            }
             if (configWindow_) {
                 configWindow_->setEnabled(true);
             }
@@ -530,6 +546,11 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
     }
 
     cameraLifecycleInProgress_ = true;
+    // Show the intermediate Connecting… state on the Analysis Control Panel
+    // button until the async startup resolves to Online or Offline.
+    if (analysisView_) {
+        analysisView_->setServerConnecting(true);
+    }
     pauseBtn_->setEnabled(false);
     if (configWindow_) {
         configWindow_->setEnabled(false);
@@ -715,6 +736,23 @@ void MainWindow::setupUi() {
     analysisView_ = new AnalysisView(CameraConfig::getCameraCount(), this);
     connect(analysisView_, &AnalysisView::recordAllToggled, this, &MainWindow::toggleRecording);
     connect(analysisView_, &AnalysisView::manualTriggerRequested, this, &MainWindow::manualTrigger);
+    // Control Panel: the Server button is the master switch for the live vision
+    // system (start/stop camera acquisition; triggers, recording, and defect
+    // detection are all gated on streaming frames). The Login button mirrors the
+    // menu-bar Administrator Login toggle.
+    connect(analysisView_, &AnalysisView::serverToggled, this, [this](bool running) {
+        if (!cameraManager_) {
+            return;
+        }
+        if (running) {
+            startCameraLifecycleAsync(false, "Starting camera acquisition...");
+        } else {
+            cameraManager_->stopAcquisition();
+            pauseBtn_->setEnabled(false);
+            statusBar()->showMessage("Vision system offline — camera acquisition stopped.", 3000);
+        }
+    });
+    connect(analysisView_, &AnalysisView::adminLoginRequested, this, &MainWindow::toggleAdmin);
     
     mainTabWidget_->addTab(analysisView_, "Analysis View");
     
@@ -1217,6 +1255,13 @@ void MainWindow::ensureConfigTab() {
             qInfo() << "[MainWindow] Reapplying global theme after save";
             applyOpcUaSettings();
             applyGlobalTheme();
+
+            // Camera Mode (Settings > Recording & Triggers) may have switched:
+            // keep the status-bar emulation badge in sync live instead of only
+            // reflecting it at app start.
+            if (emulationBadge_) {
+                emulationBadge_->setVisible(CameraConfig::isEmulationActive());
+            }
 
             if (analysisView_) {
                 qInfo() << "[MainWindow] Reloading analysis event storage after save";

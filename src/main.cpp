@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
+#include <QFile>
 #include <QLockFile>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -45,19 +46,30 @@ int main(int argc, char *argv[]) {
         const QString serverName = "papervision_instance_server";
 
         // Prevent duplicate windows if the desktop launcher is clicked twice.
-        QLockFile instanceLock(QDir::temp().absoluteFilePath("papervision_app.lock"));
+        const QString lockFilePath = QDir::temp().absoluteFilePath("papervision_app.lock");
+        QLockFile instanceLock(lockFilePath);
         instanceLock.setStaleLockTime(0);
         if (!instanceLock.tryLock(100)) {
             QLocalSocket socket;
             socket.connectToServer(serverName);
-            if (socket.waitForConnected(300)) {
+            const bool liveInstance = socket.waitForConnected(300);
+            if (liveInstance) {
                 socket.write("raise");
                 socket.flush();
                 socket.waitForBytesWritten(300);
                 socket.disconnectFromServer();
+                std::cerr << "PaperVision_App is already running." << std::endl;
+                return 0;
             }
-            std::cerr << "PaperVision_App is already running." << std::endl;
-            return 0;
+            // No live instance actually owns the lock (the recorded PID is
+            // stale - e.g. the previous process was replaced at the same PID,
+            // typical when the app runs as PID 1 inside a container). Remove
+            // the orphaned lock file and retry once.
+            QFile::remove(lockFilePath);
+            if (!instanceLock.tryLock(100)) {
+                std::cerr << "PaperVision_App is already running." << std::endl;
+                return 0;
+            }
         }
 
         QLocalServer::removeServer(serverName);

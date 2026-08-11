@@ -728,6 +728,7 @@ CameraManager::CameraManager(int numCameras)
         }
         if (emulatedCards > 0) {
             setenv("PYLON_CAMEMU", std::to_string(emulatedCards).c_str(), 1);
+            emulationEnvManaged_ = true; // We own this env var; refresh on restarts.
             pylonCamEmu = getenv("PYLON_CAMEMU");
             std::cout << "[CameraManager] Camera Source = Emulated in settings; enabled "
                       << emulatedCards << " emulated device(s) for the camera card(s) "
@@ -1136,6 +1137,49 @@ void CameraManager::stopCameraRuntime(int configArrayIndex) {
 
 bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
     try {
+        // Emulation may have been toggled in Settings since the manager was
+        // constructed (or since the last lifecycle start). Re-evaluate the
+        // PYLON_CAMEMU environment from the current configuration so lifecycle
+        // restarts (Server button toggle, config save) pick it up WITHOUT
+        // restarting the app. An externally-provided PYLON_CAMEMU (docker/CI)
+        // stays authoritative and is never touched.
+        const char* pylonCamEmu = getenv("PYLON_CAMEMU");
+        if (!(pylonCamEmu && !emulationEnvManaged_)) {
+            int emulatedCards = 0;
+            if (CameraConfig::isEmulationActive()) {
+                for (const CameraInfo& cam : CameraConfig::getCameras()) {
+                    if (cam.source == 0) {
+                        ++emulatedCards;
+                    }
+                }
+            }
+            const std::string desiredStr = emulatedCards > 0 ? std::to_string(emulatedCards) : std::string();
+            const std::string currentStr = pylonCamEmu ? std::string(pylonCamEmu) : std::string();
+            if (desiredStr != currentStr) {
+                if (desiredStr.empty()) {
+                    unsetenv("PYLON_CAMEMU");
+                } else {
+                    setenv("PYLON_CAMEMU", desiredStr.c_str(), 1);
+                }
+                emulationEnvManaged_ = !desiredStr.empty();
+                // The emulated device list is fixed when the Pylon runtime
+                // initializes its transport layers, so a mode switch requires
+                // terminating and re-initializing the runtime. The calls are
+                // reference-counted and balanced; no cameras are grabbing here
+                // (restart flows call stopAcquisition() first).
+                try {
+                    PylonTerminate();
+                    PylonInitialize();
+                } catch (const GenericException& e) {
+                    std::cerr << "[CameraManager] Pylon re-init after emulation change failed: "
+                              << e.GetDescription() << std::endl;
+                }
+                std::cout << "[CameraManager] Emulation re-evaluated on lifecycle start: PYLON_CAMEMU="
+                          << (desiredStr.empty() ? std::string("unset (REAL cameras)") : desiredStr)
+                          << " - Pylon re-initialized." << std::endl;
+            }
+        }
+
         CTlFactory& tlFactory = CTlFactory::GetInstance();
         DeviceInfoList_t devices;
         

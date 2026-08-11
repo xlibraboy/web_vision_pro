@@ -274,6 +274,12 @@ private:
     std::atomic<bool> acquiring_; // Threading
     std::atomic<bool> paused_{false}; // Paused Grab
 
+    // True when this manager owns the PYLON_CAMEMU env var (set/unset by us)
+    // rather than it being provided externally (docker/CI). Lets initialize()
+    // re-evaluate emulation on lifecycle restarts without clobbering an
+    // externally-supplied value.
+    bool emulationEnvManaged_ = false;
+
     // Device Removal Recovery
     std::atomic<bool> recovering_;
     std::thread recoveryThread_;

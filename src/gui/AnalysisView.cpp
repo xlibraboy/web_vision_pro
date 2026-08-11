@@ -42,6 +42,40 @@ public:
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         QStyleOptionViewItem opt(option);
         initStyleOption(&opt, index);
+
+        // The newest-event row carries a pulsing/static tint. The stylesheet
+        // rule "QTableWidget::item:selected { background-color: ... }" would
+        // mask that tint whenever the row is selected (the table auto-selects
+        // the newest event), so paint this cell manually — tint background +
+        // selection accent bar + text — instead of letting the base paint run.
+        if (index.data(Qt::UserRole + 3).toBool()) {
+            ThemeColors tc = CameraConfig::getThemeColors();
+            painter->save();
+            painter->setClipRect(opt.rect);
+            painter->setFont(opt.font);
+            if (opt.backgroundBrush.style() != Qt::NoBrush) {
+                painter->fillRect(opt.rect, opt.backgroundBrush);
+            } else {
+                painter->fillRect(opt.rect, QColor(tc.bg));
+            }
+            if (opt.state & QStyle::State_Selected) {
+                if (index.column() == 0) {
+                    painter->fillRect(QRect(opt.rect.left(), opt.rect.top() + 1, 3, opt.rect.height() - 2), QColor(tc.primary));
+                }
+                painter->setPen(QColor(Qt::white)); // matches the :selected text color
+            } else {
+                painter->setPen(QColor(tc.text));
+            }
+            // Mirror the stylesheet's QTableWidget::item padding (4px) and the
+            // header's left/vertical-center alignment. Elide long text with an
+            // ellipsis exactly like the base item rendering does.
+            const QRect textRect = opt.rect.adjusted(4, 4, -4, -4);
+            const QString elided = opt.fontMetrics.elidedText(opt.text, Qt::ElideRight, textRect.width());
+            painter->drawText(textRect, opt.displayAlignment, elided);
+            painter->restore();
+            return;
+        }
+
         QStyledItemDelegate::paint(painter, opt, index);
 
         if (!(option.state & QStyle::State_Selected) || index.column() != 0) {
@@ -153,13 +187,31 @@ static QString makeSidebarStateButtonStyle(const ThemeColors& tc, bool active) {
         "  color: %2;"
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
-        "  padding: 7px 10px;"
-        "  font-size: 12px;"
+        "  padding: 3px 8px;"
+        "  font-size: 11px;"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %6; }"
     ).arg(bg, text, border, hover, tc.primary, tc.bg);
+}
+
+// Amber "busy" treatment used while camera startup is in progress.
+static QString makeSidebarConnectingButtonStyle(const ThemeColors& tc) {
+    return QString(
+        "QPushButton {"
+        "  background-color: #6B4F12;"
+        "  color: #FFD98A;"
+        "  border: 1px solid #B8860B;"
+        "  border-radius: 6px;"
+        "  padding: 3px 8px;"
+        "  font-size: 11px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton:hover { background-color: #7A5C1A; border-color: #D4A017; }"
+        "QPushButton:pressed { background-color: #5A4210; }"
+        "QPushButton:disabled { background-color: %1; color: %2; border-color: %2; }"
+    ).arg(tc.btnBg, tc.border);
 }
 
 static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
@@ -169,8 +221,8 @@ static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
         "  color: %2;"
         "  border: 1px solid %1;"
         "  border-radius: 6px;"
-        "  padding: 7px 10px;"
-        "  font-size: 12px;"
+        "  padding: 3px 8px;"
+        "  font-size: 11px;"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %3; border-color: %3; }"
@@ -186,7 +238,7 @@ static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checked
         "  color: %2;"
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
-        "  padding: 6px 10px;"
+        "  padding: 3px 8px;"
         "  font-size: 10px;"
         "  font-weight: 700;"
         "}"
@@ -205,7 +257,7 @@ static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
         "  color: %2;"
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
-        "  padding: 6px 10px;"
+        "  padding: 2px 8px;"
         "  font-size: 10px;"
         "  font-weight: 600;"
         "}"
@@ -215,40 +267,53 @@ static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
     ).arg(tc.btnBg, quietText, tc.border, tc.bg, tc.primary);
 }
 
-static QString makeSidebarActionButtonStyle(const ThemeColors& tc) {
-    const QString disabledText = QColor(tc.text).lighter(135).name();
-    const QString disabledBorder = QColor(tc.primary).darker(150).name();
+// Combined "Mark Permanent | Delete Selected" segmented control: one rounded
+// container with a 1px vertical divider; each segment keeps its own hover and
+// pressed color so the two actions read as a single compact row.
+static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
+    const QString divider = QColor(tc.border).lighter(112).name();
+    const QString muted = QColor(tc.text).lighter(135).name();
+    const QString accentText = QColor(tc.primary).lighter(120).name();
+    const QString pressedBg = QColor(tc.primary).darker(150).name();
     return QString(
-        "QPushButton {"
+        "QWidget#splitActionRow {"
         "  background-color: %1;"
-        "  color: %2;"
-        "  border: 1px solid %3;"
+        "  border: 1px solid %2;"
         "  border-radius: 6px;"
-        "  padding: 6px 10px;"
+        "}"
+        "QFrame#splitActionDivider {"
+        "  background-color: %3;"
+        "  border: none;"
+        "  min-width: 1px;"
+        "  max-width: 1px;"
+        "}"
+        "QPushButton#permanentActionButton {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-top-left-radius: 5px;"
+        "  border-bottom-left-radius: 5px;"
+        "  color: %4;"
         "  font-size: 10px;"
         "  font-weight: 700;"
+        "  padding: 2px 8px;"
         "}"
-        "QPushButton:hover { background-color: %4; border-color: %5; }"
-        "QPushButton:pressed { background-color: %4; }"
-        "QPushButton:disabled { background-color: %1; color: %6; border-color: %7; }"
-    ).arg(tc.btnBg, tc.text, tc.primary, tc.btnHover, tc.primary, disabledText, disabledBorder);
-}
-
-static QString makeSidebarDangerButtonStyle(const ThemeColors& tc) {
-    return QString(
-        "QPushButton {"
-        "  background-color: #982B2B;"
-        "  color: #FFF5F5;"
-        "  border: 1px solid #B93A3A;"
-        "  border-radius: 6px;"
-        "  padding: 6px 10px;"
+        "QPushButton#permanentActionButton:hover { background-color: %5; color: %6; }"
+        "QPushButton#permanentActionButton:pressed { background-color: %7; color: %6; }"
+        "QPushButton#permanentActionButton:disabled { color: %8; background: transparent; }"
+        "QPushButton#deleteActionButton {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-top-right-radius: 5px;"
+        "  border-bottom-right-radius: 5px;"
+        "  color: #FFB4B4;"
         "  font-size: 10px;"
         "  font-weight: 700;"
+        "  padding: 2px 8px;"
         "}"
-        "QPushButton:hover { background-color: #B93A3A; border-color: #D94A4A; }"
-        "QPushButton:pressed { background-color: #7C2020; }"
-        "QPushButton:disabled { background-color: %1; color: %2; border-color: %2; }"
-    ).arg(tc.btnBg, tc.border);
+        "QPushButton#deleteActionButton:hover { background-color: #982B2B; color: #FFF5F5; }"
+        "QPushButton#deleteActionButton:pressed { background-color: #7C2020; color: #FFF5F5; }"
+        "QPushButton#deleteActionButton:disabled { color: %8; background: transparent; }"
+    ).arg(tc.btnBg, tc.border, divider, accentText, tc.btnHover, tc.text, pressedBg, muted);
 }
 
 static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = false) {
@@ -344,6 +409,18 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     // Setup playback timer
     playbackTimer_ = new QTimer(this);
     connect(playbackTimer_, &QTimer::timeout, this, &AnalysisView::onPlaybackTick);
+    
+    // Server-button Connecting… animation (animated ellipsis).
+    serverConnectingTimer_ = new QTimer(this);
+    serverConnectingTimer_->setInterval(400);
+    connect(serverConnectingTimer_, &QTimer::timeout, this, &AnalysisView::onServerConnectingTick);
+
+    // New-event row highlight pulse animation (bright flash decaying onto the
+    // static tint). Started from addEventRow, stopped automatically when the
+    // row is no longer the live new-event row.
+    newEventPulseTimer_ = new QTimer(this);
+    newEventPulseTimer_->setInterval(kNewEventPulseTickMs);
+    connect(newEventPulseTimer_, &QTimer::timeout, this, &AnalysisView::onNewEventPulseTick);
     
     setupUI();
     
@@ -573,24 +650,27 @@ void AnalysisView::setupLeftSidebar() {
     auto controlsGroup = new QGroupBox("Control Panel", leftSidebar_);
     controlsGroup->setObjectName("analysisSidebarCard");
     auto controlsLayout = new QHBoxLayout(controlsGroup);
-    controlsLayout->setSpacing(8);
-    controlsLayout->setContentsMargins(10, 12, 10, 10);
+    controlsLayout->setSpacing(6);
+    controlsLayout->setContentsMargins(8, 10, 8, 8);
     
     ThemeColors tc = CameraConfig::getThemeColors();
     leftSidebar_->setStyleSheet(makeSidebarPanelStyle(tc));
 
     // 1. Server Toggle (FIRST - left side)
+    // Master switch for the whole live vision system: starts/stops camera
+    // acquisition (triggers, recording, and defect detection are all gated on
+    // streaming frames, so this effectively enables/disables the system).
     serverButton_ = new QPushButton("Server Offline", controlsGroup);
     serverButton_->setCheckable(true);
-    serverButton_->setToolTip("Toggle Server Connection");
-    serverButton_->setMinimumHeight(34);
+    serverButton_->setToolTip("Vision system OFFLINE — camera acquisition stopped. Click to start.");
+    serverButton_->setMinimumHeight(28);
     serverButton_->setStyleSheet(makeSidebarStateButtonStyle(tc, false));
     connect(serverButton_, &QPushButton::clicked, this, &AnalysisView::onServerButtonClicked);
     
     // 2. Admin Login (SECOND - right side)
     adminButton_ = new QPushButton("Login", controlsGroup);
     adminButton_->setToolTip("Admin Login");
-    adminButton_->setMinimumHeight(34);
+    adminButton_->setMinimumHeight(28);
     adminButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
     connect(adminButton_, &QPushButton::clicked, this, &AnalysisView::onAdminButtonClicked);
     
@@ -620,8 +700,8 @@ void AnalysisView::setupLeftSidebar() {
     auto logGroup = new QGroupBox("Paper Break Log", leftSidebar_);
     logGroup->setObjectName("analysisSidebarCard");
     auto logLayout = new QVBoxLayout(logGroup);
-    logLayout->setContentsMargins(10, 12, 10, 10);
-    logLayout->setSpacing(8);
+    logLayout->setContentsMargins(10, 10, 10, 8);
+    logLayout->setSpacing(6);
     
     paperBreakTable_ = createLogTable(logGroup, false);
     permanentPaperBreakTable_ = createLogTable(logGroup, false);
@@ -634,7 +714,7 @@ void AnalysisView::setupLeftSidebar() {
 
     togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
     togglePermanentTableButton_->setCheckable(true);
-    togglePermanentTableButton_->setMinimumHeight(34);
+    togglePermanentTableButton_->setMinimumHeight(24);
     togglePermanentTableButton_->setIcon(QIcon(":/assets/icons/arrow_down.svg"));
     togglePermanentTableButton_->setIconSize(QSize(12, 12));
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
@@ -643,6 +723,7 @@ void AnalysisView::setupLeftSidebar() {
         togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
         togglePermanentTableButton_->setIcon(QIcon(checked ? ":/assets/icons/arrow_up.svg" : ":/assets/icons/arrow_down.svg"));
         permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, checked ? QSizePolicy::Expanding : QSizePolicy::Preferred);
+        updateLogTableReasonWidths(); // The now-visible permanent table needs its width.
         leftSidebar_->updateGeometry();
     });
     logLayout->addWidget(togglePermanentTableButton_);
@@ -667,8 +748,8 @@ void AnalysisView::setupLeftSidebar() {
     logLayout->addWidget(deleteDivider);
 
     auto deleteModeRow = new QHBoxLayout();
-    deleteModeRow->setContentsMargins(0, 8, 0, 0);
-    deleteModeRow->setSpacing(8);
+    deleteModeRow->setContentsMargins(0, 2, 0, 0);
+    deleteModeRow->setSpacing(6);
 
     auto deleteLabel = new QLabel("Enable Event Deletion", logGroup);
     deleteLabel->setObjectName("analysisSidebarSectionLabel");
@@ -682,31 +763,46 @@ void AnalysisView::setupLeftSidebar() {
     deleteModeRow->addWidget(enableDeleteCheck_, 0, Qt::AlignVCenter);
     logLayout->addLayout(deleteModeRow);
     
-    // Delete Button (Initially Disabled/Hidden)
-    auto buttonRow = new QHBoxLayout();
-    buttonRow->setContentsMargins(0, 2, 0, 0);
-    buttonRow->setSpacing(6);
+    // Combined action row: "Mark Permanent | Delete Selected" as a single
+    // segmented control with a 1px divider, so both actions share one compact
+    // rounded row instead of two separate buttons.
+    splitActionRow_ = new QWidget(logGroup);
+    splitActionRow_->setObjectName("splitActionRow");
+    splitActionRow_->setAttribute(Qt::WA_StyledBackground, true); // paint the container's bg/border
+    splitActionRow_->setStyleSheet(makeSidebarSplitActionStyle(tc));
+    auto splitLayout = new QHBoxLayout(splitActionRow_);
+    splitLayout->setContentsMargins(0, 0, 0, 0);
+    splitLayout->setSpacing(0);
 
-    permanentButton_ = new QPushButton("Mark Permanent", logGroup);
-    permanentButton_->setMinimumHeight(34);
+    permanentButton_ = new QPushButton("Mark Permanent", splitActionRow_);
+    permanentButton_->setObjectName("permanentActionButton");
+    permanentButton_->setMinimumHeight(24);
     permanentButton_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    permanentButton_->setStyleSheet(makeSidebarActionButtonStyle(tc));
+    permanentButton_->setCursor(Qt::PointingHandCursor);
     permanentButton_->setEnabled(false);
     connect(permanentButton_, &QPushButton::clicked, this, &AnalysisView::onTogglePermanentClicked);
-    buttonRow->addWidget(permanentButton_);
+    splitLayout->addWidget(permanentButton_, 1);
 
-    deleteButton_ = new QPushButton("Delete Selected", logGroup);
-    deleteButton_->setMinimumHeight(34);
+    deleteActionDivider_ = new QFrame(splitActionRow_);
+    deleteActionDivider_->setObjectName("splitActionDivider");
+    deleteActionDivider_->setFrameShape(QFrame::VLine);
+    deleteActionDivider_->setFrameShadow(QFrame::Plain);
+    // Span the full row height so the 1px line is always visible between the
+    // two segments (an HBox would otherwise size a Preferred-height QFrame to
+    // its tiny sizeHint height).
+    deleteActionDivider_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    splitLayout->addWidget(deleteActionDivider_);
+
+    deleteButton_ = new QPushButton("Delete Selected", splitActionRow_);
+    deleteButton_->setObjectName("deleteActionButton");
+    deleteButton_->setMinimumHeight(24);
     deleteButton_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    deleteButton_->setStyleSheet(makeSidebarDangerButtonStyle(tc));
-    deleteButton_->setEnabled(false); // Only admin
-    deleteButton_->setVisible(false); // Hide until admin mode
+    deleteButton_->setCursor(Qt::PointingHandCursor);
+    deleteButton_->setEnabled(false); // Enabled only when admin turns on delete mode
     connect(deleteButton_, &QPushButton::clicked, this, &AnalysisView::onDeleteClicked);
+    splitLayout->addWidget(deleteButton_, 1);
 
-    buttonRow->addWidget(deleteButton_);
-    buttonRow->setStretch(0, 1);
-    buttonRow->setStretch(1, 1);
-    logLayout->addLayout(buttonRow);
+    logLayout->addWidget(splitActionRow_);
     
     paperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -1181,10 +1277,169 @@ void AnalysisView::setupPlaybackControls() {
 
 // Slot implementations
 void AnalysisView::onServerButtonClicked() {
-    serverRunning_ = serverButton_->isChecked();
-    serverButton_->setText(serverRunning_ ? "Server Online" : "Server Offline");
-    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(CameraConfig::getThemeColors(), serverRunning_));
-    emit serverToggled(serverRunning_);
+    const bool running = serverButton_->isChecked();
+
+    // Taking the vision system offline is a deliberate action: ask first, so a
+    // stray click never silently stops acquisition (or aborts a startup). The
+    // button stays clickable during Connecting… precisely to allow cancelling.
+    if (!running && serverRunning_) {
+        const bool wasConnecting = serverConnecting_;
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this, wasConnecting ? "Cancel Camera Startup" : "Stop Vision System",
+            wasConnecting
+                ? "Camera acquisition is still starting up.\n\n"
+                  "Cancel the startup and take the vision system offline?"
+                : "Camera acquisition is currently running.\n\n"
+                  "Stop acquisition and take the vision system offline?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            // Restore the checked state; the Connecting… animation keeps running.
+            serverButton_->setChecked(true);
+            return;
+        }
+    }
+
+    setServerRunning(running);
+    emit serverToggled(running);
+}
+
+void AnalysisView::setServerRunning(bool running) {
+    serverRunning_ = running;
+    serverConnecting_ = false; // Terminal state reached; clear any in-progress flag.
+    if (serverConnectingTimer_) {
+        serverConnectingTimer_->stop();
+    }
+    if (!serverButton_) {
+        return;
+    }
+    serverButton_->setChecked(running);
+    serverButton_->setText(running ? "Server Online" : "Server Offline");
+    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(CameraConfig::getThemeColors(), running));
+    serverButton_->setToolTip(running
+        ? "Vision system ONLINE — cameras are streaming. Click to stop acquisition."
+        : "Vision system OFFLINE — camera acquisition stopped. Click to start.");
+}
+
+void AnalysisView::setServerConnecting(bool connecting) {
+    serverConnecting_ = connecting;
+    if (!serverButton_) {
+        return;
+    }
+    if (connecting) {
+        // Keep the button checkable so the operator can click again to cancel.
+        serverConnectingDots_ = 0;
+        serverButton_->setText("Connecting");
+        serverButton_->setStyleSheet(makeSidebarConnectingButtonStyle(CameraConfig::getThemeColors()));
+        serverButton_->setToolTip("Vision system starting — camera acquisition in progress. Click to cancel.");
+        if (serverConnectingTimer_) {
+            serverConnectingTimer_->start();
+        }
+    } else {
+        if (serverConnectingTimer_) {
+            serverConnectingTimer_->stop();
+        }
+        setServerRunning(serverRunning_);
+    }
+}
+
+void AnalysisView::onServerConnectingTick() {
+    if (!serverButton_ || !serverConnecting_) {
+        return;
+    }
+    serverConnectingDots_ = (serverConnectingDots_ + 1) % 4; // 0..3 dots
+    serverButton_->setText(QStringLiteral("Connecting%1").arg(QString(serverConnectingDots_, QLatin1Char('.'))));
+}
+
+int AnalysisView::locateNewEventRow(QTableWidget* table) const {
+    if (!table) {
+        return -1;
+    }
+    for (int r = 0; r < table->rowCount(); ++r) {
+        QTableWidgetItem* item = table->item(r, 0);
+        if (item && item->data(Qt::UserRole + 3).toBool()) {
+            return r;
+        }
+    }
+    return -1;
+}
+
+void AnalysisView::startNewEventPulse(QTableWidget* table) {
+    stopNewEventPulse();
+    if (!table) {
+        return;
+    }
+    const int row = locateNewEventRow(table);
+    if (row < 0) {
+        return;
+    }
+    newEventPulseTable_ = table;
+    newEventPulseRow_ = row;
+    newEventPulseSteps_ = 0;
+    // Kick off with the brightest frame immediately, then let the timer decay it.
+    applyNewEventPulseAlpha(table, row, newEventPulseAlphaForStep(0));
+    if (newEventPulseTimer_) {
+        newEventPulseTimer_->start();
+    }
+}
+
+void AnalysisView::stopNewEventPulse() {
+    if (newEventPulseTimer_) {
+        newEventPulseTimer_->stop();
+    }
+    newEventPulseTable_ = nullptr;
+    newEventPulseRow_ = -1;
+    newEventPulseSteps_ = 0;
+}
+
+int AnalysisView::newEventPulseAlphaForStep(int step) {
+    // Damped oscillation: bright flashes that decay onto the static tint.
+    // alpha(t) = base + amplitude * exp(-t/tau) * |cos(2*pi*f*t)|
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kDecayTauSec = 0.28;
+    constexpr double kPulseFreqHz = 2.0;
+    const double t = step * kNewEventPulseTickMs / 1000.0;
+    const double decay = std::exp(-t / kDecayTauSec);
+    const double pulse = std::abs(std::cos(kPi * 2.0 * kPulseFreqHz * t));
+    const int alpha = static_cast<int>(kNewEventPulseBaseAlpha + kNewEventPulseAmplitude * decay * pulse);
+    return qBound(kNewEventPulseBaseAlpha, alpha, 255);
+}
+
+void AnalysisView::onNewEventPulseTick() {
+    ++newEventPulseSteps_;
+    QTableWidget* table = newEventPulseTable_;
+    if (!table) {
+        stopNewEventPulse();
+        return;
+    }
+    // Re-locate the flagged row every tick: it may have been moved by a later
+    // sort, rebuilt by a newer event, moved between tables, or acknowledged by
+    // a click. If it is gone, stop cleanly.
+    const int row = locateNewEventRow(table);
+    if (row < 0) {
+        stopNewEventPulse();
+        return;
+    }
+    newEventPulseRow_ = row; // Keep the state in sync with the live position.
+    if (newEventPulseSteps_ * kNewEventPulseTickMs >= kNewEventPulseDurationMs) {
+        // Settle on the static tint and stop.
+        applyNewEventPulseAlpha(table, row, kNewEventPulseBaseAlpha);
+        stopNewEventPulse();
+        return;
+    }
+    applyNewEventPulseAlpha(table, row, newEventPulseAlphaForStep(newEventPulseSteps_));
+}
+
+void AnalysisView::applyNewEventPulseAlpha(QTableWidget* table, int row, int alpha) {
+    if (!table || row < 0 || row >= table->rowCount()) {
+        return;
+    }
+    QColor tint(CameraConfig::getThemeColors().primary);
+    tint.setAlpha(alpha);
+    for (int col = 0; col < table->columnCount(); ++col) {
+        if (QTableWidgetItem* item = table->item(row, col)) {
+            item->setBackground(tint);
+        }
+    }
 }
 
 // void AnalysisView::onRawModeToggled(bool enabled) { ... } // Removed
@@ -1338,16 +1593,26 @@ void AnalysisView::onLogSelected(int row, int col) {
     if (!item) return;
 
     if (!suppressNewEventIndicatorClear_ && item->data(Qt::UserRole + 3).toBool()) {
-        item->setIcon(QIcon());
+        // Acknowledge the new-event highlight: clear the row tint and the bold.
+        item->setBackground(QBrush());
         item->setData(Qt::UserRole + 3, false);
         QFont timeFont = item->font();
         timeFont.setBold(false);
         item->setFont(timeFont);
         if (QTableWidgetItem* reasonItem = sourceTable->item(row, 1)) {
+            reasonItem->setBackground(QBrush());
             reasonItem->setData(Qt::UserRole + 3, false);
             QFont reasonFont = reasonItem->font();
             reasonFont.setBold(false);
             reasonItem->setFont(reasonFont);
+        }
+        if (QTableWidgetItem* groupItem = sourceTable->item(row, 2)) {
+            groupItem->setBackground(QBrush());
+            groupItem->setData(Qt::UserRole + 3, false);
+        }
+        if (QTableWidgetItem* frameItem = sourceTable->item(row, 3)) {
+            frameItem->setBackground(QBrush());
+            frameItem->setData(Qt::UserRole + 3, false);
         }
         latestAddedEventTimestamp_.clear();
     }
@@ -2380,15 +2645,16 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
 
     if (isNewRecentEvent) {
         ThemeColors tc = CameraConfig::getThemeColors();
-        QPixmap dotPixmap(6, 6);
-        dotPixmap.fill(Qt::transparent);
-        QPainter painter(&dotPixmap);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(tc.primary));
-        painter.drawEllipse(0, 0, 5, 5);
-        painter.end();
-        timeItem->setIcon(QIcon(dotPixmap));
+
+        // Row highlight instead of a timestamp icon: the whole new-event row
+        // gets a subtle primary tint so the latest trigger stands out without
+        // an icon eating into the Trigger Time column's timestamp text.
+        QColor rowTint(tc.primary);
+        rowTint.setAlpha(36);
+        timeItem->setBackground(rowTint);
+        reasonItem->setBackground(rowTint);
+        groupItem->setBackground(rowTint);
+        frameItem->setBackground(rowTint);
 
         QFont newEventFont = timeItem->font();
         newEventFont.setBold(true);
@@ -2401,6 +2667,13 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     targetTable->setItem(row, 2, groupItem);
     targetTable->setItem(row, 3, frameItem);
     sortLogTable(targetTable);
+
+    if (isNewRecentEvent) {
+        // Pulse the highlight: a brief bright flash that decays onto the
+        // static tint. The row is re-located by flag on every tick, so the
+        // exact index here does not need to be stable.
+        startNewEventPulse(targetTable);
+    }
 
     if (selectRow) {
         targetTable->selectRow(row);
@@ -2534,9 +2807,9 @@ void AnalysisView::loadRawSequence(const QString& binPath) {
 }
 
 void AnalysisView::setDeleteEnabled(bool enabled) {
-    // Enable/Show Delete Button
+    // Enable the Delete segment (always visible so the segmented control keeps
+    // its divider; only the enabled state is gated by admin + this toggle).
     if (deleteButton_) {
-        deleteButton_->setVisible(enabled);
         deleteButton_->setEnabled(enabled);
     }
     
@@ -2562,13 +2835,15 @@ void AnalysisView::updateTheme() {
     leftSidebar_->setStyleSheet(makeSidebarPanelStyle(tc));
     
     // 1. Sidebar Buttons
-    serverButton_->setStyleSheet(makeSidebarStateButtonStyle(tc, serverRunning_));
+    serverButton_->setStyleSheet(serverConnecting_ ? makeSidebarConnectingButtonStyle(tc)
+                                                   : makeSidebarStateButtonStyle(tc, serverRunning_));
     
-    adminButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
+    adminButton_->setStyleSheet(adminMode_ ? makeSidebarOutlineButtonStyle(tc, true)
+                                           : makeSidebarPrimaryButtonStyle(tc));
     
-    deleteButton_->setStyleSheet(makeSidebarDangerButtonStyle(tc));
-
-    permanentButton_->setStyleSheet(makeSidebarActionButtonStyle(tc));
+    if (splitActionRow_) {
+        splitActionRow_->setStyleSheet(makeSidebarSplitActionStyle(tc));
+    }
     
     // 2. Playback and tab surface/typography
     // First, ensure the current disabled/enabled state uses the new colors
@@ -2583,7 +2858,9 @@ void AnalysisView::updateTheme() {
     
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
 
-    setDeleteEnabled(deleteButton_->isVisible());
+    // Re-apply the current delete-mode state (the segment itself is always
+    // visible now, so drive it from the toggle instead of button visibility).
+    setDeleteEnabled(enableDeleteCheck_ ? enableDeleteCheck_->isChecked() : false);
 }
 
 void AnalysisView::setPlaybackPosition(double frame) {
@@ -2602,10 +2879,15 @@ void AnalysisView::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     updateSliderZeroMarker();
     updateAnnotationSliderMarkers();
+    updateLogTableReasonWidths();
 }
 
 void AnalysisView::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
+
+    // The sidebar is fixed-width, so this only runs once the tables have their
+    // final size; makes Trigger Time + Reason fill the visible width.
+    updateLogTableReasonWidths();
     
     // Auto-select latest record whenever we return to this view
     if ((paperBreakTable_ && paperBreakTable_->rowCount() > 0) ||
@@ -2780,6 +3062,14 @@ void AnalysisView::keyPressEvent(QKeyEvent* event) {
 }
 
 void AnalysisView::setAdminMode(bool isAdmin) {
+    adminMode_ = isAdmin;
+    if (adminButton_) {
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        adminButton_->setText(isAdmin ? "Logout" : "Login");
+        adminButton_->setToolTip(isAdmin ? "Logout Administrator" : "Admin Login");
+        adminButton_->setStyleSheet(isAdmin ? makeSidebarOutlineButtonStyle(tc, true)
+                                            : makeSidebarPrimaryButtonStyle(tc));
+    }
     if (enableDeleteCheck_) {
         enableDeleteCheck_->setEnabled(isAdmin);
         if (!isAdmin) {
@@ -2830,18 +3120,21 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     // All four columns are always present; the default scroll position shows
     // exactly Trigger Time + Reason, and the horizontal scrollbar reveals
-    // Group + Defect Frame without widening the 304px sidebar. All widths are
-    // fixed so the default pair (124 + 165 = 289px) always fills the ~264px
-    // viewport and the following columns start beyond its right edge, even on
-    // an empty table. A Stretch Reason would collapse to its minimum on
-    // overflow and let Group peek into the default view, so it is avoided.
+    // Group + Defect Frame without widening the 304px sidebar. Trigger Time is
+    // fixed wide enough for a full yyyy/MM/dd HH:mm:ss timestamp (the newest
+    // event is marked by a row tint, not an icon); the Reason column is sized
+    // by updateLogTableReasonWidths() to fill the remaining visible width
+    // (proportional), so the pair always spans the whole viewport and the
+    // following columns start beyond its right edge, even on an empty table.
+    // (Plain Stretch is avoided: it would collapse to zero when the fixed
+    // siblings alone overflow the viewport.)
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
     table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     table->horizontalHeader()->setStretchLastSection(false);
-    table->setColumnWidth(0, 124);
-    table->setColumnWidth(1, 165);
+    table->setColumnWidth(0, 138);
+    table->setColumnWidth(1, 110);
     table->setColumnWidth(2, 115);
     table->setColumnWidth(3, 100);
     table->horizontalScrollBar()->setValue(0);
@@ -2860,6 +3153,21 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     table->setStyleSheet(makeTableStyle(CameraConfig::getThemeColors(), deleteMode));
+}
+
+void AnalysisView::updateLogTableReasonWidths() {
+    const std::vector<QTableWidget*> tables = {paperBreakTable_, permanentPaperBreakTable_};
+    for (QTableWidget* table : tables) {
+        if (!table) {
+            continue;
+        }
+        const int viewportWidth = table->viewport()->width();
+        if (viewportWidth <= 0) {
+            continue; // Not laid out yet (e.g. hidden permanent table).
+        }
+        const int reasonWidth = std::max(80, viewportWidth - table->columnWidth(0));
+        table->setColumnWidth(1, reasonWidth);
+    }
 }
 
 void AnalysisView::connectLogTable(QTableWidget* table) {
