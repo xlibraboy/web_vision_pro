@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QScrollBar>
 #include <QDateTime>
 #include <QTimer>
 #include <QIcon>
@@ -318,12 +319,12 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
         "gridline-color: transparent; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; "
         "border: 1px solid %3; border-radius: 8px; outline: none; padding: 2px; }"
-        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 6px 8px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
+        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 6px 4px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
         "{ background-color: %1; color: #E0E0E0; }"
         "QTableCornerButton::section { background-color: %1; border: none; border-bottom: 1px solid %3; }"
-        "QTableWidget::item { padding: 4px 8px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
+        "QTableWidget::item { padding: 4px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
     ).arg(tc.bg, tc.btnBg, divider.name())
      + (deleteMode ? selDelete : selNormal);
 }
@@ -2811,7 +2812,7 @@ void AnalysisView::updatePermanentButtonLabel() {
 }
 
 QTableWidget* AnalysisView::createLogTable(QWidget* parent, bool deleteMode) {
-    QTableWidget* table = new QTableWidget(0, 4, parent);
+    auto* table = new QTableWidget(0, 4, parent);
     table->setHorizontalHeaderLabels({"Trigger Time", "Reason", "Group", "Defect Frame"});
     table->setItemDelegate(new LogSelectionDelegate(table));
     configureLogTable(table, deleteMode);
@@ -2827,11 +2828,23 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->horizontalHeader()->setHighlightSections(false);
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    table->setColumnWidth(0, 154);
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    // All four columns are always present; the default scroll position shows
+    // exactly Trigger Time + Reason, and the horizontal scrollbar reveals
+    // Group + Defect Frame without widening the 304px sidebar. All widths are
+    // fixed so the default pair (124 + 165 = 289px) always fills the ~264px
+    // viewport and the following columns start beyond its right edge, even on
+    // an empty table. A Stretch Reason would collapse to its minimum on
+    // overflow and let Group peek into the default view, so it is avoided.
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     table->horizontalHeader()->setStretchLastSection(false);
+    table->setColumnWidth(0, 124);
+    table->setColumnWidth(1, 165);
+    table->setColumnWidth(2, 115);
+    table->setColumnWidth(3, 100);
+    table->horizontalScrollBar()->setValue(0);
     table->setShowGrid(false);
     table->setFrameShape(QFrame::NoFrame);
     table->setSortingEnabled(false);
@@ -2844,7 +2857,7 @@ void AnalysisView::configureLogTable(QTableWidget* table, bool deleteMode) {
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setAlternatingRowColors(true);
     table->setFocusPolicy(Qt::NoFocus);
-    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     table->setStyleSheet(makeTableStyle(CameraConfig::getThemeColors(), deleteMode));
 }
