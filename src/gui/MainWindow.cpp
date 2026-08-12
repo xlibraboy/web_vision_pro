@@ -1445,6 +1445,19 @@ void MainWindow::manualTrigger() {
     EventController::TriggerContext triggerContext;
     triggerContext.reason = QStringLiteral("Manual Trigger");
     triggerContext.source = QStringLiteral("manual");
+    // Capture the live/simulated Machine Speed (OPC UA speed tag) so the event
+    // persists speedValue and review-time Align can compute per-camera offsets.
+    // currentSpeedMperMin() already rejects stale samples.
+    if (opcUaClientService_) {
+        opcUaClientService_->refreshSimulatedSpeed();
+    }
+    double speedMperMin = 0.0;
+    if (opcUaClientService_ && opcUaClientService_->currentSpeedMperMin(&speedMperMin) && speedMperMin > 0.0) {
+        triggerContext.speedValue = speedMperMin;
+        triggerContext.hasSpeed = true;
+        const QString unit = opcUaClientService_->speedUnit();
+        triggerContext.speedUnit = unit.isEmpty() ? QStringLiteral("m/min") : unit;
+    }
     if (!EventController::instance().triggerEvent(triggerContext)) {
         statusBar()->showMessage("Trigger ignored: no active camera is streaming frames.", 4000);
     }

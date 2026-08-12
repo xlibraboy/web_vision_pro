@@ -16,5 +16,6 @@
     <file>assets/icons/marker_square.svg</file>
     <file>assets/icons/marker_round.svg</file>
     <file>assets/icons/marker_arrow.svg</file>
+    <file>assets/icons/tools_panel.svg</file>
 </qresource>
 </RCC>

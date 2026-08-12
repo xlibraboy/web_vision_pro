@@ -386,6 +386,14 @@ bool OpcUaClientService::currentSpeedMperMin(double* mPerMin) const {
     return true;
 }
 
+QString OpcUaClientService::speedUnit() const {
+    return settings_.speedTag.unit;
+}
+
+void OpcUaClientService::refreshSimulatedSpeed() {
+    synthesizeSimulatedSpeed();
+}
+
 void OpcUaClientService::releaseAllManualTriggers() {
     manualTriggerHeld_.clear();
     manualLastFiredMs_.clear();
@@ -408,6 +416,11 @@ void OpcUaClientService::dispatchManualTrigger(const OpcUaTriggerTagSettings& ta
 }
 
 void OpcUaClientService::onPushHoldTimerTick() {
+    // Keep the simulated Machine Speed sample fresh: synthesizing only at
+    // start/connect lets it go stale after staleTimeoutMs, so later manual/Live
+    // triggers would capture no speed. The simulated value is a fixed constant,
+    // so re-publishing it is harmless. No-op unless enabled && simulated.
+    synthesizeSimulatedSpeed();
     // Real tags: the server only pushes value changes, so re-evaluate the cached
     // value each tick to keep firing while the tag stays True (push-hold).
     // Warnings are suppressed here: the value is unchanged since its last push,

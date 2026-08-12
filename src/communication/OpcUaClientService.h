@@ -53,6 +53,12 @@ public:
     // Latest machine speed sample in m/min (for spatial trigger alignment).
     // Returns false when no valid speed sample is available.
     bool currentSpeedMperMin(double* mPerMin) const;
+    // Configured unit of the Machine Speed tag (defaults to "m/min").
+    QString speedUnit() const;
+    // (Re)publish the simulated Machine Speed sample even when the OPC UA
+    // service is not running, so standalone manual/Live triggers still capture
+    // a speed. No-op unless the speed tag is enabled and simulated.
+    void refreshSimulatedSpeed();
 
 signals:
     void triggerReceived(const OpcUaClientService::TriggerEvent& event);

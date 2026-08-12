@@ -27,6 +27,7 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QJsonObject>
+#include <QMap>
 #include <QStringList>
 #include <vector>
 #include <deque>
@@ -90,7 +91,6 @@ public slots:
 private slots:
     void onServerButtonClicked();
     void onAdminButtonClicked();
-    void onLinkCamerasToggled(bool linked);
     void onDeleteClicked();
     void onTogglePermanentClicked();
     
@@ -144,6 +144,19 @@ private:
     void updateAnnotationSliderMarkers();
     void setPlaybackPlaying(bool playing);
     void seekToRelativeFrame(double relativeFrame);
+
+    // Per-camera playback alignment (review-time defect sync)
+    int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;
+    void markDefectForSelectedCamera();
+    void applyCameraAlignment();
+    void clearCameraOffsets();
+    void updateAlignmentStatus();
+    void onCameraOffsetChanged(int value);
+
+    // Right tools panel
+    void onToolsLockToggled();
+    void onToolsHoverTick();
+    void positionToolsPanel();
     
     // Main layout
     
@@ -289,7 +302,7 @@ private:
     void renderCurrentReviewFrame(bool updateSlider);
     void seekToFrameIndex(int frameIndex, bool updateSlider = true);
     QString annotationKey(int cameraId, int frameIndex) const;
-    void loadEventAnnotations(const QString& videoPath);
+    QMap<QString, int> loadEventAnnotations(const QString& videoPath);
     void saveEventAnnotations();
     void applyAnnotationToSelectedFrame();
     void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
@@ -335,6 +348,29 @@ private:
     QStringList currentEventCameraLabels_;
     QJsonObject eventAnnotations_;
     EventDatabase::EventInfo currentEventInfo_;
+
+    // Per-camera playback frame offset (slot 0-based) applied on top of the shared
+    // review timeline in renderCurrentReviewFrame(). Index = camera slot.
+    std::vector<int> cameraFrameOffsets_;
+    // Manual defect marks: key "cam{N}" (N 1-based) -> absolute frame index.
+    QJsonObject defectMarks_;
+
+    QPushButton*    markDefectButton_ = nullptr;
+    QSpinBox*       cameraOffsetSpin_ = nullptr;
+    QPushButton*    alignButton_ = nullptr;
+    QPushButton*    resetOffsetsButton_ = nullptr;
+    QLabel*         alignStatusLabel_ = nullptr;
+
+    // Right "Layer" tools panel: all review tools stacked vertically in named
+    // groups, slightly transparent, floating over the video frame area.
+    // Locked = pinned (always visible); unlocked = hover-driven: the vertical
+    // TOOLS tab on the frame's right edge reveals the panel.
+    QWidget*         rightToolsPanel_ = nullptr;
+    QLabel*          toolsEdgeTab_ = nullptr;
+    QPushButton*     toolsLockButton_ = nullptr;
+    QPushButton*     resetToolsButton_ = nullptr;
+    bool             toolsLocked_ = false;  // start unpinned (hover-driven)
+    QTimer*          toolsHoverTimer_ = nullptr;
 
     
     // On-demand video loading (per active camera)
