@@ -794,7 +794,7 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     sumFont.setBold(false);
     painter.setFont(sumFont);
     painter.setPen(QColor(tc.text));
-    int sy = ly + 28;
+    int sy = ly + 44;
     int camerasWithPosition = 0;
     int floorCounts[CameraFloor::kCount] = {0, 0, 0};
     for (const CameraMark& c : cameras) {
