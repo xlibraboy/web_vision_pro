@@ -356,7 +356,14 @@ MachineLayoutPanel::Canvas::Canvas(MachineLayoutPanel* owner)
 QRect MachineLayoutPanel::Canvas::cameraMarkerRect(const CameraMark& cam) const {
     const int x = cam.hasPosition ? static_cast<int>(owner_->mmToX(cam.mm))
                                   : 12 + cam.stackIndex * 16;
-    return QRect(x - 10, floorAxisY_[cam.lane] - 24, 20, 26);
+    // Side-aware y-center mirroring drawCameraMarkers: OPERATOR sits in the
+    // upper sub-row (axisY - 18), DRIVE in the lower (axisY + 18). Rect is
+    // centered on the marker so hover/click hit-testing overlaps the drawn
+    // shape (triangle apex yCenter-10..base yCenter+6; rect yCenter±8).
+    const int axisY = floorAxisY_[cam.lane];
+    const bool isOperator = cam.side.compare("OPERATOR SIDE", Qt::CaseInsensitive) == 0;
+    const int yCenter = isOperator ? axisY - 18 : axisY + 18;
+    return QRect(x - 10, yCenter - 10, 20, 20);
 }
 
 QRect MachineLayoutPanel::Canvas::defectMarkerRect(const DefectMark& def) const {
