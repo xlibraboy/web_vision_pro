@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Machine Layout — 3 Visual Candidates</title>
+<style>
+  :root {
+    --bg:        #1C2128;
+    --surface:   #24292E;
+    --inset:     #1C2128;
+    --border:    #30363D;
+    --text:      #E3E3E3;
+    --muted:     #8B949E;
+    --accent:    #00E5FF;
+    --success:   #2EA043;
+    --warn:      #E0A800;
+    --danger:    #FF5A5A;
+    --paper:     #F5F1E6;
+    --press:     #FF9900;
+    --predry:    #0A84FF;
+    --afterdry:  #00CC44;
+    --calender:  #B233FF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0E1116;
+    color: var(--text);
+    font-family: 'Segoe UI', Inter, Roboto, sans-serif;
+    padding: 24px;
+  }
+  h1 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 24px;
+  }
+  .variants {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    max-width: 1400px;
+  }
+  .variant {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .variant header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .variant h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .badge {
+    font-size: 10px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px 8px;
+  }
+  .frame {
+    padding: 16px;
+    background: var(--bg);
+  }
+  /* Variant A — schematic top-down */
+  .schematic {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 8px;
+  }
+  .header-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .header-row .label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .combo {
+    margin-left: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+  .canvas-a {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 360px;
+    padding: 12px;
+    overflow: hidden;
+  }
+  /* section bar */
+  .section-bar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    height: 28px;
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .section-bar div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #0E1116;
+  }
+  .section-bar .s1 { background: var(--press);    flex: 1.0; }
+  .section-bar .s2 { background: var(--predry);   flex: 1.6; }
+  .section-bar .s3 { background: var(--afterdry); flex: 1.4; }
+  .section-bar .s4 { background: var(--calender); flex: 1.0; }
+
+  /* floor lanes, drawn as horizontal mm-axis lines */
+  .lanes {
+    position: absolute;
+    top: 60px;
+    left: 12px;
+    right: 12px;
+    bottom: 60px;
+  }
+  .lane {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 80px;
+  }
+  .lane .lane-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .lane .axis {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    height: 1px;
+    background: var(--border);
+  }
+  .lane .tick {
+    position: absolute;
+    bottom: 22px;
+    width: 1px;
+    height: 6px;
+    background: var(--border);
+  }
+  .lane .tick-label {
+    position: absolute;
+    bottom: 8px;
+    font-size: 9px;
+    color: var(--muted);
+    transform: translateX(-50%);
+  }
+  .cam {
+    position: absolute;
+    transform: translate(-50%, -50%);
+  }
+  .cam .pin {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 2px solid #fff;
+    background: var(--press);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .cam.drive .pin { border-radius: 4px; }
+  .cam.operator .pin {
+    border-radius: 0;
+    width: 0;
+    height: 0;
+    background: transparent;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 16px solid var(--calender);
+    box-shadow: none;
+  }
+  .cam .lbl {
+    position: absolute;
+    top: 100%;
+    margin-top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  /* defect lane */
+  .defect-strip {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .defect-strip .diamond {
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    transform: rotate(45deg);
+    border: 1px solid #fff;
+  }
+  .defect-strip .axis {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    position: relative;
+  }
+  .defect-strip .axis span {
+    position: absolute;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    transform: rotate(45deg) translateX(-3px);
+  }
+
+  /* paper web for variant A */
+  .paper-web {
+    position: absolute;
+    top: 44px;
+    left: 12px;
+    right: 12px;
+    height: 6px;
+    background: var(--paper);
+    border-top: 1px solid #d6cfb7;
+    border-bottom: 1px solid #d6cfb7;
+    border-radius: 1px;
+    z-index: 0;
+  }
+  .direction {
+    position: absolute;
+    top: 46px;
+    right: 12px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .direction::after {
+    content: " →";
+    color: var(--accent);
+  }
+
+  /* Variant B — ribbon/sections */
+  .canvas-b {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    height: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ribbon {
+    height: 70px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ribbon .ribbon-bg {
+    position: absolute;
+    inset: 0;
+    opacity: 0.25;
+  }
+  .ribbon .ribbon-label {
+    position: absolute;
+    left: 12px;
+    top: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .ribbon .cams {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 28px;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .ribbon .cam-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 10px;
+    color: var(--text);
+    min-width: 96px;
+    line-height: 1.3;
+  }
+  .ribbon .cam-card .cam-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .ribbon .cam-card .cam-name {
+    color: var(--muted);
+    font-size: 9px;
+  }
+  .ribbon .cam-card .pos {
+    color: var(--text);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .ribbon.floor1 .ribbon-bg { background: var(--press); }
+  .ribbon.floor2 .ribbon-bg { background: var(--predry); }
+  .ribbon.floor3 .ribbon-bg { background: var(--afterdry); }
+
+  .paper-belt {
+    height: 18px;
+    background: var(--paper);
+    border: 1px solid #d6cfb7;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .paper-belt::after {
+    content: "PAPER FLOW  →";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #8a8267;
+    letter-spacing: 0.2em;
+  }
+
+  /* Variant C — isometric */
+  .canvas-c {
+    position: relative;
+    background: linear-gradient(180deg, #1F242B 0%, #15181D 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 380px;
+    overflow: hidden;
+  }
+  .iso-machine {
+    position: absolute;
+    inset: 20px 20px 60px 20px;
+    transform: perspective(700px) rotateX(40deg) rotateZ(-12deg);
+    transform-origin: 50% 50%;
+    transform-style: preserve-3d;
+  }
+  .iso-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 60px;
+    display: flex;
+    align-items: center;
+  }
+  .iso-cylinder {
+    flex: 1;
+    height: 36px;
+    background: linear-gradient(180deg, #4a5560 0%, #2a3038 100%);
+    border: 1px solid #5a6470;
+    border-radius: 18px;
+    margin: 0 4px;
+    box-shadow: 0 2px 0 #181c22, inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .iso-frame {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -22px;
+    height: 4px;
+    background: linear-gradient(180deg, #4a5560, #2a3038);
+    border: 1px solid #5a6470;
+  }
+  .iso-paper {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--paper);
+    box-shadow: 0 -2px 0 #d6cfb7;
+  }
+  .iso-camera {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: var(--accent);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .iso-camera::after {
+    content: attr(data-id);
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .iso-section-label {
+    position: absolute;
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    transform: translateX(-50%);
+  }
+  .iso-warning {
+    position: absolute;
+    bottom: 8px;
+    left: 12px;
+    right: 12px;
+    color: var(--muted);
+    font-size: 10px;
+    text-align: center;
+  }
+
+  /* footer note */
+  .note {
+    font-size: 11px;
+    color: var(--muted);
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    line-height: 1.5;
+  }
+  .note strong { color: var(--text); }
+</style>
+</head>
+<body>
+
+<h1>Machine Layout — 3 visual candidates</h1>
+<div class="sub">
+  Same data: 8 cameras across 3 floors, marked defects from one event.
+  Pick the metaphor that best shows equipment position at a glance.
+</div>
+
+<div class="variants">
+
+  <!-- ─── Variant A: Schematic top-down ─── -->
+  <div class="variant">
+    <header>
+      <h2>A · Schematic top-down</h2>
+      <span class="badge">Recommended · low risk</span>
+    </header>
+    <div class="frame schematic">
+      <div class="header-row">
+        <span class="label">Defects from event</span>
+        <span class="combo">2026-08-13 14:22:03 (3 defects)</span>
+      </div>
+
+      <div class="canvas-a">
+        <!-- section bar at the top -->
+        <div class="section-bar">
+          <div class="s1">PRESS-PART</div>
+          <div class="s2">PRE-DRYER</div>
+          <div class="s3">AFTER-DRYER</div>
+          <div class="s4">CALENDER-REEL</div>
+        </div>
+
+        <div class="paper-web"></div>
+        <div class="direction">DRIVE&nbsp;SIDE</div>
+
+        <!-- 3 floor lanes with cameras -->
+        <div class="lanes">
+          <div class="lane" style="top: 8px;">
+            <span class="lane-label">1ST FLOOR</span>
+            <div class="axis"></div>
+            <div class="tick" style="left: 10%;"></div>
+            <div class="tick-label" style="left: 10%;">0 mm</div>
+            <div class="tick" style="left: 35%;"></div>
+            <div class="tick-label" style="left: 35%;">5 000</div>
+            <div class="tick" style="left: 60%;"></div>
+            <div class="tick-label" style="left: 60%;">10 000</div>
+            <div class="tick" style="left: 85%;"></div>
+            <div class="tick-label" style="left: 85%;">15 000</div>
+            <div class="cam drive" style="left: 12%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-01</div>
+            </div>
+            <div class="cam drive" style="left: 28%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-02</div>
+            </div>
+            <div class="cam operator" style="left: 42%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-03</div>
+            </div>
+          </div>
+          <div class="lane" style="top: 88px;">
+            <span class="lane-label">2ND FLOOR</span>
+            <div class="axis"></div>
+            <div class="cam drive" style="left: 55%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-04</div>
+            </div>
+            <div class="cam operator" style="left: 70%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-05</div>
+            </div>
+          </div>
+          <div class="lane" style="top: 168px;">
+            <span class="lane-label">3RD FLOOR</span>
+            <div class="axis"></div>
+            <div class="cam drive" style="left: 80%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-06</div>
+            </div>
+            <div class="cam operator" style="left: 90%; top: 30px;">
+              <div class="pin"></div><div class="lbl">CAM-07</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- defect strip at the bottom, on the same shared mm axis -->
+        <div class="defect-strip">
+          <span style="font-weight: 600; color: var(--text);">DEFECTS</span>
+          <div class="axis">
+            <span style="left: 18%; background: var(--accent);"></span>
+            <span style="left: 42%; background: var(--press);"></span>
+            <span style="left: 65%; background: var(--predry);"></span>
+          </div>
+          <span>3 marks</span>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <strong>What you see at a glance:</strong> section ownership via the colored bar,
+      three stacked floor lanes, paper direction, mm scale shared by cameras and defects.
+      <br/>
+      <strong>Trade-off:</strong> cameras are still abstract pins — no machine hardware drawn.
+    </div>
+  </div>
+
+  <!-- ─── Variant B: Ribbon / sections ─── -->
+  <div class="variant">
+    <header>
+      <h2>B · Stacked ribbons + camera cards</h2>
+      <span class="badge">More colorful · denser</span>
+    </header>
+    <div class="frame">
+      <div class="canvas-b">
+        <div class="ribbon floor1">
+          <div class="ribbon-bg"></div>
+          <div class="ribbon-label">1ST FLOOR · 3 CAMERAS</div>
+          <div class="cams">
+            <div class="cam-card">
+              <div class="cam-id">CAM-01</div>
+              <div class="cam-name">DRIVE SIDE</div>
+              <div class="pos">0 mm · Press-Part</div>
+            </div>
+            <div class="cam-card">
+              <div class="cam-id">CAM-02</div>
+              <div class="cam-name">DRIVE SIDE</div>
+              <div class="pos">4 200 mm · Press-Part</div>
+            </div>
+            <div class="cam-card">
+              <div class="cam-id">CAM-03</div>
+              <div class="cam-name">OPERATOR SIDE</div>
+              <div class="pos">7 800 mm · Pre-Dryer</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon floor2">
+          <div class="ribbon-bg"></div>
+          <div class="ribbon-label">2ND FLOOR · 2 CAMERAS</div>
+          <div class="cams">
+            <div class="cam-card">
+              <div class="cam-id">CAM-04</div>
+              <div class="cam-name">DRIVE SIDE</div>
+              <div class="pos">10 500 mm · After-Dryer</div>
+            </div>
+            <div class="cam-card">
+              <div class="cam-id">CAM-05</div>
+              <div class="cam-name">OPERATOR SIDE</div>
+              <div class="pos">13 200 mm · After-Dryer</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon floor3">
+          <div class="ribbon-bg"></div>
+          <div class="ribbon-label">3RD FLOOR · 3 CAMERAS</div>
+          <div class="cams">
+            <div class="cam-card">
+              <div class="cam-id">CAM-06</div>
+              <div class="cam-name">DRIVE SIDE</div>
+              <div class="pos">15 800 mm · Calender-Reel</div>
+            </div>
+            <div class="cam-card">
+              <div class="cam-id">CAM-07</div>
+              <div class="cam-name">OPERATOR SIDE</div>
+              <div class="pos">17 200 mm · Calender-Reel</div>
+            </div>
+            <div class="cam-card">
+              <div class="cam-id">CAM-08</div>
+              <div class="cam-name">DRIVE SIDE</div>
+              <div class="pos">18 500 mm · Calender-Reel</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="paper-belt"></div>
+      </div>
+    </div>
+    <div class="note">
+      <strong>What you see at a glance:</strong> floor color-coded rows, every camera as a
+      named card with side, group, position. Paper belt at the bottom shows flow direction.
+      <br/>
+      <strong>Trade-off:</strong> cards are stacked left→right loosely — no real position-to-mm
+      mapping, so spatial accuracy is lost. Defects would need a separate area.
+    </div>
+  </div>
+
+  <!-- ─── Variant C: Isometric ─── -->
+  <div class="variant">
+    <header>
+      <h2>C · Isometric machine</h2>
+      <span class="badge">Realistic · highest risk</span>
+    </header>
+    <div class="frame">
+      <div class="canvas-c">
+        <div class="iso-machine">
+          <div class="iso-paper" style="top: 30px;"></div>
+          <div class="iso-row" style="top: 60px;">
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+            <div class="iso-cylinder"></div>
+          </div>
+          <div class="iso-frame"></div>
+
+          <!-- cameras as glowing dots -->
+          <div class="iso-camera" data-id="CAM-01" style="left: 5%; top: 40px; background: var(--press);"></div>
+          <div class="iso-camera" data-id="CAM-02" style="left: 18%; top: 40px; background: var(--press);"></div>
+          <div class="iso-camera" data-id="CAM-03" style="left: 32%; top: 40px; background: var(--predry);"></div>
+          <div class="iso-camera" data-id="CAM-04" style="left: 48%; top: 40px; background: var(--predry);"></div>
+          <div class="iso-camera" data-id="CAM-05" style="left: 60%; top: 40px; background: var(--afterdry);"></div>
+          <div class="iso-camera" data-id="CAM-06" style="left: 74%; top: 40px; background: var(--afterdry);"></div>
+          <div class="iso-camera" data-id="CAM-07" style="left: 86%; top: 40px; background: var(--calender);"></div>
+          <div class="iso-camera" data-id="CAM-08" style="left: 94%; top: 40px; background: var(--calender);"></div>
+
+          <div class="iso-section-label" style="left: 10%; top: 88px;">PRESS</div>
+          <div class="iso-section-label" style="left: 40%; top: 88px;">PRE-DRYER</div>
+          <div class="iso-section-label" style="left: 67%; top: 88px;">AFTER-DRYER</div>
+          <div class="iso-section-label" style="left: 90%; top: 88px;">CALENDER</div>
+        </div>
+
+        <div class="iso-warning">
+          Illustrative mockup — QPainter paths only, no real photographs.
+          Layout, scaling, and density approximate; verification will use the actual app.
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <strong>What you see at a glance:</strong> a paper machine looks like a paper machine:
+      cylinders, frame, cameras mounted above the sheet, section labels under the row.
+      <br/>
+      <strong>Trade-off:</strong> highest implementation cost, hardest to keep readable with 8+
+      cameras (markers collide), hardest to verify headlessly, hardest to keep accessible
+      (3D transforms, perspective, depth cues don't work for color-blind users).
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
