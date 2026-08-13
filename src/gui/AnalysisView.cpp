@@ -374,8 +374,8 @@ static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
         "  color: %2;"
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
-        "  padding: 0 10px;"
-        "  font-size: 12px;"
+        "  padding: 0 8px;"
+        "  font-size: 11px;"
         "  font-weight: 700;"
         "  text-align: left;"
         "}"
@@ -1445,20 +1445,26 @@ void AnalysisView::setupPlaybackControls() {
 
     // 1. Speed
     speedButton_ = new QPushButton("1.0x", playbackPanel_);
-    speedButton_->setFixedSize(64, 28);
+    speedButton_->setFixedSize(72, 28);
     speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
     speedMenu_ = new QMenu(speedButton_);
+    // Trimmed to the slow end — those are the speeds used to inspect defects
+    // frame-by-frame at low event frame rates. Fast (2.0x) is kept as the top
+    // speed for quick scanning.
     speedMenu_->addAction("Ultra Slow (0.05x)")->setData(0.05);
     speedMenu_->addAction("Very Slow (0.10x)")->setData(0.10);
-    speedMenu_->addAction("Slow (0.15x)")->setData(0.15);
-    speedMenu_->addAction("Slow+ (0.20x)")->setData(0.20);
-    speedMenu_->addAction("Legacy Very Slow (0.25x)")->setData(0.25);
-    speedMenu_->addAction("Half Speed (0.5x)")->setData(0.5);
+    speedMenu_->addAction("Slow (0.25x)")->setData(0.25);
     speedMenu_->addAction("Normal (1.0x)")->setData(1.0);
     speedMenu_->addAction("Fast (2.0x)")->setData(2.0);
-    speedMenu_->addAction("Very Fast (4.0x)")->setData(4.0);
     speedButton_->setMenu(speedMenu_);
     connect(speedMenu_, &QMenu::triggered, this, &AnalysisView::onSpeedChanged);
+    // Compact dropdown: small font, tight rows, readable accent highlight.
+    speedMenu_->setStyleSheet(QString(
+        "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: 11px; }"
+        "QMenu::item { padding: 2px 24px 2px 8px; font-size: 11px; }"
+        "QMenu::item:selected { background-color: %4; color: %5; }"
+        "QMenu::item:disabled { color: #888888; }"
+    ).arg(tc.bg, tc.border, tc.text, tc.btnHover, tc.primary));
     toolbarLayout->addWidget(speedButton_);
     
     // 2. Play/Pause
@@ -1477,6 +1483,8 @@ void AnalysisView::setupPlaybackControls() {
     // 4. Step Back
     prevButton_ = createSvgButton("Step Back.svg", "Step Back");
     prevButton_->setAutoRepeat(true);
+    prevButton_->setAutoRepeatDelay(300);
+    prevButton_->setAutoRepeatInterval(33);  // matches Normal (1.0x)
     connect(prevButton_, &QPushButton::pressed, this, &AnalysisView::onPreviousPressed);
     connect(prevButton_, &QPushButton::released, this, &AnalysisView::onPreviousReleased);
     toolbarLayout->addWidget(prevButton_);
@@ -1512,6 +1520,8 @@ void AnalysisView::setupPlaybackControls() {
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
     nextButton_->setAutoRepeat(true);
+    nextButton_->setAutoRepeatDelay(300);
+    nextButton_->setAutoRepeatInterval(33);  // matches Normal (1.0x)
     connect(nextButton_, &QPushButton::pressed, this, &AnalysisView::onNextPressed);
     connect(nextButton_, &QPushButton::released, this, &AnalysisView::onNextReleased);
     toolbarLayout->addWidget(nextButton_);
@@ -2440,8 +2450,15 @@ void AnalysisView::onBeginClicked() {
     seekToFrameIndex(0);
 }
 
+int AnalysisView::playbackStepSize() const {
+    // The speed selector also drives scrubbing: at 1.0x one step = 1 frame;
+    // slower speeds still step 1 frame (rate differs), faster speeds jump
+    // multiple frames per step.
+    return std::max(1, static_cast<int>(std::round(playbackSpeed_)));
+}
+
 void AnalysisView::onPreviousPressed() {
-    seekToFrameIndex(currentReviewFrameIndex() - 1);
+    seekToFrameIndex(currentReviewFrameIndex() - playbackStepSize());
 }
 
 void AnalysisView::onPreviousReleased() {}
@@ -2451,7 +2468,7 @@ void AnalysisView::onResetClicked() {
 }
 
 void AnalysisView::onNextPressed() {
-    seekToFrameIndex(currentReviewFrameIndex() + 1);
+    seekToFrameIndex(currentReviewFrameIndex() + playbackStepSize());
 }
 
 void AnalysisView::onNextReleased() {}
@@ -2475,8 +2492,24 @@ void AnalysisView::onSpeedChanged(QAction* action) {
     // Instead of using messy fallback icons, we standardise the typography.
     // The global stylesheet handles its look and feel cleanly.
     speedButton_->setIcon(QIcon()); // Clear any broken icon
-    speedButton_->setText(QString("%1x").arg(playbackSpeed_, 0, 'f', 1));
-    
+    // Slow speeds need 2 decimals (0.05x would otherwise round to 0.1x);
+    // 1.0x / 2.0x keep 1 decimal to match the menu labels.
+    const QString speedText = playbackSpeed_ < 1.0
+        ? QString("%1x").arg(playbackSpeed_, 0, 'f', 2)
+        : QString("%1x").arg(playbackSpeed_, 0, 'f', 1);
+    speedButton_->setText(speedText);
+
+    // Scrubbing speed: holding a step button repeats at the chosen rate so
+    // Ultra Slow scrubs frame-by-frame slowly and Very Fast jumps multiple
+    // frames per repeat.
+    const int repeatInterval = std::max(1, static_cast<int>(33.0 / playbackSpeed_));
+    if (prevButton_) {
+        prevButton_->setAutoRepeatInterval(repeatInterval);
+    }
+    if (nextButton_) {
+        nextButton_->setAutoRepeatInterval(repeatInterval);
+    }
+
     // Update timer interval if playing
     if (isPlaying_) {
         setPlaybackPlaying(true);

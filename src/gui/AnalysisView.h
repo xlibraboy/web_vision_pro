@@ -115,6 +115,8 @@ private slots:
     void onFrameInputChanged();
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
+    // How many frames one step / scrub advances at the current speed selector.
+    int playbackStepSize() const;
 
     // Diagnostic tab refresh slots
     void refreshDiagTable();
