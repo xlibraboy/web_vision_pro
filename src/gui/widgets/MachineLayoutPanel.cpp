@@ -745,6 +745,39 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
         painter.drawText(lx + 16, ly, name);
         lx += 16 + painter.fontMetrics().horizontalAdvance(name) + 22;
     }
+
+    // ── Side split legend ──
+    const int sideY = ly + 22;  // one line below the camera-groups legend
+    QFont sideFont = painter.font();
+    sideFont.setPixelSize(10);
+    sideFont.setBold(true);
+    painter.setFont(sideFont);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(leftMargin, sideY, QStringLiteral("SIDE SPLIT:"));
+
+    // Rounded rect swatch = DRIVE
+    const int swX = leftMargin + 110;
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.setBrush(QColor("#8B949E"));
+    painter.drawRoundedRect(QRect(swX, sideY - 9, 12, 12), 3, 3);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(swX + 16, sideY, QStringLiteral("DRIVE SIDE  (lower sub-row)"));
+    const int driveW = painter.fontMetrics().horizontalAdvance("DRIVE SIDE  (lower sub-row)");
+
+    // Triangle swatch = OPERATOR
+    const int opX = swX + driveW + 28;
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.setBrush(QColor("#8B949E"));
+    QPainterPath tri;
+    tri.moveTo(opX + 6, sideY - 9);
+    tri.lineTo(opX + 12, sideY + 3);
+    tri.lineTo(opX, sideY + 3);
+    tri.closeSubpath();
+    painter.drawPath(tri);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE  (upper sub-row)"));
 }
 
 void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
