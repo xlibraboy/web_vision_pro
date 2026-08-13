@@ -29,6 +29,9 @@
 #include <QKeySequence>
 #include <QFrame>
 #include <QPainter>
+#include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
 #include <QPolygonF>
 #include <QPainterPath>
 #include <QStyledItemDelegate>
@@ -89,6 +92,33 @@ public:
         painter->restore();
     }
 };
+
+// Render a vertically-oriented label pixmap (text rotated 90° so it reads
+// top-to-bottom) used for the compact TOOLS tab on the frame's right edge.
+// Small pixel size + tight letter spacing keep the handle slim.
+static QPixmap makeVerticalTabPixmap(const QString& text, const QColor& color,
+                                     int w, int h) {
+    QPixmap pm(w, h);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QFont f = p.font();
+    f.setPixelSize(9);
+    f.setBold(true);
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+    p.setFont(f);
+    p.setPen(color);
+    p.translate(w / 2.0, h / 2.0);
+    p.rotate(90);
+    const QRect textRect(-h / 2, -w / 2, h, w);
+    p.drawText(textRect, Qt::AlignCenter, text);
+    return pm;
+}
+
+// Right tools panel animation constant: drawer slide distance on show/hide.
+// (No drop-shadow margin is needed — the panel uses no graphics effect while
+// idle, so nesting artifacts on X11 are avoided entirely.)
+static constexpr int kToolsSlidePx = 16;
 
 // Render a small trend sparkline from a series of samples. The highest
 // sample maps to ~90% of the height; the line is colored by severity.
@@ -443,7 +473,7 @@ AnalysisView::~AnalysisView() {}
 
 void AnalysisView::setupUI() {
     auto mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(4, 4, 4, 4);
+    mainLayout->setContentsMargins(4, 4, 4, 0);
     mainLayout->setSpacing(4);
      
     // Create main splitter (horizontal: left sidebar | main area)
@@ -1019,17 +1049,23 @@ void AnalysisView::setupMainArea() {
     connect(tabWidget_, &QTabWidget::currentChanged, this, &AnalysisView::onTabChanged);
 
     // ── Right "Layer" tools panel ──────────────────────────────────────────
-    // All review tools live here, stacked vertically, with hide/show (toggle in
-    // the playback row) and lock/unlock (header button). Widgets are reparented
-    // from the detail-tools row and the playback align row; connections are
-    // unaffected by reparenting. The panel floats over the tab widget (not a
-    // splitter child), so hide/show never resizes the camera frames.
+    // All review tools live here, stacked vertically in named groups. The
+    // panel floats over the video frame area, docked to its right edge, with
+    // a vertical TOOLS tab as the drawer handle: unpinned, hovering the tab
+    // (or the panel) shows the panel and leaving hides it; Lock pins it open.
+    // Widgets are reparented from the detail-tools row and the playback align
+    // row; connections are unaffected by reparenting. The panel is not a
+    // splitter child, so hide/show never resizes the camera frames.
+    // The panel is a direct child of the frame area, floating over the camera
+    // frames. No drop shadow is used: nesting a shadow under the fade's opacity
+    // effect renders incorrectly on X11 (and a widget can own only one graphics
+    // effect) — depth comes from the border instead. The fade effect itself is
+    // attached only while animating (see ensure/clearToolsPanelOpacityEffect),
+    // so no effect is ever active while the panel is idle or hidden.
     rightToolsPanel_ = new QWidget(mainArea_);
     rightToolsPanel_->setObjectName("rightToolsPanel");
+    rightToolsPanel_->setAttribute(Qt::WA_StyledBackground, true);
     rightToolsPanel_->setFixedWidth(240);
-    rightToolsPanel_->setStyleSheet(QString(
-        "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
-        .arg(tc.bg, tc.border));
     auto panelLayout = new QVBoxLayout(rightToolsPanel_);
     panelLayout->setContentsMargins(10, 10, 10, 10);
     panelLayout->setSpacing(8);
@@ -1042,7 +1078,8 @@ void AnalysisView::setupMainArea() {
     panelTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700;").arg(tc.text));
     toolsLockButton_ = new QPushButton("Lock", rightToolsPanel_);  // starts unpinned (hover-driven)
     toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
-    toolsLockButton_->setToolTip("Unpinned: hover the TOOLS tab above the frame to show the panel.");
+    toolsLockButton_->setCursor(Qt::PointingHandCursor);
+    toolsLockButton_->setToolTip("Unpinned: hover the TOOLS tab on the frame's right edge to show the panel.");
     connect(toolsLockButton_, &QPushButton::clicked, this, &AnalysisView::onToolsLockToggled);
     panelHeader->addWidget(panelTitle);
     panelHeader->addStretch(1);
@@ -1066,8 +1103,18 @@ void AnalysisView::setupMainArea() {
             .arg(QColor(tc.text).lighter(135).name()));
         return label;
     };
+    // Thin divider between tool groups.
+    auto panelDivider = [&]() -> QFrame* {
+        auto* line = new QFrame(rightToolsPanel_);
+        line->setFrameShape(QFrame::HLine);
+        line->setFrameShadow(QFrame::Plain);
+        line->setStyleSheet(QString("background-color: %1; border: none; max-height: 1px; min-height: 1px;")
+                            .arg(QColor(tc.border).lighter(118).name()));
+        return line;
+    };
 
-    // Marker tool
+    // ── Marker ──
+    panelLayout->addWidget(sectionLabel("MARKER"));
     auto markerRow = new QHBoxLayout();
     markerRow->addWidget(markerToolCheck_);
     markerRow->addWidget(markerShapeCombo_);
@@ -1075,7 +1122,9 @@ void AnalysisView::setupMainArea() {
     indentRow(markerRow);
     panelLayout->addLayout(markerRow);
 
-    // Zoom
+    // ── View ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("VIEW"));
     auto zoomRow = new QHBoxLayout();
     zoomRow->addWidget(captionLabel("Zoom"));
     zoomSlider_->setFixedWidth(110);
@@ -1085,7 +1134,6 @@ void AnalysisView::setupMainArea() {
     indentRow(zoomRow);
     panelLayout->addLayout(zoomRow);
 
-    // Brightness
     auto brightnessRow = new QHBoxLayout();
     brightnessRow->addWidget(captionLabel("Bright"));
     brightnessSlider_->setFixedWidth(110);
@@ -1095,12 +1143,12 @@ void AnalysisView::setupMainArea() {
     indentRow(brightnessRow);
     panelLayout->addLayout(brightnessRow);
 
+    resetToolsButton_->setCursor(Qt::PointingHandCursor);
     panelLayout->addWidget(resetToolsButton_);
 
-    panelLayout->addSpacing(2);
-    panelLayout->addWidget(sectionLabel("MARKER & VIEW"));
-
-    // Per-camera offset
+    // ── Defect align ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("DEFECT ALIGN"));
     auto offsetRow = new QHBoxLayout();
     offsetRow->addWidget(captionLabel("Camera offset"));
     offsetRow->addWidget(cameraOffsetSpin_);
@@ -1108,12 +1156,11 @@ void AnalysisView::setupMainArea() {
     indentRow(offsetRow);
     panelLayout->addLayout(offsetRow);
 
+    markDefectButton_->setCursor(Qt::PointingHandCursor);
     panelLayout->addWidget(markDefectButton_);
 
-    panelLayout->addSpacing(2);
-    panelLayout->addWidget(sectionLabel("DEFECT ALIGN"));
-
-    // Alignment controls (moved from the playback align row)
+    alignButton_->setCursor(Qt::PointingHandCursor);
+    resetOffsetsButton_->setCursor(Qt::PointingHandCursor);
     auto alignRow2 = new QHBoxLayout();
     alignRow2->addWidget(alignButton_);
     alignRow2->addWidget(resetOffsetsButton_);
@@ -1163,17 +1210,37 @@ void AnalysisView::setupMainArea() {
     connect(toolsHoverTimer_, &QTimer::timeout, this, &AnalysisView::onToolsHoverTick);
     toolsHoverTimer_->start();
 
-    // TOOLS tab above the frame's top edge: the hover target that reveals the
-    // panel when unpinned. Always visible.
-    toolsEdgeTab_ = new QLabel("TOOLS", mainArea_);
+    // Vertical TOOLS tab on the frame's right edge: the hover target that
+    // reveals the panel when unpinned. Always visible; the label text is
+    // rotated 90° so it reads top-to-bottom down the edge. restyleToolsEdgeTab
+    // renders the vertical pixmap + theme background.
+    // Compact vertical tab: slim handle, shorter run than before.
+    toolsEdgeTab_ = new QLabel(mainArea_);
     toolsEdgeTab_->setObjectName("toolsEdgeTab");
-    toolsEdgeTab_->setFixedSize(64, 24);
+    toolsEdgeTab_->setFixedSize(22, 84);
     toolsEdgeTab_->setAlignment(Qt::AlignCenter);
-    toolsEdgeTab_->setStyleSheet(QString(
-        "QWidget#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
-        " border-radius: 6px; color: %3; font-size: 10px; font-weight: 700; }")
-        .arg(tc.bg, tc.border, QColor(tc.text).lighter(125).name()));
     toolsEdgeTab_->setToolTip("Hover to show the Tools panel.");
+    restyleToolsEdgeTab();
+
+    // Style every panel control with the current theme (also re-runs on theme
+    // changes via updateTheme -> applyToolsPanelTheme).
+    applyToolsPanelTheme();
+
+    // Show/hide transition: fade the panel's opacity while sliding it sideways,
+    // so it reads as a drawer retracting into the frame's right edge. The fade
+    // effect is created on demand (ensureToolsPanelOpacityEffect) so nothing is
+    // composited while the panel is idle or hidden.
+    toolsPanelFadeAnim_ = new QPropertyAnimation(this);
+    toolsPanelFadeAnim_->setPropertyName("opacity");
+    toolsPanelFadeAnim_->setDuration(150);
+    connect(toolsPanelFadeAnim_, &QPropertyAnimation::finished,
+            this, &AnalysisView::onToolsPanelHideFinished);
+    toolsPanelSlideAnim_ = new QPropertyAnimation(rightToolsPanel_, "geometry", this);
+    toolsPanelSlideAnim_->setDuration(150);
+
+    // Start hidden (unpinned): the hover timer reveals it when the cursor
+    // reaches the tab or the panel.
+    rightToolsPanel_->hide();
 
     // Float over the video frame area, clear of the playback panel.
     positionToolsPanel();
@@ -1226,7 +1293,7 @@ void AnalysisView::applyAnalysisViewStyle() {
     }
     if (playbackInfoLabel_) {
         playbackInfoLabel_->setStyleSheet(QString(
-            "color: %1; font-family: '%2'; font-size: %3px; font-weight: 600; margin-left: 6px;"
+            "color: %1; font-family: '%2'; font-size: %3px; font-weight: 400; margin-left: 2px;"
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
 
@@ -1327,7 +1394,9 @@ void AnalysisView::setCameraCount(int count) {
 void AnalysisView::setupPlaybackControls() {
     playbackPanel_ = new QWidget(this);
     playbackPanel_->setObjectName("playbackPanel"); // For CSS specificity
-    playbackPanel_->setFixedHeight(60); 
+    // No fixed height — let the panel fit tightly around its content (buttons +
+    // value) after the align-row widgets are reparented to the tools panel.
+    playbackPanel_->setMinimumHeight(78);
     playbackPanel_->setAutoFillBackground(true); // Force paint
     // Use background-color and ensure contrast. 
     ThemeColors tc = CameraConfig::getThemeColors();
@@ -1336,14 +1405,16 @@ void AnalysisView::setupPlaybackControls() {
         .arg(tc.bg, tc.border));
     
     auto layout = new QVBoxLayout(playbackPanel_);
-    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setContentsMargins(6, 4, 6, 3);
     layout->setSpacing(0);
     
     // Playback slider (System Standard)
     // === PLAYBACK CONTROL TOOLBAR (Single Line + SVGs) ===
     auto toolbarLayout = new QHBoxLayout();
     toolbarLayout->setSpacing(4);
-    toolbarLayout->setContentsMargins(0, 0, 0, 0); 
+    // Top margin reserves the flag strip where the zero/trigger marker sits,
+    // above the scrubbing line (updateSliderZeroMarker positions it there).
+    toolbarLayout->setContentsMargins(0, 14, 0, 0);
 
     auto createDivider = [&]() -> QFrame* {
         QFrame* divider = new QFrame(playbackPanel_);
@@ -1359,7 +1430,7 @@ void AnalysisView::setupPlaybackControls() {
         QPushButton* btn = new QPushButton(playbackPanel_);
         btn->setIcon(QIcon(":/assets/icons/" + iconName));
         btn->setIconSize(QSize(18, 18));
-        btn->setFixedSize(30, 30);
+        btn->setFixedSize(28, 28);
         btn->setToolTip(tooltip);
         btn->setStyleSheet(makePlaybackIconButtonStyle(tc));
         return btn;
@@ -1367,7 +1438,7 @@ void AnalysisView::setupPlaybackControls() {
 
     // 1. Speed
     speedButton_ = new QPushButton("1.0x", playbackPanel_);
-    speedButton_->setFixedSize(64, 30);
+    speedButton_->setFixedSize(64, 28);
     speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
     speedMenu_ = new QMenu(speedButton_);
     speedMenu_->addAction("Ultra Slow (0.05x)")->setData(0.05);
@@ -1415,15 +1486,13 @@ void AnalysisView::setupPlaybackControls() {
     frameInput_->hide();
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
 
+    // Playback value (relative frame + time from trigger). Kept out of the
+    // button toolbar — it lives on its own row below the media buttons,
+    // regular (non-bold) weight.
     playbackInfoLabel_ = new QLabel("-- | --", playbackPanel_);
-    playbackInfoLabel_->setFixedWidth(360);
     playbackInfoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
-    playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; margin-left: 6px;").arg(tc.text));
-    toolbarLayout->addSpacing(4);
-    toolbarLayout->addWidget(playbackInfoLabel_);
-    toolbarLayout->addSpacing(4);
-    toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
+    playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 400; margin-left: 2px;").arg(tc.text));
 
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
@@ -1446,15 +1515,27 @@ void AnalysisView::setupPlaybackControls() {
     playbackSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
     toolbarLayout->addWidget(playbackSlider_, 1); // Stretch factor 1
 
-    // Zero Marker (We still track it, but attach it to layout properly later or manually position)
+    // Zero/trigger marker: a small flag sitting in the flag strip ABOVE the
+    // slider — never on the scrubbing line itself, so it can't be mistaken for
+    // the playhead or block scrubbing (positioned by updateSliderZeroMarker).
     sliderZeroMarker_ = new QLabel(playbackPanel_);
     QPixmap pm(":/assets/icons/Zero Marker.svg");
-    sliderZeroMarker_->setPixmap(pm.scaled(10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    sliderZeroMarker_->setFixedSize(10, 10);
+    sliderZeroMarker_->setPixmap(pm.scaled(12, 12, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    sliderZeroMarker_->setFixedSize(12, 12);
+    sliderZeroMarker_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     sliderZeroMarker_->raise();
     sliderZeroMarker_->show();
     
     layout->addLayout(toolbarLayout);
+
+    // Value row: the frame/time readout sits below the media buttons with a
+    // little gap, but not at the very bottom of the panel (the align row stays
+    // below).
+    auto infoRow = new QHBoxLayout();
+    infoRow->setSpacing(4);
+    infoRow->setContentsMargins(0, 6, 0, 0);
+    infoRow->addWidget(playbackInfoLabel_, 1);
+    layout->addLayout(infoRow);
 
     // Second row: per-camera alignment (Align / Reset / speed / status).
     auto alignRow = new QHBoxLayout();
@@ -2738,10 +2819,14 @@ void AnalysisView::updateSliderZeroMarker() {
     // Map value to pixel position
     float ratio = static_cast<float>(zeroValue - sliderMin) / (sliderMax - sliderMin);
     int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
-    int yPos = sliderRect.y() - 16;  // Keep the zero marker above annotation dots and slider handle
+    // The flag sits ABOVE the scrubbing line, inside the strip reserved by the
+    // toolbar row's top margin — never on the track, so it can't be confused
+    // with the playhead nor block scrubbing.
+    const int yPos = sliderRect.y() - sliderZeroMarker_->height() - 4;
     
     // Position and show the marker
-    sliderZeroMarker_->move(xPos - 5, yPos);  // Center the 10px wide marker
+    sliderZeroMarker_->move(xPos - sliderZeroMarker_->width() / 2, yPos);
+    sliderZeroMarker_->raise();
     sliderZeroMarker_->show();
 }
 
@@ -3173,17 +3258,7 @@ void AnalysisView::updateTheme() {
     if (toolsLockButton_) {
         toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     }
-    if (rightToolsPanel_) {
-        rightToolsPanel_->setStyleSheet(QString(
-            "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
-            .arg(tc.bg, tc.border));
-    }
-    if (toolsEdgeTab_) {
-        toolsEdgeTab_->setStyleSheet(QString(
-            "QWidget#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
-            " border-radius: 6px; color: %3; font-size: 10px; font-weight: 700; }")
-            .arg(tc.bg, tc.border, QColor(tc.text).lighter(125).name()));
-    }
+    applyToolsPanelTheme();
 
     // Re-apply the current delete-mode state (the segment itself is always
     // visible now, so drive it from the toggle instead of button visibility).
@@ -3376,26 +3451,225 @@ void AnalysisView::onToolsLockToggled() {
             : "Unpinned: the panel auto-shows when the mouse hovers its area and hides on leave.");
     }
     if (toolsLocked_) {
-        if (rightToolsPanel_) {
-            rightToolsPanel_->show();
-        }
+        toolsPanelShown_ = true;
+        animateToolsPanelShow();
     } else {
         onToolsHoverTick();  // hide immediately if the cursor is elsewhere
     }
+}
+
+void AnalysisView::restyleToolsEdgeTab() {
+    if (!toolsEdgeTab_) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const bool hovered = toolsTabHovered_;
+    const QString bg = hovered ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString border = hovered ? tc.primary : tc.border;
+    toolsEdgeTab_->setStyleSheet(QString(
+        "QWidget#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
+        " border-radius: 4px; }")
+        .arg(bg, border));
+    const QColor fg = hovered ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    toolsEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
+                                                   toolsEdgeTab_->width(),
+                                                   toolsEdgeTab_->height()));
+}
+
+void AnalysisView::applyToolsPanelTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    if (rightToolsPanel_) {
+        rightToolsPanel_->setStyleSheet(QString(
+            "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
+            .arg(tc.bg, tc.border));
+    }
+    if (markerToolCheck_) {
+        markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    }
+    if (markerShapeCombo_) {
+        markerShapeCombo_->setStyleSheet(QString(
+            "QComboBox { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 6px; }"
+            "QComboBox:hover { border-color: %4; }"
+            "QComboBox::drop-down { border: none; width: 18px; }"
+            "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %5; }")
+            .arg(tc.btnBg, tc.text, tc.border, tc.primary, tc.btnHover));
+    }
+    if (zoomSlider_) {
+        zoomSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
+    }
+    if (brightnessSlider_) {
+        brightnessSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
+    }
+    if (zoomValueLabel_) {
+        zoomValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 34px;").arg(tc.text));
+    }
+    if (brightnessValueLabel_) {
+        brightnessValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 30px;").arg(tc.text));
+    }
+    if (resetToolsButton_) {
+        resetToolsButton_->setStyleSheet(makeSidebarOutlineButtonStyle(tc));
+    }
+    if (cameraOffsetSpin_) {
+        cameraOffsetSpin_->setStyleSheet(QString(
+            "QSpinBox { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 4px; }"
+            "QSpinBox:focus { border-color: %4; }").arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    }
+    if (markDefectButton_) {
+        markDefectButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
+    }
+    if (alignButton_) {
+        alignButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
+    if (resetOffsetsButton_) {
+        resetOffsetsButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
+    restyleToolsEdgeTab();
 }
 
 void AnalysisView::onToolsHoverTick() {
     if (!rightToolsPanel_ || !mainArea_ || toolsLocked_) {
         return;
     }
-    // Unpinned: the panel shows when the mouse hits the vertical TOOLS tab on
-    // the frame's right edge and stays while it is over the panel or tab.
+    // Unpinned: the vertical TOOLS tab is the handle — hovering it reveals the
+    // panel, and it stays open while the cursor is over the tab or the panel
+    // itself. Leaving both hides it again (with the fade+slide transition).
     const QPoint pos = mainArea_->mapFromGlobal(QCursor::pos());
-    const QRect panelRect = rightToolsPanel_->geometry();
-    const QRect tabRect = toolsEdgeTab_ ? toolsEdgeTab_->geometry() : QRect();
-    const bool over = panelRect.contains(pos) || tabRect.contains(pos);
-    if (over != rightToolsPanel_->isVisible()) {
-        rightToolsPanel_->setVisible(over);
+    const QRect panelRect = toolsPanelRestingRect_;
+    // Widen the tab's hit area slightly so the 2px seam between the tab and
+    // the panel body doesn't hide the panel while the cursor crosses it.
+    const QRect tabRect = toolsEdgeTab_
+        ? toolsEdgeTab_->geometry().adjusted(-3, 0, 0, 0)
+        : QRect();
+    const bool overTab = tabRect.contains(pos);
+    if (overTab != toolsTabHovered_) {
+        toolsTabHovered_ = overTab;
+        restyleToolsEdgeTab();
+    }
+    const bool overPanel = panelRect.contains(pos);
+    // "Actually visible" means shown and not yet faded out, so moving back
+    // onto the panel mid-hide reverses the transition instead of waiting.
+    const bool shouldShow = overTab || (toolsPanelActuallyVisible() && overPanel);
+    if (shouldShow != toolsPanelShown_) {
+        toolsPanelShown_ = shouldShow;
+        if (shouldShow) {
+            animateToolsPanelShow();
+        } else {
+            animateToolsPanelHide();
+        }
+    }
+}
+
+bool AnalysisView::toolsPanelActuallyVisible() const {
+    return rightToolsPanel_ && rightToolsPanel_->isVisible()
+        && (!toolsPanelOpacity_ || toolsPanelOpacity_->opacity() > 0.01);
+}
+
+// Attach the fade effect only for the duration of a transition, so the panel
+// renders natively (no compositing, no X11 artifacts) while idle or hidden.
+void AnalysisView::ensureToolsPanelOpacityEffect() {
+    if (!toolsPanelOpacity_) {
+        toolsPanelOpacity_ = new QGraphicsOpacityEffect(rightToolsPanel_);
+        rightToolsPanel_->setGraphicsEffect(toolsPanelOpacity_);
+        if (toolsPanelFadeAnim_) {
+            toolsPanelFadeAnim_->setTargetObject(toolsPanelOpacity_);
+        }
+    }
+}
+
+void AnalysisView::clearToolsPanelOpacityEffect() {
+    if (rightToolsPanel_ && toolsPanelOpacity_) {
+        rightToolsPanel_->setGraphicsEffect(nullptr);  // deletes the effect
+        toolsPanelOpacity_ = nullptr;
+        if (toolsPanelFadeAnim_) {
+            toolsPanelFadeAnim_->setTargetObject(nullptr);
+        }
+    }
+}
+
+void AnalysisView::animateToolsPanelShow() {
+    if (!rightToolsPanel_ || !toolsPanelFadeAnim_ || !toolsPanelSlideAnim_) {
+        return;
+    }
+    // Already fully shown and idle (no effect attached): just keep it on top.
+    if (rightToolsPanel_->isVisible() && !toolsPanelOpacity_) {
+        rightToolsPanel_->raise();
+        toolsEdgeTab_->raise();
+        return;
+    }
+    // Reverse any in-flight hide.
+    toolsPanelFadeAnim_->stop();
+    toolsPanelSlideAnim_->stop();
+    ensureToolsPanelOpacityEffect();
+
+    const QRect target = toolsPanelRestingRect_;
+    QRect start = rightToolsPanel_->geometry();
+    if (!rightToolsPanel_->isVisible() || start.isEmpty()) {
+        start = target.translated(kToolsSlidePx, 0);  // slide in from the right
+        toolsPanelOpacity_->setOpacity(0.0);
+    }
+    toolsPanelSlideAnim_->setStartValue(start);
+    toolsPanelSlideAnim_->setEndValue(target);
+    toolsPanelSlideAnim_->setDuration(160);
+    toolsPanelSlideAnim_->setEasingCurve(QEasingCurve::OutCubic);
+    toolsPanelFadeAnim_->setStartValue(toolsPanelOpacity_->opacity());
+    toolsPanelFadeAnim_->setEndValue(1.0);
+    toolsPanelFadeAnim_->setDuration(160);
+    toolsPanelFadeAnim_->setEasingCurve(QEasingCurve::OutCubic);
+
+    rightToolsPanel_->show();
+    rightToolsPanel_->raise();
+    toolsEdgeTab_->raise();  // tab stays on top so the panel slides behind it
+    toolsPanelFadeAnim_->start();
+    toolsPanelSlideAnim_->start();
+}
+
+void AnalysisView::animateToolsPanelHide() {
+    if (!rightToolsPanel_ || !toolsPanelFadeAnim_ || !toolsPanelSlideAnim_) {
+        return;
+    }
+    // Reverse any in-flight show.
+    toolsPanelFadeAnim_->stop();
+    toolsPanelSlideAnim_->stop();
+    // A freshly-created effect starts at opacity 1.0 — exactly the right
+    // starting point when hiding from the idle (effect-less) shown state.
+    ensureToolsPanelOpacityEffect();
+    if (!rightToolsPanel_->isVisible() || toolsPanelOpacity_->opacity() <= 0.001) {
+        rightToolsPanel_->hide();
+        clearToolsPanelOpacityEffect();
+        return;
+    }
+
+    const QRect start = rightToolsPanel_->geometry();
+    const QRect target = start.translated(kToolsSlidePx, 0);  // retract toward the edge
+    toolsPanelSlideAnim_->setStartValue(start);
+    toolsPanelSlideAnim_->setEndValue(target);
+    toolsPanelSlideAnim_->setDuration(140);
+    toolsPanelSlideAnim_->setEasingCurve(QEasingCurve::InCubic);
+    toolsPanelFadeAnim_->setStartValue(toolsPanelOpacity_->opacity());
+    toolsPanelFadeAnim_->setEndValue(0.0);
+    toolsPanelFadeAnim_->setDuration(140);
+    toolsPanelFadeAnim_->setEasingCurve(QEasingCurve::InCubic);
+    toolsPanelFadeAnim_->start();
+    toolsPanelSlideAnim_->start();
+}
+
+void AnalysisView::onToolsPanelHideFinished() {
+    if (!rightToolsPanel_) {
+        return;
+    }
+    if (toolsPanelShown_) {
+        // Show completed: drop the fade effect so the fully-opaque panel isn't
+        // permanently composited (avoids the X11 opacity-artifact warnings).
+        clearToolsPanelOpacityEffect();
+        return;
+    }
+    if (toolsPanelOpacity_ && toolsPanelOpacity_->opacity() <= 0.001) {
+        rightToolsPanel_->hide();
+        // Snap back so the next show animates from the resting position.
+        if (!toolsPanelRestingRect_.isEmpty()) {
+            rightToolsPanel_->setGeometry(toolsPanelRestingRect_);
+        }
+        clearToolsPanelOpacityEffect();
     }
 }
 
@@ -3404,8 +3678,10 @@ void AnalysisView::positionToolsPanel() {
         return;
     }
     // Panel aligned exactly with the video frame area (below the tab bar,
-    // above the playback panel), right-flush. The TOOLS tab floats on the
-    // frame's top edge, centered. Hiding/showing never resizes the cameras.
+    // above the playback panel). The vertical TOOLS tab sticks out of the
+    // frame's right edge like a drawer handle; the panel body sits just left
+    // of it so the tab stays visible as a grip. Hiding/showing never resizes
+    // the cameras.
     const int margin = 6;
     const QRect tabRect = tabWidget_->geometry();
     const int tabBarH = tabWidget_->tabBar() ? tabWidget_->tabBar()->height() : 32;
@@ -3413,21 +3689,37 @@ void AnalysisView::positionToolsPanel() {
     const int bottom = tabRect.y() + tabRect.height() - margin;
     const int panelH = qMax(120, bottom - top);
     const int rightEdge = mainArea_->width() - margin;
+    const int tabW = toolsEdgeTab_ ? toolsEdgeTab_->width() : 0;
+    const int tabH = toolsEdgeTab_ ? toolsEdgeTab_->height() : 0;
     if (toolsEdgeTab_) {
-        const int tabW = toolsEdgeTab_->width();
-        const int tabH = toolsEdgeTab_->height();
-        // Straddle the frame's top edge, horizontally centered.
-        toolsEdgeTab_->setGeometry(tabRect.x() + (tabRect.width() - tabW) / 2,
-                                   top - tabH / 2,
+        // Flush against the frame's right edge, vertically centered.
+        toolsEdgeTab_->setGeometry(rightEdge - tabW,
+                                   top + (panelH - tabH) / 2,
                                    tabW, tabH);
-        toolsEdgeTab_->raise();
     }
-    rightToolsPanel_->setGeometry(
-        rightEdge - rightToolsPanel_->width(),
-        top,
-        rightToolsPanel_->width(),
-        panelH);
+    // Panel body immediately left of the tab handle (2px breathing room).
+    const QRect panelRect(rightEdge - tabW - 2 - rightToolsPanel_->width(),
+                          top,
+                          rightToolsPanel_->width(),
+                          panelH);
+    toolsPanelRestingRect_ = panelRect;
+    rightToolsPanel_->setGeometry(panelRect);
+    // A resize while animating would fight the animation targets — stop and
+    // snap to the resting state; the hover timer re-evaluates on its next tick.
+    if (toolsPanelSlideAnim_ && toolsPanelSlideAnim_->state() == QAbstractAnimation::Running) {
+        toolsPanelSlideAnim_->stop();
+    }
+    if (toolsPanelFadeAnim_ && toolsPanelFadeAnim_->state() == QAbstractAnimation::Running) {
+        toolsPanelFadeAnim_->stop();
+    }
+    if (toolsPanelShown_) {
+        rightToolsPanel_->show();
+    } else {
+        rightToolsPanel_->hide();
+    }
+    clearToolsPanelOpacityEffect();  // idle: no compositing while static
     rightToolsPanel_->raise();
+    toolsEdgeTab_->raise();  // tab on top: the panel slides behind it when hiding
 }
 
 void AnalysisView::markDefectForSelectedCamera() {

@@ -26,6 +26,7 @@
 #include <QtConcurrent>
 #include <QDateTime>
 #include <QTimer>
+#include <QPropertyAnimation>
 #include <QJsonObject>
 #include <QMap>
 #include <QStringList>
@@ -40,6 +41,7 @@
 
 
 class AnalysisVideoWidget;
+class QGraphicsOpacityEffect;
 
 /**
  * Analysis View - Video playback and analysis interface
@@ -157,6 +159,17 @@ private:
     void onToolsLockToggled();
     void onToolsHoverTick();
     void positionToolsPanel();
+    void restyleToolsEdgeTab();
+    void applyToolsPanelTheme();
+    // Show/hide transition (fade + slide).
+    void animateToolsPanelShow();
+    void animateToolsPanelHide();
+    void onToolsPanelHideFinished();
+    bool toolsPanelActuallyVisible() const;
+    // Attach/remove the fade effect around a transition only, so the panel
+    // renders natively (no compositing artifacts) while idle or hidden.
+    void ensureToolsPanelOpacityEffect();
+    void clearToolsPanelOpacityEffect();
     
     // Main layout
     
@@ -364,13 +377,25 @@ private:
     // Right "Layer" tools panel: all review tools stacked vertically in named
     // groups, slightly transparent, floating over the video frame area.
     // Locked = pinned (always visible); unlocked = hover-driven: the vertical
-    // TOOLS tab on the frame's right edge reveals the panel.
+    // TOOLS tab on the frame's right edge reveals the panel with a fade+slide
+    // transition. The panel owns no graphics effect while idle (depth comes
+    // from its border); a single QGraphicsOpacityEffect is attached only for
+    // the duration of the fade, so nothing is ever nested under another effect
+    // (which renders incorrectly on X11).
     QWidget*         rightToolsPanel_ = nullptr;
     QLabel*          toolsEdgeTab_ = nullptr;
     QPushButton*     toolsLockButton_ = nullptr;
     QPushButton*     resetToolsButton_ = nullptr;
     bool             toolsLocked_ = false;  // start unpinned (hover-driven)
+    bool             toolsTabHovered_ = false;  // cursor is over the edge tab
     QTimer*          toolsHoverTimer_ = nullptr;
+    // Show/hide animation state. toolsPanelOpacity_ is non-null only while a
+    // transition is in progress.
+    QGraphicsOpacityEffect*    toolsPanelOpacity_ = nullptr;
+    QPropertyAnimation*        toolsPanelFadeAnim_ = nullptr;
+    QPropertyAnimation*        toolsPanelSlideAnim_ = nullptr;
+    QRect                      toolsPanelRestingRect_;  // panel rect, mainArea_ coords
+    bool                       toolsPanelShown_ = false;  // target visibility state
 
     
     // On-demand video loading (per active camera)
