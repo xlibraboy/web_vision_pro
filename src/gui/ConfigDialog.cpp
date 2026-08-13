@@ -8,6 +8,7 @@
 #include "widgets/IpConfiguratorPanel.h"
 #include "widgets/FixedIpListPanel.h"
 #include "widgets/MachineGroupsPanel.h"
+#include "widgets/MachineLayoutPanel.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -218,6 +219,7 @@ namespace {
             && lhs.location == rhs.location
             && lhs.side == rhs.side
             && lhs.machinePosition == rhs.machinePosition
+            && lhs.floor == rhs.floor
             && normalizeIp(lhs.ipAddress) == normalizeIp(rhs.ipAddress)
             && normalizeMac(lhs.macAddress) == normalizeMac(rhs.macAddress)
             && normalizeIp(lhs.subnetMask) == normalizeIp(rhs.subnetMask)
@@ -900,6 +902,19 @@ void ConfigDialog::setupUI() {
     QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
     sidebar->addItem(camSetupItem);
     stackedWidget->addWidget(camSetupGroup);
+
+    // Machine Layout Tab — visual map of the machine: every camera on a
+    // distance line (mm) at its Camera Card position, plus all marked & aligned
+    // defects projected onto the same scale from the event database.
+    QWidget* machineLayoutGroup = new QWidget(this);
+    QVBoxLayout* machineLayoutPageLayout = new QVBoxLayout(machineLayoutGroup);
+    machineLayoutPageLayout->setSpacing(kSectionSpacing);
+    machineLayoutPageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    machineLayoutPanel_ = new MachineLayoutPanel(machineLayoutGroup);
+    machineLayoutPageLayout->addWidget(machineLayoutPanel_, 1);
+    QListWidgetItem* machineLayoutItem = new QListWidgetItem(IconManager::instance().settings(20), "Machine Layout");
+    sidebar->addItem(machineLayoutItem);
+    stackedWidget->addWidget(machineLayoutGroup);
 
     // Recording & Triggers Tab
     QWidget* bufferGroup = new QWidget(this);
@@ -2920,9 +2935,10 @@ void ConfigDialog::refreshFixedIpList() {
     }
     fixedIpListPanel_->setCameras(cameras, detectedIps);
 
-    // Keep the Machine Groups registry in sync too (it shows each camera's
-    // assigned group from its card).
+    // Keep the Machine Groups registry and the Machine Layout visual in sync
+    // too (they mirror each camera's assigned group / position from its card).
     refreshMachineGroups();
+    refreshMachineLayout();
 }
 
 void ConfigDialog::refreshMachineGroups() {
@@ -2936,6 +2952,19 @@ void ConfigDialog::refreshMachineGroups() {
         cameras.push_back(card->cameraInfo());
     }
     machineGroupsPanel_->setCameras(cameras);
+}
+
+void ConfigDialog::refreshMachineLayout() {
+    if (!machineLayoutPanel_) {
+        return;
+    }
+
+    std::vector<CameraInfo> cameras;
+    cameras.reserve(cameraCards_.size());
+    for (auto* card : cameraCards_) {
+        cameras.push_back(card->cameraInfo());
+    }
+    machineLayoutPanel_->setCameras(cameras);
 }
 
 void ConfigDialog::onCameraCardSourceChanged(int) {

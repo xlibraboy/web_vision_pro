@@ -276,6 +276,19 @@ void CameraCard::createContent(const CameraInfo& info) {
     groupCombo_->setToolTip("Paper-machine section this camera belongs to. Triggers wired to a group record only that group's cameras.");
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Group:", groupCombo_);
 
+    // Floor (machine floor the camera is mounted on)
+    floorCombo_ = new QComboBox(basicInfoGroup_);
+    floorCombo_->addItem(CameraFloor::name(CameraFloor::kFirst), CameraFloor::kFirst);
+    floorCombo_->addItem(CameraFloor::name(CameraFloor::kSecond), CameraFloor::kSecond);
+    floorCombo_->addItem(CameraFloor::name(CameraFloor::kThird), CameraFloor::kThird);
+    floorCombo_->setCurrentIndex(floorCombo_->findData(info.floor));
+    if (floorCombo_->currentIndex() < 0) {
+        floorCombo_->setCurrentIndex(0);
+    }
+    floorCombo_->setStyleSheet(fieldStyle);
+    floorCombo_->setToolTip("Machine floor this camera is mounted on. The Machine Layout panel paints one lane per floor.");
+    addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Floor:", floorCombo_);
+
     // Position
     positionSpin_ = new QSpinBox(basicInfoGroup_);
     positionSpin_->setRange(0, 500000);
@@ -425,6 +438,7 @@ void CameraCard::setEditable(bool editable) {
     locationEdit_->setEnabled(editable);
     sideCombo_->setEnabled(editable);
     groupCombo_->setEnabled(editable);
+    floorCombo_->setEnabled(editable);
     positionSpin_->setEnabled(editable);
     macCombo_->setEnabled(editable);
     subnetEdit_->setEnabled(editable);
@@ -670,6 +684,7 @@ CameraInfo CameraCard::cameraInfo() const {
     info.side = side();
     info.machinePosition = position();
     info.group = group();
+    info.floor = floor();
     info.ipAddress = ipAddress();
     info.macAddress = macAddress();
     info.subnetMask = subnetMask();
@@ -700,6 +715,10 @@ QString CameraCard::side() const {
 
 int CameraCard::group() const {
     return groupCombo_ ? groupCombo_->currentData().toInt() : CameraGroup::kUnassigned;
+}
+
+int CameraCard::floor() const {
+    return floorCombo_ ? floorCombo_->currentData().toInt() : CameraFloor::kFirst;
 }
 
 int CameraCard::position() const {

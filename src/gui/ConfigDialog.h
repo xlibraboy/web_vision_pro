@@ -36,6 +36,7 @@ class CameraDeviceSettingsDialog;
 class IpConfiguratorPanel;
 class FixedIpListPanel;
 class MachineGroupsPanel;
+class MachineLayoutPanel;
 class QTimer;
 class OpcUaClientService;
 class QTableWidget;
@@ -103,6 +104,7 @@ private:
     void createCameraWidgetBlock(const CameraInfo& cam);
     void refreshFixedIpList();
     void refreshMachineGroups();
+    void refreshMachineLayout();
     void refreshNetworkStatus();
     void relayoutCameraCards();
     void relayoutUiPreferencePanels();
@@ -320,6 +322,7 @@ private:
     IpConfiguratorPanel* ipConfiguratorPanel_ = nullptr;
     FixedIpListPanel* fixedIpListPanel_ = nullptr;
     MachineGroupsPanel* machineGroupsPanel_ = nullptr;
+    MachineLayoutPanel* machineLayoutPanel_ = nullptr;
     QTimer* networkRefreshTimer_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;

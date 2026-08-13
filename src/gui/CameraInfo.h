@@ -26,6 +26,33 @@ namespace CameraGroup {
     }
 }
 
+// Machine floors a camera can be mounted on. The Machine Layout panel paints
+// one lane per floor so all camera positions are visible at once.
+namespace CameraFloor {
+    constexpr int kFirst = 1;
+    constexpr int kSecond = 2;
+    constexpr int kThird = 3;
+    constexpr int kCount = 3;
+
+    // Display name for a floor index (anything else -> "Unknown").
+    inline QString name(int floor) {
+        switch (floor) {
+        case kFirst: return QStringLiteral("1st Floor");
+        case kSecond: return QStringLiteral("2nd Floor");
+        case kThird: return QStringLiteral("3rd Floor");
+        default: return QStringLiteral("Unknown Floor");
+        }
+    }
+
+    // 0-based lane index for a floor value, clamped to the known floors.
+    inline int laneIndex(int floor) {
+        if (floor >= kFirst && floor <= kThird) {
+            return floor - kFirst;
+        }
+        return 0;
+    }
+}
+
 // Camera metadata structure
 struct CameraInfo {
     int id = 0;              // Camera ID (starts from 1)
@@ -55,4 +82,5 @@ struct CameraInfo {
     QString model;           // Populated at runtime
     QString imageSize;       // Populated at runtime
     int group = CameraGroup::kUnassigned; // Paper-machine section (CameraGroup::k*)
+    int floor = CameraFloor::kFirst;      // Machine floor (CameraFloor::k*)
 };

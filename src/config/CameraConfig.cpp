@@ -424,6 +424,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.enabledChunks = settings.value("enabledChunks").toStringList();
         cam.temperature = 0.0; // Runtime value
         cam.group = settings.value("group", cam.group).toInt();
+        cam.floor = settings.value("floor", cam.floor).toInt();
         cameras.push_back(cam);
     }
     settings.endArray();
@@ -460,6 +461,7 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("chunkModeActive", cam.chunkModeActive);
         settings.setValue("enabledChunks", cam.enabledChunks);
         settings.setValue("group", cam.group);
+        settings.setValue("floor", cam.floor);
     }
     settings.endArray();
 }
