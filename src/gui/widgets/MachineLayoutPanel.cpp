@@ -91,6 +91,7 @@ void MachineLayoutPanel::refresh() {
     rebuildData();
     populateEventCombo();
     applyEventFilter();
+    canvas_->mmStep_ = niceStep();  // shared tick step (lanes + cursor snap)
     canvas_->update();
 }
 
@@ -352,6 +353,20 @@ void MachineLayoutPanel::applyEventFilter() {
     rebuildScale();
 }
 
+double MachineLayoutPanel::niceStep() const {
+    // 1-2-5 ladder over the visible span: the tick step the floor lanes draw
+    // and the position cursor snaps to.
+    const double span = maxMm_ - minMm_;
+    const double raw = span / 8.0;
+    const double mag = std::pow(10.0, std::floor(std::log10(raw > 0.0 ? raw : 1.0)));
+    const double norm = raw / mag;
+    double step = 1.0 * mag;
+    if (norm > 5.0) step = 10.0 * mag;
+    else if (norm > 2.0) step = 5.0 * mag;
+    else if (norm > 1.0) step = 2.0 * mag;
+    return step;
+}
+
 double MachineLayoutPanel::mmToX(double mm) const {
     const double span = maxMm_ - minMm_;
     const double t = span > 0.0 ? (mm - minMm_) / span : 0.5;
@@ -519,7 +534,48 @@ void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter& p, const ThemeColors& tc
                stripTop + stripHeight - 1,
                arrow);
 }
-void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter&, const ThemeColors&) {}
+void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter& p, const ThemeColors& tc) {
+    if (!cursorVisible_ && !cursorDragging_) {
+        return;
+    }
+    const int leftMargin = 12;
+    const int x = static_cast<int>(owner_->mmToX(cursorMm_));
+
+    // Vertical guide line: section bar (y=12) down to just above the summary.
+    p.setOpacity(0.75);
+    p.setPen(QPen(QColor(tc.primary), 1));
+    p.drawLine(x, 12, x, height() - 60);
+    p.setOpacity(1.0);
+
+    // Drag handle: 6x6 square sitting on the section bar.
+    p.fillRect(QRect(x - 3, 22, 6, 6), QColor(tc.primary));
+
+    // Live "<mm> mm · <section>" pill above the section bar.
+    QString section = QStringLiteral("—");
+    for (const SectionRange& r : owner_->sectionRanges_) {
+        if (r.camCount > 0 && cursorMm_ >= r.minMm && cursorMm_ <= r.maxMm) {
+            section = CameraGroup::name(r.group);
+            break;
+        }
+    }
+    const QString text = QString("%1 mm · %2").arg(qRound(cursorMm_)).arg(section);
+
+    QFont f = p.font();
+    f.setPixelSize(10);
+    f.setBold(true);
+    p.setFont(f);
+    const int textW = p.fontMetrics().horizontalAdvance(text);
+    const int pillW = textW + 12;
+    const int pillH = 14;
+    int pillX = x - pillW / 2;
+    pillX = std::max(leftMargin, std::min(pillX, width() - leftMargin - pillW));
+
+    p.setPen(QPen(QColor(tc.primary), 1));
+    p.setBrush(QColor("#1C2128"));
+    p.drawRoundedRect(QRect(pillX, 0, pillW, pillH), 3, 3);
+    p.setPen(QColor(tc.primary));
+    p.drawText(QRect(pillX, 0, pillW, pillH), Qt::AlignCenter, text);
+}
 
 void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeColors& tc) {
     const int leftMargin = 12;
@@ -551,15 +607,9 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     painter.drawText(leftMargin, lane3TitleY + 14, QString("3RD FLOOR — CAMERAS  (mm)"));
     painter.drawText(leftMargin, defectTitleY + 14, QString("MARKED & ALIGNED DEFECTS  (mm)"));
 
-    // Nice tick step for the mm axis
-    const double span = owner_->maxMm_ - owner_->minMm_;
-    const double raw = span / 8.0;
-    const double mag = std::pow(10.0, std::floor(std::log10(raw > 0.0 ? raw : 1.0)));
-    const double norm = raw / mag;
-    double step = 1.0 * mag;
-    if (norm > 5.0) step = 10.0 * mag;
-    else if (norm > 2.0) step = 5.0 * mag;
-    else if (norm > 1.0) step = 2.0 * mag;
+    // Nice tick step for the mm axis (shared with the cursor snap; guarded
+    // in case refresh() has not run yet).
+    const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
 
     // Per-lane vertical bounds: split each floor lane into an upper (operator)
     // and lower (drive) sub-row. Axis line is centered; 32px above and 32px below.
@@ -907,10 +957,18 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
         }
     }
 
-    // 3. Empty canvas → clear selection.
+    // 3. Empty canvas → clear selection and start dragging the position cursor.
     selectedCamera_ = -1;
     selectedDefect_ = -1;
     QToolTip::hideText();
+    cursorDragging_ = true;
+    {
+        const double px = static_cast<double>(event->pos().x());
+        const double t = (px - 12.0) / std::max(1, width() - 24);
+        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
+        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
+        cursorMm_ = std::round(mm / step) * step;
+    }
     update();
 }
 
@@ -926,6 +984,16 @@ void MachineLayoutPanel::Canvas::keyPressEvent(QKeyEvent* event) {
 }
 
 void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
+    // 1. Snap pointer x to the mm axis, then to the step. The cursor follows
+    // the pointer during both hover and drag; hit-tests below stay untouched.
+    {
+        const double x = static_cast<double>(event->pos().x());
+        const double t = (x - 12.0) / std::max(1, width() - 24);
+        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
+        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
+        cursorMm_ = std::round(mm / step) * step;
+    }
+
     // Section bar hover: empty sections get a tooltip.
     {
         const int barTop = 12;
@@ -986,9 +1054,24 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
     QWidget::mouseMoveEvent(event);
 }
 
+void MachineLayoutPanel::Canvas::mouseReleaseEvent(QMouseEvent* event) {
+    if (cursorDragging_) {
+        cursorDragging_ = false;
+        update();
+    }
+    QWidget::mouseReleaseEvent(event);
+}
+
+void MachineLayoutPanel::Canvas::enterEvent(QEvent* event) {
+    cursorVisible_ = true;
+    update();
+    QWidget::enterEvent(event);
+}
+
 void MachineLayoutPanel::Canvas::leaveEvent(QEvent* event) {
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
+    cursorVisible_ = false;  // drag-release handles cursorDragging_
     QToolTip::hideText();
     update();
     QWidget::leaveEvent(event);

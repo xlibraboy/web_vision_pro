@@ -87,7 +87,9 @@ private:
         void paintEvent(QPaintEvent* event) override;
         void mousePressEvent(QMouseEvent* event) override;
         void mouseMoveEvent(QMouseEvent* event) override;
+        void mouseReleaseEvent(QMouseEvent* event) override;
         void keyPressEvent(QKeyEvent* event) override;
+        void enterEvent(QEvent* event) override;
         void leaveEvent(QEvent* event) override;
 
     private:
@@ -113,6 +115,12 @@ private:
         int selectedDefect_ = -1;   // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
+
+        // Draggable vertical position cursor (snapped to the mm step).
+        bool   cursorVisible_  = false;   // pointer is over the canvas
+        bool   cursorDragging_ = false;   // user is holding LMB on empty canvas
+        double cursorMm_       = 0.0;     // current cursor position in mm
+        double mmStep_         = 100.0;   // snap step, computed in refresh()
     };
 
     void rebuildData();
@@ -121,6 +129,7 @@ private:
     void rebuildScale();
     void applyEventFilter();
     void populateEventCombo();
+    double niceStep() const;  // mm tick step shared by lanes and the cursor
     double mmToX(double mm) const;
     static QColor groupColor(int group);
     static QString formatEventTime(const QString& timestamp);
