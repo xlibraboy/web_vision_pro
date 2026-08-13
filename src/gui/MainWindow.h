@@ -15,6 +15,7 @@
 #include "AnalysisView.h"
 #include "DetailView.h"
 #include "widgets/ToggleSwitch.h"
+#include "widgets/DocsDialog.h"
 #include "../core/CameraManager.h"
 #include "../processing/ImageBuffer.h"
 #include "../processing/DefectDetector.h"
@@ -84,6 +85,7 @@ private:
     
     // Windows
     ConfigDialog* configWindow_ = nullptr;
+    DocsDialog* docsDialog_ = nullptr;  // lazy-created, kept open while consulting
     int configTabIndex_ = -1;
 
     // State
@@ -119,6 +121,7 @@ private slots:
     void changeLayout(int rows, int cols);
     void promptCustomLayout();
     void showAbout();
+    void showDocs();
 
 protected:
     void closeEvent(QCloseEvent *event) override;

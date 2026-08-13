@@ -44,6 +44,7 @@ src/gui/widgets/DeleteConfirmationDialog.cpp
 src/gui/widgets/IpConfiguratorPanel.cpp
 src/gui/widgets/FixedIpListPanel.cpp
 src/gui/widgets/MachineGroupsPanel.cpp
+src/gui/widgets/DocsDialog.cpp
 )
 
 # Header files for Qt MOC
@@ -64,6 +65,7 @@ src/gui/widgets/DeleteConfirmationDialog.h
 src/gui/widgets/IpConfiguratorPanel.h
 src/gui/widgets/FixedIpListPanel.h
 src/gui/widgets/MachineGroupsPanel.h
+src/gui/widgets/DocsDialog.h
 src/communication/OpcUaClientService.h
 src/communication/OpcUaRuntimeStatus.h
 )

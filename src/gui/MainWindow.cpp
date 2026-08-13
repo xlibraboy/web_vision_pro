@@ -810,6 +810,11 @@ void MainWindow::setupUi() {
     configAction_ = settingsMenu->addAction("System Configuration");
     connect(configAction_, &QAction::triggered, this, &MainWindow::openSystemConfiguration);
 
+    // Docs Menu — in-app documentation (how it works, workflows, frameworks, tutorial)
+    QMenu* docsMenu = menu->addMenu("Docs");
+    QAction* docsAction = docsMenu->addAction("Documentation");
+    connect(docsAction, &QAction::triggered, this, &MainWindow::showDocs);
+
     // Help Menu
     QMenu* helpMenu = menu->addMenu("Help");
     aboutAction_ = helpMenu->addAction("About");
@@ -1400,6 +1405,15 @@ void MainWindow::showAbout() {
                        "PaperVision System v1.0\n\n"
                        "Industrial Vision System for Paper Machine Monitoring.\n"
                        "Built with Qt 5, OpenCV 4, and Basler Pylon 6.");
+}
+
+void MainWindow::showDocs() {
+    if (!docsDialog_) {
+        docsDialog_ = new DocsDialog(this);
+    }
+    docsDialog_->show();
+    docsDialog_->raise();
+    docsDialog_->activateWindow();
 }
 
 void MainWindow::openSystemConfiguration() {
