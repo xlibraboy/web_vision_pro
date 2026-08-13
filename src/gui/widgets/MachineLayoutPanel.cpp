@@ -9,7 +9,9 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QEnterEvent>
 #include <QKeyEvent>
+#include <QLocale>
 #include <QToolTip>
 #include <QFontMetrics>
 #include <QFileInfo>
@@ -558,7 +560,7 @@ void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter& p, const ThemeColo
             break;
         }
     }
-    const QString text = QString("%1 mm · %2").arg(qRound(cursorMm_)).arg(section);
+    const QString text = QString("%1 mm · %2").arg(QLocale().toString(qRound(cursorMm_))).arg(section);
 
     QFont f = p.font();
     f.setPixelSize(10);
@@ -1063,6 +1065,17 @@ void MachineLayoutPanel::Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void MachineLayoutPanel::Canvas::enterEvent(QEvent* event) {
+    // Snap to the entry position so the first painted frame shows the correct
+    // mm instead of a stale 0 (same math as mouseMoveEvent). Qt5's
+    // QWidget::enterEvent virtual takes QEvent*, but the delivered event is a
+    // QEnterEvent carrying the entry position.
+    if (const QEnterEvent* enter = dynamic_cast<const QEnterEvent*>(event)) {
+        const double x = static_cast<double>(enter->pos().x());
+        const double t = (x - 12.0) / std::max(1, width() - 24);
+        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
+        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
+        cursorMm_ = std::round(mm / step) * step;
+    }
     cursorVisible_ = true;
     update();
     QWidget::enterEvent(event);
