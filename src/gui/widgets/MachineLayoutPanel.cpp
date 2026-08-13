@@ -125,6 +125,32 @@ void MachineLayoutPanel::rebuildData() {
 
     loadDefects();
     rebuildScale();
+    rebuildSectionRanges();
+}
+
+void MachineLayoutPanel::rebuildSectionRanges() {
+    sectionRanges_.clear();
+    for (int g = CameraGroup::kPressPart; g < CameraGroup::kCount; ++g) {
+        SectionRange r;
+        r.group = g;
+        r.minMm = std::numeric_limits<double>::max();
+        r.maxMm = std::numeric_limits<double>::lowest();
+        for (const CameraMark& c : cameras_) {
+            if (c.group != g || !c.hasPosition) continue;
+            r.minMm = std::min(r.minMm, static_cast<double>(c.mm));
+            r.maxMm = std::max(r.maxMm, static_cast<double>(c.mm));
+            ++r.camCount;
+        }
+        if (r.camCount > 0) {
+            // Store both bounds; drawSectionBar handles empty groups via camCount==0.
+            sectionRanges_.append(r);
+        } else {
+            // Keep an entry so the bar still reserves a divider slot.
+            SectionRange empty;
+            empty.group = g;
+            sectionRanges_.append(empty);
+        }
+    }
 }
 
 void MachineLayoutPanel::loadDefects() {
@@ -406,7 +432,60 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
 
 // Stubs for helpers whose visual content arrives in later tasks. They must
 // exist today so the dispatch above compiles and the visual stays identical.
-void MachineLayoutPanel::Canvas::drawSectionBar(QPainter&, const ThemeColors&) {}
+void MachineLayoutPanel::Canvas::drawSectionBar(QPainter& p, const ThemeColors& tc) {
+    Q_UNUSED(tc);
+    const int leftMargin = 12;
+    const int barTop = 12;
+    const int barHeight = 24;
+    const int fullLeft = leftMargin;
+    const int fullRight = width() - leftMargin;
+    const int fullWidth = fullRight - fullLeft;
+
+    // Local cache of slot geometry. NB: not named `slots` — that identifier
+    // is a Qt macro that expands to nothing (Q_SLOTS), which would break the
+    // declaration.
+    QVector<SectionBarSlot> barSlots;
+    double totalRange = 0.0;
+    for (const SectionRange& r : owner_->sectionRanges_) {
+        if (r.camCount > 0) totalRange += (r.maxMm - r.minMm);
+    }
+    const bool useEqualWidths = (totalRange <= 0.0);
+    const int minSegWidth = 36;
+    const int nGroups = CameraGroup::kCount;
+
+    int cursor = fullLeft;
+    for (int i = 0; i < nGroups; ++i) {
+        const SectionRange& r = owner_->sectionRanges_.value(i);
+        const double span = (r.camCount > 0) ? (r.maxMm - r.minMm) : 0.0;
+        int segW = useEqualWidths
+            ? (fullWidth / nGroups)
+            : static_cast<int>(std::lround((span / totalRange) * fullWidth));
+        segW = std::max(minSegWidth, segW);
+        if (cursor + segW > fullRight) segW = fullRight - cursor;
+        if (segW <= 0) break;
+
+        const QColor col = owner_->groupColor(r.group);
+        if (r.camCount == 0) {
+            // Empty section: 2 px divider in the group color, no fill.
+            p.setPen(QPen(col, 2));
+            p.drawLine(cursor, barTop, cursor, barTop + barHeight);
+        } else {
+            p.fillRect(cursor, barTop, segW, barHeight, col);
+            if (segW >= minSegWidth) {
+                p.setPen(QColor("#0E1116"));
+                QFont f = p.font(); f.setPixelSize(10); f.setBold(true); p.setFont(f);
+                p.drawText(QRect(cursor, barTop, segW, barHeight),
+                           Qt::AlignCenter, CameraGroup::name(r.group).toUpper());
+            }
+        }
+        barSlots.append({ r.group, cursor, segW, r.camCount });
+        cursor += segW;
+    }
+    p.setPen(QColor(tc.border));
+    p.drawRect(QRect(fullLeft, barTop, fullWidth, barHeight));
+    sectionBarSlots_ = barSlots;
+}
+
 void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter&, const ThemeColors&) {}
 void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter&, const ThemeColors&) {}
 
@@ -695,6 +774,25 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
 }
 
 void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
+    // Section bar hover: empty sections get a tooltip.
+    {
+        const int barTop = 12;
+        const int barBottom = barTop + 24;
+        const QPoint p = event->pos();
+        if (p.y() >= barTop && p.y() <= barBottom) {
+            for (const SectionBarSlot& s : sectionBarSlots_) {
+                if (s.camCount == 0 && p.x() >= s.x && p.x() <= s.x + 2) {
+                    QToolTip::showText(event->globalPos(),
+                        QString("%1: no cameras assigned")
+                            .arg(CameraGroup::name(s.group)), this);
+                    update();
+                    QWidget::mouseMoveEvent(event);
+                    return;
+                }
+            }
+        }
+    }
+
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
     const QPoint p = event->pos();

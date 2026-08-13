@@ -71,6 +71,13 @@ private:
         QVector<DefectMark> defects;
     };
 
+    struct SectionRange {
+        int group = CameraGroup::kUnassigned;
+        double minMm = 0.0;
+        double maxMm = 0.0;
+        int camCount = 0;
+    };
+
     class Canvas : public QWidget {
     public:
         explicit Canvas(MachineLayoutPanel* owner);
@@ -93,6 +100,9 @@ private:
         void drawLegends(QPainter& p, const ThemeColors& tc);
         void drawSummary(QPainter& p, const ThemeColors& tc);
 
+        struct SectionBarSlot { int group; int x; int width; int camCount; };
+        QVector<SectionBarSlot> sectionBarSlots_;
+
         MachineLayoutPanel* owner_;
         int hoveredCamera_ = -1;
         int hoveredDefect_ = -1;
@@ -101,6 +111,7 @@ private:
     };
 
     void rebuildData();
+    void rebuildSectionRanges();
     void loadDefects();
     void rebuildScale();
     void applyEventFilter();
@@ -111,6 +122,7 @@ private:
 
     std::vector<CameraInfo> cardCameras_;  // live override from camera cards
     QVector<CameraMark> cameras_;
+    QVector<SectionRange> sectionRanges_;  // per-group mm span for the section bar
     QVector<EventGroup> eventGroups_;
     QVector<DefectMark> defects_;          // filtered by the event combo
     double minMm_ = 0.0;
