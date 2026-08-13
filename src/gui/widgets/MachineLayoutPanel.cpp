@@ -27,38 +27,9 @@ const int kMaxMarkedEvents = 25;  // most recent marked events offered in the co
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Canvas: paints the lanes; owns hover/tooltip handling.
+// Canvas: painted via focused draw* helpers. Defined in MachineLayoutPanel.h
+// with member definitions here.
 // ─────────────────────────────────────────────────────────────────────────────
-class MachineLayoutPanel::Canvas : public QWidget {
-public:
-    explicit Canvas(MachineLayoutPanel* owner)
-        : QWidget(owner), owner_(owner) {
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        setMouseTracking(true);  // hover events (tooltips) need tracking on
-    }
-
-protected:
-    void paintEvent(QPaintEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void leaveEvent(QEvent* event) override;
-
-private:
-    QRect cameraMarkerRect(const CameraMark& cam) const {
-        const int x = cam.hasPosition ? static_cast<int>(owner_->mmToX(cam.mm))
-                                      : 12 + cam.stackIndex * 16;
-        return QRect(x - 10, floorAxisY_[cam.lane] - 24, 20, 26);
-    }
-    QRect defectMarkerRect(const DefectMark& def) const {
-        const int x = static_cast<int>(owner_->mmToX(def.mm));
-        return QRect(x - 10, defectLaneAxisY_ - 14, 20, 14);
-    }
-
-    MachineLayoutPanel* owner_;
-    int hoveredCamera_ = -1;
-    int hoveredDefect_ = -1;
-    int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
-    int defectLaneAxisY_ = 0;
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MachineLayoutPanel
@@ -376,16 +347,64 @@ QString MachineLayoutPanel::formatEventTime(const QString& timestamp) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Canvas painting
 // ─────────────────────────────────────────────────────────────────────────────
+MachineLayoutPanel::Canvas::Canvas(MachineLayoutPanel* owner)
+    : QWidget(owner), owner_(owner) {
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);  // hover events (tooltips) need tracking on
+}
+
+QRect MachineLayoutPanel::Canvas::cameraMarkerRect(const CameraMark& cam) const {
+    const int x = cam.hasPosition ? static_cast<int>(owner_->mmToX(cam.mm))
+                                  : 12 + cam.stackIndex * 16;
+    return QRect(x - 10, floorAxisY_[cam.lane] - 24, 20, 26);
+}
+
+QRect MachineLayoutPanel::Canvas::defectMarkerRect(const DefectMark& def) const {
+    const int x = static_cast<int>(owner_->mmToX(def.mm));
+    return QRect(x - 10, defectLaneAxisY_ - 14, 20, 14);
+}
+
 void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     const ThemeColors tc = CameraConfig::getThemeColors();
-    const int leftMargin = 12;
 
     painter.fillRect(rect(), QColor(tc.bg));
     painter.setPen(QColor(tc.border));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
+
+    // Shared layout numbers (lane geometry), hoisted to member accessors later.
+    const int leftMargin = 12;
+    const int contentBottom = 460;
+    const int dy = qMax(0, (height() - contentBottom) / 2);
+
+    // Recompute floorAxisY_ and defectLaneAxisY_ once per paint so the helpers
+    // (and the cursor) can reference them.
+    const int lane1AxisY = floorAxisY_[0] = 56 + dy;
+    const int lane2AxisY = floorAxisY_[1] = lane1AxisY + 88;
+    const int lane3AxisY = floorAxisY_[2] = lane2AxisY + 88;
+    defectLaneAxisY_     = lane3AxisY + 88;
+    Q_UNUSED(leftMargin); // each helper computes its own leftMargin
+
+    drawSectionBar(painter, tc);
+    drawPaperWeb(painter, tc);
+    drawFloorLanes(painter, tc);
+    drawCameraMarkers(painter, tc);
+    drawDefectStrip(painter, tc);
+    drawPositionCursor(painter, tc);
+    drawLegends(painter, tc);
+    drawSummary(painter, tc);
+}
+
+// Stubs for helpers whose visual content arrives in later tasks. They must
+// exist today so the dispatch above compiles and the visual stays identical.
+void MachineLayoutPanel::Canvas::drawSectionBar(QPainter&, const ThemeColors&) {}
+void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter&, const ThemeColors&) {}
+void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter&, const ThemeColors&) {}
+
+void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
 
     // Lane geometry (shared mm scale across all lanes). One lane per machine
     // floor so every camera position is visible; the defect lane sits below the
@@ -395,13 +414,13 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     const int contentBottom = 460;  // approx bottom of the summary/hint text
     const int dy = qMax(0, (height() - contentBottom) / 2);
     const int lane1TitleY = 8 + dy;
-    const int lane1AxisY = floorAxisY_[0] = 56 + dy;
+    const int lane1AxisY = floorAxisY_[0];
     const int lane2TitleY = lane1TitleY + kLanePitch;
-    const int lane2AxisY = floorAxisY_[1] = lane1AxisY + kLanePitch;
+    const int lane2AxisY = floorAxisY_[1];
     const int lane3TitleY = lane2TitleY + kLanePitch;
-    const int lane3AxisY = floorAxisY_[2] = lane2AxisY + kLanePitch;
+    const int lane3AxisY = floorAxisY_[2];
     const int defectTitleY = lane3TitleY + kLanePitch;
-    const int defectLaneAxisY = defectLaneAxisY_ = lane3AxisY + kLanePitch;
+    const int defectLaneAxisY = defectLaneAxisY_;
 
     // Titles
     QFont titleFont = painter.font();
@@ -448,6 +467,10 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     }
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawLine(leftMargin, defectLaneAxisY, width() - leftMargin, defectLaneAxisY);
+}
+
+void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
 
     // ── Camera markers, one lane per floor ──
     QFont labelFont = painter.font();
@@ -486,6 +509,7 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
                          QString("CAM-%1").arg(cam.id, 2, 10, QChar('0')));
         painter.restore();
     }
+    const int lane3AxisY = floorAxisY_[CameraFloor::kCount - 1];
     for (const CameraMark& c : cameras) {
         if (!c.hasPosition) {
             painter.setPen(QColor(255, 90, 90));
@@ -496,6 +520,11 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
             break;
         }
     }
+}
+
+void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
+    const int defectLaneAxisY = defectLaneAxisY_;
 
     // ── Defect markers ──
     const QVector<DefectMark>& defects = owner_->defects_;
@@ -525,6 +554,11 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
         diamond.closeSubpath();
         painter.drawPath(diamond);
     }
+}
+
+void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
+    const int defectLaneAxisY = defectLaneAxisY_;
 
     // ── Legend ──
     int ly = defectLaneAxisY + 50;
@@ -545,6 +579,15 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
         painter.drawText(lx + 16, ly, name);
         lx += 16 + painter.fontMetrics().horizontalAdvance(name) + 22;
     }
+}
+
+void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
+    const int defectLaneAxisY = defectLaneAxisY_;
+    const QVector<CameraMark>& cameras = owner_->cameras_;
+    const QVector<DefectMark>& defects = owner_->defects_;
+
+    int ly = defectLaneAxisY + 50;
 
     // ── Summary ──
     QFont sumFont = painter.font();

@@ -3,10 +3,12 @@
 #include <QWidget>
 #include <QVector>
 #include <QColor>
+#include <QPainter>
 #include <vector>
 #include "../CameraInfo.h"
 
 class QComboBox;
+struct ThemeColors;  // full definition in config/CameraConfig.h
 
 /**
  * @brief MachineLayoutPanel - visual machine layout for System Configuration.
@@ -40,8 +42,6 @@ protected:
     void showEvent(QShowEvent* event) override;
 
 private:
-    class Canvas;  // defined in MachineLayoutPanel.cpp
-
     struct CameraMark {
         int id = 0;               // 1-based camera id
         QString name;
@@ -69,6 +69,35 @@ private:
         QString label;            // "2026-02-08 15:30:00"
         QColor color;
         QVector<DefectMark> defects;
+    };
+
+    class Canvas : public QWidget {
+    public:
+        explicit Canvas(MachineLayoutPanel* owner);
+
+    protected:
+        void paintEvent(QPaintEvent* event) override;
+        void mouseMoveEvent(QMouseEvent* event) override;
+        void leaveEvent(QEvent* event) override;
+
+    private:
+        QRect cameraMarkerRect(const CameraMark& cam) const;
+        QRect defectMarkerRect(const DefectMark& def) const;
+
+        void drawSectionBar(QPainter& p, const ThemeColors& tc);
+        void drawPaperWeb(QPainter& p, const ThemeColors& tc);
+        void drawFloorLanes(QPainter& p, const ThemeColors& tc);
+        void drawCameraMarkers(QPainter& p, const ThemeColors& tc);
+        void drawDefectStrip(QPainter& p, const ThemeColors& tc);
+        void drawPositionCursor(QPainter& p, const ThemeColors& tc);
+        void drawLegends(QPainter& p, const ThemeColors& tc);
+        void drawSummary(QPainter& p, const ThemeColors& tc);
+
+        MachineLayoutPanel* owner_;
+        int hoveredCamera_ = -1;
+        int hoveredDefect_ = -1;
+        int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
+        int defectLaneAxisY_ = 0;
     };
 
     void rebuildData();
