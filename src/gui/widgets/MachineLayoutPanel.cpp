@@ -486,7 +486,32 @@ void MachineLayoutPanel::Canvas::drawSectionBar(QPainter& p, const ThemeColors& 
     sectionBarSlots_ = barSlots;
 }
 
-void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter&, const ThemeColors&) {}
+void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter& p, const ThemeColors& tc) {
+    Q_UNUSED(tc);
+    const int leftMargin = 12;
+    const int stripTop = 40;   // directly below the section bar (bar bottom = 36)
+    const int stripHeight = 8;
+
+    // Paper-tan fill
+    p.fillRect(leftMargin, stripTop, width() - 2 * leftMargin, stripHeight,
+               QColor("#F5F1E6"));
+    p.setPen(QColor("#D6CFB7"));
+    p.drawLine(leftMargin, stripTop, width() - leftMargin, stripTop);
+    p.drawLine(leftMargin, stripTop + stripHeight,
+               width() - leftMargin, stripTop + stripHeight);
+
+    // Direction arrow + label, right-aligned
+    QFont f = p.font();
+    f.setPixelSize(9);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(QColor("#8A8267"));
+    const QString arrow = QStringLiteral("→ DRIVE → OPERATOR →");
+    const int textW = p.fontMetrics().horizontalAdvance(arrow);
+    p.drawText(width() - leftMargin - textW - 4,
+               stripTop + stripHeight - 1,
+               arrow);
+}
 void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter&, const ThemeColors&) {}
 
 void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeColors& tc) {
