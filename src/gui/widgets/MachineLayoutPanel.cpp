@@ -528,25 +528,36 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
                                       : 12 + cam.stackIndex * 16;
         const QColor col = owner_->groupColor(cam.group);
         const bool isOperator = cam.side.compare("OPERATOR SIDE", Qt::CaseInsensitive) == 0;
+        // Side-aware sub-row: OPERATOR sits in the upper sub-row, DRIVE in the
+        // lower one (aligned with the sub-row tints in drawFloorLanes).
+        const int yCenter = isOperator ? axisY - 18 : axisY + 18;
+
+        // Faint dashed guide from the section-bar bottom (36) down to the marker.
+        if (cam.hasPosition) {
+            const QColor guide(col.red(), col.green(), col.blue(), 76);
+            painter.setPen(QPen(guide, 1, Qt::DashLine));
+            painter.drawLine(x, 36, x, yCenter);
+        }
+
         painter.setPen(QPen(i == hoveredCamera_ ? Qt::white : QColor(tc.border), 1.5));
         painter.setBrush(cam.hasPosition ? col : QColor(col.red(), col.green(), col.blue(), 90));
         if (isOperator) {
             // Upward triangle = OPERATOR SIDE
             QPainterPath tri;
-            tri.moveTo(x, axisY - 24);
-            tri.lineTo(x + 10, axisY);
-            tri.lineTo(x - 10, axisY);
+            tri.moveTo(x, yCenter - 10);
+            tri.lineTo(x + 9, yCenter + 6);
+            tri.lineTo(x - 9, yCenter + 6);
             tri.closeSubpath();
             painter.drawPath(tri);
         } else {
             // Rounded rect = DRIVE SIDE (and default)
-            painter.drawRoundedRect(QRect(x - 9, axisY - 22, 18, 24), 4, 4);
+            painter.drawRoundedRect(QRect(x - 9, yCenter - 8, 18, 18), 4, 4);
         }
 
         // Vertical camera label (reads bottom-to-top) so tightly spaced
         // cameras never overlap on the mm line.
         painter.save();
-        painter.translate(x, axisY - 26);
+        painter.translate(x, yCenter - 12);
         painter.rotate(-90);
         painter.setPen(i == hoveredCamera_ ? Qt::white : QColor(tc.text));
         painter.drawText(QRect(0, -8, 50, 16), Qt::AlignLeft | Qt::AlignVCenter,
