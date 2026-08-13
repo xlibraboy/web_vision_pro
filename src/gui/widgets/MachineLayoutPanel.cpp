@@ -443,6 +443,32 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     else if (norm > 2.0) step = 5.0 * mag;
     else if (norm > 1.0) step = 2.0 * mag;
 
+    // Per-lane vertical bounds: split each floor lane into an upper (operator)
+    // and lower (drive) sub-row. Axis line is centered; 32px above and 32px below.
+    struct SubRow { int opTop, opBottom, driveTop, driveBottom; };
+    SubRow rows[CameraFloor::kCount];
+    constexpr int kSubRowHeight = 32;
+    for (int f = 0; f < CameraFloor::kCount; ++f) {
+        const int axisY = floorAxisY_[f];
+        rows[f].opTop       = axisY - kSubRowHeight;
+        rows[f].opBottom    = axisY;
+        rows[f].driveTop    = axisY;
+        rows[f].driveBottom = axisY + kSubRowHeight;
+    }
+
+    // Sub-row background fills — must precede the axis-line draw so the line
+    // sits cleanly on top of the tints.
+    const QColor opTint(0x2A, 0x32, 0x39);     // upper sub-row (operator side)
+    const QColor driveTint(0x1F, 0x24, 0x29);  // lower sub-row (drive side)
+    for (int f = 0; f < CameraFloor::kCount; ++f) {
+        painter.fillRect(leftMargin, rows[f].opTop,
+                         width() - 2 * leftMargin,
+                         rows[f].opBottom - rows[f].opTop, opTint);
+        painter.fillRect(leftMargin, rows[f].driveTop,
+                         width() - 2 * leftMargin,
+                         rows[f].driveBottom - rows[f].driveTop, driveTint);
+    }
+
     // Axis lines + mm ticks (labels on the 3rd-floor lane, shared scale)
     QFont tickFont = painter.font();
     tickFont.setPixelSize(9);
@@ -465,6 +491,25 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
             }
         }
     }
+
+    // Per-sub-row side labels (left edge). Bold 9px, muted color.
+    // `tc.muted` is not on ThemeColors; derive a muted text color locally
+    // (alpha 155, matching the project convention used elsewhere).
+    QFont sideLabelFont = painter.font();
+    sideLabelFont.setPixelSize(9);
+    sideLabelFont.setBold(true);
+    painter.setFont(sideLabelFont);
+    QColor mutedColor(tc.text);
+    mutedColor.setAlpha(155);
+    painter.setPen(mutedColor);
+    for (int f = 0; f < CameraFloor::kCount; ++f) {
+        const QString prefix = CameraFloor::name(CameraFloor::kFirst + f).section(' ', 0, 0).toUpper();
+        const QString opLabel    = QString("%1 · OPERATOR").arg(prefix);
+        const QString driveLabel = QString("%1 · DRIVE").arg(prefix);
+        painter.drawText(leftMargin, rows[f].opTop + 11, opLabel);
+        painter.drawText(leftMargin, rows[f].driveTop + 11, driveLabel);
+    }
+
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawLine(leftMargin, defectLaneAxisY, width() - leftMargin, defectLaneAxisY);
 }
