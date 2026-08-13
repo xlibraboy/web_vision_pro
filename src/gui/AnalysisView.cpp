@@ -1,4 +1,5 @@
 #include "AnalysisView.h"
+#include <cmath>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include "widgets/AnalysisVideoWidget.h"
@@ -1292,9 +1293,15 @@ void AnalysisView::applyAnalysisViewStyle() {
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
     if (playbackInfoLabel_) {
-        playbackInfoLabel_->setStyleSheet(QString(
-            "color: %1; font-family: '%2'; font-size: %3px; font-weight: 400; margin-left: 2px;"
-        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
+        // Palette/font, never a local stylesheet (see setupPlaybackControls).
+        QPalette infoPal = playbackInfoLabel_->palette();
+        infoPal.setColor(QPalette::WindowText, QColor(tc.text));
+        playbackInfoLabel_->setPalette(infoPal);
+        QFont infoFont = playbackInfoLabel_->font();
+        infoFont.setFamily(style.tabFontFamily);
+        infoFont.setPixelSize(std::max(11, style.tabFontSize));
+        infoFont.setWeight(QFont::Normal);
+        playbackInfoLabel_->setFont(infoFont);
     }
 
     for (AnalysisVideoWidget* widget : cameraWidgets_) {
@@ -1488,11 +1495,19 @@ void AnalysisView::setupPlaybackControls() {
 
     // Playback value (relative frame + time from trigger). Kept out of the
     // button toolbar — it lives on its own row below the media buttons,
-    // regular (non-bold) weight.
+    // regular (non-bold) weight. Styled via palette+font (NOT a local
+    // stylesheet): a bare color rule on the label would leak into this label's
+    // tooltip and make its text a different color.
     playbackInfoLabel_ = new QLabel("-- | --", playbackPanel_);
     playbackInfoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
-    playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 400; margin-left: 2px;").arg(tc.text));
+    QPalette infoPal = playbackInfoLabel_->palette();
+    infoPal.setColor(QPalette::WindowText, QColor(tc.text));
+    playbackInfoLabel_->setPalette(infoPal);
+    QFont infoFont = playbackInfoLabel_->font();
+    infoFont.setPixelSize(12);
+    infoFont.setWeight(QFont::Normal);
+    playbackInfoLabel_->setFont(infoFont);
 
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
@@ -1553,8 +1568,15 @@ void AnalysisView::setupPlaybackControls() {
     connect(resetOffsetsButton_, &QPushButton::clicked, this, &AnalysisView::clearCameraOffsets);
     alignRow->addWidget(resetOffsetsButton_);
 
+    // Same palette+font approach as the value label so this label's tooltip
+    // keeps the standard look (it has a tooltip with alignment details).
     alignStatusLabel_ = new QLabel("—", playbackPanel_);
-    alignStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    QPalette alignPal = alignStatusLabel_->palette();
+    alignPal.setColor(QPalette::WindowText, QColor(tc.text));
+    alignStatusLabel_->setPalette(alignPal);
+    QFont alignFont = alignStatusLabel_->font();
+    alignFont.setPixelSize(11);
+    alignStatusLabel_->setFont(alignFont);
     alignRow->addWidget(alignStatusLabel_, 1);
 
     layout->addLayout(alignRow);
@@ -2660,7 +2682,9 @@ void AnalysisView::updatePlaybackControlsState() {
     if (!hasData) {
         playbackPanel_->setStyleSheet(QString(
             "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
-            "QWidget { color: %3; }"
+            // Scoped to descendants of the panel: a bare QWidget rule would
+            // also color tooltips shown over the panel's controls.
+            "QWidget#playbackPanel QWidget { color: %3; }"
         ).arg(tc.bg, tc.border, tc.border));
     } else {
         playbackPanel_->setStyleSheet(QString(
@@ -2720,16 +2744,34 @@ void AnalysisView::updatePlaybackInfoLabel() {
         .arg(seconds, 0, 'f', 3);
     const QString speedSummary = currentSpeedSummary(seconds);
     playbackInfoLabel_->setText(speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary));
-    playbackInfoLabel_->setToolTip(speedSummary.isEmpty()
-        ? QString("Frame %1 | Time %2%3 s")
-            .arg(relFrames, 0, 'f', 1)
-            .arg(seconds >= 0.0 ? "+" : "")
-            .arg(seconds, 0, 'f', 3)
-        : QString("Frame %1 | Time %2%3 s\n%4")
-            .arg(relFrames, 0, 'f', 1)
-            .arg(seconds >= 0.0 ? "+" : "")
-            .arg(seconds, 0, 'f', 3)
-            .arg(speedSummary));
+
+    // Full, descriptive tooltip: explain every value the label shows.
+    QStringList tooltipLines;
+    tooltipLines << QString("Relative frame: %1 (0 = the trigger frame; negative = before the trigger, positive = after)")
+        .arg(relFrames, 0, 'f', 1);
+    tooltipLines << QString("Time from trigger: %1%2 s")
+        .arg(seconds >= 0.0 ? "+" : "")
+        .arg(seconds, 0, 'f', 3);
+    if (std::isfinite(currentEventInfo_.speedValue)) {
+        const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
+            ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
+        tooltipLines << QString("Machine speed: %1 %2")
+            .arg(currentEventInfo_.speedValue, 0, 'f', 2)
+            .arg(speedUnit);
+        const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+        if (detailTabActive) {
+            const int cameraId = selectedCameraId_;
+            const int basePositionMm = currentEventCameraPositionMm(cameraId);
+            const double deltaMm = currentEventInfo_.speedValue * 1000.0 / 60.0 * seconds
+                * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
+            tooltipLines << QString("Distance traveled from trigger: %1 mm").arg(deltaMm, 0, 'f', 1);
+            tooltipLines << QString("Camera position: %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1);
+        }
+        if (currentEventInfo_.speedStale) {
+            tooltipLines << QStringLiteral("Note: machine speed was stale at capture — distance/alignment may be inaccurate");
+        }
+    }
+    playbackInfoLabel_->setToolTip(tooltipLines.join("\n"));
 }
 
 bool AnalysisView::hasRelativeTimeAxis() const {

@@ -1528,11 +1528,25 @@ void MainWindow::applyGlobalTheme() {
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"
         "QMenu::item:selected { background-color: %4; color: %5; }"
         "QMenu::item:disabled { color: #888888; }"
+        // Tooltips — one standard, readable look app-wide (light background,
+        // dark text, thin border, normal weight) instead of inheriting the
+        // dark app theme.
+        "QToolTip { background-color: #FFF8E7; color: #111111; border: 1px solid #888888; "
+        "  padding: 3px 6px; font-size: 12px; font-weight: normal; }"
         // Buttons
         "QPushButton { background-color: %3; color: %8; border: 1px solid %2; border-radius: 4px; padding: 4px 12px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %1; }"
         "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        // Checkboxes — always render a clearly visible box (dark theme), with
+        // a filled primary-colored state when checked.
+        "QCheckBox { color: %8; font-weight: bold; spacing: 6px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background-color: %1; }"
+        "QCheckBox::indicator:hover { border-color: %5; background-color: %4; }"
+        "QCheckBox::indicator:pressed { background-color: %4; }"
+        "QCheckBox::indicator:checked { background-color: %5; border-color: %5; }"
+        "QCheckBox::indicator:checked:hover { background-color: %4; border-color: %5; }"
+        "QCheckBox::indicator:disabled { background-color: %1; border-color: %2; }"
         // Tables / Grids
         "QTableWidget, QTableView { background-color: %1; alternate-background-color: %3; color: %8; gridline-color: %2; border: 1px solid %2; }"
         "QHeaderView::section { background-color: %3; color: %8; padding: 4px; border: 1px solid %2; }"
@@ -1568,7 +1582,13 @@ void MainWindow::applyGlobalTheme() {
 
     qApp->setStyleSheet(globalStyle);
 
-    QToolTip::setPalette(qApp->style()->standardPalette());
+    // Tooltips get their look from two mechanisms (the stylesheet rule above
+    // AND the palette Qt falls back to). Keep BOTH explicitly light so every
+    // tooltip renders identically regardless of the system theme.
+    QPalette tipPalette;
+    tipPalette.setColor(QPalette::ToolTipBase, QColor("#FFF8E7"));
+    tipPalette.setColor(QPalette::ToolTipText, QColor("#111111"));
+    QToolTip::setPalette(tipPalette);
     QToolTip::setFont(qApp->font());
     
     // Sub-components that manage their own local stylesheets using theme variables
