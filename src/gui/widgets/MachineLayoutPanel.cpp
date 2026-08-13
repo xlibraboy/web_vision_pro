@@ -493,15 +493,14 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     }
 
     // Per-sub-row side labels (left edge). Bold 9px, muted color.
-    // `tc.muted` is not on ThemeColors; derive a muted text color locally
-    // (alpha 155, matching the project convention used elsewhere).
+    // The muted text token is project-wide (spec: MachineLayout polish
+    // design, "Color tokens" section); kept inline because ThemeColors
+    // has no `muted` field and adding one is out of scope here.
     QFont sideLabelFont = painter.font();
     sideLabelFont.setPixelSize(9);
     sideLabelFont.setBold(true);
     painter.setFont(sideLabelFont);
-    QColor mutedColor(tc.text);
-    mutedColor.setAlpha(155);
-    painter.setPen(mutedColor);
+    painter.setPen(QColor(QStringLiteral("#8B949E")));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         const QString prefix = CameraFloor::name(CameraFloor::kFirst + f).section(' ', 0, 0).toUpper();
         const QString opLabel    = QString("%1 · OPERATOR").arg(prefix);
