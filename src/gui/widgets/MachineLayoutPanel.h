@@ -79,12 +79,15 @@ private:
     };
 
     class Canvas : public QWidget {
+        friend class MachineLayoutPanel;  // panel clears selection on combo change
     public:
         explicit Canvas(MachineLayoutPanel* owner);
 
     protected:
         void paintEvent(QPaintEvent* event) override;
+        void mousePressEvent(QMouseEvent* event) override;
         void mouseMoveEvent(QMouseEvent* event) override;
+        void keyPressEvent(QKeyEvent* event) override;
         void leaveEvent(QEvent* event) override;
 
     private:
@@ -106,6 +109,8 @@ private:
         MachineLayoutPanel* owner_;
         int hoveredCamera_ = -1;
         int hoveredDefect_ = -1;
+        int selectedCamera_ = -1;   // -1 = none
+        int selectedDefect_ = -1;   // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
     };

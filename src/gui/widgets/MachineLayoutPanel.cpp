@@ -9,6 +9,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QToolTip>
 #include <QFontMetrics>
 #include <QFileInfo>
@@ -334,6 +335,11 @@ void MachineLayoutPanel::populateEventCombo() {
 }
 
 void MachineLayoutPanel::applyEventFilter() {
+    // A combo change invalidates the marker set, so any selection must go.
+    if (canvas_) {
+        canvas_->selectedCamera_ = -1;
+        canvas_->selectedDefect_ = -1;
+    }
     defects_.clear();
     const int sel = eventCombo_ ? eventCombo_->currentData().toInt() : -1;
     if (sel < 0) {
@@ -377,6 +383,7 @@ MachineLayoutPanel::Canvas::Canvas(MachineLayoutPanel* owner)
     : QWidget(owner), owner_(owner) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);  // hover events (tooltips) need tracking on
+    setFocusPolicy(Qt::StrongFocus);  // so Esc reaches keyPressEvent
 }
 
 QRect MachineLayoutPanel::Canvas::cameraMarkerRect(const CameraMark& cam) const {
@@ -650,8 +657,21 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
             painter.drawLine(x, 36, x, yCenter);
         }
 
-        painter.setPen(QPen(i == hoveredCamera_ ? Qt::white : QColor(tc.border), 1.5));
-        painter.setBrush(cam.hasPosition ? col : QColor(col.red(), col.green(), col.blue(), 90));
+        // Selection state: dim every marker but the selected one; the selected
+        // marker gets an accent border. Hover highlight only applies when no
+        // selection is active.
+        QColor brushCol = cam.hasPosition ? col : QColor(col.red(), col.green(), col.blue(), 90);
+        QPen markerPen = QPen(i == hoveredCamera_ ? Qt::white : QColor(tc.border), 1.5);
+        if (selectedCamera_ >= 0) {
+            if (i == selectedCamera_) {
+                markerPen = QPen(QColor(tc.primary), 2);  // accent border
+            } else {
+                brushCol = QColor(col.red(), col.green(), col.blue(), 89);  // 35% dim
+                markerPen = QPen(QColor(tc.border), 1.5);
+            }
+        }
+        painter.setPen(markerPen);
+        painter.setBrush(brushCol);
         if (isOperator) {
             // Upward triangle = OPERATOR SIDE
             QPainterPath tri;
@@ -710,8 +730,21 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
     for (int i = 0; i < defects.size(); ++i) {
         const DefectMark& def = defects[i];
         const int x = static_cast<int>(owner_->mmToX(def.mm));
-        painter.setPen(QPen(i == hoveredDefect_ ? Qt::white : QColor(tc.border), 1.5));
-        painter.setBrush(def.color);
+        // Selection state: dim every defect but the selected one; the selected
+        // defect gets an accent border. Hover highlight only applies when no
+        // selection is active.
+        QColor fill = def.color;
+        QPen diamondPen = QPen(i == hoveredDefect_ ? Qt::white : QColor(tc.border), 1.5);
+        if (selectedDefect_ >= 0) {
+            if (i == selectedDefect_) {
+                diamondPen = QPen(QColor(tc.primary), 2);  // accent border
+            } else {
+                fill = QColor(def.color.red(), def.color.green(), def.color.blue(), 89);  // 35% dim
+                diamondPen = QPen(QColor(tc.border), 1.5);
+            }
+        }
+        painter.setPen(diamondPen);
+        painter.setBrush(fill);
         QPainterPath diamond;
         diamond.moveTo(x, defectLaneAxisY - 12);
         diamond.lineTo(x + 8, defectLaneAxisY - 6);
@@ -829,6 +862,67 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     painter.drawText(leftMargin, sy,
         "Rounded = DRIVE SIDE · triangle = OPERATOR SIDE. Each defect diamond is colored per event; "
         "hover a camera or defect for details.");
+}
+
+void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    const QPoint p = event->pos();
+
+    // 1. Camera hit-test first (same expanded rect as the hover test).
+    const QVector<CameraMark>& cameras = owner_->cameras_;
+    for (int i = 0; i < cameras.size(); ++i) {
+        if (cameraMarkerRect(cameras[i]).adjusted(-2, -2, 2, 2).contains(p)) {
+            selectedCamera_ = i;
+            selectedDefect_ = -1;
+            const CameraMark& c = cameras[i];
+            QToolTip::showText(event->globalPos(),
+                QString("Camera %1 — %2\nFloor: %3\nSide: %4\nGroup: %5\nIP: %6\nMachine position: %7")
+                    .arg(c.id)
+                    .arg(c.name.isEmpty() ? QStringLiteral("(no name)") : c.name)
+                    .arg(CameraFloor::name(c.floor))
+                    .arg(c.side.isEmpty() ? QStringLiteral("—") : c.side)
+                    .arg(CameraGroup::name(c.group))
+                    .arg(c.ip.isEmpty() ? QStringLiteral("—") : c.ip)
+                    .arg(c.hasPosition ? QString("%1 mm").arg(c.mm)
+                                       : QStringLiteral("not set — set it on the Camera Card")),
+                this);
+            update();
+            return;
+        }
+    }
+
+    // 2. Defect hit-test second (same expanded rect as the hover test).
+    const QVector<DefectMark>& defects = owner_->defects_;
+    for (int i = 0; i < defects.size(); ++i) {
+        if (defectMarkerRect(defects[i]).adjusted(-3, -3, 3, 3).contains(p)) {
+            selectedDefect_ = i;
+            selectedCamera_ = -1;
+            QToolTip::showText(event->globalPos(), defects[i].detail, this);
+            update();
+            return;
+        }
+    }
+
+    // 3. Empty canvas → clear selection.
+    selectedCamera_ = -1;
+    selectedDefect_ = -1;
+    QToolTip::hideText();
+    update();
+}
+
+void MachineLayoutPanel::Canvas::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        selectedCamera_ = -1;
+        selectedDefect_ = -1;
+        QToolTip::hideText();
+        update();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
