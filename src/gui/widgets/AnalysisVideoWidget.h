@@ -36,6 +36,10 @@ public:
     void setAnnotation(const QString& shape, const QVector<QPoint>& points);
     void setAnnotationNormalized(const QString& shape, const QVector<QPointF>& points);
     void clearAnnotation();
+    // Crosshair + badge confirming the defect is at the same spot on this camera
+    // after camera alignment. normalizedPos is in [0,1] image coordinates.
+    void setSyncIndicator(bool visible, const QString& label, const QPointF& normalizedPos = QPointF(0.5, 0.5));
+    void clearSyncIndicator();
     int getCameraId() const { return cameraId_; }
 
 signals:
@@ -69,6 +73,10 @@ private:
     bool markerToolEnabled_ = false;
     bool annotationEditable_ = true;
     bool markerVisible_ = false;
+    // Sync-confirmation crosshair (drawn above the frame, mouse-transparent).
+    bool syncIndicatorVisible_ = false;
+    QString syncIndicatorLabel_;
+    QPointF syncIndicatorPos_{0.5, 0.5};
     bool drawingMarker_ = false;
     QString markerShape_ = "pen";
     QPoint markerPos_;

@@ -28,7 +28,10 @@
 #include <QTimer>
 #include <QPropertyAnimation>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QMap>
+#include <QVector>
+#include <QPointF>
 #include <QStringList>
 #include <vector>
 #include <deque>
@@ -153,9 +156,20 @@ private:
     int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;
     void markDefectForSelectedCamera();
     void applyCameraAlignment();
+    // Align cameras using placed defect marks as ground truth (needs >= 2 marked
+    // cameras in this event). Returns false to let applyCameraAlignment fall back
+    // to the machine-speed/position formula.
+    bool tryAlignToMarks();
     void clearCameraOffsets();
     void updateAlignmentStatus();
     void onCameraOffsetChanged(int value);
+    // Defect-mark helpers (a camera may carry several marks).
+    // Parses a sidecar value: legacy single int or new array of ints.
+    QVector<int> defectMarkFrames(const QJsonValue& value) const;
+    QVector<int> defectMarksForCamera(int camIndex) const;
+    // Sync crosshair: show on every camera view while viewing a synced frame.
+    void applySyncIndicators();
+    QPointF syncIndicatorPosForCamera(int camIndex) const;
 
     // Right tools panel
     void onToolsLockToggled();
@@ -367,8 +381,12 @@ private:
     // Per-camera playback frame offset (slot 0-based) applied on top of the shared
     // review timeline in renderCurrentReviewFrame(). Index = camera slot.
     std::vector<int> cameraFrameOffsets_;
-    // Manual defect marks: key "cam{N}" (N 1-based) -> absolute frame index.
+    // Manual defect marks: key "cam{N}" (N 1-based) -> absolute frame index
+    // (legacy sidecars) or array of frame indices (multiple marks per camera).
     QJsonObject defectMarks_;
+    // Master-frame positions (k-th marks of every marked camera) that are in
+    // sync. Empty when marks don't fully agree; drives the on-frame crosshair.
+    QVector<int> syncedMasterFrames_;
 
     QPushButton*    markDefectButton_ = nullptr;
     QSpinBox*       cameraOffsetSpin_ = nullptr;

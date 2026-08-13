@@ -951,7 +951,7 @@ void AnalysisView::setupMainArea() {
     cameraOffsetSpin_->setToolTip("Per-camera frame offset on top of the shared timeline (negative = earlier frames).");
 
     markDefectButton_ = new QPushButton("Mark Defect", detailToolsWidget_);
-    markDefectButton_->setToolTip("Record this camera's currently displayed frame as its defect mark.");
+    markDefectButton_->setToolTip("Record this camera's currently displayed frame as a defect mark. Each click adds one mark; mark the same defect on at least two cameras, then Align to sync them.");
 
     toolsLayout->addWidget(markerToolCheck_);
     toolsLayout->addWidget(markerShapeCombo_);
@@ -2104,6 +2104,9 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
         ? QString::number(relativeSeconds, 'f', 3)
         : QString::number(relativeFrame, 'f', 1));
     updatePlaybackInfoLabel();
+    // Keep the sync crosshair in step with the scrub position (and clear it when
+    // not in review mode).
+    applySyncIndicators();
 
     if (!isReviewMode_) {
         return;
@@ -2240,8 +2243,9 @@ QMap<QString, int> AnalysisView::loadEventAnnotations(const QString& videoPath) 
     if (eventAnnotations_.contains("defectMarks") && eventAnnotations_["defectMarks"].isObject()) {
         const QJsonObject marks = eventAnnotations_["defectMarks"].toObject();
         for (auto it = marks.begin(); it != marks.end(); ++it) {
-            if (it.key().startsWith("cam") && it.value().isDouble()) {
-                defectMarks_[it.key()] = it.value().toInt();
+            // Preserve values as-is: legacy single int or new array of ints.
+            if (it.key().startsWith("cam")) {
+                defectMarks_[it.key()] = it.value();
             }
         }
     }
@@ -2913,7 +2917,10 @@ void AnalysisView::updateAnnotationSliderMarkers() {
     }
     annotationSliderMarkers_.clear();
 
-    if (!isReviewMode_ || !playbackSlider_ || eventAnnotations_.isEmpty()) {
+    // Marks live in their own object (stripped from eventAnnotations_ on load),
+    // so a marks-only sidecar must still render its slider dots.
+    if (!isReviewMode_ || !playbackSlider_
+        || (eventAnnotations_.isEmpty() && defectMarks_.isEmpty())) {
         return;
     }
 
@@ -2992,44 +2999,55 @@ void AnalysisView::updateAnnotationSliderMarkers() {
         annotationSliderMarkers_.append(marker);
     }
 
-    // Second pass: manual defect marks (per-camera), drawn one row lower in danger red.
+    // Second pass: manual defect marks (per-camera, several per camera allowed),
+    // drawn one row lower in danger red. Marks from cameras outside this event
+    // (stale sidecar data) are skipped.
     const int defectYPos = yPos + 10;
     for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
         const QString camKey = it.key();
         const int camNumber = camKey.mid(3).toInt();
-        if (camNumber <= 0) {
+        const int camIndex = camNumber - 1;
+        if (camNumber <= 0 || videoReaders_.count(camIndex) == 0) {
             continue;
         }
         if (detailTabActive && camNumber != selectedCameraId_ + 1) {
             continue;
         }
-        if (!it.value().isDouble()) {
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (frames.isEmpty()) {
             continue;
         }
-        const int frameIndex = static_cast<int>(it.value().toDouble());
-        const int sliderValue = sliderValueForFrameIndex(frameIndex);
-        if (sliderValue < sliderMin || sliderValue > sliderMax) {
-            continue;
-        }
-        const double ratio = static_cast<double>(sliderValue - sliderMin) / (sliderMax - sliderMin);
-        const int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
-        const double relativeSeconds = relativeSecondsForFrameIndex(frameIndex);
+        const bool multi = frames.size() > 1;
+        for (int mi = 0; mi < frames.size(); ++mi) {
+            const int frameIndex = frames.at(mi);
+            const int sliderValue = sliderValueForFrameIndex(frameIndex);
+            if (sliderValue < sliderMin || sliderValue > sliderMax) {
+                continue;
+            }
+            const double ratio = static_cast<double>(sliderValue - sliderMin) / (sliderMax - sliderMin);
+            const int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
+            const double relativeSeconds = relativeSecondsForFrameIndex(frameIndex);
 
-        QLabel* marker = new QLabel(playbackPanel_);
-        marker->setFixedSize(9, 9);
-        marker->setToolTip(QString("Defect mark: Camera %1 @ frame %2 (%3%4 s)")
-            .arg(camNumber)
-            .arg(frameIndex)
-            .arg(relativeSeconds >= 0.0 ? "+" : "")
-            .arg(relativeSeconds, 0, 'f', 3));
-        marker->setStyleSheet("background-color: #FF5A5A; border: 1px solid white; border-radius: 4px;");
-        marker->move(xPos - 4, defectYPos);
-        marker->setCursor(Qt::PointingHandCursor);
-        marker->installEventFilter(this);
-        marker->setProperty("annotationFrame", frameIndex);
-        marker->raise();
-        marker->show();
-        annotationSliderMarkers_.append(marker);
+            QLabel* marker = new QLabel(playbackPanel_);
+            marker->setFixedSize(9, 9);
+            marker->setToolTip(multi
+                ? QString("Defect mark %1: Camera %2 @ frame %3 (%4%5 s)")
+                    .arg(mi + 1).arg(camNumber).arg(frameIndex)
+                    .arg(relativeSeconds >= 0.0 ? "+" : "")
+                    .arg(relativeSeconds, 0, 'f', 3)
+                : QString("Defect mark: Camera %1 @ frame %2 (%3%4 s)")
+                    .arg(camNumber).arg(frameIndex)
+                    .arg(relativeSeconds >= 0.0 ? "+" : "")
+                    .arg(relativeSeconds, 0, 'f', 3));
+            marker->setStyleSheet("background-color: #FF5A5A; border: 1px solid white; border-radius: 4px;");
+            marker->move(xPos - 4, defectYPos);
+            marker->setCursor(Qt::PointingHandCursor);
+            marker->installEventFilter(this);
+            marker->setProperty("annotationFrame", frameIndex);
+            marker->raise();
+            marker->show();
+            annotationSliderMarkers_.append(marker);
+        }
     }
 }
 
@@ -3444,6 +3462,7 @@ void AnalysisView::clearData() {
     eventAnnotations_ = QJsonObject();
     cameraFrameOffsets_.clear();
     defectMarks_ = QJsonObject();
+    syncedMasterFrames_.clear();
     if (cameraOffsetSpin_) {
         cameraOffsetSpin_->blockSignals(true);
         cameraOffsetSpin_->setValue(0);
@@ -3797,15 +3816,157 @@ void AnalysisView::positionToolsPanel() {
     toolsEdgeTab_->raise();  // tab on top: the panel slides behind it when hiding
 }
 
+QVector<int> AnalysisView::defectMarkFrames(const QJsonValue& value) const {
+    QVector<int> frames;
+    if (value.isArray()) {
+        const QJsonArray arr = value.toArray();
+        for (const QJsonValue& item : arr) {
+            if (item.isDouble()) {
+                frames.append(static_cast<int>(item.toDouble()));
+            }
+        }
+    } else if (value.isDouble()) {
+        // Legacy sidecar: single frame index per camera.
+        frames.append(static_cast<int>(value.toDouble()));
+    }
+    return frames;
+}
+
+QVector<int> AnalysisView::defectMarksForCamera(int camIndex) const {
+    const auto it = defectMarks_.find(QString("cam%1").arg(camIndex + 1));
+    if (it == defectMarks_.end()) {
+        return QVector<int>();
+    }
+    return defectMarkFrames(it.value());
+}
+
 void AnalysisView::markDefectForSelectedCamera() {
     if (!isReviewMode_ || selectedCameraId_ < 0) {
         return;
     }
-    defectMarks_[QString("cam%1").arg(selectedCameraId_ + 1)] =
-        displayedFrameIndexForCamera(selectedCameraId_, currentReviewFrameIndex());
-    saveEventAnnotations();
+    const int frame = displayedFrameIndexForCamera(selectedCameraId_, currentReviewFrameIndex());
+    QVector<int> frames = defectMarksForCamera(selectedCameraId_);
+    if (!frames.contains(frame)) {
+        frames.append(frame);
+        QJsonArray arr;
+        for (int f : frames) {
+            arr.append(f);
+        }
+        defectMarks_[QString("cam%1").arg(selectedCameraId_ + 1)] = arr;
+        saveEventAnnotations();
+    }
     updateAnnotationSliderMarkers();
     updateAlignmentStatus();
+}
+
+bool AnalysisView::tryAlignToMarks() {
+    // Collect marks for cameras present in this event only (stale sidecar marks
+    // from cameras outside the event never participate).
+    QMap<int, QVector<int>> marksByCam;
+    for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
+        const int camIndex = it.key().mid(3).toInt() - 1;
+        if (camIndex < 0 || videoReaders_.count(camIndex) == 0) {
+            continue;
+        }
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (!frames.isEmpty()) {
+            marksByCam[camIndex] = frames;
+        }
+    }
+    if (marksByCam.size() < 2) {
+        return false;
+    }
+
+    const int refCam = marksByCam.firstKey();
+    const QVector<int>& refMarks = marksByCam[refCam];
+
+    double fps = videoReaders_.begin()->second->getFps();
+    if (fps <= 0.0) fps = CameraConfig::getFps();
+    if (fps <= 0.0) fps = 10.0;
+    const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
+    const bool speedOk = std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0
+        && !currentEventInfo_.speedStale;
+    const double speed = speedOk ? currentEventInfo_.speedValue : 0.0;
+    const double framesPerMm = speedOk ? fps * 60.0 / (speed * 1000.0) : 0.0;
+    const int refPos = speedOk ? currentEventCameraPositionMm(refCam) : 0;
+
+    QStringList applied;
+    QStringList appliedNamed;
+    QStringList fallbackCams;
+    QStringList fallbackReason;
+    for (auto& pair : videoReaders_) {
+        const int cam = pair.first;
+        if (marksByCam.contains(cam)) {
+            const QVector<int>& marks = marksByCam[cam];
+            const int n = qMin(refMarks.size(), marks.size());
+            if (n <= 0) {
+                cameraFrameOffsets_[cam] = 0;
+                continue;
+            }
+            // Offset = mean over the k-th mark pairs of (this cam's mark minus
+            // the reference cam's mark): master = mark - offset must equal the
+            // reference master, so offset[cam] = marks[cam] - marks[ref].
+            double sum = 0.0;
+            for (int k = 0; k < n; ++k) {
+                sum += static_cast<double>(marks[k] - refMarks[k]);
+            }
+            const int offset = static_cast<int>(std::lround(sum / n));
+            cameraFrameOffsets_[cam] = offset;
+            if (offset != 0) {
+                const QString seconds = QString("%1 s").arg(static_cast<double>(offset) / fps, 0, 'f', 3);
+                applied << QString("%1 %2 f (%3)").arg(cam + 1).arg(offset).arg(seconds);
+                appliedNamed << QString("cam%1 %2 f (%3)").arg(cam + 1).arg(offset).arg(seconds);
+            }
+        } else {
+            // Unmarked camera: fall back to the speed/position formula.
+            if (speedOk && refPos > 0) {
+                const int pos = currentEventCameraPositionMm(cam);
+                if (pos <= 0) {
+                    cameraFrameOffsets_[cam] = 0;
+                    fallbackCams << QString("cam%1").arg(cam + 1);
+                    fallbackReason << QString("cam%1 no position").arg(cam + 1);
+                    continue;
+                }
+                const int deltaMm = (pos - refPos) * sign;
+                const int offset = static_cast<int>(std::lround(deltaMm * framesPerMm));
+                cameraFrameOffsets_[cam] = offset;
+                fallbackCams << QString("cam%1").arg(cam + 1);
+                if (offset != 0) {
+                    applied << QString("%1 %2 f").arg(cam + 1).arg(offset);
+                }
+            } else {
+                cameraFrameOffsets_[cam] = 0;
+                fallbackCams << QString("cam%1").arg(cam + 1);
+                fallbackReason << QString("cam%1 no speed").arg(cam + 1);
+            }
+        }
+    }
+
+    saveEventAnnotations();
+    if (cameraOffsetSpin_ && selectedCameraId_ >= 0) {
+        cameraOffsetSpin_->blockSignals(true);
+        cameraOffsetSpin_->setValue(cameraFrameOffsets_[selectedCameraId_]);
+        cameraOffsetSpin_->blockSignals(false);
+    }
+    renderCurrentReviewFrame(false);
+    updateAlignmentStatus();
+    if (alignStatusLabel_) {
+        const QString head = QString("Aligned to marks (ref cam%1)").arg(refCam + 1);
+        const QString detail = applied.isEmpty()
+            ? QString("cameras already in sync")
+            : applied.join(", ");
+        if (fallbackCams.isEmpty()) {
+            alignStatusLabel_->setText(QString("%1: %2").arg(head, detail));
+            alignStatusLabel_->setToolTip(QString("%1: %2 (marked cameras; no speed needed)").arg(head, appliedNamed.isEmpty()
+                ? QString("cameras already in sync") : appliedNamed.join(", ")));
+        } else {
+            alignStatusLabel_->setText(QString("%1: %2 · speed fallback: %3")
+                .arg(head, detail, fallbackCams.join(", ")));
+            alignStatusLabel_->setToolTip(QString("%1: %2 · speed fallback for %3")
+                .arg(head, detail, fallbackReason.join(", ")));
+        }
+    }
+    return true;
 }
 
 void AnalysisView::applyCameraAlignment() {
@@ -3813,14 +3974,20 @@ void AnalysisView::applyCameraAlignment() {
         return;
     }
 
-    // Machine speed comes from the OPC UA "Machine Speed" tag captured with
-    // the event (EventInfo.speedValue). No manual override.
+    // Placed defect marks are the ground truth of the sync: prefer them whenever
+    // at least two cameras in this event carry marks.
+    if (tryAlignToMarks()) {
+        return;
+    }
+
+    // Fallback: machine speed comes from the OPC UA "Machine Speed" tag captured
+    // with the event (EventInfo.speedValue). No manual override.
     if (!std::isfinite(currentEventInfo_.speedValue) || currentEventInfo_.speedValue <= 0.0) {
-        if (alignStatusLabel_) alignStatusLabel_->setText("No Machine Speed captured for this event");
+        if (alignStatusLabel_) alignStatusLabel_->setText("No Machine Speed captured for this event — mark defects on >= 2 cameras, then Align");
         return;
     }
     if (currentEventInfo_.speedStale) {
-        if (alignStatusLabel_) alignStatusLabel_->setText("Machine Speed was stale at capture — Align skipped");
+        if (alignStatusLabel_) alignStatusLabel_->setText("Machine Speed was stale at capture — mark defects on >= 2 cameras, then Align");
         return;
     }
     const double speed = currentEventInfo_.speedValue;
@@ -3897,48 +4064,164 @@ void AnalysisView::updateAlignmentStatus() {
     }
     if (!isReviewMode_) {
         alignStatusLabel_->setText("—");
+        syncedMasterFrames_.clear();
+        applySyncIndicators();
         return;
     }
     const int numReaders = static_cast<int>(videoReaders_.size());
-    QString text = QString("Marks: %1/%2 — adjust each camera, then Align")
-        .arg(defectMarks_.size()).arg(numReaders);
-    QString named = text;
 
-    // Alignment verdict: when every marked camera's defect displays at the same
-    // master frame (mark - offset), all cameras are in sync.
-    QMap<int, int> markMasterFrames;  // camera index -> master frame of its defect
+    // Alignment verdict: when the k-th marked defect of every marked camera
+    // displays at the same master frame (mark - offset), all cameras are in sync.
+    // Only marks from cameras present in this event count (stale sidecar marks
+    // for cameras outside the event are ignored).
+    int markedCamCount = 0;
+    QMap<int, QVector<int>> markMasterFrames;  // camera index -> master frames
     for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
         const int camIndex = it.key().mid(3).toInt() - 1;
-        if (camIndex < 0 || camIndex >= static_cast<int>(cameraFrameOffsets_.size())) {
+        if (camIndex < 0 || videoReaders_.count(camIndex) == 0) {
             continue;
         }
-        markMasterFrames[camIndex] = static_cast<int>(it.value().toDouble())
-            - cameraFrameOffsets_[camIndex];
-    }
-    if (markMasterFrames.size() >= 2) {
-        int minFrame = markMasterFrames.constBegin().value();
-        int maxFrame = minFrame;
-        for (auto it = markMasterFrames.constBegin(); it != markMasterFrames.constEnd(); ++it) {
-            minFrame = qMin(minFrame, it.value());
-            maxFrame = qMax(maxFrame, it.value());
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (frames.isEmpty()) {
+            continue;
         }
-        if (minFrame == maxFrame) {
-            const double seconds = relativeSecondsForFrameIndex(minFrame);
-            text += QString(" · all defects @ %1 (%2%3 s)")
-                .arg(minFrame)
-                .arg(seconds >= 0.0 ? "+" : "")
-                .arg(seconds, 0, 'f', 3);
-            named += QString(" · all defects @ frame %1 (%2%3 s)")
-                .arg(minFrame)
-                .arg(seconds >= 0.0 ? "+" : "")
-                .arg(seconds, 0, 'f', 3);
-        } else {
-            text += QString(" · marks differ by %1 f — re-check marks").arg(maxFrame - minFrame);
-            named += QString(" · marks differ by %1 frames — re-check marks").arg(maxFrame - minFrame);
+        ++markedCamCount;
+        QVector<int> masters;
+        masters.reserve(frames.size());
+        const int offset = (camIndex >= 0 && camIndex < static_cast<int>(cameraFrameOffsets_.size()))
+            ? cameraFrameOffsets_[camIndex] : 0;
+        for (int f : frames) {
+            masters.append(f - offset);
+        }
+        markMasterFrames[camIndex] = masters;
+    }
+
+    QString text = QString("Marks: %1/%2 cameras — mark the same defect on >= 2 cameras, then Align")
+        .arg(markedCamCount).arg(numReaders);
+    QString named = text;
+
+    syncedMasterFrames_.clear();
+    if (markMasterFrames.size() >= 2) {
+        // Compare marks pairwise (k-th mark of every camera). A camera with fewer
+        // marks simply doesn't participate in the k-th comparison.
+        int maxMarks = 0;
+        for (auto it = markMasterFrames.constBegin(); it != markMasterFrames.constEnd(); ++it) {
+            maxMarks = qMax(maxMarks, it.value().size());
+        }
+        QVector<int> synced;
+        QStringList disagreeNotes;
+        int firstMarkMin = 0, firstMarkMax = 0;
+        bool haveFirst = false;
+        for (int k = 0; k < maxMarks; ++k) {
+            int value = -1;
+            bool agree = true;
+            int kMin = 0, kMax = 0;
+            bool haveK = false;
+            for (auto it = markMasterFrames.constBegin(); it != markMasterFrames.constEnd(); ++it) {
+                if (k >= it.value().size()) {
+                    continue;  // this camera has no k-th mark — not a disagreement
+                }
+                const int cur = it.value().at(k);
+                if (value < 0) {
+                    value = cur;
+                    kMin = kMax = cur;
+                    haveK = true;
+                    if (k == 0) {
+                        firstMarkMin = firstMarkMax = cur;
+                        haveFirst = true;
+                    }
+                } else if (cur != value) {
+                    agree = false;
+                    kMin = qMin(kMin, cur);
+                    kMax = qMax(kMax, cur);
+                    if (k == 0) {
+                        firstMarkMin = qMin(firstMarkMin, cur);
+                        firstMarkMax = qMax(firstMarkMax, cur);
+                    }
+                }
+            }
+            if (agree && value >= 0) {
+                synced.append(value);
+            } else if (haveK) {
+                disagreeNotes << QString("mark %1 off by %2 f").arg(k + 1).arg(kMax - kMin);
+            }
+        }
+        syncedMasterFrames_ = synced;
+
+        if (!synced.isEmpty()) {
+            QStringList framesText;
+            QStringList framesTextNamed;
+            for (int f : synced) {
+                const double seconds = relativeSecondsForFrameIndex(f);
+                framesText << QString("%1 (%2%3 s)")
+                    .arg(f).arg(seconds >= 0.0 ? "+" : "").arg(seconds, 0, 'f', 3);
+                framesTextNamed << QString("frame %1 (%2%3 s)")
+                    .arg(f).arg(seconds >= 0.0 ? "+" : "").arg(seconds, 0, 'f', 3);
+            }
+            text += QString(" · all defects @ %1").arg(framesText.join(", "));
+            named += QString(" · all defects @ %1").arg(framesTextNamed.join(", "));
+            if (!disagreeNotes.isEmpty()) {
+                text += QString(" · %1 — re-check marks").arg(disagreeNotes.join(", "));
+                named += QString(" · %1 — re-check marks").arg(disagreeNotes.join(", "));
+            }
+        } else if (haveFirst) {
+            text += QString(" · first marks differ by %1 f — re-check marks").arg(firstMarkMax - firstMarkMin);
+            named += QString(" · first marks differ by %1 frames — re-check marks").arg(firstMarkMax - firstMarkMin);
         }
     }
     alignStatusLabel_->setText(text);
     alignStatusLabel_->setToolTip(named);
+    applySyncIndicators();
+}
+
+void AnalysisView::applySyncIndicators() {
+    // Show the crosshair only while viewing a master frame where every marked
+    // camera's defect is confirmed to line up.
+    const bool show = isReviewMode_ && !syncedMasterFrames_.isEmpty()
+        && syncedMasterFrames_.contains(currentReviewFrameIndex());
+    const QString label = show
+        ? QString("SYNC @ frame %1").arg(currentReviewFrameIndex())
+        : QString();
+
+    for (auto& pair : videoReaders_) {
+        const int cam = pair.first;
+        if (cam >= 0 && cam < static_cast<int>(cameraWidgets_.size()) && cameraWidgets_[cam]) {
+            cameraWidgets_[cam]->setSyncIndicator(show, label, syncIndicatorPosForCamera(cam));
+        }
+    }
+    if (selectedCameraWidget_) {
+        const int cam = selectedCameraWidget_->getCameraId();
+        if (cam >= 0) {
+            selectedCameraWidget_->setSyncIndicator(show, label, syncIndicatorPosForCamera(cam));
+        }
+    }
+}
+
+QPointF AnalysisView::syncIndicatorPosForCamera(int camIndex) const {
+    // Anchor the crosshair on the drawn annotation of this camera's first marked
+    // frame (the defect spot); fall back to frame center.
+    const QVector<int> marks = defectMarksForCamera(camIndex);
+    if (!marks.isEmpty()) {
+        const QString key = annotationKey(camIndex, marks.first());
+        if (eventAnnotations_.contains(key) && eventAnnotations_[key].isObject()) {
+            const QJsonObject ann = eventAnnotations_[key].toObject();
+            const QJsonArray pts = ann["points"].toArray();
+            double sx = 0.0, sy = 0.0;
+            int n = 0;
+            for (const QJsonValue& val : pts) {
+                const QJsonObject p = val.toObject();
+                if (p.contains("nx") && p.contains("ny")) {
+                    sx += p["nx"].toDouble();
+                    sy += p["ny"].toDouble();
+                    ++n;
+                }
+            }
+            if (n > 0) {
+                return QPointF(sx / n, sy / n);
+            }
+        }
+    }
+    return QPointF(0.5, 0.5);
 }
 
 

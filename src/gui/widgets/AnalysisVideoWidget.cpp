@@ -5,6 +5,7 @@
 #include <QPen>
 #include <QLineF>
 #include <QPainterPath>
+#include <QFontMetrics>
 #include <cmath>
 #include <iostream>
 #include <algorithm>
@@ -156,6 +157,17 @@ void AnalysisVideoWidget::clearAnnotation() {
     update();
 }
 
+void AnalysisVideoWidget::setSyncIndicator(bool visible, const QString& label, const QPointF& normalizedPos) {
+    syncIndicatorVisible_ = visible;
+    syncIndicatorLabel_ = visible ? label : QString();
+    syncIndicatorPos_ = normalizedPos;
+    update();
+}
+
+void AnalysisVideoWidget::clearSyncIndicator() {
+    setSyncIndicator(false, QString(), QPointF(0.5, 0.5));
+}
+
 QPoint AnalysisVideoWidget::normalizedToWidgetPoint(const QPointF& point) const {
     const QRect drawRect = imageDrawRect_.isValid() ? imageDrawRect_ : rect();
     return QPoint(drawRect.left() + static_cast<int>(point.x() * drawRect.width()),
@@ -295,6 +307,37 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
                 drawMarker(markerShape_, previewPoints, markerColor_);
             } else {
                 drawMarker(markerShape_, currentMarkerDisplayPoints(), markerColor_);
+            }
+        }
+
+        // Sync-confirmation crosshair: dashed green cross + ring at the defect
+        // position, plus a small badge. Drawn above the frame, purely decorative
+        // (mouse events still go to the widget / marker tools).
+        if (syncIndicatorVisible_) {
+            const QPoint pos = normalizedToWidgetPoint(syncIndicatorPos_);
+            const QColor syncColor(0, 255, 120);
+            QPen crossPen(syncColor, 2);
+            crossPen.setStyle(Qt::DashLine);
+            painter.setPen(crossPen);
+            const int arm = 18;
+            painter.drawLine(pos.x() - arm, pos.y(), pos.x() + arm, pos.y());
+            painter.drawLine(pos.x(), pos.y() - arm, pos.x(), pos.y() + arm);
+            painter.setPen(QPen(syncColor, 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(pos, arm - 5, arm - 5);
+
+            if (!syncIndicatorLabel_.isEmpty()) {
+                QFont badgeFont = painter.font();
+                badgeFont.setPixelSize(11);
+                badgeFont.setBold(true);
+                painter.setFont(badgeFont);
+                const QFontMetrics fm(badgeFont);
+                const QRect badgeRect(8, 28, fm.horizontalAdvance(syncIndicatorLabel_) + 16, 20);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0, 0, 0, 175));
+                painter.drawRoundedRect(badgeRect, 4, 4);
+                painter.setPen(syncColor);
+                painter.drawText(badgeRect.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, syncIndicatorLabel_);
             }
         }
     } 
