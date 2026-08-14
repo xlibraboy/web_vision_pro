@@ -8,17 +8,19 @@
 #include "../CameraInfo.h"
 
 class QComboBox;
+class QPushButton;
 struct ThemeColors;  // full definition in config/CameraConfig.h
 
 /**
  * @brief MachineLayoutPanel - visual machine layout for System Configuration.
  *
  * Shared mm scale across all lanes:
- *  - One camera lane per machine floor (1st / 2nd / 3rd): every camera at the
- *    machine position assigned on its Camera Card (live card values when
- *    supplied, CameraConfig otherwise), colored by camera group, with vertical
- *    labels and side-based marker shapes (rounded rect = DRIVE SIDE,
- *    triangle = OPERATOR SIDE).
+ *  - One camera lane per machine floor (1st / 2nd / 3rd, displayed bottom-up
+ *    so the top lane is the 3rd floor): every camera at the machine position
+ *    assigned on its Camera Card (live card values when supplied, CameraConfig
+ *    otherwise), colored by camera group, with vertical labels and side-based
+ *    marker shapes (rounded rect = DRIVE SIDE in the upper sub-row,
+ *    triangle = OPERATOR SIDE in the lower sub-row).
  *  - Defects lane: defects marked (and aligned) in the Analysis view, read from
  *    each event's sidecar annotations and projected onto the machine using the
  *    event speed. A header combo isolates a single event's defects or shows all
@@ -37,6 +39,12 @@ public:
     // CameraConfig instead.
     void setCameras(const std::vector<CameraInfo>& cameras);
     void refresh();
+
+    // Zoom/pan the shared mm scale (centered on the given mm / shifted by mm).
+    void zoomAt(double centerMm, double factor);
+    void zoomToMm(double mm);  // 1 mm window centered on a marker position
+    void panBy(double deltaMm);
+    void resetZoom();
 
 protected:
     void showEvent(QShowEvent* event) override;
@@ -85,14 +93,20 @@ private:
 
     protected:
         void paintEvent(QPaintEvent* event) override;
+        void wheelEvent(QWheelEvent* event) override;
         void mousePressEvent(QMouseEvent* event) override;
         void mouseMoveEvent(QMouseEvent* event) override;
         void mouseReleaseEvent(QMouseEvent* event) override;
         void keyPressEvent(QKeyEvent* event) override;
         void enterEvent(QEvent* event) override;
         void leaveEvent(QEvent* event) override;
+        void timerEvent(QTimerEvent* event) override;
 
     private:
+        double mmAt(int x) const;  // exact mm under a screen x (no snapping)
+        void updateCursorHits();   // glow markers aligned with the cursor line
+        void cancelPendingReset(); // abort a pending auto-reset (pointer back)
+
         QRect cameraMarkerRect(const CameraMark& cam) const;
         QRect defectMarkerRect(const DefectMark& def) const;
 
@@ -104,6 +118,7 @@ private:
         void drawPositionCursor(QPainter& p, const ThemeColors& tc);
         void drawLegends(QPainter& p, const ThemeColors& tc);
         void drawSummary(QPainter& p, const ThemeColors& tc);
+        void drawZoomIndicator(QPainter& p, const ThemeColors& tc);
 
         struct SectionBarSlot { int group; int x; int width; int camCount; };
         QVector<SectionBarSlot> sectionBarSlots_;
@@ -111,16 +126,27 @@ private:
         MachineLayoutPanel* owner_;
         int hoveredCamera_ = -1;
         int hoveredDefect_ = -1;
+        int cursorHitCamera_ = -1;  // marker aligned with the cursor line
+        int cursorHitDefect_ = -1;
         int selectedCamera_ = -1;   // -1 = none
         int selectedDefect_ = -1;   // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
 
-        // Draggable vertical position cursor (snapped to the mm step).
+        // Vertical position cursor (tracks the exact pointer mm) + drag pan.
         bool   cursorVisible_  = false;   // pointer is over the canvas
-        bool   cursorDragging_ = false;   // user is holding LMB on empty canvas
+        bool   panning_        = false;   // user is dragging empty canvas (pan)
+        int    lastPanX_       = 0;       // last pointer x while panning
         double cursorMm_       = 0.0;     // current cursor position in mm
-        double mmStep_         = 100.0;   // snap step, computed in refresh()
+        double mmStep_         = 100.0;   // mm tick step, computed in refresh()
+
+        // Delayed auto-reset when the pointer leaves the panel. The delay lets
+        // transient synthetic leaves (tooltips, layout shifts while the Reset
+        // view button appears) cancel themselves when the pointer returns,
+        // so clicking a marker to zoom never auto-resets while the mouse
+        // stays inside the panel.
+        int  resetTimerId_ = -1;   // active delay timer, -1 = none
+        bool resetPending_ = false;
     };
 
     void rebuildData();
@@ -129,6 +155,8 @@ private:
     void rebuildScale();
     void applyEventFilter();
     void populateEventCombo();
+    void applyViewRange();   // effective minMm_/maxMm_ from fit or zoom window
+    void updateZoomUi();     // Reset view button visibility
     double niceStep() const;  // mm tick step shared by lanes and the cursor
     double mmToX(double mm) const;
     static QColor groupColor(int group);
@@ -139,10 +167,16 @@ private:
     QVector<SectionRange> sectionRanges_;  // per-group mm span for the section bar
     QVector<EventGroup> eventGroups_;
     QVector<DefectMark> defects_;          // filtered by the event combo
-    double minMm_ = 0.0;
+    double fitMinMm_ = 0.0;  // auto-fit range around the data (zoom baseline)
+    double fitMaxMm_ = 1.0;
+    double minMm_ = 0.0;     // effective visible range (fit or zoom window)
     double maxMm_ = 1.0;
+    bool zoomActive_ = false;
+    double zoomMinMm_ = 0.0;
+    double zoomMaxMm_ = 1.0;
     int skippedNoSpeedEvents_ = 0;
 
     Canvas* canvas_ = nullptr;
     QComboBox* eventCombo_ = nullptr;
+    QPushButton* resetZoomBtn_ = nullptr;
 };

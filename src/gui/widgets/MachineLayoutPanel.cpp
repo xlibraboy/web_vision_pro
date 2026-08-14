@@ -4,8 +4,10 @@
 #include "../../core/EventDatabase.h"
 #include <QComboBox>
 #include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QWheelEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -27,6 +29,11 @@
 
 namespace {
 const int kMaxMarkedEvents = 25;  // most recent marked events offered in the combo
+
+// Display-row helpers: the machine's floors are shown bottom-up, so the top
+// lane (display row 0) is the 3rd floor and the bottom lane is the 1st floor.
+inline int displayRowForLane(int lane) { return CameraFloor::kCount - 1 - lane; }
+inline int floorForDisplayRow(int row) { return CameraFloor::kThird - row; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +73,17 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
     headerLayout->addWidget(label);
     headerLayout->addWidget(eventCombo_);
+
+    // Reset view (shown only while zoomed in)
+    resetZoomBtn_ = new QPushButton(tr("Reset view"), header);
+    resetZoomBtn_->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 4px 10px; font-size: 12px; }"
+        "QPushButton:hover { border-color: %4; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    resetZoomBtn_->setVisible(false);
+    connect(resetZoomBtn_, &QPushButton::clicked, this, [this] { resetZoom(); });
+    headerLayout->addWidget(resetZoomBtn_);
     headerLayout->addStretch(1);
     layout->addWidget(header);
 
@@ -80,6 +98,29 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
 }
 
 void MachineLayoutPanel::setCameras(const std::vector<CameraInfo>& cameras) {
+    // Skip the rebuild when the camera configuration is unchanged. The config
+    // page re-feeds the same card values on every network refresh tick; a full
+    // rebuild would clear the user's marker selection (the glow) and can reset
+    // an active zoom, so only rebuild when something actually changed.
+    bool same = cardCameras_.size() == cameras.size();
+    if (same) {
+        for (size_t i = 0; i < cameras.size(); ++i) {
+            const CameraInfo& a = cardCameras_[i];
+            const CameraInfo& b = cameras[i];
+            // Compare only the configuration fields the layout renders (id,
+            // name, side, position, group, floor). Runtime-only fields
+            // (temperature, model, imageSize, ...) never trigger a rebuild.
+            if (a.id != b.id || a.name != b.name || a.location != b.location ||
+                a.side != b.side || a.machinePosition != b.machinePosition ||
+                a.group != b.group || a.floor != b.floor) {
+                same = false;
+                break;
+            }
+        }
+    }
+    if (same) {
+        return;  // no change → keep selection, zoom, and view as-is
+    }
     cardCameras_ = cameras;
     refresh();
 }
@@ -94,6 +135,7 @@ void MachineLayoutPanel::refresh() {
     populateEventCombo();
     applyEventFilter();
     canvas_->mmStep_ = niceStep();  // shared tick step (lanes + cursor snap)
+    updateZoomUi();
     canvas_->update();
 }
 
@@ -130,11 +172,37 @@ void MachineLayoutPanel::rebuildData() {
     loadDefects();
     rebuildScale();
     rebuildSectionRanges();
+
+    // The data just changed. If the current zoom window no longer shows any
+    // camera or defect, the zoomed view is useless (e.g. the clicked defect
+    // disappeared from the event set), so fall back to the full fit instead of
+    // leaving the user staring at an empty mm slice.
+    if (zoomActive_) {
+        bool anyVisible = false;
+        for (const CameraMark& c : cameras_) {
+            if (c.hasPosition && c.mm >= minMm_ && c.mm <= maxMm_) {
+                anyVisible = true;
+                break;
+            }
+        }
+        if (!anyVisible) {
+            for (const DefectMark& d : defects_) {
+                if (d.mm >= minMm_ && d.mm <= maxMm_) {
+                    anyVisible = true;
+                    break;
+                }
+            }
+        }
+        if (!anyVisible) {
+            zoomActive_ = false;
+            applyViewRange();
+        }
+    }
 }
 
 void MachineLayoutPanel::rebuildSectionRanges() {
     sectionRanges_.clear();
-    for (int g = CameraGroup::kPressPart; g < CameraGroup::kCount; ++g) {
+    for (int g = CameraGroup::kWire; g < CameraGroup::kCount; ++g) {
         SectionRange r;
         r.group = g;
         r.minMm = std::numeric_limits<double>::max();
@@ -285,6 +353,7 @@ void MachineLayoutPanel::loadDefects() {
 }
 
 void MachineLayoutPanel::rebuildScale() {
+    // Auto-fit range around the visible data; this is the zoom baseline.
     double lo = std::numeric_limits<double>::max();
     double hi = std::numeric_limits<double>::lowest();
     for (const CameraMark& c : cameras_) {
@@ -303,11 +372,166 @@ void MachineLayoutPanel::rebuildScale() {
         hi = 1000.0;
     }
     const double pad = (hi - lo) * 0.06;
-    minMm_ = lo - pad;
-    maxMm_ = hi + pad;
-    if (maxMm_ - minMm_ < 1.0) {
-        minMm_ -= 50.0;
-        maxMm_ += 50.0;
+    fitMinMm_ = lo - pad;
+    fitMaxMm_ = hi + pad;
+    if (fitMaxMm_ - fitMinMm_ < 1.0) {
+        fitMinMm_ -= 50.0;
+        fitMaxMm_ += 50.0;
+    }
+    applyViewRange();
+}
+
+void MachineLayoutPanel::applyViewRange() {
+    // Effective visible range: the zoom window when active (clamped to the fit
+    // range), otherwise the auto-fit range.
+    if (zoomActive_) {
+        minMm_ = std::max(fitMinMm_, zoomMinMm_);
+        maxMm_ = std::min(fitMaxMm_, zoomMaxMm_);
+        if (maxMm_ - minMm_ < 1.0) {
+            // The zoom window no longer intersects the data range (e.g. the
+            // defect/event set changed under the user). Clamp the window back
+            // into the fit range instead of silently collapsing the zoom, so
+            // clicking a marker to zoom never resets the view on its own.
+            const double win = zoomMaxMm_ - zoomMinMm_;
+            if (win >= 1.0) {
+                double lo = zoomMinMm_;
+                double hi = zoomMaxMm_;
+                if (hi < fitMinMm_) {
+                    lo = fitMinMm_;
+                    hi = lo + win;
+                } else if (lo > fitMaxMm_) {
+                    hi = fitMaxMm_;
+                    lo = hi - win;
+                } else {
+                    lo = std::max(fitMinMm_, lo);
+                    hi = std::min(fitMaxMm_, hi);
+                }
+                lo = std::max(fitMinMm_, lo);
+                hi = std::min(fitMaxMm_, hi);
+                if (hi - lo < 1.0) {
+                    // Still unresolvable — give up and show the fit range.
+                    zoomActive_ = false;
+                    minMm_ = fitMinMm_;
+                    maxMm_ = fitMaxMm_;
+                } else {
+                    zoomMinMm_ = lo;
+                    zoomMaxMm_ = hi;
+                    minMm_ = lo;
+                    maxMm_ = hi;
+                }
+            } else {
+                zoomActive_ = false;
+                minMm_ = fitMinMm_;
+                maxMm_ = fitMaxMm_;
+            }
+        }
+    } else {
+        minMm_ = fitMinMm_;
+        maxMm_ = fitMaxMm_;
+    }
+}
+
+void MachineLayoutPanel::zoomAt(double centerMm, double factor) {
+    if (!canvas_ || factor <= 0.0 || std::abs(factor - 1.0) < 1e-6) {
+        return;
+    }
+    const double span = maxMm_ - minMm_;
+    const double fitSpan = fitMaxMm_ - fitMinMm_;
+    const double minSpan = std::max(1.0, fitSpan * 0.001);
+
+    // Keep the mm under the cursor at the same screen position.
+    double newLo = centerMm - (centerMm - minMm_) / factor;
+    double newHi = newLo + span / factor;
+    if (newHi - newLo < minSpan) {
+        return;  // already at maximum zoom
+    }
+    newLo = std::max(fitMinMm_, newLo);
+    newHi = std::min(fitMaxMm_, newHi);
+    if (newLo <= fitMinMm_ && newHi >= fitMaxMm_) {
+        resetZoom();  // zoomed out to (or beyond) the full fit view
+        return;
+    }
+    if (newHi - newLo < minSpan) {
+        // Clamping collapsed the window — pin it around the cursor.
+        newLo = std::max(fitMinMm_, centerMm - minSpan / 2.0);
+        newHi = std::min(fitMaxMm_, centerMm + minSpan / 2.0);
+    }
+    zoomActive_ = true;
+    zoomMinMm_ = newLo;
+    zoomMaxMm_ = newHi;
+    applyViewRange();
+    canvas_->mmStep_ = niceStep();
+    updateZoomUi();
+    canvas_->update();
+}
+
+void MachineLayoutPanel::zoomToMm(double mm) {
+    // Tight 1 mm window centered on a marker's actual position (bypasses the
+    // normal min-zoom guard) so its exact position can be read on the ruler.
+    if (!canvas_) {
+        return;
+    }
+    constexpr double kWindowMm = 1.0;
+    double newLo = mm - kWindowMm / 2.0;
+    double newHi = newLo + kWindowMm;
+    if (newLo < fitMinMm_) {
+        newLo = fitMinMm_;
+        newHi = newLo + kWindowMm;
+    }
+    if (newHi > fitMaxMm_) {
+        newHi = fitMaxMm_;
+        newLo = newHi - kWindowMm;
+    }
+    newLo = std::max(fitMinMm_, newLo);
+    zoomActive_ = true;
+    zoomMinMm_ = newLo;
+    zoomMaxMm_ = newHi;
+    applyViewRange();
+    canvas_->mmStep_ = niceStep();
+    updateZoomUi();
+    canvas_->update();
+}
+
+void MachineLayoutPanel::panBy(double deltaMm) {
+    if (!canvas_ || !zoomActive_) {
+        return;
+    }
+    const double span = zoomMaxMm_ - zoomMinMm_;
+    double newLo = zoomMinMm_ - deltaMm;
+    double newHi = zoomMaxMm_ - deltaMm;
+    if (newLo < fitMinMm_) {
+        newLo = fitMinMm_;
+        newHi = newLo + span;
+    }
+    if (newHi > fitMaxMm_) {
+        newHi = fitMaxMm_;
+        newLo = newHi - span;
+    }
+    if (newLo <= fitMinMm_ && newHi >= fitMaxMm_) {
+        resetZoom();
+        return;
+    }
+    zoomMinMm_ = newLo;
+    zoomMaxMm_ = newHi;
+    applyViewRange();
+    canvas_->mmStep_ = niceStep();
+    updateZoomUi();
+    canvas_->update();
+}
+
+void MachineLayoutPanel::resetZoom() {
+    zoomActive_ = false;
+    applyViewRange();
+    if (canvas_) {
+        canvas_->mmStep_ = niceStep();
+        updateZoomUi();
+        canvas_->update();
+    }
+}
+
+void MachineLayoutPanel::updateZoomUi() {
+    if (resetZoomBtn_) {
+        resetZoomBtn_->setVisible(zoomActive_);
     }
 }
 
@@ -342,6 +566,8 @@ void MachineLayoutPanel::applyEventFilter() {
     if (canvas_) {
         canvas_->selectedCamera_ = -1;
         canvas_->selectedDefect_ = -1;
+        canvas_->cursorHitCamera_ = -1;
+        canvas_->cursorHitDefect_ = -1;
     }
     defects_.clear();
     const int sel = eventCombo_ ? eventCombo_->currentData().toInt() : -1;
@@ -375,8 +601,45 @@ double MachineLayoutPanel::mmToX(double mm) const {
     return 12.0 + t * static_cast<double>(qMax(0, width() - 24));
 }
 
+double MachineLayoutPanel::Canvas::mmAt(int x) const {
+    // Exact mm under a screen x (the inverse of mmToX); no stepping so the
+    // position cursor always shows the real pointer position.
+    const double t = (static_cast<double>(x) - 12.0) / std::max(1, width() - 24);
+    return owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
+}
+
+void MachineLayoutPanel::Canvas::updateCursorHits() {
+    // Glow only when the cursor line's mm actually matches a marker's position.
+    // Tolerance is half a pixel converted to mm — the finest the cursor can
+    // resolve, so the glow never fires for a position that visibly misses.
+    cursorHitCamera_ = -1;
+    cursorHitDefect_ = -1;
+    if (!cursorVisible_ && !panning_) {
+        return;
+    }
+    const double span = owner_->maxMm_ - owner_->minMm_;
+    const double mmPerPixel = span / std::max(1, width() - 24);
+    const double tolMm = 0.5 * mmPerPixel;
+    for (int i = 0; i < owner_->cameras_.size(); ++i) {
+        const CameraMark& c = owner_->cameras_[i];
+        if (c.hasPosition && std::abs(c.mm - cursorMm_) <= tolMm) {
+            cursorHitCamera_ = i;
+            break;
+        }
+    }
+    if (cursorHitCamera_ < 0) {
+        for (int i = 0; i < owner_->defects_.size(); ++i) {
+            if (std::abs(owner_->defects_[i].mm - cursorMm_) <= tolMm) {
+                cursorHitDefect_ = i;
+                break;
+            }
+        }
+    }
+}
+
 QColor MachineLayoutPanel::groupColor(int group) {
     switch (group) {
+    case CameraGroup::kWire: return QColor(230, 200, 70);
     case CameraGroup::kPressPart: return QColor(255, 153, 0);
     case CameraGroup::kPreDryer: return QColor(10, 132, 255);
     case CameraGroup::kAfterDryer: return QColor(0, 204, 68);
@@ -406,13 +669,13 @@ MachineLayoutPanel::Canvas::Canvas(MachineLayoutPanel* owner)
 QRect MachineLayoutPanel::Canvas::cameraMarkerRect(const CameraMark& cam) const {
     const int x = cam.hasPosition ? static_cast<int>(owner_->mmToX(cam.mm))
                                   : 12 + cam.stackIndex * 16;
-    // Side-aware y-center mirroring drawCameraMarkers: OPERATOR sits in the
-    // upper sub-row (axisY - 18), DRIVE in the lower (axisY + 18). Rect is
+    // Side-aware y-center mirroring drawCameraMarkers: DRIVE sits in the upper
+    // sub-row (axisY - 18), OPERATOR in the lower (axisY + 18). Rect is
     // centered on the marker so hover/click hit-testing overlaps the drawn
     // shape (triangle apex yCenter-10..base yCenter+6; rect yCenter±8).
-    const int axisY = floorAxisY_[cam.lane];
+    const int axisY = floorAxisY_[displayRowForLane(cam.lane)];
     const bool isOperator = cam.side.compare("OPERATOR SIDE", Qt::CaseInsensitive) == 0;
-    const int yCenter = isOperator ? axisY - 18 : axisY + 18;
+    const int yCenter = isOperator ? axisY + 18 : axisY - 18;
     return QRect(x - 10, yCenter - 10, 20, 20);
 }
 
@@ -452,6 +715,7 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     drawPositionCursor(painter, tc);
     drawLegends(painter, tc);
     drawSummary(painter, tc);
+    drawZoomIndicator(painter, tc);
 }
 
 // Stubs for helpers whose visual content arrives in later tasks. They must
@@ -537,7 +801,7 @@ void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter& p, const ThemeColors& tc
                arrow);
 }
 void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter& p, const ThemeColors& tc) {
-    if (!cursorVisible_ && !cursorDragging_) {
+    if (!cursorVisible_ && !panning_) {
         return;
     }
     const int leftMargin = 12;
@@ -598,66 +862,76 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     const int defectTitleY = lane3TitleY + kLanePitch;
     const int defectLaneAxisY = defectLaneAxisY_;
 
-    // Titles
+    // Titles (floor name only; floors display bottom-up so the top lane is
+    // the 3rd floor)
     QFont titleFont = painter.font();
     titleFont.setPixelSize(13);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(tc.text));
-    painter.drawText(leftMargin, lane1TitleY + 14, QString("1ST FLOOR — CAMERAS  (mm)"));
-    painter.drawText(leftMargin, lane2TitleY + 14, QString("2ND FLOOR — CAMERAS  (mm)"));
-    painter.drawText(leftMargin, lane3TitleY + 14, QString("3RD FLOOR — CAMERAS  (mm)"));
+    painter.drawText(leftMargin, lane1TitleY + 14, CameraFloor::name(floorForDisplayRow(0)).toUpper());
+    painter.drawText(leftMargin, lane2TitleY + 14, CameraFloor::name(floorForDisplayRow(1)).toUpper());
+    painter.drawText(leftMargin, lane3TitleY + 14, CameraFloor::name(floorForDisplayRow(2)).toUpper());
     painter.drawText(leftMargin, defectTitleY + 14, QString("MARKED & ALIGNED DEFECTS  (mm)"));
 
     // Nice tick step for the mm axis (shared with the cursor snap; guarded
     // in case refresh() has not run yet).
     const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
 
-    // Per-lane vertical bounds: split each floor lane into an upper (operator)
-    // and lower (drive) sub-row. Axis line is centered; 32px above and 32px below.
-    struct SubRow { int opTop, opBottom, driveTop, driveBottom; };
+    // Per-lane vertical bounds: split each floor lane into an upper (drive)
+    // and lower (operator) sub-row. Axis line is centered; 32px above and 32px below.
+    struct SubRow { int upperTop, upperBottom, lowerTop, lowerBottom; };
     SubRow rows[CameraFloor::kCount];
     constexpr int kSubRowHeight = 32;
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         const int axisY = floorAxisY_[f];
-        rows[f].opTop       = axisY - kSubRowHeight;
-        rows[f].opBottom    = axisY;
-        rows[f].driveTop    = axisY;
-        rows[f].driveBottom = axisY + kSubRowHeight;
+        rows[f].upperTop       = axisY - kSubRowHeight;
+        rows[f].upperBottom    = axisY;
+        rows[f].lowerTop       = axisY;
+        rows[f].lowerBottom    = axisY + kSubRowHeight;
     }
 
     // Sub-row background fills — must precede the axis-line draw so the line
     // sits cleanly on top of the tints.
-    const QColor opTint(0x2A, 0x32, 0x39);     // upper sub-row (operator side)
-    const QColor driveTint(0x1F, 0x24, 0x29);  // lower sub-row (drive side)
+    const QColor opTint(0x2A, 0x32, 0x39);     // lower sub-row (operator side)
+    const QColor driveTint(0x1F, 0x24, 0x29);  // upper sub-row (drive side)
     for (int f = 0; f < CameraFloor::kCount; ++f) {
-        painter.fillRect(leftMargin, rows[f].opTop,
+        painter.fillRect(leftMargin, rows[f].upperTop,
                          width() - 2 * leftMargin,
-                         rows[f].opBottom - rows[f].opTop, opTint);
-        painter.fillRect(leftMargin, rows[f].driveTop,
+                         rows[f].upperBottom - rows[f].upperTop, driveTint);
+        painter.fillRect(leftMargin, rows[f].lowerTop,
                          width() - 2 * leftMargin,
-                         rows[f].driveBottom - rows[f].driveTop, driveTint);
+                         rows[f].lowerBottom - rows[f].lowerTop, opTint);
     }
 
-    // Axis lines + mm ticks (labels on the 3rd-floor lane, shared scale)
+    // Axis lines + mm ruler (ticks + labels) on every floor lane so the
+    // position can be read anywhere, not just on the bottom lane. Labels are
+    // thinned when zoomed in so they never collide, and show decimals for
+    // sub-mm steps.
     QFont tickFont = painter.font();
     tickFont.setPixelSize(9);
     painter.setFont(tickFont);
     const int laneAxes[CameraFloor::kCount] = {lane1AxisY, lane2AxisY, lane3AxisY};
+    const double pxPerTick = (width() - 2 * leftMargin) * step
+                           / std::max(1.0, owner_->maxMm_ - owner_->minMm_);
+    const int labelEvery = std::max(1, static_cast<int>(std::ceil(70.0 / std::max(1.0, pxPerTick))));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         const int axisY = laneAxes[f];
         painter.setPen(QPen(QColor(tc.border), 1));
         painter.drawLine(leftMargin, axisY, width() - leftMargin, axisY);
-        const bool drawLabels = (f == CameraFloor::kCount - 1);
-        if (drawLabels) {
-            const double tickStart = std::ceil(owner_->minMm_ / step) * step;
-            for (double mm = tickStart; mm <= owner_->maxMm_ + step * 0.5; mm += step) {
-                const int x = static_cast<int>(owner_->mmToX(mm));
-                painter.setPen(QPen(QColor(tc.border), 1));
-                painter.drawLine(x, axisY - 4, x, axisY + 4);
+        const double tickStart = std::ceil(owner_->minMm_ / step) * step;
+        int tickCount = 0;
+        for (double mm = tickStart; mm <= owner_->maxMm_ + step * 0.5; mm += step) {
+            const int x = static_cast<int>(owner_->mmToX(mm));
+            painter.setPen(QPen(QColor(tc.border), 1));
+            painter.drawLine(x, axisY - 4, x, axisY + 4);
+            if (tickCount++ % labelEvery == 0) {
                 painter.setPen(QColor(tc.text));
+                const QString label = (step < 1.0)
+                    ? QString::number(mm, 'f', 1)
+                    : QString::number(mm, 'f', 0);
                 painter.drawText(QRect(x - 40, axisY + 6, 80, 14),
-                                 Qt::AlignHCenter | Qt::AlignTop, QString::number(mm, 'f', 0));
+                                 Qt::AlignHCenter | Qt::AlignTop, label);
             }
         }
     }
@@ -672,11 +946,8 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     painter.setFont(sideLabelFont);
     painter.setPen(QColor(QStringLiteral("#8B949E")));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
-        const QString prefix = CameraFloor::name(CameraFloor::kFirst + f).section(' ', 0, 0).toUpper();
-        const QString opLabel    = QString("%1 · OPERATOR").arg(prefix);
-        const QString driveLabel = QString("%1 · DRIVE").arg(prefix);
-        painter.drawText(leftMargin, rows[f].opTop + 11, opLabel);
-        painter.drawText(leftMargin, rows[f].driveTop + 11, driveLabel);
+        painter.drawText(leftMargin, rows[f].upperTop + 11, QStringLiteral("DRIVE SIDE"));     // upper sub-row
+        painter.drawText(leftMargin, rows[f].lowerTop + 11, QStringLiteral("OPERATOR SIDE"));  // lower sub-row
     }
 
     painter.setPen(QPen(QColor(tc.border), 1));
@@ -693,14 +964,14 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
     const QVector<CameraMark>& cameras = owner_->cameras_;
     for (int i = 0; i < cameras.size(); ++i) {
         const CameraMark& cam = cameras[i];
-        const int axisY = floorAxisY_[cam.lane];
+        const int axisY = floorAxisY_[displayRowForLane(cam.lane)];
         const int x = cam.hasPosition ? static_cast<int>(owner_->mmToX(cam.mm))
                                       : 12 + cam.stackIndex * 16;
         const QColor col = owner_->groupColor(cam.group);
         const bool isOperator = cam.side.compare("OPERATOR SIDE", Qt::CaseInsensitive) == 0;
-        // Side-aware sub-row: OPERATOR sits in the upper sub-row, DRIVE in the
+        // Side-aware sub-row: DRIVE sits in the upper sub-row, OPERATOR in the
         // lower one (aligned with the sub-row tints in drawFloorLanes).
-        const int yCenter = isOperator ? axisY - 18 : axisY + 18;
+        const int yCenter = isOperator ? axisY + 18 : axisY - 18;
 
         // Faint dashed guide from the section-bar bottom (36) down to the marker.
         if (cam.hasPosition) {
@@ -712,8 +983,9 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         // Selection state: dim every marker but the selected one; the selected
         // marker gets an accent border. Hover highlight only applies when no
         // selection is active.
+        const bool glow = (i == hoveredCamera_ || i == cursorHitCamera_);
         QColor brushCol = cam.hasPosition ? col : QColor(col.red(), col.green(), col.blue(), 90);
-        QPen markerPen = QPen(i == hoveredCamera_ ? Qt::white : QColor(tc.border), 1.5);
+        QPen markerPen = QPen(glow ? Qt::white : QColor(tc.border), 1.5);
         if (selectedCamera_ >= 0) {
             if (i == selectedCamera_) {
                 markerPen = QPen(QColor(tc.primary), 2);  // accent border
@@ -742,7 +1014,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
-        painter.setPen(i == hoveredCamera_ ? Qt::white : QColor(tc.text));
+        painter.setPen(glow ? Qt::white : QColor(tc.text));
         painter.drawText(QRect(0, -8, 50, 16), Qt::AlignLeft | Qt::AlignVCenter,
                          QString("CAM-%1").arg(cam.id, 2, 10, QChar('0')));
         painter.restore();
@@ -786,7 +1058,8 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
         // defect gets an accent border. Hover highlight only applies when no
         // selection is active.
         QColor fill = def.color;
-        QPen diamondPen = QPen(i == hoveredDefect_ ? Qt::white : QColor(tc.border), 1.5);
+        QPen diamondPen = QPen((i == hoveredDefect_ || i == cursorHitDefect_)
+                                   ? Qt::white : QColor(tc.border), 1.5);
         if (selectedDefect_ >= 0) {
             if (i == selectedDefect_) {
                 diamondPen = QPen(QColor(tc.primary), 2);  // accent border
@@ -847,8 +1120,8 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.drawRoundedRect(QRect(swX, sideY - 9, 12, 12), 3, 3);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(swX + 16, sideY, QStringLiteral("DRIVE SIDE  (lower sub-row)"));
-    const int driveW = painter.fontMetrics().horizontalAdvance("DRIVE SIDE  (lower sub-row)");
+    painter.drawText(swX + 16, sideY, QStringLiteral("DRIVE SIDE  (upper sub-row)"));
+    const int driveW = painter.fontMetrics().horizontalAdvance("DRIVE SIDE  (upper sub-row)");
 
     // Triangle swatch = OPERATOR
     const int opX = swX + driveW + 28;
@@ -862,7 +1135,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.drawPath(tri);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE  (upper sub-row)"));
+    painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE  (lower sub-row)"));
 }
 
 void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
@@ -916,6 +1189,29 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
         "hover a camera or defect for details.");
 }
 
+void MachineLayoutPanel::Canvas::drawZoomIndicator(QPainter& p, const ThemeColors& tc) {
+    if (!owner_->zoomActive_) {
+        return;
+    }
+    // "×N.N" pill in the top-right corner while zoomed in.
+    const double factor = (owner_->fitMaxMm_ - owner_->fitMinMm_)
+                        / (owner_->maxMm_ - owner_->minMm_);
+    QFont f = p.font();
+    f.setPixelSize(10);
+    f.setBold(true);
+    p.setFont(f);
+    const QString text = QStringLiteral("×%1").arg(factor, 0, 'f', 2);
+    const int tw = p.fontMetrics().horizontalAdvance(text);
+    const int pw = tw + 12;
+    const int ph = 16;
+    const int x = width() - pw - 12;
+    p.setPen(QPen(QColor(tc.primary), 1));
+    p.setBrush(QColor("#1C2128"));
+    p.drawRoundedRect(QRect(x, 8, pw, ph), 3, 3);
+    p.setPen(QColor(tc.primary));
+    p.drawText(QRect(x, 8, pw, ph), Qt::AlignCenter, text);
+}
+
 void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
@@ -942,6 +1238,9 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
                     .arg(c.hasPosition ? QString("%1 mm").arg(c.mm)
                                        : QStringLiteral("not set — set it on the Camera Card")),
                 this);
+            if (c.hasPosition) {
+                owner_->zoomToMm(c.mm);  // auto-zoom to the actual position
+            }
             update();
             return;
         }
@@ -954,23 +1253,21 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
             selectedDefect_ = i;
             selectedCamera_ = -1;
             QToolTip::showText(event->globalPos(), defects[i].detail, this);
+            owner_->zoomToMm(defects[i].mm);  // auto-zoom to the actual position
             update();
             return;
         }
     }
 
-    // 3. Empty canvas → clear selection and start dragging the position cursor.
+    // 3. Empty canvas → clear selection and start panning (the view moves
+    // only while zoomed in; the position cursor still follows the pointer).
     selectedCamera_ = -1;
     selectedDefect_ = -1;
     QToolTip::hideText();
-    cursorDragging_ = true;
-    {
-        const double px = static_cast<double>(event->pos().x());
-        const double t = (px - 12.0) / std::max(1, width() - 24);
-        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
-        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
-        cursorMm_ = std::round(mm / step) * step;
-    }
+    panning_ = true;
+    lastPanX_ = event->pos().x();
+    cursorMm_ = mmAt(event->pos().x());  // exact position, no snapping
+    updateCursorHits();
     update();
 }
 
@@ -986,15 +1283,22 @@ void MachineLayoutPanel::Canvas::keyPressEvent(QKeyEvent* event) {
 }
 
 void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
-    // 1. Snap pointer x to the mm axis, then to the step. The cursor follows
-    // the pointer during both hover and drag; hit-tests below stay untouched.
-    {
-        const double x = static_cast<double>(event->pos().x());
-        const double t = (x - 12.0) / std::max(1, width() - 24);
-        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
-        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
-        cursorMm_ = std::round(mm / step) * step;
+    // 1. Pan while dragging on empty canvas (only when zoomed in): the view
+    // shifts by the same mm the pointer travels.
+    if (panning_) {
+        const double mmPerPixel =
+            (owner_->maxMm_ - owner_->minMm_) / std::max(1, width() - 24);
+        owner_->panBy((lastPanX_ - event->pos().x()) * mmPerPixel);
+        lastPanX_ = event->pos().x();
     }
+
+    // 2. Track the exact mm under the pointer (no stepping). The cursor
+    // follows the pointer during both hover and drag; hit-tests below stay
+    // untouched.
+    cursorVisible_ = true;  // self-heal any synthetic leave (e.g. tooltips)
+    cancelPendingReset();   // pointer is back inside → drop any pending reset
+    cursorMm_ = mmAt(event->pos().x());
+    updateCursorHits();
 
     // Section bar hover: empty sections get a tooltip.
     {
@@ -1057,26 +1361,34 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MachineLayoutPanel::Canvas::mouseReleaseEvent(QMouseEvent* event) {
-    if (cursorDragging_) {
-        cursorDragging_ = false;
+    if (panning_) {
+        panning_ = false;
         update();
     }
     QWidget::mouseReleaseEvent(event);
 }
 
+void MachineLayoutPanel::Canvas::wheelEvent(QWheelEvent* event) {
+    // Zoom the shared mm scale around the mm under the cursor.
+    const double centerMm = mmAt(event->pos().x());
+    const double factor = std::pow(1.0015, event->angleDelta().y());
+    owner_->zoomAt(centerMm, factor);
+    event->accept();
+}
+
 void MachineLayoutPanel::Canvas::enterEvent(QEvent* event) {
-    // Snap to the entry position so the first painted frame shows the correct
+    // A genuine re-entry (or a synthetic one after a tooltip hides) cancels any
+    // pending auto-reset: the pointer is back inside the panel.
+    cancelPendingReset();
+    // Track the entry position so the first painted frame shows the correct
     // mm instead of a stale 0 (same math as mouseMoveEvent). Qt5's
     // QWidget::enterEvent virtual takes QEvent*, but the delivered event is a
     // QEnterEvent carrying the entry position.
     if (const QEnterEvent* enter = dynamic_cast<const QEnterEvent*>(event)) {
-        const double x = static_cast<double>(enter->pos().x());
-        const double t = (x - 12.0) / std::max(1, width() - 24);
-        const double mm = owner_->minMm_ + t * (owner_->maxMm_ - owner_->minMm_);
-        const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
-        cursorMm_ = std::round(mm / step) * step;
+        cursorMm_ = mmAt(enter->pos().x());  // exact position, no snapping
     }
     cursorVisible_ = true;
+    updateCursorHits();
     update();
     QWidget::enterEvent(event);
 }
@@ -1084,8 +1396,54 @@ void MachineLayoutPanel::Canvas::enterEvent(QEvent* event) {
 void MachineLayoutPanel::Canvas::leaveEvent(QEvent* event) {
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
-    cursorVisible_ = false;  // drag-release handles cursorDragging_
-    QToolTip::hideText();
+    cursorHitCamera_ = -1;
+    cursorHitDefect_ = -1;
+    // Auto-reset the zoom when the pointer genuinely leaves the panel. Only a
+    // SPONTANEOUS leave (a real pointer exit delivered by the window system)
+    // arms the delayed reset: showing a tooltip (clicking a marker to zoom)
+    // and layout reflows deliver synthetic Leave events while the pointer is
+    // still over the panel, which must never reset the zoom. The delay plus
+    // the panel-position check in timerEvent() make double sure.
+    const bool spontaneous = event->spontaneous();
+    if (spontaneous) {
+        const QPoint gpos = QCursor::pos();
+        const QPoint panelLocal = owner_->mapFromGlobal(gpos);
+        if (!owner_->rect().contains(panelLocal)) {
+            resetPending_ = true;
+            if (resetTimerId_ == -1) {
+                resetTimerId_ = startTimer(400);
+            }
+        }
+    }
     update();
     QWidget::leaveEvent(event);
+}
+
+void MachineLayoutPanel::Canvas::timerEvent(QTimerEvent* event) {
+    if (event->timerId() == resetTimerId_) {
+        killTimer(resetTimerId_);
+        resetTimerId_ = -1;
+        if (resetPending_) {
+            resetPending_ = false;
+            // Only auto-reset when the pointer is genuinely outside the panel
+            // (checked in panel coordinates so small canvas shifts while the
+            // Reset view button appears can't fake a real exit).
+            const QPoint gpos = QCursor::pos();
+            const QPoint panelLocal = owner_->mapFromGlobal(gpos);
+            if (!owner_->rect().contains(panelLocal)) {
+                cursorVisible_ = false;  // mouseReleaseEvent handles panning_
+                QToolTip::hideText();
+                owner_->resetZoom();
+            }
+        }
+    }
+    QWidget::timerEvent(event);
+}
+
+void MachineLayoutPanel::Canvas::cancelPendingReset() {
+    if (resetTimerId_ != -1) {
+        killTimer(resetTimerId_);
+        resetTimerId_ = -1;
+    }
+    resetPending_ = false;
 }
