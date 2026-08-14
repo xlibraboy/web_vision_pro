@@ -267,6 +267,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     // Group (paper-machine section)
     groupCombo_ = new QComboBox(basicInfoGroup_);
     groupCombo_->addItem("Unassigned", CameraGroup::kUnassigned);
+    groupCombo_->addItem(CameraGroup::name(CameraGroup::kWire), CameraGroup::kWire);
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);

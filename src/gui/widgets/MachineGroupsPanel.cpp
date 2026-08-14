@@ -53,7 +53,7 @@ void MachineGroupsPanel::setCameras(const std::vector<CameraInfo>& cameras) {
     table_->setRowCount(0);
     table_->setRowCount(static_cast<int>(cameras.size()));
 
-    int groupCounts[CameraGroup::kCount] = {0, 0, 0, 0};
+    int groupCounts[CameraGroup::kCount] = {0, 0, 0, 0, 0};
     int unassignedCount = 0;
 
     for (int row = 0; row < static_cast<int>(cameras.size()); ++row) {
@@ -73,6 +73,9 @@ void MachineGroupsPanel::setCameras(const std::vector<CameraInfo>& cameras) {
     }
 
     QStringList counts;
+    counts << QString("%1: %2")
+                  .arg(CameraGroup::name(CameraGroup::kWire))
+                  .arg(groupCounts[CameraGroup::kWire]);
     counts << QString("%1: %2")
                   .arg(CameraGroup::name(CameraGroup::kPressPart))
                   .arg(groupCounts[CameraGroup::kPressPart]);

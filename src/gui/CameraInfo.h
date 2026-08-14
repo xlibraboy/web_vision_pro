@@ -8,15 +8,17 @@
 // cameras (group -1 in a TriggerContext means "all cameras").
 namespace CameraGroup {
     constexpr int kUnassigned = -1;
-    constexpr int kPressPart = 0;
-    constexpr int kPreDryer = 1;
-    constexpr int kAfterDryer = 2;
-    constexpr int kCalenderReel = 3;
-    constexpr int kCount = 4;
+    constexpr int kWire = 0;           // forming wire, before the press section
+    constexpr int kPressPart = 1;
+    constexpr int kPreDryer = 2;
+    constexpr int kAfterDryer = 3;
+    constexpr int kCalenderReel = 4;
+    constexpr int kCount = 5;
 
     // Display name for a group index (kUnassigned -> "Unassigned").
     inline QString name(int group) {
         switch (group) {
+        case kWire: return QStringLiteral("Wire");
         case kPressPart: return QStringLiteral("Press-Part");
         case kPreDryer: return QStringLiteral("Pre-Dryer");
         case kAfterDryer: return QStringLiteral("After-Dryer");

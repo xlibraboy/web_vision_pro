@@ -1340,6 +1340,7 @@ void ConfigDialog::setupUI() {
         row.groupCombo = new QComboBox(opcUaTriggerGroup);
         row.groupCombo->setStyleSheet(opcUaGridComboStyle);
         row.groupCombo->addItem("All", CameraGroup::kUnassigned);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kWire), CameraGroup::kWire);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
