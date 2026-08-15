@@ -281,15 +281,23 @@ private:
     QSpinBox* opcUaPublishIntervalSpin_ = nullptr;
     QSpinBox* opcUaReconnectIntervalSpin_ = nullptr;
     std::array<OpcUaTriggerRowWidgets, kOpcUaTriggerSlots> opcUaTriggerRows_{};
-    QCheckBox* opcUaSpeedEnabledCheck_ = nullptr;
-    QLineEdit* opcUaSpeedNameEdit_ = nullptr;
-    QLineEdit* opcUaSpeedNodeIdEdit_ = nullptr;
-    QDoubleSpinBox* opcUaSpeedScaleSpin_ = nullptr;
-    QDoubleSpinBox* opcUaSpeedOffsetSpin_ = nullptr;
-    QLineEdit* opcUaSpeedUnitEdit_ = nullptr;
-    QSpinBox* opcUaSpeedStaleTimeoutSpin_ = nullptr;
-    QComboBox* opcUaSpeedSimulatedCombo_ = nullptr;
-    QDoubleSpinBox* opcUaSpeedSimulatedValueSpin_ = nullptr;
+    // Speed anchors: one row per machine speed tag. Each row configures a
+    // drive's speed tag at its machine position; the app interpolates the local
+    // speed between anchors so per-group draw is reflected in defect sync.
+    static constexpr int kOpcUaSpeedSlots = 6;
+    struct OpcUaSpeedRowWidgets {
+        QCheckBox* enabledCheck = nullptr;
+        QLineEdit* nameEdit = nullptr;
+        QLineEdit* nodeIdEdit = nullptr;
+        QComboBox* simulatedCombo = nullptr;
+        QDoubleSpinBox* simulatedValueSpin = nullptr;
+        QSpinBox* positionMmSpin = nullptr;
+        QDoubleSpinBox* scaleSpin = nullptr;
+        QDoubleSpinBox* offsetSpin = nullptr;
+        QLineEdit* unitEdit = nullptr;
+        QSpinBox* staleTimeoutSpin = nullptr;
+    };
+    std::array<OpcUaSpeedRowWidgets, kOpcUaSpeedSlots> opcUaSpeedRows_{};
     QComboBox* opcUaPositionDirectionCombo_ = nullptr;
     QLabel* opcUaDiscoveryStatusLabel_ = nullptr;
     QPushButton* opcUaDetectEndpointBtn_ = nullptr;

@@ -69,6 +69,12 @@ struct OpcUaSpeedTagSettings {
     // reports a fixed simulated raw value (before Scale/Offset are applied).
     bool simulated = false;
     double simulatedValue = 0.0;
+    // Machine position (mm) where this drive's actual speed applies (e.g. the
+    // sheet's speed at the drive the tag reports). Defect sync interpolates the
+    // local speed between anchors, so a paper machine's draw (per-group speed
+    // differences) is reflected in the frame->mm projection. 0 = position
+    // unknown: the tag acts as a global speed (the legacy single-tag behavior).
+    int positionMm = 0;
 };
 
 struct OpcUaSettings {
@@ -81,7 +87,11 @@ struct OpcUaSettings {
     int reconnectIntervalMs = 3000;
     int positionDirectionSign = 1;
     std::vector<OpcUaTriggerTagSettings> triggerTags;
-    OpcUaSpeedTagSettings speedTag;
+    // Machine speed anchors: one or more speed tags, each reporting the actual
+    // local speed (m/min) at its machine position (drive). All are snapshotted
+    // onto an event at trigger time; the defect projector linearly interpolates
+    // the local speed between anchors for every frame->mm conversion.
+    std::vector<OpcUaSpeedTagSettings> speedTags;
 };
 
 

@@ -25,9 +25,11 @@ struct ThemeColors;  // full definition in config/CameraConfig.h
  *    each event's sidecar annotations and projected onto the machine using the
  *    event speed. A header combo isolates a single event's defects or shows all
  *    recent marked events at once.
+ *  - Trigger lane: the recorded trigger position (mm) of each event — the
+ *    machine location where the trigger fired, e.g. the sheetbreak sensor.
  *  - MM POSITION lane: a single dedicated full-scale mm ruler (ticks + labels)
- *    below the defect lane, so the exact position of any camera or defect can
- *    be read in one place (the floor lanes themselves stay clean).
+ *    below the trigger lane, so the exact position of any camera, defect or
+ *    trigger can be read in one place (the floor lanes themselves stay clean).
  *
  * Everything is rebuilt on refresh() / show, so the visual always mirrors the
  * actual configuration and the most recent marked events.
@@ -76,10 +78,20 @@ private:
         int eventIndex = -1;      // index into eventGroups_
     };
 
+    struct TriggerMark {
+        QString eventText;        // human-readable event time
+        QColor color;
+        int mm = 0;               // recorded trigger position (sheetbreak sensor)
+        QString source;           // trigger source/reason (e.g. "OPC UA")
+        QString detail;           // full tooltip text
+        int eventIndex = -1;      // index into eventGroups_
+    };
+
     struct EventGroup {
         QString label;            // "2026-02-08 15:30:00"
         QColor color;
         QVector<DefectMark> defects;
+        QVector<TriggerMark> triggers;  // recorded trigger positions of the event
     };
 
     struct SectionRange {
@@ -112,12 +124,14 @@ private:
 
         QRect cameraMarkerRect(const CameraMark& cam) const;
         QRect defectMarkerRect(const DefectMark& def) const;
+        QRect triggerMarkerRect(const TriggerMark& trig) const;
 
         void drawSectionBar(QPainter& p, const ThemeColors& tc);
         void drawPaperWeb(QPainter& p, const ThemeColors& tc);
         void drawFloorLanes(QPainter& p, const ThemeColors& tc);
         void drawCameraMarkers(QPainter& p, const ThemeColors& tc);
         void drawDefectStrip(QPainter& p, const ThemeColors& tc);
+        void drawTriggerStrip(QPainter& p, const ThemeColors& tc);
         void drawMmRuler(QPainter& p, const ThemeColors& tc);
         void drawPositionCursor(QPainter& p, const ThemeColors& tc);
         void drawLegends(QPainter& p, const ThemeColors& tc);
@@ -130,12 +144,16 @@ private:
         MachineLayoutPanel* owner_;
         int hoveredCamera_ = -1;
         int hoveredDefect_ = -1;
+        int hoveredTrigger_ = -1;
         int cursorHitCamera_ = -1;  // marker aligned with the cursor line
         int cursorHitDefect_ = -1;
+        int cursorHitTrigger_ = -1;
         int selectedCamera_ = -1;   // -1 = none
         int selectedDefect_ = -1;   // -1 = none
+        int selectedTrigger_ = -1;  // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
+        int triggerLaneAxisY_ = 0;  // trigger record position lane
         int mmRulerAxisY_ = 0;  // dedicated full-scale mm ruler lane
 
         // Vertical position cursor (tracks the exact pointer mm) + drag pan.
@@ -172,6 +190,7 @@ private:
     QVector<SectionRange> sectionRanges_;  // per-group mm span for the section bar
     QVector<EventGroup> eventGroups_;
     QVector<DefectMark> defects_;          // filtered by the event combo
+    QVector<TriggerMark> triggers_;        // filtered by the event combo
     double fitMinMm_ = 0.0;  // auto-fit range around the data (zoom baseline)
     double fitMaxMm_ = 1.0;
     double minMm_ = 0.0;     // effective visible range (fit or zoom window)

@@ -6,7 +6,7 @@
 #include "../config/CameraConfig.h"
 #include "../core/EventController.h"
 #include "../core/EventDatabase.h"
-#include "../core/EventDatabase.h"
+#include "../core/SpeedProfile.h"
 #include "../core/VideoStreamReader.h"
 #include <QApplication>
 #include <QCursor>
@@ -2789,20 +2789,27 @@ void AnalysisView::updatePlaybackInfoLabel() {
     tooltipLines << QString("Time from trigger: %1%2 s")
         .arg(seconds >= 0.0 ? "+" : "")
         .arg(seconds, 0, 'f', 3);
-    if (std::isfinite(currentEventInfo_.speedValue)) {
-        const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
-            ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
-        tooltipLines << QString("Machine speed: %1 %2")
-            .arg(currentEventInfo_.speedValue, 0, 'f', 2)
-            .arg(speedUnit);
+    if (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            || std::isfinite(currentEventInfo_.speedValue)) {
         const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
-        if (detailTabActive) {
-            const int cameraId = selectedCameraId_;
-            const int basePositionMm = currentEventCameraPositionMm(cameraId);
-            const double deltaMm = currentEventInfo_.speedValue * 1000.0 / 60.0 * seconds
-                * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
-            tooltipLines << QString("Distance traveled from trigger: %1 mm").arg(deltaMm, 0, 'f', 1);
-            tooltipLines << QString("Camera position: %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1);
+        const int cameraId = selectedCameraId_;
+        const int basePositionMm = currentEventCameraPositionMm(cameraId);
+        // Local speed at this camera (interpolated between the recorded speed
+        // anchors), so draw between drive groups is reflected in the distance.
+        const double localSpeed = SpeedProfile::speedAt(
+            basePositionMm, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+        if (std::isfinite(localSpeed)) {
+            const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
+                ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
+            tooltipLines << QString("Machine speed: %1 %2")
+                .arg(localSpeed, 0, 'f', 2)
+                .arg(speedUnit);
+            if (detailTabActive) {
+                const double deltaMm = localSpeed * 1000.0 / 60.0 * seconds
+                    * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
+                tooltipLines << QString("Distance traveled from trigger: %1 mm").arg(deltaMm, 0, 'f', 1);
+                tooltipLines << QString("Camera position: %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1);
+            }
         }
         if (currentEventInfo_.speedStale) {
             tooltipLines << QStringLiteral("Note: machine speed was stale at capture — distance/alignment may be inaccurate");
@@ -3498,20 +3505,25 @@ int AnalysisView::currentEventCameraPositionMm(int cameraId) const {
 }
 
 QString AnalysisView::currentSpeedSummary(double relativeSeconds) const {
-    if (!std::isfinite(currentEventInfo_.speedValue)) {
+    if (!SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            && !std::isfinite(currentEventInfo_.speedValue)) {
         return QString();
     }
 
+    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+    const int basePositionMm = detailTabActive ? currentEventCameraPositionMm(selectedCameraId_) : 0;
+    // Local speed at the selected camera (interpolated between the recorded
+    // speed anchors), so draw between drive groups is reflected here too.
+    const double localSpeed = SpeedProfile::speedAt(
+        basePositionMm, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+
     QStringList parts;
     parts.append(QString("%1 %2")
-        .arg(currentEventInfo_.speedValue, 0, 'f', 2)
+        .arg(localSpeed, 0, 'f', 2)
         .arg(currentEventInfo_.speedUnit.isEmpty() ? QStringLiteral("m/min") : currentEventInfo_.speedUnit));
 
-    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
     if (detailTabActive) {
-        const int cameraId = selectedCameraId_;
-        const int basePositionMm = currentEventCameraPositionMm(cameraId);
-        const double deltaMm = currentEventInfo_.speedValue * 1000.0 / 60.0 * relativeSeconds
+        const double deltaMm = localSpeed * 1000.0 / 60.0 * relativeSeconds
             * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
         parts.append(QString("%1 mm").arg(deltaMm, 0, 'f', 1));
         parts.append(QString("%1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1));
@@ -3884,10 +3896,9 @@ bool AnalysisView::tryAlignToMarks() {
     if (fps <= 0.0) fps = CameraConfig::getFps();
     if (fps <= 0.0) fps = 10.0;
     const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
-    const bool speedOk = std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0
+    const bool speedOk = (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            || (std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0))
         && !currentEventInfo_.speedStale;
-    const double speed = speedOk ? currentEventInfo_.speedValue : 0.0;
-    const double framesPerMm = speedOk ? fps * 60.0 / (speed * 1000.0) : 0.0;
     const int refPos = speedOk ? currentEventCameraPositionMm(refCam) : 0;
 
     QStringList applied;
@@ -3927,6 +3938,11 @@ bool AnalysisView::tryAlignToMarks() {
                     fallbackReason << QString("cam%1 no position").arg(cam + 1);
                     continue;
                 }
+                // Local speed at this camera (interpolated between the recorded
+                // speed anchors), so the draw between drive groups is reflected.
+                const double localSpeed = SpeedProfile::speedAt(
+                    pos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+                const double framesPerMm = fps * 60.0 / (localSpeed * 1000.0);
                 const int deltaMm = (pos - refPos) * sign;
                 const int offset = static_cast<int>(std::lround(deltaMm * framesPerMm));
                 cameraFrameOffsets_[cam] = offset;
@@ -3980,9 +3996,11 @@ void AnalysisView::applyCameraAlignment() {
         return;
     }
 
-    // Fallback: machine speed comes from the OPC UA "Machine Speed" tag captured
-    // with the event (EventInfo.speedValue). No manual override.
-    if (!std::isfinite(currentEventInfo_.speedValue) || currentEventInfo_.speedValue <= 0.0) {
+    // Fallback: machine speed comes from the OPC UA speed tags captured with
+    // the event (EventInfo.speedValue + speedAnchors). No manual override.
+    const bool speedOk = SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+        || (std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0);
+    if (!speedOk) {
         if (alignStatusLabel_) alignStatusLabel_->setText("No Machine Speed captured for this event — mark defects on >= 2 cameras, then Align");
         return;
     }
@@ -3990,7 +4008,6 @@ void AnalysisView::applyCameraAlignment() {
         if (alignStatusLabel_) alignStatusLabel_->setText("Machine Speed was stale at capture — mark defects on >= 2 cameras, then Align");
         return;
     }
-    const double speed = currentEventInfo_.speedValue;
     const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
         ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
 
@@ -3999,7 +4016,6 @@ void AnalysisView::applyCameraAlignment() {
     if (fps <= 0.0) fps = 10.0;
 
     const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
-    const double framesPerMm = fps * 60.0 / (speed * 1000.0);
 
     const int refCam = videoReaders_.begin()->first;
     const int refPos = currentEventCameraPositionMm(refCam);
@@ -4007,6 +4023,8 @@ void AnalysisView::applyCameraAlignment() {
         if (alignStatusLabel_) alignStatusLabel_->setText("Set camera positions in Camera config, then Align");
         return;
     }
+    const double refLocalSpeed = SpeedProfile::speedAt(
+        refPos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
 
     QStringList applied;
     QStringList appliedNamed;
@@ -4016,6 +4034,11 @@ void AnalysisView::applyCameraAlignment() {
             cameraFrameOffsets_[pair.first] = 0;
             continue;
         }
+        // Local speed at this camera (interpolated between the recorded speed
+        // anchors), so the draw between drive groups is reflected in the offset.
+        const double localSpeed = SpeedProfile::speedAt(
+            pos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+        const double framesPerMm = fps * 60.0 / (localSpeed * 1000.0);
         const int deltaMm = (pos - refPos) * sign;
         const int offset = static_cast<int>(std::lround(deltaMm * framesPerMm));
         cameraFrameOffsets_[pair.first] = offset;
@@ -4035,7 +4058,7 @@ void AnalysisView::applyCameraAlignment() {
     renderCurrentReviewFrame(false);
     updateAlignmentStatus();
     if (alignStatusLabel_) {
-        const QString speedText = QString("%1 %2").arg(speed, 0, 'f', 1).arg(speedUnit);
+        const QString speedText = QString("%1 %2").arg(refLocalSpeed, 0, 'f', 1).arg(speedUnit);
         if (applied.isEmpty()) {
             alignStatusLabel_->setText(QString("Aligned @ %1 — no offset needed (cameras already aligned)").arg(speedText));
             alignStatusLabel_->setToolTip(QString("Aligned at %1 — no camera needed a shift.").arg(speedText));

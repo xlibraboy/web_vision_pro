@@ -1,6 +1,7 @@
 #include "EventController.h"
 #include "EventDatabase.h"
 #include "RawFormat.h"
+#include "SpeedProfile.h"
 #include "../config/CameraConfig.h"
 #include <iostream>
 #include <fstream>
@@ -287,14 +288,24 @@ bool EventController::triggerEvent(const TriggerContext& context) {
         haveSpeed = true;
     }
 
+    // Snapshot the full machine-speed profile (position mm + actual local
+    // speed per anchor) so the event records the speed at every drive, not just
+    // one value. Persisted onto EventInfo.speedAnchors by the save worker.
+    currentTriggerContext_.speedAnchors.clear();
+    if (speedAnchorsProvider_) {
+        std::vector<EventDatabase::SpeedAnchorSnapshot> anchors;
+        if (speedAnchorsProvider_(&anchors)) {
+            currentTriggerContext_.speedAnchors = std::move(anchors);
+        }
+    }
+
     const bool alignmentWanted = context.triggerPositionMm > 0;
     const bool alignmentEnabled = alignmentWanted && haveSpeed;
     if (alignmentEnabled) {
         const int sign = currentTriggerContext_.positionDirectionSign >= 0 ? 1 : -1;
-        // framesPerMm = fps * (60 s/min) / (speed mm/min)
-        const double framesPerMm = fps_ * 60.0 / (speedMperMin * 1000.0);
-        std::cout << "[EventController] Spatial alignment: speed=" << speedMperMin
-                  << " m/min, trigger position=" << context.triggerPositionMm
+        std::cout << "[EventController] Spatial alignment: primary speed=" << speedMperMin
+                  << " m/min, anchors=" << currentTriggerContext_.speedAnchors.size()
+                  << ", trigger position=" << context.triggerPositionMm
                   << " mm, sign=" << sign << std::endl;
         for (auto& pair : cameraStates_) {
             if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
@@ -306,10 +317,17 @@ bool EventController::triggerEvent(const TriggerContext& context) {
                 continue;
             }
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
-            currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
+            const int cameraPosition = cameras[static_cast<size_t>(configIndex)].machinePosition;
+            currentEventCameraPositions_[pair.first] = cameraPosition;
 
-            const int deltaMm = (cameras[static_cast<size_t>(configIndex)].machinePosition
-                                 - context.triggerPositionMm) * sign;
+            // framesPerMm uses the LOCAL speed at this camera's position
+            // (interpolated between the recorded anchors), so the draw between
+            // drive groups is reflected in the capture window.
+            // framesPerMm = fps * (60 s/min) / (speed mm/min)
+            const double localSpeed = SpeedProfile::speedAt(
+                cameraPosition, currentTriggerContext_.speedAnchors, speedMperMin);
+            const double framesPerMm = fps_ * 60.0 / (localSpeed * 1000.0);
+            const int deltaMm = (cameraPosition - context.triggerPositionMm) * sign;
             int offsetFrames = static_cast<int>(std::lround(deltaMm * framesPerMm));
             // An upstream camera cannot recover a defect that already left its
             // pre-trigger buffer; clamp to the oldest recoverable frame.
@@ -367,6 +385,10 @@ bool EventController::triggerEvent(const TriggerContext& context) {
 
 void EventController::setSpeedProvider(SpeedProvider provider) {
     speedProvider_ = std::move(provider);
+}
+
+void EventController::setSpeedAnchorsProvider(SpeedAnchorsProvider provider) {
+    speedAnchorsProvider_ = std::move(provider);
 }
 
 bool EventController::isSaving() const {
@@ -508,7 +530,9 @@ void EventController::saveWorker() {
                 event.speedSampleTimeUtc = triggerContext.speedSampleTimeUtc;
                 event.speedStale = triggerContext.speedStale;
                 event.positionDirectionSign = triggerContext.positionDirectionSign;
+                event.triggerPositionMm = triggerContext.triggerPositionMm;
                 event.triggerGroup = triggerContext.group;
+                event.speedAnchors = triggerContext.speedAnchors;
                 int highestCameraId = 0;
                 for (const auto& pair : framesToSave) {
                     if (!pair.second.empty()) {

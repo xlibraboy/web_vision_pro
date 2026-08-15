@@ -3,6 +3,7 @@
 #include "../config/CameraConfig.h"
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
+#include "../core/EventDatabase.h"
 #include <cstdlib>
 #include <QToolBar>
 #include <QStatusBar>
@@ -452,9 +453,13 @@ void MainWindow::applyOpcUaSettings() {
             break;
         }
     }
-    if (!hasEnabledNode && opcUaSettings.speedTag.enabled
-            && (!opcUaSettings.speedTag.nodeId.trimmed().isEmpty() || opcUaSettings.speedTag.simulated)) {
-        hasEnabledNode = true;
+    if (!hasEnabledNode) {
+        for (const auto& speedTag : opcUaSettings.speedTags) {
+            if (speedTag.enabled && (!speedTag.nodeId.trimmed().isEmpty() || speedTag.simulated)) {
+                hasEnabledNode = true;
+                break;
+            }
+        }
     }
 
     bool hasSimulatedTag = false;
@@ -464,8 +469,13 @@ void MainWindow::applyOpcUaSettings() {
             break;
         }
     }
-    if (!hasSimulatedTag && opcUaSettings.speedTag.enabled && opcUaSettings.speedTag.simulated) {
-        hasSimulatedTag = true;
+    if (!hasSimulatedTag) {
+        for (const auto& speedTag : opcUaSettings.speedTags) {
+            if (speedTag.enabled && speedTag.simulated) {
+                hasSimulatedTag = true;
+                break;
+            }
+        }
     }
 
     // Simulated tags fire without a server, so a default/empty endpoint is fine
@@ -871,6 +881,30 @@ void MainWindow::setupCore() {
     EventController::instance().setSpeedProvider([this](double* mPerMin) {
         return opcUaClientService_ && opcUaClientService_->currentSpeedMperMin(mPerMin);
     });
+    // Feed the full speed profile (position mm + actual local speed per drive)
+    // so every event snapshots all anchors at trigger time — the defect
+    // projector later interpolates the local speed anywhere along the machine.
+    EventController::instance().setSpeedAnchorsProvider([this](
+            std::vector<EventDatabase::SpeedAnchorSnapshot>* anchors) {
+        if (!opcUaClientService_ || !anchors) {
+            return false;
+        }
+        QVector<OpcUaClientService::SpeedSample> samples;
+        if (!opcUaClientService_->currentSpeedAnchors(&samples)) {
+            return false;
+        }
+        anchors->clear();
+        anchors->reserve(static_cast<size_t>(samples.size()));
+        for (const OpcUaClientService::SpeedSample& s : samples) {
+            EventDatabase::SpeedAnchorSnapshot anchor;
+            anchor.positionMm = s.positionMm;
+            anchor.speedValue = s.value;
+            anchor.tagName = s.tagName;
+            anchor.nodeId = s.nodeId;
+            anchors->push_back(anchor);
+        }
+        return !anchors->empty();
+    });
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
@@ -907,6 +941,15 @@ void MainWindow::setupCore() {
             triggerContext.triggerPositionMm = event.positionMm;
             triggerContext.speedStale = event.speedStale;
             triggerContext.positionDirectionSign = event.positionDirectionSign;
+            triggerContext.speedAnchors.reserve(static_cast<size_t>(event.speedAnchors.size()));
+            for (const OpcUaClientService::SpeedSample& s : event.speedAnchors) {
+                EventDatabase::SpeedAnchorSnapshot anchor;
+                anchor.positionMm = s.positionMm;
+                anchor.speedValue = s.value;
+                anchor.tagName = s.tagName;
+                anchor.nodeId = s.nodeId;
+                triggerContext.speedAnchors.push_back(anchor);
+            }
             EventController::instance().triggerEvent(triggerContext);
             statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
         });

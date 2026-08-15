@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QMutex>
+#include <QVector>
 #include <QtOpcUa/QOpcUaClient>
 #include <QtOpcUa/QOpcUaNode>
 
@@ -15,6 +16,15 @@ class OpcUaClientService : public QObject {
     Q_OBJECT
 
 public:
+    // One machine-speed anchor captured at trigger time: the actual local
+    // speed (m/min) at a machine position (mm).
+    struct SpeedSample {
+        int positionMm = 0;
+        QString tagName;
+        QString nodeId;
+        double value = 0.0;
+    };
+
     struct TriggerEvent {
         QString tagName;
         QString nodeId;
@@ -31,6 +41,9 @@ public:
         int group = CameraGroup::kUnassigned;
         // Machine position (mm) of the trigger sensor (0 = no spatial alignment).
         int positionMm = 0;
+        // Every fresh speed anchor snapshot (position mm + actual local speed),
+        // so the recorded event can reproduce the machine's speed profile.
+        QVector<SpeedSample> speedAnchors;
     };
 
     explicit OpcUaClientService(QObject* parent = nullptr);
@@ -50,10 +63,14 @@ public:
                               const OpcUaTriggerTagSettings& tagSettings);
     // Release every held manual trigger (e.g. the config dialog was destroyed).
     void releaseAllManualTriggers();
-    // Latest machine speed sample in m/min (for spatial trigger alignment).
-    // Returns false when no valid speed sample is available.
+    // Latest machine speed sample in m/min (primary anchor; for spatial
+    // trigger alignment). Returns false when no valid speed sample is available.
     bool currentSpeedMperMin(double* mPerMin) const;
-    // Configured unit of the Machine Speed tag (defaults to "m/min").
+    // Latest valid & fresh speed anchors (position mm + value). Returns false
+    // when no anchor is usable. Used to snapshot the machine's speed profile
+    // onto events at trigger time.
+    bool currentSpeedAnchors(QVector<SpeedSample>* out) const;
+    // Configured unit of the primary Machine Speed tag (defaults to "m/min").
     QString speedUnit() const;
     // (Re)publish the simulated Machine Speed sample even when the OPC UA
     // service is not running, so standalone manual/Live triggers still capture
@@ -73,7 +90,6 @@ private slots:
     void handleClientStateChanged(QOpcUaClient::ClientState state);
     void handleClientErrorChanged(QOpcUaClient::ClientError error);
     void handleTriggerValueChanged(const QVariant& value);
-    void handleSpeedValueChanged(const QVariant& value);
     void handleAttributeUpdated(QOpcUa::NodeAttribute attribute, const QVariant& value);
     void onPushHoldTimerTick();
 
@@ -100,11 +116,36 @@ private:
         qint64 receivedAtMs = 0;
     };
 
+    // One monitored speed node per configured anchor.
+    struct SpeedMonitorState {
+        OpcUaSpeedTagSettings settings;
+        QPointer<QOpcUaNode> node;
+        // Index into settings_.speedTags (for status/processing routing).
+        int anchorIndex = -1;
+    };
+
+    // Latest per-anchor sample, indexed by anchorIndex (parallel to settings_.
+    // speedTags). Written on the GUI thread (OPC UA callbacks) and read from
+    // the camera acquisition thread (spatial trigger alignment), so guarded.
+    struct SpeedAnchorSample {
+        bool valid = false;
+        QString tagName;
+        QString nodeId;
+        QString unit;
+        QString sampleTimeUtc;
+        double value = 0.0;
+        qint64 receivedAtMs = 0;
+    };
+
     void resetRuntimeState();
     void clearMonitoredNodes();
     void monitorConfiguredNodes();
     void monitorTriggerTag(const OpcUaTriggerTagSettings& triggerSettings, int tagIndex);
-    void monitorSpeedTag(const OpcUaSpeedTagSettings& speedSettings);
+    void monitorSpeedAnchors();
+    void monitorSpeedTag(const OpcUaSpeedTagSettings& speedSettings, int anchorIndex);
+    // Index of the primary speed anchor (first enabled; legacy single-tag API
+    // keeps mirroring it). -1 when no anchors are configured.
+    int primarySpeedIndex() const;
     OpcUaRuntimeStatus currentRuntimeStatus() const;
     bool hasRealMonitoredTags() const;
     bool hasSimulatedTags() const;
@@ -117,7 +158,7 @@ private:
     // cached value every tick, and a per-tick warning for an unchanged invalid
     // value would flood the status bar (only new values warrant warnings).
     void processTriggerValue(TriggerMonitorState& state, const QVariant& value, bool emitWarnings = true);
-    void processSpeedValue(const QVariant& value);
+    void processSpeedValue(int anchorIndex, const QVariant& value);
     bool extractBooleanValue(const QVariant& value, bool* result) const;
     bool extractNumericValue(const QVariant& value, double* result) const;
     QString clientErrorText(QOpcUaClient::ClientError error) const;
@@ -126,10 +167,14 @@ private:
     OpcUaSettings settings_;
     QOpcUaClient* client_ = nullptr;
     QList<TriggerMonitorState> triggerStates_;
-    QPointer<QOpcUaNode> speedNode_;
-    // latestSpeed_ is written on the GUI thread (OPC UA callbacks) and read from
-    // the camera acquisition thread (spatial trigger alignment), so it is guarded.
+    QList<SpeedMonitorState> speedStates_;
+    // speedSamples_/latestSpeed_ are written on the GUI thread (OPC UA
+    // callbacks) and read from the camera acquisition thread (spatial trigger
+    // alignment), so they are guarded. speedSamples_ is index-parallel to
+    // settings_.speedTags; latestSpeed_ mirrors the primary anchor for the
+    // legacy single-speed API.
     mutable QMutex speedMutex_;
+    QVector<SpeedAnchorSample> speedSamples_;
     LatestSpeedSample latestSpeed_;
     QTimer* pushHoldTimer_ = nullptr;
     // Tag index -> config snapshot of the button currently held (presence = held).

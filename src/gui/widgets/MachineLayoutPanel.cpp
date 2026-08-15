@@ -2,6 +2,7 @@
 
 #include "../../config/CameraConfig.h"
 #include "../../core/EventDatabase.h"
+#include "../../core/SpeedProfile.h"
 #include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
@@ -172,6 +173,7 @@ void MachineLayoutPanel::rebuildData() {
     cameras_.clear();
     eventGroups_.clear();
     defects_.clear();
+    triggers_.clear();
     skippedNoSpeedEvents_ = 0;
 
     // Cameras: live camera-card values when supplied (they may hold unsaved
@@ -217,6 +219,14 @@ void MachineLayoutPanel::rebuildData() {
         if (!anyVisible) {
             for (const DefectMark& d : defects_) {
                 if (d.mm >= minMm_ && d.mm <= maxMm_) {
+                    anyVisible = true;
+                    break;
+                }
+            }
+        }
+        if (!anyVisible) {
+            for (const TriggerMark& t : triggers_) {
+                if (t.mm >= minMm_ && t.mm <= maxMm_) {
                     anyVisible = true;
                     break;
                 }
@@ -310,9 +320,12 @@ void MachineLayoutPanel::loadDefects() {
 
         ++eventIdx;
 
-        // Projecting marked frames onto machine mm needs the event speed.
-        const double speed = ev.speedValue;
-        const bool speedOk = std::isfinite(speed) && speed > 0.0;
+        // Projecting marked frames onto machine mm needs the event speed. A
+        // recorded speed profile (per-drive anchors) is preferred; legacy
+        // events fall back to the single speedValue.
+        const double fallbackSpeed = ev.speedValue;
+        const bool speedOk = SpeedProfile::hasValidAnchors(ev.speedAnchors)
+            || (std::isfinite(fallbackSpeed) && fallbackSpeed > 0.0);
         if (!speedOk) {
             ++skippedNoSpeedEvents_;
             continue;
@@ -321,7 +334,6 @@ void MachineLayoutPanel::loadDefects() {
         if (fps <= 0.0) {
             fps = 10.0;
         }
-        const double framesPerMm = fps * 60.0 / (speed * 1000.0);
         const int sign = ev.positionDirectionSign >= 0 ? 1 : -1;
 
         EventGroup group;
@@ -354,6 +366,12 @@ void MachineLayoutPanel::loadDefects() {
                     : (idx >= 0 && idx < CameraConfig::getCameraCount()
                         ? CameraConfig::getCameraInfo(idx).machinePosition : 0.0);
 
+            // Local speed at this camera's position (interpolated between the
+            // recorded speed anchors), so the draw between drive groups is
+            // reflected on the mm ruler.
+            const double localSpeed = SpeedProfile::speedAt(
+                static_cast<int>(basePos), ev.speedAnchors, fallbackSpeed);
+            const double framesPerMm = fps * 60.0 / (localSpeed * 1000.0);
             for (int frame : frames) {
                 const int master = frame - offset;  // alignment applied
                 const double rel = master - ev.triggerIndex;
@@ -375,7 +393,27 @@ void MachineLayoutPanel::loadDefects() {
             }
         }
 
-        if (!group.defects.isEmpty()) {
+        // Recorded trigger position (e.g. the sheetbreak sensor): the machine
+        // location where this event's trigger fired. Only events with a valid
+        // position (> 0) get a marker on the TRIGGER lane.
+        if (ev.triggerPositionMm > 0) {
+            TriggerMark trig;
+            trig.eventText = group.label;
+            trig.color = group.color;
+            trig.mm = ev.triggerPositionMm;
+            trig.source = ev.triggerSource.trimmed().isEmpty()
+                ? ev.triggerReason : ev.triggerSource;
+            trig.eventIndex = static_cast<int>(eventGroups_.size());
+            QString pos = QStringLiteral("%1 mm").arg(trig.mm);
+            trig.detail = QString("Trigger: %1\nEvent: %2\nTrigger position: %3\nSource: %4")
+                .arg(ev.triggerReason.isEmpty() ? QStringLiteral("Triggered") : ev.triggerReason,
+                     trig.eventText, pos, trig.source);
+            group.triggers.append(trig);
+        }
+        // Keep the group when it has defect marks OR a recorded trigger, so a
+        // sheetbreak trigger with no marked defects still shows on the TRIGGER
+        // lane and in the event picker.
+        if (!group.defects.isEmpty() || !group.triggers.isEmpty()) {
             eventGroups_.append(group);
         }
     }
@@ -395,6 +433,10 @@ void MachineLayoutPanel::rebuildScale() {
     for (const DefectMark& d : defects_) {
         lo = std::min(lo, d.mm);
         hi = std::max(hi, d.mm);
+    }
+    for (const TriggerMark& t : triggers_) {
+        lo = std::min(lo, static_cast<double>(t.mm));
+        hi = std::max(hi, static_cast<double>(t.mm));
     }
     if (lo > hi) {
         lo = 0.0;
@@ -600,17 +642,22 @@ void MachineLayoutPanel::applyEventFilter() {
     if (canvas_) {
         canvas_->selectedCamera_ = -1;
         canvas_->selectedDefect_ = -1;
+        canvas_->selectedTrigger_ = -1;
         canvas_->cursorHitCamera_ = -1;
         canvas_->cursorHitDefect_ = -1;
+        canvas_->cursorHitTrigger_ = -1;
     }
     defects_.clear();
+    triggers_.clear();
     const int sel = eventCombo_ ? eventCombo_->currentData().toInt() : -1;
     if (sel < 0) {
         for (const EventGroup& g : eventGroups_) {
             defects_ += g.defects;
+            triggers_ += g.triggers;
         }
     } else if (sel >= 0 && sel < eventGroups_.size()) {
         defects_ = eventGroups_[sel].defects;
+        triggers_ = eventGroups_[sel].triggers;
     }
     rebuildScale();
 }
@@ -648,6 +695,7 @@ void MachineLayoutPanel::Canvas::updateCursorHits() {
     // resolve, so the glow never fires for a position that visibly misses.
     cursorHitCamera_ = -1;
     cursorHitDefect_ = -1;
+    cursorHitTrigger_ = -1;
     if (!cursorVisible_ && !panning_) {
         return;
     }
@@ -665,6 +713,14 @@ void MachineLayoutPanel::Canvas::updateCursorHits() {
         for (int i = 0; i < owner_->defects_.size(); ++i) {
             if (std::abs(owner_->defects_[i].mm - cursorMm_) <= tolMm) {
                 cursorHitDefect_ = i;
+                break;
+            }
+        }
+    }
+    if (cursorHitCamera_ < 0 && cursorHitDefect_ < 0) {
+        for (int i = 0; i < owner_->triggers_.size(); ++i) {
+            if (std::abs(owner_->triggers_[i].mm - cursorMm_) <= tolMm) {
+                cursorHitTrigger_ = i;
                 break;
             }
         }
@@ -718,6 +774,12 @@ QRect MachineLayoutPanel::Canvas::defectMarkerRect(const DefectMark& def) const 
     return QRect(x - 10, defectLaneAxisY_ - 14, 20, 14);
 }
 
+QRect MachineLayoutPanel::Canvas::triggerMarkerRect(const TriggerMark& trig) const {
+    const int x = static_cast<int>(owner_->mmToX(trig.mm));
+    // Mirrors the sensor-pin shape (stem below the axis, head above).
+    return QRect(x - 8, triggerLaneAxisY_ - 12, 16, 20);
+}
+
 void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter painter(this);
@@ -730,16 +792,18 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
 
     // Shared layout numbers (lane geometry), hoisted to member accessors later.
     const int leftMargin = 12;
-    const int contentBottom = 512;
+    const int contentBottom = 568;
     const int dy = qMax(0, (height() - contentBottom) / 2);
 
-    // Recompute floorAxisY_, defectLaneAxisY_ and mmRulerAxisY_ once per paint
-    // so the helpers (and the cursor) can reference them.
+    // Recompute floorAxisY_, defectLaneAxisY_, triggerLaneAxisY_ and
+    // mmRulerAxisY_ once per paint so the helpers (and the cursor) can
+    // reference them.
     const int lane1AxisY = floorAxisY_[0] = 56 + dy;
     const int lane2AxisY = floorAxisY_[1] = lane1AxisY + 88;
     const int lane3AxisY = floorAxisY_[2] = lane2AxisY + 88;
     defectLaneAxisY_     = lane3AxisY + 88;
-    mmRulerAxisY_        = defectLaneAxisY_ + 56;
+    triggerLaneAxisY_    = defectLaneAxisY_ + 56;
+    mmRulerAxisY_        = triggerLaneAxisY_ + 56;
     Q_UNUSED(leftMargin); // each helper computes its own leftMargin
 
     drawSectionBar(painter, tc);
@@ -747,6 +811,7 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     drawFloorLanes(painter, tc);
     drawCameraMarkers(painter, tc);
     drawDefectStrip(painter, tc);
+    drawTriggerStrip(painter, tc);
     drawMmRuler(painter, tc);
     drawPositionCursor(painter, tc);
     drawLegends(painter, tc);
@@ -887,7 +952,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // camera lanes. The whole block is vertically centered in the canvas so
     // there's no dead space at the bottom.
     constexpr int kLanePitch = 88;  // title row + axis + markers
-    const int contentBottom = 512;  // approx bottom of the summary/hint text
+    const int contentBottom = 568;  // approx bottom of the summary/hint text
     const int dy = qMax(0, (height() - contentBottom) / 2);
     const int lane1TitleY = 8 + dy;
     const int lane1AxisY = floorAxisY_[0];
@@ -1136,6 +1201,60 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
     }
 }
 
+void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
+    const int axisY = triggerLaneAxisY_;
+
+    // ── Trigger record position ──
+    QFont titleFont = painter.font();
+    titleFont.setPixelSize(13);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(leftMargin, axisY - 24, QStringLiteral("TRIGGER RECORD POSITION"));
+
+    // Axis line (the sheetbreak sensor's position reads off the MM POSITION
+    // ruler below, exactly like the camera and defect lanes).
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.drawLine(leftMargin, axisY, width() - leftMargin, axisY);
+
+    // Sensor-pin markers: a short stem below the axis + a filled head above,
+    // colored per event (same palette as its defect diamonds).
+    const QVector<TriggerMark>& triggers = owner_->triggers_;
+    if (triggers.isEmpty()) {
+        QFont noteFont = painter.font();
+        noteFont.setPixelSize(11);
+        painter.setFont(noteFont);
+        painter.setPen(QColor(tc.text));
+        const bool singleEvent = owner_->eventCombo_ && owner_->eventCombo_->currentData().toInt() >= 0;
+        painter.drawText(QRect(leftMargin, axisY - 24, width() - 2 * leftMargin, 14),
+                         Qt::AlignRight | Qt::AlignVCenter,
+                         singleEvent
+                             ? QStringLiteral("No recorded trigger position for this event.")
+                             : QStringLiteral("No trigger positions recorded — set the sensor position on the trigger tag."));
+    }
+    for (int i = 0; i < triggers.size(); ++i) {
+        const TriggerMark& trig = triggers[i];
+        const int x = static_cast<int>(owner_->mmToX(trig.mm));
+        // Selection dims every trigger but the selected one; hover highlights.
+        QColor fill = trig.color;
+        QPen pinPen = QPen((i == hoveredTrigger_ || i == cursorHitTrigger_)
+                               ? Qt::white : QColor(tc.border), 1.5);
+        if (selectedTrigger_ >= 0) {
+            if (i == selectedTrigger_) {
+                pinPen = QPen(QColor(tc.primary), 2);  // accent border
+            } else {
+                fill = QColor(trig.color.red(), trig.color.green(), trig.color.blue(), 89);
+                pinPen = QPen(QColor(tc.border), 1.5);
+            }
+        }
+        painter.setPen(pinPen);
+        painter.drawLine(x, axisY, x, axisY + 7);  // stem below the axis
+        painter.setBrush(fill);
+        painter.drawEllipse(QRect(x - 4, axisY - 10, 8, 8));  // sensor head
+    }
+}
+
 void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColors& tc) {
     const int leftMargin = 12;
 
@@ -1191,6 +1310,20 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
     painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE  (lower sub-row)"));
+
+    // ── Trigger marker legend ──
+    const int trigY = sideY + 22;
+    painter.setPen(QColor(tc.text));
+    painter.drawText(leftMargin, trigY, QStringLiteral("TRIGGER:"));
+    const int trigX = leftMargin + 110;
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.drawLine(trigX + 6, trigY, trigX + 6, trigY + 6);
+    painter.setBrush(QColor("#8B949E"));
+    painter.drawEllipse(QRect(trigX + 2, trigY - 9, 8, 8));
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(trigX + 16, trigY,
+        QStringLiteral("SENSOR PIN  (sheetbreak trigger position, colored per event)"));
 }
 
 void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
@@ -1239,8 +1372,15 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     painter.drawText(leftMargin, sy, defectLine);
     sy += 16;
     painter.drawText(leftMargin, sy,
-        "Rounded = DRIVE SIDE · triangle = OPERATOR SIDE. Each defect diamond is colored per event; "
-        "hover a camera or defect for details.");
+        QString("Triggers: %1 record%2 from %3 event%4")
+            .arg(owner_->triggers_.size())
+            .arg(owner_->triggers_.size() == 1 ? QString() : QStringLiteral("s"))
+            .arg(singleEvent ? 1 : owner_->eventGroups_.size())
+            .arg(singleEvent || owner_->eventGroups_.size() == 1 ? QString() : QStringLiteral("s")));
+    sy += 16;
+    painter.drawText(leftMargin, sy,
+        "Rounded = DRIVE SIDE · triangle = OPERATOR SIDE · diamond = defect · sensor pin = trigger. "
+        "Each marker is colored per event; hover a camera, defect or trigger for details.");
 }
 
 void MachineLayoutPanel::Canvas::drawZoomIndicator(QPainter& p, const ThemeColors& tc) {
@@ -1280,6 +1420,7 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
         if (cameraMarkerRect(cameras[i]).adjusted(-2, -2, 2, 2).contains(p)) {
             selectedCamera_ = i;
             selectedDefect_ = -1;
+            selectedTrigger_ = -1;
             const CameraMark& c = cameras[i];
             QToolTip::showText(event->globalPos(),
                 QString("Camera %1 — %2\nFloor: %3\nSide: %4\nGroup: %5\nIP: %6\nMachine position: %7")
@@ -1306,8 +1447,23 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
         if (defectMarkerRect(defects[i]).adjusted(-3, -3, 3, 3).contains(p)) {
             selectedDefect_ = i;
             selectedCamera_ = -1;
+            selectedTrigger_ = -1;
             QToolTip::showText(event->globalPos(), defects[i].detail, this);
             owner_->zoomToMm(defects[i].mm);  // auto-zoom to the actual position
+            update();
+            return;
+        }
+    }
+
+    // 2b. Trigger hit-test (sheetbreak sensor positions).
+    const QVector<TriggerMark>& triggers = owner_->triggers_;
+    for (int i = 0; i < triggers.size(); ++i) {
+        if (triggerMarkerRect(triggers[i]).adjusted(-3, -3, 3, 3).contains(p)) {
+            selectedTrigger_ = i;
+            selectedCamera_ = -1;
+            selectedDefect_ = -1;
+            QToolTip::showText(event->globalPos(), triggers[i].detail, this);
+            owner_->zoomToMm(triggers[i].mm);  // auto-zoom to the trigger position
             update();
             return;
         }
@@ -1317,6 +1473,7 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
     // only while zoomed in; the position cursor still follows the pointer).
     selectedCamera_ = -1;
     selectedDefect_ = -1;
+    selectedTrigger_ = -1;
     QToolTip::hideText();
     panning_ = true;
     lastPanX_ = event->pos().x();
@@ -1329,6 +1486,7 @@ void MachineLayoutPanel::Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         selectedCamera_ = -1;
         selectedDefect_ = -1;
+        selectedTrigger_ = -1;
         QToolTip::hideText();
         update();
         return;
@@ -1375,6 +1533,7 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
 
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
+    hoveredTrigger_ = -1;
     const QPoint p = event->pos();
     const QVector<CameraMark>& cameras = owner_->cameras_;
     for (int i = 0; i < cameras.size(); ++i) {
@@ -1388,6 +1547,15 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
         for (int i = 0; i < defects.size(); ++i) {
             if (defectMarkerRect(defects[i]).adjusted(-3, -3, 3, 3).contains(p)) {
                 hoveredDefect_ = i;
+                break;
+            }
+        }
+    }
+    if (hoveredCamera_ < 0 && hoveredDefect_ < 0) {
+        const QVector<TriggerMark>& triggers = owner_->triggers_;
+        for (int i = 0; i < triggers.size(); ++i) {
+            if (triggerMarkerRect(triggers[i]).adjusted(-3, -3, 3, 3).contains(p)) {
+                hoveredTrigger_ = i;
                 break;
             }
         }
@@ -1407,6 +1575,8 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
             this);
     } else if (hoveredDefect_ >= 0) {
         QToolTip::showText(event->globalPos(), owner_->defects_[hoveredDefect_].detail, this);
+    } else if (hoveredTrigger_ >= 0) {
+        QToolTip::showText(event->globalPos(), owner_->triggers_[hoveredTrigger_].detail, this);
     } else {
         QToolTip::hideText();
     }
@@ -1453,8 +1623,10 @@ void MachineLayoutPanel::Canvas::enterEvent(QEvent* event) {
 void MachineLayoutPanel::Canvas::leaveEvent(QEvent* event) {
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
+    hoveredTrigger_ = -1;
     cursorHitCamera_ = -1;
     cursorHitDefect_ = -1;
+    cursorHitTrigger_ = -1;
     // Auto-reset the zoom when the pointer genuinely leaves the panel. Only a
     // SPONTANEOUS leave (a real pointer exit delivered by the window system)
     // arms the delayed reset: showing a tooltip (clicking a marker to zoom)

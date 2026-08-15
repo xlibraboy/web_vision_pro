@@ -15,6 +15,17 @@
  */
 class EventDatabase {
 public:
+    // One machine-speed sample captured at trigger time: the actual local speed
+    // (m/min) at a specific machine position (mm). A vector of these lets the
+    // defect projector interpolate the paper's local speed anywhere along the
+    // machine, reflecting the draw between drive groups.
+    struct SpeedAnchorSnapshot {
+        int positionMm = 0;
+        double speedValue = std::numeric_limits<double>::quiet_NaN();
+        QString tagName;
+        QString nodeId;
+    };
+
     struct EventInfo {
         QString timestamp;      // "20260208_153000"
         QString videoPath;      // "../data/event_20260208_153000.mp4"
@@ -36,7 +47,13 @@ public:
         QString speedUnit;
         QString speedSampleTimeUtc;
         bool speedStale = false;
+        // All machine-speed anchors snapshotted when the trigger fired
+        // (position mm + actual local speed). Empty for legacy events; the
+        // single speedValue above then serves as the global fallback.
+        std::vector<SpeedAnchorSnapshot> speedAnchors;
         int positionDirectionSign = 1;
+        int triggerPositionMm = 0;  // Machine position (mm) where the trigger fired
+                                    // (e.g. the sheetbreak sensor's position).
         // Camera group the trigger was wired to (CameraGroup::k*). A negative
         // value means the trigger recorded all cameras.
         int triggerGroup = CameraGroup::kUnassigned;

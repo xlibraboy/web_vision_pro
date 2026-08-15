@@ -202,10 +202,6 @@ void OpcUaClientService::handleTriggerValueChanged(const QVariant& value) {
     }
 }
 
-void OpcUaClientService::handleSpeedValueChanged(const QVariant& value) {
-    processSpeedValue(value);
-}
-
 void OpcUaClientService::handleAttributeUpdated(QOpcUa::NodeAttribute attribute, const QVariant& value) {
     if (attribute != QOpcUa::NodeAttribute::Value) {
         return;
@@ -216,9 +212,12 @@ void OpcUaClientService::handleAttributeUpdated(QOpcUa::NodeAttribute attribute,
         return;
     }
 
-    if (speedNode_ && node == speedNode_) {
-        handleSpeedValueChanged(value);
-        return;
+    const QString nodeId = normalizedNodeId(node->nodeId());
+    for (const SpeedMonitorState& state : speedStates_) {
+        if (state.node && normalizedNodeId(state.node->nodeId()) == nodeId) {
+            processSpeedValue(state.anchorIndex, value);
+            return;
+        }
     }
 
     handleTriggerValueChanged(value);
@@ -228,6 +227,8 @@ void OpcUaClientService::resetRuntimeState() {
     {
         QMutexLocker locker(&speedMutex_);
         latestSpeed_ = LatestSpeedSample{};
+        speedSamples_.clear();
+        speedSamples_.resize(static_cast<int>(settings_.speedTags.size()));
     }
     for (TriggerMonitorState& state : triggerStates_) {
         state.hasLastValue = false;
@@ -248,11 +249,14 @@ void OpcUaClientService::clearMonitoredNodes() {
     }
     triggerStates_.clear();
 
-    if (speedNode_) {
-        disconnect(speedNode_, nullptr, this, nullptr);
-        speedNode_->deleteLater();
-        speedNode_ = nullptr;
+    for (SpeedMonitorState& state : speedStates_) {
+        if (state.node) {
+            disconnect(state.node, nullptr, this, nullptr);
+            state.node->deleteLater();
+            state.node = nullptr;
+        }
     }
+    speedStates_.clear();
 }
 
 void OpcUaClientService::monitorConfiguredNodes() {
@@ -266,12 +270,9 @@ void OpcUaClientService::monitorConfiguredNodes() {
         }
     }
 
-    if (settings_.speedTag.enabled && !settings_.speedTag.simulated
-            && !normalizedNodeId(settings_.speedTag.nodeId).isEmpty()) {
-        monitorSpeedTag(settings_.speedTag);
-    }
+    monitorSpeedAnchors();
 
-    if (triggerStates_.isEmpty() && !speedNode_) {
+    if (triggerStates_.isEmpty() && speedStates_.isEmpty()) {
         emitStatus(hasSimulatedTags()
             ? QStringLiteral("OPC UA connected; live subscriptions failed, but simulated tags are active.")
             : QStringLiteral("OPC UA connected, but no monitored tags are configured successfully."));
@@ -305,7 +306,17 @@ void OpcUaClientService::monitorTriggerTag(const OpcUaTriggerTagSettings& trigge
     }
 }
 
-void OpcUaClientService::monitorSpeedTag(const OpcUaSpeedTagSettings& speedSettings) {
+void OpcUaClientService::monitorSpeedAnchors() {
+    for (int i = 0; i < static_cast<int>(settings_.speedTags.size()); ++i) {
+        const OpcUaSpeedTagSettings& speedSettings = settings_.speedTags[static_cast<size_t>(i)];
+        if (speedSettings.enabled && !speedSettings.simulated
+                && !normalizedNodeId(speedSettings.nodeId).isEmpty()) {
+            monitorSpeedTag(speedSettings, i);
+        }
+    }
+}
+
+void OpcUaClientService::monitorSpeedTag(const OpcUaSpeedTagSettings& speedSettings, int anchorIndex) {
     if (!client_) {
         return;
     }
@@ -316,13 +327,19 @@ void OpcUaClientService::monitorSpeedTag(const OpcUaSpeedTagSettings& speedSetti
         return;
     }
 
-    speedNode_ = node;
+    SpeedMonitorState state;
+    state.settings = speedSettings;
+    state.anchorIndex = anchorIndex;
+    state.node = node;
+    speedStates_.append(state);
+    SpeedMonitorState& storedState = speedStates_.last();
+
     connect(node, &QOpcUaNode::attributeUpdated, this, &OpcUaClientService::handleAttributeUpdated);
     if (!node->enableMonitoring(QOpcUa::NodeAttribute::Value, QOpcUaMonitoringParameters(settings_.publishIntervalMs))) {
         emitStatus(QStringLiteral("OPC UA speed subscription failed for '%1'.").arg(speedSettings.name));
         disconnect(node, nullptr, this, nullptr);
         node->deleteLater();
-        speedNode_ = nullptr;
+        speedStates_.removeLast();
     }
 }
 
@@ -333,8 +350,13 @@ bool OpcUaClientService::hasRealMonitoredTags() const {
             return true;
         }
     }
-    return settings_.speedTag.enabled && !settings_.speedTag.simulated
-        && !normalizedNodeId(settings_.speedTag.nodeId).isEmpty();
+    for (const auto& speedSettings : settings_.speedTags) {
+        if (speedSettings.enabled && !speedSettings.simulated
+                && !normalizedNodeId(speedSettings.nodeId).isEmpty()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool OpcUaClientService::hasSimulatedTags() const {
@@ -343,7 +365,12 @@ bool OpcUaClientService::hasSimulatedTags() const {
             return true;
         }
     }
-    return settings_.speedTag.enabled && settings_.speedTag.simulated;
+    for (const auto& speedSettings : settings_.speedTags) {
+        if (speedSettings.enabled && speedSettings.simulated) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void OpcUaClientService::setManualTriggerHeld(int tagIndex, bool held,
@@ -368,26 +395,69 @@ void OpcUaClientService::setManualTriggerHeld(int tagIndex, bool held,
     }
 }
 
+int OpcUaClientService::primarySpeedIndex() const {
+    for (int i = 0; i < static_cast<int>(settings_.speedTags.size()); ++i) {
+        if (settings_.speedTags[static_cast<size_t>(i)].enabled) {
+            return i;
+        }
+    }
+    return settings_.speedTags.empty() ? -1 : 0;
+}
+
 bool OpcUaClientService::currentSpeedMperMin(double* mPerMin) const {
     if (!mPerMin) {
         return false;
     }
     QMutexLocker locker(&speedMutex_);
-    if (!latestSpeed_.valid) {
+    const int primary = primarySpeedIndex();
+    if (primary < 0 || primary >= speedSamples_.size() || !speedSamples_[primary].valid) {
         return false;
     }
     // Refuse to align against a speed sample that has gone stale: a dead speed
     // would produce wrong frame offsets across the camera group.
-    if ((QDateTime::currentMSecsSinceEpoch() - latestSpeed_.receivedAtMs)
-            > settings_.speedTag.staleTimeoutMs) {
+    const int staleTimeoutMs = settings_.speedTags[static_cast<size_t>(primary)].staleTimeoutMs;
+    if ((QDateTime::currentMSecsSinceEpoch() - speedSamples_[primary].receivedAtMs) > staleTimeoutMs) {
         return false;
     }
-    *mPerMin = latestSpeed_.value;
+    *mPerMin = speedSamples_[primary].value;
     return true;
 }
 
+bool OpcUaClientService::currentSpeedAnchors(QVector<SpeedSample>* out) const {
+    if (!out) {
+        return false;
+    }
+    out->clear();
+    QMutexLocker locker(&speedMutex_);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const int count = qMin(static_cast<int>(speedSamples_.size()),
+                           static_cast<int>(settings_.speedTags.size()));
+    for (int i = 0; i < count; ++i) {
+        const SpeedAnchorSample& sample = speedSamples_[i];
+        if (!sample.valid) {
+            continue;
+        }
+        const OpcUaSpeedTagSettings& cfg = settings_.speedTags[static_cast<size_t>(i)];
+        if ((now - sample.receivedAtMs) > cfg.staleTimeoutMs) {
+            continue;
+        }
+        SpeedSample s;
+        s.positionMm = cfg.positionMm;
+        s.tagName = sample.tagName;
+        s.nodeId = sample.nodeId;
+        s.value = sample.value;
+        out->append(s);
+    }
+    return !out->isEmpty();
+}
+
 QString OpcUaClientService::speedUnit() const {
-    return settings_.speedTag.unit;
+    const int primary = primarySpeedIndex();
+    if (primary >= 0 && primary < static_cast<int>(settings_.speedTags.size())) {
+        const QString unit = settings_.speedTags[static_cast<size_t>(primary)].unit;
+        return unit.isEmpty() ? QStringLiteral("m/min") : unit;
+    }
+    return QStringLiteral("m/min");
 }
 
 void OpcUaClientService::refreshSimulatedSpeed() {
@@ -448,10 +518,12 @@ void OpcUaClientService::onPushHoldTimerTick() {
 }
 
 void OpcUaClientService::synthesizeSimulatedSpeed() {
-    if (!settings_.speedTag.enabled || !settings_.speedTag.simulated) {
-        return;
+    for (int i = 0; i < static_cast<int>(settings_.speedTags.size()); ++i) {
+        const OpcUaSpeedTagSettings& cfg = settings_.speedTags[static_cast<size_t>(i)];
+        if (cfg.enabled && cfg.simulated) {
+            processSpeedValue(i, QVariant(cfg.simulatedValue));
+        }
     }
-    processSpeedValue(QVariant(settings_.speedTag.simulatedValue));
 }
 
 OpcUaRuntimeStatus OpcUaClientService::currentRuntimeStatus() const {
@@ -478,12 +550,14 @@ OpcUaRuntimeStatus OpcUaClientService::currentRuntimeStatus() const {
 
     {
         QMutexLocker locker(&speedMutex_);
-        if (latestSpeed_.valid) {
+        const int primary = primarySpeedIndex();
+        if (primary >= 0 && primary < speedSamples_.size() && speedSamples_[primary].valid) {
+            const SpeedAnchorSample& sample = speedSamples_[primary];
             status.speedValid = true;
-            status.speedText = QString::number(latestSpeed_.value, 'f', 2)
-                + QStringLiteral(" ") + latestSpeed_.unit;
-            status.speedStale = (QDateTime::currentMSecsSinceEpoch() - latestSpeed_.receivedAtMs)
-                > settings_.speedTag.staleTimeoutMs;
+            status.speedText = QString::number(sample.value, 'f', 2)
+                + QStringLiteral(" ") + (sample.unit.isEmpty() ? QStringLiteral("m/min") : sample.unit);
+            status.speedStale = (QDateTime::currentMSecsSinceEpoch() - sample.receivedAtMs)
+                > settings_.speedTags[static_cast<size_t>(primary)].staleTimeoutMs;
         } else {
             status.speedText = QStringLiteral("—");
         }
@@ -585,36 +659,80 @@ void OpcUaClientService::dispatchTriggerFor(const OpcUaTriggerTagSettings& tagSe
 
     {
         QMutexLocker locker(&speedMutex_);
-        if (latestSpeed_.valid) {
-            triggerEvent.speedTagName = latestSpeed_.tagName;
-            triggerEvent.speedTagNodeId = latestSpeed_.nodeId;
-            triggerEvent.speedUnit = latestSpeed_.unit;
-            triggerEvent.speedSampleTimeUtc = latestSpeed_.sampleTimeUtc;
-            triggerEvent.speedValue = latestSpeed_.value;
+        const int primary = primarySpeedIndex();
+        if (primary >= 0 && primary < speedSamples_.size() && speedSamples_[primary].valid) {
+            const SpeedAnchorSample& sample = speedSamples_[primary];
+            triggerEvent.speedTagName = sample.tagName;
+            triggerEvent.speedTagNodeId = sample.nodeId;
+            triggerEvent.speedUnit = sample.unit;
+            triggerEvent.speedSampleTimeUtc = sample.sampleTimeUtc;
+            triggerEvent.speedValue = sample.value;
             triggerEvent.hasSpeed = true;
-            triggerEvent.speedStale = (nowMs - latestSpeed_.receivedAtMs) > settings_.speedTag.staleTimeoutMs;
+            triggerEvent.speedStale = (nowMs - sample.receivedAtMs)
+                > settings_.speedTags[static_cast<size_t>(primary)].staleTimeoutMs;
+        }
+
+        // Snapshot every fresh anchor so the event records the machine's full
+        // speed profile (position mm + actual local speed at trigger time).
+        const int count = qMin(static_cast<int>(speedSamples_.size()),
+                               static_cast<int>(settings_.speedTags.size()));
+        for (int i = 0; i < count; ++i) {
+            const SpeedAnchorSample& sample = speedSamples_[i];
+            if (!sample.valid) {
+                continue;
+            }
+            const OpcUaSpeedTagSettings& cfg = settings_.speedTags[static_cast<size_t>(i)];
+            if ((nowMs - sample.receivedAtMs) > cfg.staleTimeoutMs) {
+                continue;
+            }
+            SpeedSample anchor;
+            anchor.positionMm = cfg.positionMm;
+            anchor.tagName = sample.tagName;
+            anchor.nodeId = sample.nodeId;
+            anchor.value = sample.value;
+            triggerEvent.speedAnchors.append(anchor);
         }
     }
 
     dispatchTriggerEvent(triggerEvent);
 }
 
-void OpcUaClientService::processSpeedValue(const QVariant& value) {
+void OpcUaClientService::processSpeedValue(int anchorIndex, const QVariant& value) {
+    if (anchorIndex < 0 || anchorIndex >= static_cast<int>(settings_.speedTags.size())) {
+        return;
+    }
+    const OpcUaSpeedTagSettings& cfg = settings_.speedTags[static_cast<size_t>(anchorIndex)];
     double rawValue = 0.0;
     if (!extractNumericValue(value, &rawValue)) {
-        emitStatus(QStringLiteral("OPC UA speed tag '%1' published a non-numeric value.").arg(settings_.speedTag.name));
+        emitStatus(QStringLiteral("OPC UA speed tag '%1' published a non-numeric value.").arg(cfg.name));
         return;
     }
 
     {
         QMutexLocker locker(&speedMutex_);
-        latestSpeed_.valid = true;
-        latestSpeed_.tagName = settings_.speedTag.name;
-        latestSpeed_.nodeId = normalizedNodeId(settings_.speedTag.nodeId);
-        latestSpeed_.unit = settings_.speedTag.unit;
-        latestSpeed_.value = (rawValue * settings_.speedTag.scale) + settings_.speedTag.offset;
-        latestSpeed_.sampleTimeUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-        latestSpeed_.receivedAtMs = QDateTime::currentMSecsSinceEpoch();
+        if (speedSamples_.size() <= anchorIndex) {
+            speedSamples_.resize(anchorIndex + 1);
+        }
+        SpeedAnchorSample& sample = speedSamples_[anchorIndex];
+        sample.valid = true;
+        sample.tagName = cfg.name;
+        sample.nodeId = normalizedNodeId(cfg.nodeId);
+        sample.unit = cfg.unit;
+        sample.value = (rawValue * cfg.scale) + cfg.offset;
+        sample.sampleTimeUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        sample.receivedAtMs = QDateTime::currentMSecsSinceEpoch();
+
+        // Mirror the primary anchor into the legacy single-speed sample so
+        // currentSpeedMperMin()/speedUnit() keep working unchanged.
+        if (anchorIndex == primarySpeedIndex()) {
+            latestSpeed_.valid = true;
+            latestSpeed_.tagName = sample.tagName;
+            latestSpeed_.nodeId = sample.nodeId;
+            latestSpeed_.unit = sample.unit;
+            latestSpeed_.value = sample.value;
+            latestSpeed_.sampleTimeUtc = sample.sampleTimeUtc;
+            latestSpeed_.receivedAtMs = sample.receivedAtMs;
+        }
     }
 }
 

@@ -22,6 +22,7 @@ src/main.cpp
 src/core/CameraManager.cpp
 src/core/EventController.cpp
 src/core/EventDatabase.cpp
+src/core/SpeedProfile.cpp
 src/core/VideoStreamReader.cpp
 src/processing/ImageBuffer.cpp
 src/processing/DefectDetector.cpp
