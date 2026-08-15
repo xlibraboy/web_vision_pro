@@ -100,6 +100,7 @@ private:
         QString location;
         int mm = 0;
         bool operatorSide = false;  // false = DRIVE side
+        int id = 0;                 // reference camera id (shown on the marker)
         double fps = 0.0;           // optional frame rate (0 = unknown)
     };
     struct RefPoint {

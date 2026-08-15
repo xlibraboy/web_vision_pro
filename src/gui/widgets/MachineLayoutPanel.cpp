@@ -842,14 +842,14 @@ MachineLayoutPanel::RefSet MachineLayoutPanel::buildReferenceSet(const QString& 
     set.name = name;
     if (name == QLatin1String("Reference 1")) {
         set.cameras = {
-            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false },
-            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true },
-            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false },
-            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true },
-            { QStringLiteral("After Press DS"), QStringLiteral("After Press"), 25195, false },
-            { QStringLiteral("After Press OS"), QStringLiteral("After Press"), 25195, true },
-            { QStringLiteral("Sizer DS"), QStringLiteral("Size Press"), 229258, false },
-            { QStringLiteral("Calender DS"), QStringLiteral("Calender"), 240076, false },
+            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false, 1 },
+            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true, 2 },
+            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false, 3 },
+            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true, 4 },
+            { QStringLiteral("After Press DS"), QStringLiteral("After Press"), 25195, false, 5 },
+            { QStringLiteral("After Press OS"), QStringLiteral("After Press"), 25195, true, 6 },
+            { QStringLiteral("Sizer DS"), QStringLiteral("Size Press"), 229258, false, 7 },
+            { QStringLiteral("Calender DS"), QStringLiteral("Calender"), 240076, false, 8 },
         };
         set.speedInputs = {
             { QStringLiteral("Press speed"), QStringLiteral("Press"), 21100 },
@@ -870,17 +870,17 @@ MachineLayoutPanel::RefSet MachineLayoutPanel::buildReferenceSet(const QString& 
         // trigger records are unchanged from Reference 1 — only the camera
         // list differs (FPS is carried where known, e.g. Pickup OS at 50 fps).
         set.cameras = {
-            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false },
-            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true },
-            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false },
-            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true, 50.0 },
-            { QStringLiteral("Center Roll DS"), QStringLiteral("Press"), 32092, false },
-            { QStringLiteral("Pre-Dryer DS"), QStringLiteral("Pre-Dryer"), 74201, false },
-            { QStringLiteral("Sizer DS"), QStringLiteral("Sizer"), 154981, false },
-            { QStringLiteral("4P DS"), QStringLiteral("Press"), 38351, false },
-            { QStringLiteral("After-Size Press OS (Portable CAM)"), QStringLiteral("Size Press"), 136302, true },
-            { QStringLiteral("After-Dryer DS"), QStringLiteral("After-Dryer"), 190100, false },
-            { QStringLiteral("Pre-Dryer OS (Portable CAM)"), QStringLiteral("Pre-Dryer"), 200000, true },
+            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false, 1 },
+            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true, 2 },
+            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false, 3 },
+            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true, 4, 50.0 },
+            { QStringLiteral("Center Roll DS"), QStringLiteral("Press"), 32092, false, 5 },
+            { QStringLiteral("Pre-Dryer DS"), QStringLiteral("Pre-Dryer"), 74201, false, 6 },
+            { QStringLiteral("Sizer DS"), QStringLiteral("Sizer"), 154981, false, 7 },
+            { QStringLiteral("4P DS"), QStringLiteral("Press"), 38351, false, 8 },
+            { QStringLiteral("After-Size Press OS (Portable CAM)"), QStringLiteral("Size Press"), 136302, true, 9 },
+            { QStringLiteral("After-Dryer DS"), QStringLiteral("After-Dryer"), 190100, false, 10 },
+            { QStringLiteral("Pre-Dryer OS (Portable CAM)"), QStringLiteral("Pre-Dryer"), 200000, true, 11 },
         };
         set.speedInputs = {
             { QStringLiteral("Press speed"), QStringLiteral("Press"), 21100 },
@@ -1479,21 +1479,23 @@ void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const T
         painter.setBrush(Qt::NoBrush);
         if (r.operatorSide) {
             QPainterPath tri;
-            tri.moveTo(x, yCenter - 10);
-            tri.lineTo(x + 9, yCenter + 6);
-            tri.lineTo(x - 9, yCenter + 6);
+            tri.moveTo(x, yCenter - 8);
+            tri.lineTo(x + 7, yCenter + 4);
+            tri.lineTo(x - 7, yCenter + 4);
             tri.closeSubpath();
             painter.drawPath(tri);
         } else {
-            painter.drawRoundedRect(QRect(x - 9, yCenter - 8, 18, 18), 4, 4);
+            painter.drawRoundedRect(QRect(x - 7, yCenter - 7, 14, 14), 3, 3);
         }
 
-        // Vertical reference name (rotated), muted gray.
+        // Vertical camera id (rotated), muted gray — the full reference name
+        // is available in the hover tooltip.
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
         painter.setPen(glow ? Qt::white : QColor("#9AA4AF"));
-        painter.drawText(QRect(0, -8, 60, 16), Qt::AlignLeft | Qt::AlignVCenter, r.name);
+        painter.drawText(QRect(0, -8, 30, 16), Qt::AlignLeft | Qt::AlignVCenter,
+                         QString::number(r.id));
         painter.restore();
     }
 }
@@ -2032,7 +2034,8 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
         QToolTip::showText(event->globalPos(), owner_->triggers_[hoveredTrigger_].detail, this);
     } else if (hoveredRefCam_ >= 0) {
         const RefCamera& r = owner_->refSet_.cameras[hoveredRefCam_];
-        QString tip = QString("Reference camera — %1 (%2)\nMachine position: %3 mm\nSide: %4\n")
+        QString tip = QString("Reference camera #%1 — %2 (%3)\nMachine position: %4 mm\nSide: %5\n")
+                          .arg(r.id)
                           .arg(r.name, r.location)
                           .arg(r.mm)
                           .arg(r.operatorSide ? QStringLiteral("OPERATOR SIDE")
