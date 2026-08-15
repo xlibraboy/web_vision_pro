@@ -1580,7 +1580,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     }
 
     // ── Side split legend ──
-    const int sideY = ly + 22;  // one line below the camera-groups legend
+    const int sideY = ly + 20;  // one line below the camera-groups legend
     QFont sideFont = painter.font();
     sideFont.setPixelSize(10);
     painter.setFont(sideFont);
@@ -1594,8 +1594,8 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.drawRoundedRect(QRect(swX, sideY - 9, 12, 12), 3, 3);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(swX + 16, sideY, QStringLiteral("DRIVE SIDE  (upper sub-row)"));
-    const int driveW = painter.fontMetrics().horizontalAdvance("DRIVE SIDE  (upper sub-row)");
+    painter.drawText(swX + 16, sideY, QStringLiteral("DRIVE SIDE"));
+    const int driveW = painter.fontMetrics().horizontalAdvance(QStringLiteral("DRIVE SIDE"));
 
     // Triangle swatch = OPERATOR
     const int opX = swX + driveW + 28;
@@ -1609,27 +1609,42 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.drawPath(tri);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE  (lower sub-row)"));
+    painter.drawText(opX + 18, sideY, QStringLiteral("OPERATOR SIDE"));
 
-    // ── Trigger marker legend ──
-    const int trigY = sideY + 22;
+    // ── Trigger / defect legend ──
+    const int trigY = sideY + 20;
     painter.setPen(QColor(tc.text));
-    painter.drawText(leftMargin, trigY, QStringLiteral("TRIGGER:"));
+    painter.drawText(leftMargin, trigY, QStringLiteral("TRIGGER / DEFECT:"));
     const int trigX = leftMargin + 110;
+    // sensor pin = trigger record
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawLine(trigX + 6, trigY, trigX + 6, trigY + 6);
     painter.setBrush(QColor("#8B949E"));
     painter.drawEllipse(QRect(trigX + 2, trigY - 9, 8, 8));
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(trigX + 16, trigY,
-        QStringLiteral("SENSOR PIN  (sheetbreak trigger position, colored per event)"));
+    painter.drawText(trigX + 16, trigY, QStringLiteral("SENSOR PIN (sheetbreak trigger)"));
+    // diamond = defect
+    const int diaX = trigX + 16
+        + painter.fontMetrics().horizontalAdvance(QStringLiteral("SENSOR PIN (sheetbreak trigger)")) + 30;
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.setBrush(QColor("#8B949E"));
+    QPainterPath dia;
+    dia.moveTo(diaX + 6, trigY - 9);
+    dia.lineTo(diaX + 12, trigY - 3);
+    dia.lineTo(diaX + 6, trigY + 3);
+    dia.lineTo(diaX, trigY - 3);
+    dia.closeSubpath();
+    painter.drawPath(dia);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(diaX + 18, trigY, QStringLiteral("DEFECT (colored per event)"));
 
     // ── Reference overlay legend (only while a reference set is enabled) ──
     if (owner_->refEnabled_) {
-        const int refY = trigY + 22;
+        const int refY = trigY + 20;
         painter.setPen(QColor(tc.text));
-        painter.drawText(leftMargin, refY, QStringLiteral("REFERENCE (%1):").arg(owner_->refSet_.name.toUpper()));
+        painter.drawText(leftMargin, refY, QStringLiteral("%1:").arg(owner_->refSet_.name.toUpper()));
         const int refX = leftMargin + 110;
         // hollow square = reference camera
         painter.setPen(QPen(QColor("#9AA4AF"), 1.5, Qt::DashLine));
@@ -1659,7 +1674,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
         painter.drawEllipse(QRect(rx + 1, refY - 9, 8, 8));
         painter.setPen(QColor(tc.text));
         painter.drawText(rx + 14, refY,
-            QStringLiteral("TRIGGER RECORD  (read-only overlay, not wired to the system)"));
+            QStringLiteral("TRIGGER RECORD (read-only overlay)"));
     }
 }
 
@@ -1677,7 +1692,7 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     sumFont.setBold(false);
     painter.setFont(sumFont);
     painter.setPen(QColor(tc.text));
-    int sy = ly + (owner_->refEnabled_ ? 90 : 66);
+    int sy = ly + (owner_->refEnabled_ ? 84 : 62);
     int camerasWithPosition = 0;
     int floorCounts[CameraFloor::kCount] = {0, 0, 0};
     for (const CameraMark& c : cameras) {
@@ -1686,7 +1701,7 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
         }
         floorCounts[c.lane]++;
     }
-    painter.drawText(leftMargin, sy, QString("Cameras: %1 (%2 with a machine position) — 1st: %3 · 2nd: %4 · 3rd: %5")
+    painter.drawText(leftMargin, sy, QString("Cameras: %1 · %2 with position — 1st: %3 · 2nd: %4 · 3rd: %5")
         .arg(cameras.size()).arg(camerasWithPosition)
         .arg(floorCounts[0]).arg(floorCounts[1]).arg(floorCounts[2]));
     sy += 16;
@@ -1700,10 +1715,10 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
         defectLine = QString("Defects: %1 mark(s) from %2")
             .arg(defects.size()).arg(label);
     } else {
-        defectLine = QString("Defects: %1 mark(s) from %2 marked event(s)")
+        defectLine = QString("Defects: %1 mark(s) from %2 event(s)")
             .arg(defects.size()).arg(owner_->eventGroups_.size());
         if (owner_->skippedNoSpeedEvents_ > 0) {
-            defectLine += QString(" · %1 event(s) skipped (no machine speed captured)")
+            defectLine += QString(" · %1 skipped (no speed captured)")
                 .arg(owner_->skippedNoSpeedEvents_);
         }
     }
@@ -1717,12 +1732,11 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
             .arg(singleEvent || owner_->eventGroups_.size() == 1 ? QString() : QStringLiteral("s")));
     sy += 16;
     painter.drawText(leftMargin, sy,
-        "Rounded = DRIVE SIDE · triangle = OPERATOR SIDE · diamond = defect · sensor pin = trigger. "
-        "Each marker is colored per event; hover a camera, defect or trigger for details.");
+        "Hover any marker for details · click a marker to zoom to 1 mm.");
     if (owner_->refEnabled_) {
         sy += 16;
         painter.drawText(leftMargin, sy,
-            QString("%1 overlay: %2 reference camera%3 · %4 speed input%5 · %6 web break%7 · %8 trigger record%9 "
+            QString("%1 overlay: %2 camera%3 · %4 speed input%5 · %6 web break%7 · %8 trigger record%9 "
                      "(read-only, not wired to the system)")
                 .arg(owner_->refSet_.name)
                 .arg(owner_->refSet_.cameras.size())
