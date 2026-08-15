@@ -36,6 +36,21 @@ std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
     return tags;
 }
 
+std::vector<OpcUaSpeedTagSettings> defaultOpcUaSpeedTags() {
+    std::vector<OpcUaSpeedTagSettings> tags(1);
+    tags[0].enabled = false;
+    tags[0].name = QStringLiteral("Machine Speed");
+    tags[0].nodeId = "";
+    tags[0].scale = 1.0;
+    tags[0].offset = 0.0;
+    tags[0].unit = QStringLiteral("m/min");
+    tags[0].staleTimeoutMs = 2000;
+    tags[0].simulated = false;
+    tags[0].simulatedValue = 0.0;
+    tags[0].positionMm = 0;
+    return tags;
+}
+
 OpcUaSettings defaultOpcUaSettings() {
     OpcUaSettings settings;
     settings.enabled = false;
@@ -45,15 +60,7 @@ OpcUaSettings defaultOpcUaSettings() {
     settings.reconnectIntervalMs = 3000;
     settings.positionDirectionSign = 1;
     settings.triggerTags = defaultOpcUaTriggerTags();
-    settings.speedTag.enabled = false;
-    settings.speedTag.name = QStringLiteral("Machine Speed");
-    settings.speedTag.nodeId = "";
-    settings.speedTag.scale = 1.0;
-    settings.speedTag.offset = 0.0;
-    settings.speedTag.unit = QStringLiteral("m/min");
-    settings.speedTag.staleTimeoutMs = 2000;
-    settings.speedTag.simulated = false;
-    settings.speedTag.simulatedValue = 0.0;
+    settings.speedTags = defaultOpcUaSpeedTags();
     return settings;
 }
 
@@ -327,17 +334,54 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
         result.triggerTags = defaults.triggerTags;
     }
 
-    result.speedTag.enabled = settings.value("OpcUa/SpeedTag/Enabled", defaults.speedTag.enabled).toBool();
-    result.speedTag.name = settings.value("OpcUa/SpeedTag/Name", defaults.speedTag.name).toString();
-    result.speedTag.nodeId = settings.value("OpcUa/SpeedTag/NodeId", defaults.speedTag.nodeId).toString().trimmed();
-    result.speedTag.scale = settings.value("OpcUa/SpeedTag/Scale", defaults.speedTag.scale).toDouble();
-    result.speedTag.offset = settings.value("OpcUa/SpeedTag/Offset", defaults.speedTag.offset).toDouble();
-    result.speedTag.unit = settings.value("OpcUa/SpeedTag/Unit", defaults.speedTag.unit).toString().trimmed();
-    result.speedTag.staleTimeoutMs = settings.value("OpcUa/SpeedTag/StaleTimeoutMs", defaults.speedTag.staleTimeoutMs).toInt();
-    result.speedTag.simulated = settings.value("OpcUa/SpeedTag/Simulated", defaults.speedTag.simulated).toBool();
-    result.speedTag.simulatedValue = settings.value("OpcUa/SpeedTag/SimulatedValue", defaults.speedTag.simulatedValue).toDouble();
-    if (result.speedTag.unit.isEmpty()) {
-        result.speedTag.unit = defaults.speedTag.unit;
+    // Machine speed anchors: read the speed-tags array. When absent (legacy
+    // config), migrate the single OpcUa/SpeedTag/* keys into a one-element list
+    // so previously saved setups keep working unchanged.
+    const int speedCount = settings.beginReadArray("OpcUa/SpeedTags");
+    result.speedTags.clear();
+    result.speedTags.reserve(qMax(1, speedCount));
+    for (int i = 0; i < speedCount; ++i) {
+        settings.setArrayIndex(i);
+        OpcUaSpeedTagSettings tag = (i < static_cast<int>(defaults.speedTags.size()))
+            ? defaults.speedTags[static_cast<size_t>(i)]
+            : OpcUaSpeedTagSettings{};
+        tag.enabled = settings.value("enabled", tag.enabled).toBool();
+        tag.name = settings.value("name", tag.name).toString();
+        tag.nodeId = settings.value("nodeId", tag.nodeId).toString().trimmed();
+        tag.scale = settings.value("scale", tag.scale).toDouble();
+        tag.offset = settings.value("offset", tag.offset).toDouble();
+        tag.unit = settings.value("unit", tag.unit).toString().trimmed();
+        tag.staleTimeoutMs = settings.value("staleTimeoutMs", tag.staleTimeoutMs).toInt();
+        tag.simulated = settings.value("simulated", tag.simulated).toBool();
+        tag.simulatedValue = settings.value("simulatedValue", tag.simulatedValue).toDouble();
+        tag.positionMm = settings.value("positionMm", tag.positionMm).toInt();
+        result.speedTags.push_back(tag);
+    }
+    settings.endArray();
+
+    if (result.speedTags.empty()) {
+        // Legacy single-tag migration.
+        OpcUaSpeedTagSettings tag = defaults.speedTags.empty()
+            ? OpcUaSpeedTagSettings{}
+            : defaults.speedTags[0];
+        tag.enabled = settings.value("OpcUa/SpeedTag/Enabled", tag.enabled).toBool();
+        tag.name = settings.value("OpcUa/SpeedTag/Name", tag.name).toString();
+        tag.nodeId = settings.value("OpcUa/SpeedTag/NodeId", tag.nodeId).toString().trimmed();
+        tag.scale = settings.value("OpcUa/SpeedTag/Scale", tag.scale).toDouble();
+        tag.offset = settings.value("OpcUa/SpeedTag/Offset", tag.offset).toDouble();
+        tag.unit = settings.value("OpcUa/SpeedTag/Unit", tag.unit).toString().trimmed();
+        tag.staleTimeoutMs = settings.value("OpcUa/SpeedTag/StaleTimeoutMs", tag.staleTimeoutMs).toInt();
+        tag.simulated = settings.value("OpcUa/SpeedTag/Simulated", tag.simulated).toBool();
+        tag.simulatedValue = settings.value("OpcUa/SpeedTag/SimulatedValue", tag.simulatedValue).toDouble();
+        result.speedTags.push_back(tag);
+    }
+    for (OpcUaSpeedTagSettings& tag : result.speedTags) {
+        if (tag.name.isEmpty()) {
+            tag.name = QStringLiteral("Machine Speed");
+        }
+        if (tag.unit.isEmpty()) {
+            tag.unit = QStringLiteral("m/min");
+        }
     }
 
     return result;
@@ -369,17 +413,41 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
     }
     settings.endArray();
 
-    settings.setValue("OpcUa/SpeedTag/Enabled", opcUaSettings.speedTag.enabled);
-    settings.setValue("OpcUa/SpeedTag/Name", opcUaSettings.speedTag.name);
-    settings.setValue("OpcUa/SpeedTag/NodeId", opcUaSettings.speedTag.nodeId.trimmed());
-    settings.setValue("OpcUa/SpeedTag/Scale", opcUaSettings.speedTag.scale);
-    settings.setValue("OpcUa/SpeedTag/Offset", opcUaSettings.speedTag.offset);
-    settings.setValue("OpcUa/SpeedTag/Unit", opcUaSettings.speedTag.unit.trimmed().isEmpty()
-        ? defaults.speedTag.unit
-        : opcUaSettings.speedTag.unit.trimmed());
-    settings.setValue("OpcUa/SpeedTag/StaleTimeoutMs", opcUaSettings.speedTag.staleTimeoutMs);
-    settings.setValue("OpcUa/SpeedTag/Simulated", opcUaSettings.speedTag.simulated);
-    settings.setValue("OpcUa/SpeedTag/SimulatedValue", opcUaSettings.speedTag.simulatedValue);
+    settings.beginWriteArray("OpcUa/SpeedTags", static_cast<int>(opcUaSettings.speedTags.size()));
+    for (int i = 0; i < static_cast<int>(opcUaSettings.speedTags.size()); ++i) {
+        settings.setArrayIndex(i);
+        const OpcUaSpeedTagSettings& tag = opcUaSettings.speedTags[static_cast<size_t>(i)];
+        settings.setValue("enabled", tag.enabled);
+        settings.setValue("name", tag.name);
+        settings.setValue("nodeId", tag.nodeId.trimmed());
+        settings.setValue("scale", tag.scale);
+        settings.setValue("offset", tag.offset);
+        settings.setValue("unit", tag.unit.trimmed().isEmpty()
+            ? defaults.speedTags.empty() ? QStringLiteral("m/min") : defaults.speedTags[0].unit
+            : tag.unit.trimmed());
+        settings.setValue("staleTimeoutMs", tag.staleTimeoutMs);
+        settings.setValue("simulated", tag.simulated);
+        settings.setValue("simulatedValue", tag.simulatedValue);
+        settings.setValue("positionMm", tag.positionMm);
+    }
+    settings.endArray();
+
+    // Keep the legacy single-tag keys in sync with the first anchor so an older
+    // build reading this config still sees a usable speed tag.
+    const OpcUaSpeedTagSettings primary = opcUaSettings.speedTags.empty()
+        ? OpcUaSpeedTagSettings{}
+        : opcUaSettings.speedTags[0];
+    settings.setValue("OpcUa/SpeedTag/Enabled", primary.enabled);
+    settings.setValue("OpcUa/SpeedTag/Name", primary.name);
+    settings.setValue("OpcUa/SpeedTag/NodeId", primary.nodeId.trimmed());
+    settings.setValue("OpcUa/SpeedTag/Scale", primary.scale);
+    settings.setValue("OpcUa/SpeedTag/Offset", primary.offset);
+    settings.setValue("OpcUa/SpeedTag/Unit", primary.unit.trimmed().isEmpty()
+        ? QStringLiteral("m/min")
+        : primary.unit.trimmed());
+    settings.setValue("OpcUa/SpeedTag/StaleTimeoutMs", primary.staleTimeoutMs);
+    settings.setValue("OpcUa/SpeedTag/Simulated", primary.simulated);
+    settings.setValue("OpcUa/SpeedTag/SimulatedValue", primary.simulatedValue);
 }
 
 std::vector<CameraInfo> CameraConfig::getCameras() {
@@ -424,6 +492,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.enabledChunks = settings.value("enabledChunks").toStringList();
         cam.temperature = 0.0; // Runtime value
         cam.group = settings.value("group", cam.group).toInt();
+        cam.floor = settings.value("floor", cam.floor).toInt();
         cameras.push_back(cam);
     }
     settings.endArray();
@@ -460,6 +529,7 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("chunkModeActive", cam.chunkModeActive);
         settings.setValue("enabledChunks", cam.enabledChunks);
         settings.setValue("group", cam.group);
+        settings.setValue("floor", cam.floor);
     }
     settings.endArray();
 }

@@ -8,6 +8,7 @@
 #include "widgets/IpConfiguratorPanel.h"
 #include "widgets/FixedIpListPanel.h"
 #include "widgets/MachineGroupsPanel.h"
+#include "widgets/MachineLayoutPanel.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -218,6 +219,7 @@ namespace {
             && lhs.location == rhs.location
             && lhs.side == rhs.side
             && lhs.machinePosition == rhs.machinePosition
+            && lhs.floor == rhs.floor
             && normalizeIp(lhs.ipAddress) == normalizeIp(rhs.ipAddress)
             && normalizeMac(lhs.macAddress) == normalizeMac(rhs.macAddress)
             && normalizeIp(lhs.subnetMask) == normalizeIp(rhs.subnetMask)
@@ -544,19 +546,19 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
         return;
     }
 
-    const bool speedEnabled = opcUaSpeedEnabledCheck_ && opcUaSpeedEnabledCheck_->isChecked();
-    const bool speedSimulated = opcUaSpeedSimulatedCombo_
-        && opcUaSpeedSimulatedCombo_->currentData().toBool();
+    // Live Status reflects the primary (first) speed anchor row.
+    const OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[0];
+    const bool speedEnabled = row.enabledCheck && row.enabledCheck->isChecked();
+    const bool speedSimulated = row.simulatedCombo && row.simulatedCombo->currentData().toBool();
 
     if (speedEnabled && speedSimulated) {
         // Live from the dialog's simulated-speed config (works even before the
         // settings are saved or the service is running). Matches the service's
         // (raw * scale) + offset formula.
-        const double rawValue = opcUaSpeedSimulatedValueSpin_
-            ? opcUaSpeedSimulatedValueSpin_->value() : 0.0;
-        const double scale = opcUaSpeedScaleSpin_ ? opcUaSpeedScaleSpin_->value() : 1.0;
-        const double offset = opcUaSpeedOffsetSpin_ ? opcUaSpeedOffsetSpin_->value() : 0.0;
-        QString unit = opcUaSpeedUnitEdit_ ? opcUaSpeedUnitEdit_->text().trimmed() : QString();
+        const double rawValue = row.simulatedValueSpin ? row.simulatedValueSpin->value() : 0.0;
+        const double scale = row.scaleSpin ? row.scaleSpin->value() : 1.0;
+        const double offset = row.offsetSpin ? row.offsetSpin->value() : 0.0;
+        QString unit = row.unitEdit ? row.unitEdit->text().trimmed() : QString();
         if (unit.isEmpty()) {
             unit = QStringLiteral("m/min");
         }
@@ -900,6 +902,19 @@ void ConfigDialog::setupUI() {
     QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
     sidebar->addItem(camSetupItem);
     stackedWidget->addWidget(camSetupGroup);
+
+    // Machine Layout Tab — visual map of the machine: every camera on a
+    // distance line (mm) at its Camera Card position, plus all marked & aligned
+    // defects projected onto the same scale from the event database.
+    QWidget* machineLayoutGroup = new QWidget(this);
+    QVBoxLayout* machineLayoutPageLayout = new QVBoxLayout(machineLayoutGroup);
+    machineLayoutPageLayout->setSpacing(kSectionSpacing);
+    machineLayoutPageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    machineLayoutPanel_ = new MachineLayoutPanel(machineLayoutGroup);
+    machineLayoutPageLayout->addWidget(machineLayoutPanel_, 1);
+    QListWidgetItem* machineLayoutItem = new QListWidgetItem(IconManager::instance().settings(20), "Machine Layout");
+    sidebar->addItem(machineLayoutItem);
+    stackedWidget->addWidget(machineLayoutGroup);
 
     // Recording & Triggers Tab
     QWidget* bufferGroup = new QWidget(this);
@@ -1325,6 +1340,7 @@ void ConfigDialog::setupUI() {
         row.groupCombo = new QComboBox(opcUaTriggerGroup);
         row.groupCombo->setStyleSheet(opcUaGridComboStyle);
         row.groupCombo->addItem("All", CameraGroup::kUnassigned);
+        row.groupCombo->addItem(CameraGroup::name(CameraGroup::kWire), CameraGroup::kWire);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
@@ -1382,104 +1398,146 @@ void ConfigDialog::setupUI() {
     opcUaSpeedTabLayout->setContentsMargins(10, 10, 10, 10);
     opcUaSpeedTabLayout->setSpacing(10);
 
-    QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tag", opcUaSpeedTab);
+    QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tags", opcUaSpeedTab);
     opcUaSpeedGroup->setStyleSheet(sectionStyle);
-    QFormLayout* opcUaSpeedForm = createOpcUaForm(opcUaSpeedGroup);
+    QVBoxLayout* opcUaSpeedGroupLayout = new QVBoxLayout(opcUaSpeedGroup);
+    opcUaSpeedGroupLayout->setContentsMargins(14, 18, 14, 14);
+    opcUaSpeedGroupLayout->setSpacing(8);
 
-    opcUaSpeedEnabledCheck_ = new QCheckBox("Use machine speed tag", opcUaSpeedGroup);
-    opcUaSpeedEnabledCheck_->setStyleSheet(QString("color: %1;").arg(tc.text));
-    opcUaSpeedForm->addRow("Speed Source:", opcUaSpeedEnabledCheck_);
+    QLabel* opcUaSpeedNote = new QLabel(
+        "Each row subscribes to one drive's speed tag (m/min) at its machine position (mm). "
+        "The app interpolates the paper's local speed between anchors, so the draw between "
+        "drive groups is reflected when defects are projected onto the machine layout. "
+        "A single anchor behaves like the legacy one-speed setup.",
+        opcUaSpeedGroup);
+    opcUaSpeedNote->setWordWrap(true);
+    opcUaSpeedNote->setStyleSheet(QString("color: %1;").arg(tc.text));
+    opcUaSpeedGroupLayout->addWidget(opcUaSpeedNote);
 
-    opcUaSpeedSimulatedCombo_ = new QComboBox(opcUaSpeedGroup);
-    opcUaSpeedSimulatedCombo_->setStyleSheet(opcUaComboStyle);
-    opcUaSpeedSimulatedCombo_->addItem("Live (OPC UA server)", false);
-    opcUaSpeedSimulatedCombo_->addItem("Simulated (fixed value)", true);
-    opcUaSpeedSimulatedCombo_->setToolTip("Simulated: reports a fixed value without subscribing to the OPC UA server.");
-    opcUaSpeedForm->addRow("Simulated:", opcUaSpeedSimulatedCombo_);
+    const int sc = 0;
+    QGridLayout* opcUaSpeedGrid = new QGridLayout();
+    opcUaSpeedGrid->setHorizontalSpacing(8);
+    opcUaSpeedGrid->setVerticalSpacing(6);
+    opcUaSpeedGrid->addWidget(new QLabel("On", opcUaSpeedGroup), 0, sc);
+    opcUaSpeedGrid->addWidget(new QLabel("Name", opcUaSpeedGroup), 0, sc + 1);
+    opcUaSpeedGrid->addWidget(new QLabel("NodeId", opcUaSpeedGroup), 0, sc + 2);
+    QLabel* opcUaSpeedSimHeader = new QLabel("Sim", opcUaSpeedGroup);
+    opcUaSpeedSimHeader->setToolTip("Simulated: reports a fixed value without subscribing to the OPC UA server.");
+    opcUaSpeedGrid->addWidget(opcUaSpeedSimHeader, 0, sc + 3);
+    QLabel* opcUaSpeedSimValueHeader = new QLabel("Sim Value", opcUaSpeedGroup);
+    opcUaSpeedSimValueHeader->setToolTip("Fixed raw value reported while simulated (before Scale/Offset are applied).");
+    opcUaSpeedGrid->addWidget(opcUaSpeedSimValueHeader, 0, sc + 4);
+    QLabel* opcUaSpeedPosHeader = new QLabel("Pos (mm)", opcUaSpeedGroup);
+    opcUaSpeedPosHeader->setToolTip("Machine position (mm) of the drive this tag reports. The local speed at any camera is interpolated between the anchors.");
+    opcUaSpeedGrid->addWidget(opcUaSpeedPosHeader, 0, sc + 5);
+    opcUaSpeedGrid->addWidget(new QLabel("Scale", opcUaSpeedGroup), 0, sc + 6);
+    opcUaSpeedGrid->addWidget(new QLabel("Offset", opcUaSpeedGroup), 0, sc + 7);
+    opcUaSpeedGrid->addWidget(new QLabel("Unit", opcUaSpeedGroup), 0, sc + 8);
+    QLabel* opcUaSpeedStaleHeader = new QLabel("Stale (ms)", opcUaSpeedGroup);
+    opcUaSpeedStaleHeader->setToolTip("Speed samples older than this timeout are ignored for spatial alignment.");
+    opcUaSpeedGrid->addWidget(opcUaSpeedStaleHeader, 0, sc + 9);
 
-    opcUaSpeedSimulatedValueSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
-    opcUaSpeedSimulatedValueSpin_->setDecimals(4);
-    opcUaSpeedSimulatedValueSpin_->setRange(-100000.0, 100000.0);
-    opcUaSpeedSimulatedValueSpin_->setSingleStep(1.0);
-    opcUaSpeedSimulatedValueSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    opcUaSpeedSimulatedValueSpin_->setEnabled(false);
-    opcUaSpeedSimulatedValueSpin_->setToolTip("Fixed raw value reported while simulated (before Scale/Offset are applied).");
-    opcUaSpeedForm->addRow("Simulated Value:", opcUaSpeedSimulatedValueSpin_);
+    for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
+        OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
+        row.enabledCheck = new QCheckBox(opcUaSpeedGroup);
+        row.enabledCheck->setStyleSheet(QString("color: %1;").arg(tc.text));
+        opcUaSpeedGrid->addWidget(row.enabledCheck, i + 1, sc, Qt::AlignCenter);
 
-    connect(opcUaSpeedSimulatedCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
-        if (opcUaSpeedSimulatedValueSpin_) {
-            opcUaSpeedSimulatedValueSpin_->setEnabled(opcUaSpeedSimulatedCombo_
-                && opcUaSpeedSimulatedCombo_->currentData().toBool());
-        }
-    });
+        row.nameEdit = new QLineEdit(opcUaSpeedGroup);
+        row.nameEdit->setPlaceholderText(QString("Speed %1").arg(i + 1));
+        row.nameEdit->setStyleSheet(opcUaLineEditStyle);
+        opcUaSpeedGrid->addWidget(row.nameEdit, i + 1, sc + 1);
 
-    opcUaSpeedNameEdit_ = new QLineEdit(opcUaSpeedGroup);
-    opcUaSpeedNameEdit_->setPlaceholderText("Machine Speed");
-    opcUaSpeedNameEdit_->setStyleSheet(opcUaLineEditStyle);
-    opcUaSpeedForm->addRow("Display Name:", opcUaSpeedNameEdit_);
+        row.nodeIdEdit = new QLineEdit(opcUaSpeedGroup);
+        row.nodeIdEdit->setPlaceholderText("ns=2;s=Line.Speed");
+        row.nodeIdEdit->setStyleSheet(opcUaLineEditStyle);
+        opcUaSpeedGrid->addWidget(row.nodeIdEdit, i + 1, sc + 2);
 
-    opcUaSpeedNodeIdEdit_ = new QLineEdit(opcUaSpeedGroup);
-    opcUaSpeedNodeIdEdit_->setPlaceholderText("ns=2;s=Line.Speed");
-    opcUaSpeedNodeIdEdit_->setStyleSheet(opcUaLineEditStyle);
-    opcUaSpeedForm->addRow("NodeId:", opcUaSpeedNodeIdEdit_);
+        row.simulatedCombo = new QComboBox(opcUaSpeedGroup);
+        row.simulatedCombo->setStyleSheet(opcUaGridComboStyle);
+        row.simulatedCombo->addItem("Live", false);
+        row.simulatedCombo->addItem("Sim", true);
+        row.simulatedCombo->setToolTip("Simulated: reports a fixed value without subscribing to the OPC UA server.");
+        opcUaSpeedGrid->addWidget(row.simulatedCombo, i + 1, sc + 3);
 
-    opcUaSpeedScaleSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
-    opcUaSpeedScaleSpin_->setDecimals(4);
-    opcUaSpeedScaleSpin_->setRange(-100000.0, 100000.0);
-    opcUaSpeedScaleSpin_->setSingleStep(0.1);
-    opcUaSpeedScaleSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    opcUaSpeedForm->addRow("Scale:", opcUaSpeedScaleSpin_);
+        row.simulatedValueSpin = new QDoubleSpinBox(opcUaSpeedGroup);
+        row.simulatedValueSpin->setDecimals(4);
+        row.simulatedValueSpin->setRange(-100000.0, 100000.0);
+        row.simulatedValueSpin->setSingleStep(1.0);
+        row.simulatedValueSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        row.simulatedValueSpin->setEnabled(false);
+        row.simulatedValueSpin->setToolTip("Fixed raw value reported while simulated (before Scale/Offset are applied).");
+        opcUaSpeedGrid->addWidget(row.simulatedValueSpin, i + 1, sc + 4);
 
-    opcUaSpeedOffsetSpin_ = new QDoubleSpinBox(opcUaSpeedGroup);
-    opcUaSpeedOffsetSpin_->setDecimals(4);
-    opcUaSpeedOffsetSpin_->setRange(-100000.0, 100000.0);
-    opcUaSpeedOffsetSpin_->setSingleStep(0.1);
-    opcUaSpeedOffsetSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    opcUaSpeedForm->addRow("Offset:", opcUaSpeedOffsetSpin_);
+        row.positionMmSpin = new QSpinBox(opcUaSpeedGroup);
+        row.positionMmSpin->setRange(0, 500000);
+        row.positionMmSpin->setSuffix(" mm");
+        row.positionMmSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        row.positionMmSpin->setToolTip("Machine position (mm) of the drive this tag reports. 0 = position unknown (treated as a global speed).");
+        opcUaSpeedGrid->addWidget(row.positionMmSpin, i + 1, sc + 5);
 
-    opcUaSpeedUnitEdit_ = new QLineEdit(opcUaSpeedGroup);
-    opcUaSpeedUnitEdit_->setPlaceholderText("m/min");
-    opcUaSpeedUnitEdit_->setStyleSheet(opcUaLineEditStyle);
-    opcUaSpeedForm->addRow("Unit:", opcUaSpeedUnitEdit_);
+        row.scaleSpin = new QDoubleSpinBox(opcUaSpeedGroup);
+        row.scaleSpin->setDecimals(4);
+        row.scaleSpin->setRange(-100000.0, 100000.0);
+        row.scaleSpin->setSingleStep(0.1);
+        row.scaleSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        opcUaSpeedGrid->addWidget(row.scaleSpin, i + 1, sc + 6);
 
-    opcUaSpeedStaleTimeoutSpin_ = new QSpinBox(opcUaSpeedGroup);
-    opcUaSpeedStaleTimeoutSpin_->setRange(100, 60000);
-    opcUaSpeedStaleTimeoutSpin_->setSuffix(" ms");
-    opcUaSpeedStaleTimeoutSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
-    opcUaSpeedForm->addRow("Stale Timeout:", opcUaSpeedStaleTimeoutSpin_);
+        row.offsetSpin = new QDoubleSpinBox(opcUaSpeedGroup);
+        row.offsetSpin->setDecimals(4);
+        row.offsetSpin->setRange(-100000.0, 100000.0);
+        row.offsetSpin->setSingleStep(0.1);
+        row.offsetSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        opcUaSpeedGrid->addWidget(row.offsetSpin, i + 1, sc + 7);
 
-    opcUaPositionDirectionCombo_ = new QComboBox(opcUaSpeedGroup);
+        row.unitEdit = new QLineEdit(opcUaSpeedGroup);
+        row.unitEdit->setPlaceholderText("m/min");
+        row.unitEdit->setStyleSheet(opcUaLineEditStyle);
+        opcUaSpeedGrid->addWidget(row.unitEdit, i + 1, sc + 8);
+
+        row.staleTimeoutSpin = new QSpinBox(opcUaSpeedGroup);
+        row.staleTimeoutSpin->setRange(100, 60000);
+        row.staleTimeoutSpin->setSuffix(" ms");
+        row.staleTimeoutSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        opcUaSpeedGrid->addWidget(row.staleTimeoutSpin, i + 1, sc + 9);
+
+        connect(row.simulatedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i]() {
+            OpcUaSpeedRowWidgets& r = opcUaSpeedRows_[static_cast<size_t>(i)];
+            if (r.simulatedValueSpin) {
+                r.simulatedValueSpin->setEnabled(r.simulatedCombo
+                    && r.simulatedCombo->currentData().toBool());
+            }
+        });
+        // Keep the Live Status speed row in sync with the dialog's own simulated
+        // speed config (works even before saving / without the service running).
+        connect(row.enabledCheck, &QCheckBox::toggled, this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.simulatedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.simulatedValueSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.scaleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.offsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.unitEdit, &QLineEdit::textChanged, this,
+                [this]() { refreshOpcUaSpeedDisplay(); });
+    }
+    opcUaSpeedGroupLayout->addLayout(opcUaSpeedGrid);
+
+    // Paper direction relative to the mm axis (which way the web travels past
+    // the cameras). Global for every speed anchor.
+    QWidget* opcUaSpeedDirRow = new QWidget(opcUaSpeedGroup);
+    QFormLayout* opcUaSpeedDirForm = new QFormLayout(opcUaSpeedDirRow);
+    opcUaSpeedDirForm->setContentsMargins(0, 8, 0, 0);
+    opcUaSpeedDirForm->setHorizontalSpacing(kSectionSpacing);
+    opcUaSpeedDirForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    opcUaPositionDirectionCombo_ = new QComboBox(opcUaSpeedDirRow);
     opcUaPositionDirectionCombo_->setStyleSheet(opcUaComboStyle);
     opcUaPositionDirectionCombo_->addItem("Increase position with time", 1);
     opcUaPositionDirectionCombo_->addItem("Decrease position with time", -1);
-    opcUaSpeedForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
-
-    // Keep the Live Status speed row in sync with the dialog's own simulated
-    // speed config (works even before saving / without the service running).
-    if (opcUaSpeedEnabledCheck_) {
-        connect(opcUaSpeedEnabledCheck_, &QCheckBox::toggled, this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
-    if (opcUaSpeedSimulatedCombo_) {
-        connect(opcUaSpeedSimulatedCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
-    if (opcUaSpeedSimulatedValueSpin_) {
-        connect(opcUaSpeedSimulatedValueSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
-    if (opcUaSpeedScaleSpin_) {
-        connect(opcUaSpeedScaleSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
-    if (opcUaSpeedOffsetSpin_) {
-        connect(opcUaSpeedOffsetSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
-    if (opcUaSpeedUnitEdit_) {
-        connect(opcUaSpeedUnitEdit_, &QLineEdit::textChanged, this,
-                [this]() { refreshOpcUaSpeedDisplay(); });
-    }
+    opcUaSpeedDirForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
+    opcUaSpeedGroupLayout->addWidget(opcUaSpeedDirRow);
 
     opcUaSpeedTabLayout->addWidget(opcUaSpeedGroup);
     opcUaSpeedTabLayout->addStretch(1);
@@ -2542,36 +2600,47 @@ void ConfigDialog::loadSettings() {
         }
     }
 
-    if (opcUaSpeedEnabledCheck_) {
-        opcUaSpeedEnabledCheck_->setChecked(opcUaSettings.speedTag.enabled);
-    }
-    if (opcUaSpeedNameEdit_) {
-        opcUaSpeedNameEdit_->setText(opcUaSettings.speedTag.name);
-    }
-    if (opcUaSpeedNodeIdEdit_) {
-        opcUaSpeedNodeIdEdit_->setText(opcUaSettings.speedTag.nodeId);
-    }
-    if (opcUaSpeedScaleSpin_) {
-        opcUaSpeedScaleSpin_->setValue(opcUaSettings.speedTag.scale);
-    }
-    if (opcUaSpeedOffsetSpin_) {
-        opcUaSpeedOffsetSpin_->setValue(opcUaSettings.speedTag.offset);
-    }
-    if (opcUaSpeedUnitEdit_) {
-        opcUaSpeedUnitEdit_->setText(opcUaSettings.speedTag.unit);
-    }
-    if (opcUaSpeedStaleTimeoutSpin_) {
-        opcUaSpeedStaleTimeoutSpin_->setValue(opcUaSettings.speedTag.staleTimeoutMs);
-    }
-    if (opcUaSpeedSimulatedCombo_) {
-        const int simulatedIndex = opcUaSpeedSimulatedCombo_->findData(opcUaSettings.speedTag.simulated);
-        if (simulatedIndex != -1) {
-            opcUaSpeedSimulatedCombo_->setCurrentIndex(simulatedIndex);
+    for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
+        const OpcUaSpeedTagSettings tag = (i < static_cast<int>(opcUaSettings.speedTags.size()))
+            ? opcUaSettings.speedTags[static_cast<size_t>(i)]
+            : (i < static_cast<int>(defaultOpcUaSettings.speedTags.size())
+                ? defaultOpcUaSettings.speedTags[static_cast<size_t>(i)]
+                : OpcUaSpeedTagSettings{});
+        OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
+        if (row.enabledCheck) {
+            row.enabledCheck->setChecked(tag.enabled);
         }
-    }
-    if (opcUaSpeedSimulatedValueSpin_) {
-        opcUaSpeedSimulatedValueSpin_->setValue(opcUaSettings.speedTag.simulatedValue);
-        opcUaSpeedSimulatedValueSpin_->setEnabled(opcUaSettings.speedTag.simulated);
+        if (row.nameEdit) {
+            row.nameEdit->setText(tag.name);
+        }
+        if (row.nodeIdEdit) {
+            row.nodeIdEdit->setText(tag.nodeId);
+        }
+        if (row.scaleSpin) {
+            row.scaleSpin->setValue(tag.scale);
+        }
+        if (row.offsetSpin) {
+            row.offsetSpin->setValue(tag.offset);
+        }
+        if (row.unitEdit) {
+            row.unitEdit->setText(tag.unit);
+        }
+        if (row.staleTimeoutSpin) {
+            row.staleTimeoutSpin->setValue(tag.staleTimeoutMs);
+        }
+        if (row.positionMmSpin) {
+            row.positionMmSpin->setValue(tag.positionMm);
+        }
+        if (row.simulatedCombo) {
+            const int simulatedIndex = row.simulatedCombo->findData(tag.simulated);
+            if (simulatedIndex != -1) {
+                row.simulatedCombo->setCurrentIndex(simulatedIndex);
+            }
+        }
+        if (row.simulatedValueSpin) {
+            row.simulatedValueSpin->setValue(tag.simulatedValue);
+            row.simulatedValueSpin->setEnabled(tag.simulated);
+        }
     }
     if (opcUaPositionDirectionCombo_) {
         const int directionIndex = opcUaPositionDirectionCombo_->findData(opcUaSettings.positionDirectionSign >= 0 ? 1 : -1);
@@ -2920,9 +2989,10 @@ void ConfigDialog::refreshFixedIpList() {
     }
     fixedIpListPanel_->setCameras(cameras, detectedIps);
 
-    // Keep the Machine Groups registry in sync too (it shows each camera's
-    // assigned group from its card).
+    // Keep the Machine Groups registry and the Machine Layout visual in sync
+    // too (they mirror each camera's assigned group / position from its card).
     refreshMachineGroups();
+    refreshMachineLayout();
 }
 
 void ConfigDialog::refreshMachineGroups() {
@@ -2936,6 +3006,19 @@ void ConfigDialog::refreshMachineGroups() {
         cameras.push_back(card->cameraInfo());
     }
     machineGroupsPanel_->setCameras(cameras);
+}
+
+void ConfigDialog::refreshMachineLayout() {
+    if (!machineLayoutPanel_) {
+        return;
+    }
+
+    std::vector<CameraInfo> cameras;
+    cameras.reserve(cameraCards_.size());
+    for (auto* card : cameraCards_) {
+        cameras.push_back(card->cameraInfo());
+    }
+    machineLayoutPanel_->setCameras(cameras);
 }
 
 void ConfigDialog::onCameraCardSourceChanged(int) {
@@ -3209,20 +3292,28 @@ void ConfigDialog::saveOpcUaSettings() {
         settings.triggerTags.push_back(tag);
     }
 
-    settings.speedTag.enabled = opcUaSpeedEnabledCheck_ && opcUaSpeedEnabledCheck_->isChecked();
-    settings.speedTag.name = opcUaSpeedNameEdit_ ? opcUaSpeedNameEdit_->text().trimmed() : QString();
-    settings.speedTag.nodeId = opcUaSpeedNodeIdEdit_ ? opcUaSpeedNodeIdEdit_->text().trimmed() : QString();
-    settings.speedTag.scale = opcUaSpeedScaleSpin_ ? opcUaSpeedScaleSpin_->value() : 1.0;
-    settings.speedTag.offset = opcUaSpeedOffsetSpin_ ? opcUaSpeedOffsetSpin_->value() : 0.0;
-    settings.speedTag.unit = opcUaSpeedUnitEdit_ ? opcUaSpeedUnitEdit_->text().trimmed() : QStringLiteral("m/min");
-    settings.speedTag.staleTimeoutMs = opcUaSpeedStaleTimeoutSpin_ ? opcUaSpeedStaleTimeoutSpin_->value() : 2000;
-    settings.speedTag.simulated = opcUaSpeedSimulatedCombo_ && opcUaSpeedSimulatedCombo_->currentData().toBool();
-    settings.speedTag.simulatedValue = opcUaSpeedSimulatedValueSpin_ ? opcUaSpeedSimulatedValueSpin_->value() : 0.0;
-    if (settings.speedTag.name.isEmpty()) {
-        settings.speedTag.name = QStringLiteral("Machine Speed");
-    }
-    if (settings.speedTag.unit.isEmpty()) {
-        settings.speedTag.unit = QStringLiteral("m/min");
+    settings.speedTags.clear();
+    settings.speedTags.reserve(kOpcUaSpeedSlots);
+    for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
+        const OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
+        OpcUaSpeedTagSettings tag;
+        tag.enabled = row.enabledCheck && row.enabledCheck->isChecked();
+        tag.name = row.nameEdit ? row.nameEdit->text().trimmed() : QString();
+        tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
+        tag.scale = row.scaleSpin ? row.scaleSpin->value() : 1.0;
+        tag.offset = row.offsetSpin ? row.offsetSpin->value() : 0.0;
+        tag.unit = row.unitEdit ? row.unitEdit->text().trimmed() : QStringLiteral("m/min");
+        tag.staleTimeoutMs = row.staleTimeoutSpin ? row.staleTimeoutSpin->value() : 2000;
+        tag.simulated = row.simulatedCombo && row.simulatedCombo->currentData().toBool();
+        tag.simulatedValue = row.simulatedValueSpin ? row.simulatedValueSpin->value() : 0.0;
+        tag.positionMm = row.positionMmSpin ? row.positionMmSpin->value() : 0;
+        if (tag.name.isEmpty()) {
+            tag.name = QString("Speed %1").arg(i + 1);
+        }
+        if (tag.unit.isEmpty()) {
+            tag.unit = QStringLiteral("m/min");
+        }
+        settings.speedTags.push_back(tag);
     }
 
     bool hasRealTag = false;
@@ -3232,9 +3323,13 @@ void ConfigDialog::saveOpcUaSettings() {
             break;
         }
     }
-    if (!hasRealTag && settings.speedTag.enabled && !settings.speedTag.simulated
-            && !settings.speedTag.nodeId.isEmpty()) {
-        hasRealTag = true;
+    if (!hasRealTag) {
+        for (const auto& tag : settings.speedTags) {
+            if (tag.enabled && !tag.simulated && !tag.nodeId.isEmpty()) {
+                hasRealTag = true;
+                break;
+            }
+        }
     }
 
     if (settings.enabled) {
@@ -3244,13 +3339,22 @@ void ConfigDialog::saveOpcUaSettings() {
         if (hasRealTag && settings.useUsernamePassword && settings.username.isEmpty()) {
             validationErrors.append("Username is required when username/password authentication is selected.");
         }
-        if (!hasEnabledTrigger && !settings.speedTag.enabled) {
-            validationErrors.append("Enable at least one trigger tag or the machine speed tag before turning on the OPC UA client.");
+        bool anySpeedEnabled = false;
+        for (const auto& tag : settings.speedTags) {
+            if (tag.enabled) {
+                anySpeedEnabled = true;
+                break;
+            }
+        }
+        if (!hasEnabledTrigger && !anySpeedEnabled) {
+            validationErrors.append("Enable at least one trigger tag or a machine speed tag before turning on the OPC UA client.");
         }
     }
 
-    if (settings.speedTag.enabled && !settings.speedTag.simulated && settings.speedTag.nodeId.isEmpty()) {
-        validationErrors.append("Machine speed tag is enabled but has no NodeId.");
+    for (const auto& tag : settings.speedTags) {
+        if (tag.enabled && !tag.simulated && tag.nodeId.isEmpty()) {
+            validationErrors.append(QString("%1 is enabled but has no NodeId.").arg(tag.name));
+        }
     }
 
     if (!validationErrors.isEmpty()) {
@@ -3496,16 +3600,19 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
         if (row.manualTriggerBtn) row.manualTriggerBtn->setEnabled(isAdmin);
         if (row.minimumIntervalSpin) row.minimumIntervalSpin->setEnabled(isAdmin);
     }
-    if (opcUaSpeedEnabledCheck_) opcUaSpeedEnabledCheck_->setEnabled(isAdmin);
-    if (opcUaSpeedNameEdit_) opcUaSpeedNameEdit_->setEnabled(isAdmin);
-    if (opcUaSpeedNodeIdEdit_) opcUaSpeedNodeIdEdit_->setEnabled(isAdmin);
-    if (opcUaSpeedScaleSpin_) opcUaSpeedScaleSpin_->setEnabled(isAdmin);
-    if (opcUaSpeedOffsetSpin_) opcUaSpeedOffsetSpin_->setEnabled(isAdmin);
-    if (opcUaSpeedUnitEdit_) opcUaSpeedUnitEdit_->setEnabled(isAdmin);
-    if (opcUaSpeedStaleTimeoutSpin_) opcUaSpeedStaleTimeoutSpin_->setEnabled(isAdmin);
-    if (opcUaSpeedSimulatedCombo_) opcUaSpeedSimulatedCombo_->setEnabled(isAdmin);
-    if (opcUaSpeedSimulatedValueSpin_) opcUaSpeedSimulatedValueSpin_->setEnabled(isAdmin
-        && opcUaSpeedSimulatedCombo_ && opcUaSpeedSimulatedCombo_->currentData().toBool());
+    for (auto& row : opcUaSpeedRows_) {
+        if (row.enabledCheck) row.enabledCheck->setEnabled(isAdmin);
+        if (row.nameEdit) row.nameEdit->setEnabled(isAdmin);
+        if (row.nodeIdEdit) row.nodeIdEdit->setEnabled(isAdmin);
+        if (row.simulatedCombo) row.simulatedCombo->setEnabled(isAdmin);
+        if (row.simulatedValueSpin) row.simulatedValueSpin->setEnabled(isAdmin
+            && row.simulatedCombo && row.simulatedCombo->currentData().toBool());
+        if (row.positionMmSpin) row.positionMmSpin->setEnabled(isAdmin);
+        if (row.scaleSpin) row.scaleSpin->setEnabled(isAdmin);
+        if (row.offsetSpin) row.offsetSpin->setEnabled(isAdmin);
+        if (row.unitEdit) row.unitEdit->setEnabled(isAdmin);
+        if (row.staleTimeoutSpin) row.staleTimeoutSpin->setEnabled(isAdmin);
+    }
     if (opcUaPositionDirectionCombo_) opcUaPositionDirectionCombo_->setEnabled(isAdmin);
     if (opcUaSaveBtn_) opcUaSaveBtn_->setEnabled(isAdmin);
     eventStoragePathEdit_->setEnabled(isAdmin);

@@ -3,6 +3,7 @@
 #include "../config/CameraConfig.h"
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
+#include "../core/EventDatabase.h"
 #include <cstdlib>
 #include <QToolBar>
 #include <QStatusBar>
@@ -452,9 +453,13 @@ void MainWindow::applyOpcUaSettings() {
             break;
         }
     }
-    if (!hasEnabledNode && opcUaSettings.speedTag.enabled
-            && (!opcUaSettings.speedTag.nodeId.trimmed().isEmpty() || opcUaSettings.speedTag.simulated)) {
-        hasEnabledNode = true;
+    if (!hasEnabledNode) {
+        for (const auto& speedTag : opcUaSettings.speedTags) {
+            if (speedTag.enabled && (!speedTag.nodeId.trimmed().isEmpty() || speedTag.simulated)) {
+                hasEnabledNode = true;
+                break;
+            }
+        }
     }
 
     bool hasSimulatedTag = false;
@@ -464,8 +469,13 @@ void MainWindow::applyOpcUaSettings() {
             break;
         }
     }
-    if (!hasSimulatedTag && opcUaSettings.speedTag.enabled && opcUaSettings.speedTag.simulated) {
-        hasSimulatedTag = true;
+    if (!hasSimulatedTag) {
+        for (const auto& speedTag : opcUaSettings.speedTags) {
+            if (speedTag.enabled && speedTag.simulated) {
+                hasSimulatedTag = true;
+                break;
+            }
+        }
     }
 
     // Simulated tags fire without a server, so a default/empty endpoint is fine
@@ -810,6 +820,11 @@ void MainWindow::setupUi() {
     configAction_ = settingsMenu->addAction("System Configuration");
     connect(configAction_, &QAction::triggered, this, &MainWindow::openSystemConfiguration);
 
+    // Docs Menu — in-app documentation (how it works, workflows, frameworks, tutorial)
+    QMenu* docsMenu = menu->addMenu("Docs");
+    QAction* docsAction = docsMenu->addAction("Documentation");
+    connect(docsAction, &QAction::triggered, this, &MainWindow::showDocs);
+
     // Help Menu
     QMenu* helpMenu = menu->addMenu("Help");
     aboutAction_ = helpMenu->addAction("About");
@@ -866,6 +881,30 @@ void MainWindow::setupCore() {
     EventController::instance().setSpeedProvider([this](double* mPerMin) {
         return opcUaClientService_ && opcUaClientService_->currentSpeedMperMin(mPerMin);
     });
+    // Feed the full speed profile (position mm + actual local speed per drive)
+    // so every event snapshots all anchors at trigger time — the defect
+    // projector later interpolates the local speed anywhere along the machine.
+    EventController::instance().setSpeedAnchorsProvider([this](
+            std::vector<EventDatabase::SpeedAnchorSnapshot>* anchors) {
+        if (!opcUaClientService_ || !anchors) {
+            return false;
+        }
+        QVector<OpcUaClientService::SpeedSample> samples;
+        if (!opcUaClientService_->currentSpeedAnchors(&samples)) {
+            return false;
+        }
+        anchors->clear();
+        anchors->reserve(static_cast<size_t>(samples.size()));
+        for (const OpcUaClientService::SpeedSample& s : samples) {
+            EventDatabase::SpeedAnchorSnapshot anchor;
+            anchor.positionMm = s.positionMm;
+            anchor.speedValue = s.value;
+            anchor.tagName = s.tagName;
+            anchor.nodeId = s.nodeId;
+            anchors->push_back(anchor);
+        }
+        return !anchors->empty();
+    });
     imageBuffer_ = std::make_unique<ImageBuffer>(200, 1024, 1040);
     defectDetector_ = std::make_unique<DefectDetector>();
     videoEncoder_ = std::make_unique<VideoEncoder>();
@@ -902,6 +941,15 @@ void MainWindow::setupCore() {
             triggerContext.triggerPositionMm = event.positionMm;
             triggerContext.speedStale = event.speedStale;
             triggerContext.positionDirectionSign = event.positionDirectionSign;
+            triggerContext.speedAnchors.reserve(static_cast<size_t>(event.speedAnchors.size()));
+            for (const OpcUaClientService::SpeedSample& s : event.speedAnchors) {
+                EventDatabase::SpeedAnchorSnapshot anchor;
+                anchor.positionMm = s.positionMm;
+                anchor.speedValue = s.value;
+                anchor.tagName = s.tagName;
+                anchor.nodeId = s.nodeId;
+                triggerContext.speedAnchors.push_back(anchor);
+            }
             EventController::instance().triggerEvent(triggerContext);
             statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
         });
@@ -1402,6 +1450,15 @@ void MainWindow::showAbout() {
                        "Built with Qt 5, OpenCV 4, and Basler Pylon 6.");
 }
 
+void MainWindow::showDocs() {
+    if (!docsDialog_) {
+        docsDialog_ = new DocsDialog(this);
+    }
+    docsDialog_->show();
+    docsDialog_->raise();
+    docsDialog_->activateWindow();
+}
+
 void MainWindow::openSystemConfiguration() {
     if (!promptAdminLogin()) {
         statusBar()->showMessage("Administrator login required for System Configuration.", 3000);
@@ -1445,6 +1502,19 @@ void MainWindow::manualTrigger() {
     EventController::TriggerContext triggerContext;
     triggerContext.reason = QStringLiteral("Manual Trigger");
     triggerContext.source = QStringLiteral("manual");
+    // Capture the live/simulated Machine Speed (OPC UA speed tag) so the event
+    // persists speedValue and review-time Align can compute per-camera offsets.
+    // currentSpeedMperMin() already rejects stale samples.
+    if (opcUaClientService_) {
+        opcUaClientService_->refreshSimulatedSpeed();
+    }
+    double speedMperMin = 0.0;
+    if (opcUaClientService_ && opcUaClientService_->currentSpeedMperMin(&speedMperMin) && speedMperMin > 0.0) {
+        triggerContext.speedValue = speedMperMin;
+        triggerContext.hasSpeed = true;
+        const QString unit = opcUaClientService_->speedUnit();
+        triggerContext.speedUnit = unit.isEmpty() ? QStringLiteral("m/min") : unit;
+    }
     if (!EventController::instance().triggerEvent(triggerContext)) {
         statusBar()->showMessage("Trigger ignored: no active camera is streaming frames.", 4000);
     }
@@ -1515,11 +1585,25 @@ void MainWindow::applyGlobalTheme() {
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"
         "QMenu::item:selected { background-color: %4; color: %5; }"
         "QMenu::item:disabled { color: #888888; }"
+        // Tooltips — one standard, readable look app-wide (light background,
+        // dark text, thin border, normal weight) instead of inheriting the
+        // dark app theme.
+        "QToolTip { background-color: #FFF8E7; color: #111111; border: 1px solid #888888; "
+        "  padding: 3px 6px; font-size: 12px; font-weight: normal; }"
         // Buttons
         "QPushButton { background-color: %3; color: %8; border: 1px solid %2; border-radius: 4px; padding: 4px 12px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %1; }"
         "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        // Checkboxes — always render a clearly visible box (dark theme), with
+        // a filled primary-colored state when checked.
+        "QCheckBox { color: %8; font-weight: bold; spacing: 6px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background-color: %1; }"
+        "QCheckBox::indicator:hover { border-color: %5; background-color: %4; }"
+        "QCheckBox::indicator:pressed { background-color: %4; }"
+        "QCheckBox::indicator:checked { background-color: %5; border-color: %5; }"
+        "QCheckBox::indicator:checked:hover { background-color: %4; border-color: %5; }"
+        "QCheckBox::indicator:disabled { background-color: %1; border-color: %2; }"
         // Tables / Grids
         "QTableWidget, QTableView { background-color: %1; alternate-background-color: %3; color: %8; gridline-color: %2; border: 1px solid %2; }"
         "QHeaderView::section { background-color: %3; color: %8; padding: 4px; border: 1px solid %2; }"
@@ -1555,7 +1639,13 @@ void MainWindow::applyGlobalTheme() {
 
     qApp->setStyleSheet(globalStyle);
 
-    QToolTip::setPalette(qApp->style()->standardPalette());
+    // Tooltips get their look from two mechanisms (the stylesheet rule above
+    // AND the palette Qt falls back to). Keep BOTH explicitly light so every
+    // tooltip renders identically regardless of the system theme.
+    QPalette tipPalette;
+    tipPalette.setColor(QPalette::ToolTipBase, QColor("#FFF8E7"));
+    tipPalette.setColor(QPalette::ToolTipText, QColor("#111111"));
+    QToolTip::setPalette(tipPalette);
     QToolTip::setFont(qApp->font());
     
     // Sub-components that manage their own local stylesheets using theme variables

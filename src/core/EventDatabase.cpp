@@ -179,8 +179,21 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
     meta["speedSampleTimeUtc"] = event.speedSampleTimeUtc;
     meta["speedStale"] = event.speedStale;
     meta["positionDirectionSign"] = event.positionDirectionSign;
+    meta["triggerPositionMm"] = event.triggerPositionMm;
     meta["triggerGroup"] = event.triggerGroup;
     meta["permanent"] = event.permanent;
+    QJsonArray speedAnchors;
+    for (const SpeedAnchorSnapshot& anchor : event.speedAnchors) {
+        QJsonObject a;
+        a["positionMm"] = anchor.positionMm;
+        if (std::isfinite(anchor.speedValue)) {
+            a["speedValue"] = anchor.speedValue;
+        }
+        a["tagName"] = anchor.tagName;
+        a["nodeId"] = anchor.nodeId;
+        speedAnchors.append(a);
+    }
+    meta["speedAnchors"] = speedAnchors;
     
     QJsonDocument doc(meta);
     QFile file(filepath);
@@ -236,8 +249,25 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     event.speedSampleTimeUtc = meta["speedSampleTimeUtc"].toString();
     event.speedStale = meta["speedStale"].toBool(false);
     event.positionDirectionSign = meta["positionDirectionSign"].toInt(1) >= 0 ? 1 : -1;
+    event.triggerPositionMm = meta["triggerPositionMm"].toInt(0);
     event.triggerGroup = meta["triggerGroup"].toInt(CameraGroup::kUnassigned);
     event.permanent = meta["permanent"].toBool(false);
+    const QJsonArray speedAnchors = meta["speedAnchors"].toArray();
+    event.speedAnchors.reserve(static_cast<size_t>(speedAnchors.size()));
+    for (const QJsonValue& value : speedAnchors) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const QJsonObject a = value.toObject();
+        SpeedAnchorSnapshot anchor;
+        anchor.positionMm = a["positionMm"].toInt(0);
+        anchor.speedValue = a.contains("speedValue")
+            ? a["speedValue"].toDouble(std::numeric_limits<double>::quiet_NaN())
+            : std::numeric_limits<double>::quiet_NaN();
+        anchor.tagName = a["tagName"].toString();
+        anchor.nodeId = a["nodeId"].toString();
+        event.speedAnchors.push_back(anchor);
+    }
     
     return event;
 }

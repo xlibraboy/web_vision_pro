@@ -8,21 +8,50 @@
 // cameras (group -1 in a TriggerContext means "all cameras").
 namespace CameraGroup {
     constexpr int kUnassigned = -1;
-    constexpr int kPressPart = 0;
-    constexpr int kPreDryer = 1;
-    constexpr int kAfterDryer = 2;
-    constexpr int kCalenderReel = 3;
-    constexpr int kCount = 4;
+    constexpr int kWire = 0;           // forming wire, before the press section
+    constexpr int kPressPart = 1;
+    constexpr int kPreDryer = 2;
+    constexpr int kAfterDryer = 3;
+    constexpr int kCalenderReel = 4;
+    constexpr int kCount = 5;
 
     // Display name for a group index (kUnassigned -> "Unassigned").
     inline QString name(int group) {
         switch (group) {
+        case kWire: return QStringLiteral("Wire");
         case kPressPart: return QStringLiteral("Press-Part");
         case kPreDryer: return QStringLiteral("Pre-Dryer");
         case kAfterDryer: return QStringLiteral("After-Dryer");
         case kCalenderReel: return QStringLiteral("Calender-Reel");
         default: return QStringLiteral("Unassigned");
         }
+    }
+}
+
+// Machine floors a camera can be mounted on. The Machine Layout panel paints
+// one lane per floor so all camera positions are visible at once.
+namespace CameraFloor {
+    constexpr int kFirst = 1;
+    constexpr int kSecond = 2;
+    constexpr int kThird = 3;
+    constexpr int kCount = 3;
+
+    // Display name for a floor index (anything else -> "Unknown").
+    inline QString name(int floor) {
+        switch (floor) {
+        case kFirst: return QStringLiteral("1st Floor");
+        case kSecond: return QStringLiteral("2nd Floor");
+        case kThird: return QStringLiteral("3rd Floor");
+        default: return QStringLiteral("Unknown Floor");
+        }
+    }
+
+    // 0-based lane index for a floor value, clamped to the known floors.
+    inline int laneIndex(int floor) {
+        if (floor >= kFirst && floor <= kThird) {
+            return floor - kFirst;
+        }
+        return 0;
     }
 }
 
@@ -55,4 +84,5 @@ struct CameraInfo {
     QString model;           // Populated at runtime
     QString imageSize;       // Populated at runtime
     int group = CameraGroup::kUnassigned; // Paper-machine section (CameraGroup::k*)
+    int floor = CameraFloor::kFirst;      // Machine floor (CameraFloor::k*)
 };

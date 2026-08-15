@@ -14,6 +14,7 @@
 #include <QString>
 #include <cstdint>
 #include "../gui/CameraInfo.h"
+#include "EventDatabase.h"
 
 /**
  * EventController - Manages circular buffering and event recording.
@@ -45,6 +46,10 @@ public:
         // Machine position (mm) where the trigger fired (sensor / detecting
         // camera). 0 = spatial alignment disabled.
         int triggerPositionMm = 0;
+        // All machine-speed anchors snapshotted when the trigger fired
+        // (position mm + actual local speed), persisted onto the event so the
+        // defect projector can reproduce the machine's speed profile.
+        std::vector<EventDatabase::SpeedAnchorSnapshot> speedAnchors;
     };
 
 
@@ -82,6 +87,12 @@ public:
     // speed is available (alignment is then disabled).
     using SpeedProvider = std::function<bool(double* mPerMin)>;
     void setSpeedProvider(SpeedProvider provider);
+
+    // Provides the full machine-speed profile (position mm + actual local
+    // speed per anchor) captured at trigger time and persisted onto the event.
+    // Returns false when no anchors are usable.
+    using SpeedAnchorsProvider = std::function<bool(std::vector<EventDatabase::SpeedAnchorSnapshot>* anchors)>;
+    void setSpeedAnchorsProvider(SpeedAnchorsProvider provider);
 
 private:
     EventController() : running_(false), triggering_(false), saveRequested_(false) {}
@@ -169,4 +180,5 @@ private:
 
     EventSavedCallback callback_;
     SpeedProvider speedProvider_;
+    SpeedAnchorsProvider speedAnchorsProvider_;
 };

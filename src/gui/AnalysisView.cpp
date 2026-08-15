@@ -1,13 +1,15 @@
 #include "AnalysisView.h"
+#include <cmath>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include "widgets/AnalysisVideoWidget.h"
 #include "../config/CameraConfig.h"
 #include "../core/EventController.h"
 #include "../core/EventDatabase.h"
-#include "../core/EventDatabase.h"
+#include "../core/SpeedProfile.h"
 #include "../core/VideoStreamReader.h"
 #include <QApplication>
+#include <QCursor>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -28,6 +30,9 @@
 #include <QKeySequence>
 #include <QFrame>
 #include <QPainter>
+#include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
 #include <QPolygonF>
 #include <QPainterPath>
 #include <QStyledItemDelegate>
@@ -88,6 +93,33 @@ public:
         painter->restore();
     }
 };
+
+// Render a vertically-oriented label pixmap (text rotated 90° so it reads
+// top-to-bottom) used for the compact TOOLS tab on the frame's right edge.
+// Small pixel size + tight letter spacing keep the handle slim.
+static QPixmap makeVerticalTabPixmap(const QString& text, const QColor& color,
+                                     int w, int h) {
+    QPixmap pm(w, h);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QFont f = p.font();
+    f.setPixelSize(9);
+    f.setBold(true);
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+    p.setFont(f);
+    p.setPen(color);
+    p.translate(w / 2.0, h / 2.0);
+    p.rotate(90);
+    const QRect textRect(-h / 2, -w / 2, h, w);
+    p.drawText(textRect, Qt::AlignCenter, text);
+    return pm;
+}
+
+// Right tools panel animation constant: drawer slide distance on show/hide.
+// (No drop-shadow margin is needed — the panel uses no graphics effect while
+// idle, so nesting artifacts on X11 are avoided entirely.)
+static constexpr int kToolsSlidePx = 16;
 
 // Render a small trend sparkline from a series of samples. The highest
 // sample maps to ~90% of the height; the line is colored by severity.
@@ -342,8 +374,8 @@ static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
         "  color: %2;"
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
-        "  padding: 0 10px;"
-        "  font-size: 12px;"
+        "  padding: 0 8px;"
+        "  font-size: 11px;"
         "  font-weight: 700;"
         "  text-align: left;"
         "}"
@@ -442,7 +474,7 @@ AnalysisView::~AnalysisView() {}
 
 void AnalysisView::setupUI() {
     auto mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(4, 4, 4, 4);
+    mainLayout->setContentsMargins(4, 4, 4, 0);
     mainLayout->setSpacing(4);
      
     // Create main splitter (horizontal: left sidebar | main area)
@@ -519,6 +551,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     if (eventCameraCount != static_cast<int>(cameraWidgets_.size())) {
         setCameraCount(eventCameraCount);
     }
+    cameraFrameOffsets_.assign(eventCameraCount, 0);
 
     currentEventInfo_ = EventDatabase::EventInfo();
     currentEventCameraLabels_.clear();
@@ -562,7 +595,15 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         totalFrames_ = videoReaders_.begin()->second->getTotalFrames() - 1;
     }
 
-    loadEventAnnotations(videoPath);
+    const QMap<QString, int> parsedOffsets = loadEventAnnotations(videoPath);
+    const int maxOffset = static_cast<int>(std::floor(totalFrames_));
+    for (auto it = parsedOffsets.begin(); it != parsedOffsets.end(); ++it) {
+        const int camIndex = it.key().mid(3).toInt() - 1;
+        if (camIndex < 0 || camIndex >= static_cast<int>(cameraFrameOffsets_.size())) {
+            continue;
+        }
+        cameraFrameOffsets_[camIndex] = qBound(-maxOffset, it.value(), maxOffset);
+    }
 
     // Parse event base time from filename: event_yyyyMMdd_HHmmss_zzz_camN.bin
     eventBaseTime_ = QDateTime();
@@ -632,6 +673,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     updateSliderZeroMarker();  // Position the zero marker
     updateAnnotationSliderMarkers();
     updatePlaybackInfoLabel();
+    updateAlignmentStatus();
     
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1 
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
@@ -679,12 +721,7 @@ void AnalysisView::setupLeftSidebar() {
     connect(serverButton_, &QPushButton::customContextMenuRequested, [this](const QPoint& pos) {
         QMenu menu;
         // Raw Mode toggle removed - Always Raw now.
-        
-        QAction* linkAction = menu.addAction("Link All Cameras");
-        linkAction->setCheckable(true);
-        linkAction->setChecked(true); // Default
-        // connect(linkAction, &QAction::toggled, this, &AnalysisView::onLinkCamerasToggled); // TODO: Verify connection if needed
-        
+
         menu.exec(serverButton_->mapToGlobal(pos));
     });
 
@@ -904,8 +941,17 @@ void AnalysisView::setupMainArea() {
     brightnessValueLabel_ = new QLabel("0", detailToolsWidget_);
     brightnessValueLabel_->setMinimumWidth(30);
 
-    auto resetToolsButton = new QPushButton("Reset", detailToolsWidget_);
-    resetToolsButton->setToolTip("Reset marker, zoom, and brightness for the detail image.");
+    resetToolsButton_ = new QPushButton("Reset", detailToolsWidget_);
+    resetToolsButton_->setToolTip("Reset marker, zoom, and brightness for the detail image.");
+
+    cameraOffsetSpin_ = new QSpinBox(detailToolsWidget_);
+    cameraOffsetSpin_->setRange(-5000, 5000);
+    cameraOffsetSpin_->setSuffix(" f");
+    cameraOffsetSpin_->setValue(0);
+    cameraOffsetSpin_->setToolTip("Per-camera frame offset on top of the shared timeline (negative = earlier frames).");
+
+    markDefectButton_ = new QPushButton("Mark Defect", detailToolsWidget_);
+    markDefectButton_->setToolTip("Record this camera's currently displayed frame as a defect mark. Each click adds one mark; mark the same defect on at least two cameras, then Align to sync them.");
 
     toolsLayout->addWidget(markerToolCheck_);
     toolsLayout->addWidget(markerShapeCombo_);
@@ -917,8 +963,15 @@ void AnalysisView::setupMainArea() {
     toolsLayout->addWidget(brightnessLabel);
     toolsLayout->addWidget(brightnessSlider_);
     toolsLayout->addWidget(brightnessValueLabel_);
-    toolsLayout->addWidget(resetToolsButton);
+    toolsLayout->addWidget(resetToolsButton_);
+    toolsLayout->addSpacing(6);
+    toolsLayout->addWidget(cameraOffsetSpin_);
+    toolsLayout->addWidget(markDefectButton_);
     toolsLayout->addStretch(1);
+    connect(cameraOffsetSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &AnalysisView::onCameraOffsetChanged);
+    connect(markDefectButton_, &QPushButton::clicked,
+            this, &AnalysisView::markDefectForSelectedCamera);
     metadataLayout->addWidget(detailToolsWidget_);
     metadataLayout->addSpacing(4);
     metadataLayout->addWidget(headerToolsSeparator_);
@@ -935,7 +988,7 @@ void AnalysisView::setupMainArea() {
 
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
-        const int frameIndex = currentReviewFrameIndex();
+        const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
         if (cameraId < 0 || frameIndex < 0 || currentAnnotationPath_.isEmpty()) return;
         QJsonArray pts;
         for (const QPointF& p : points) {
@@ -972,7 +1025,7 @@ void AnalysisView::setupMainArea() {
         if (brightnessValueLabel_) brightnessValueLabel_->setText(QString::number(value));
         if (selectedCameraWidget_) selectedCameraWidget_->setBrightnessOffset(value);
     });
-    connect(resetToolsButton, &QPushButton::clicked, this, [this]() {
+    connect(resetToolsButton_, &QPushButton::clicked, this, [this]() {
         if (markerToolCheck_) markerToolCheck_->setChecked(false);
         if (markerShapeCombo_) markerShapeCombo_->setCurrentIndex(0);
         if (zoomSlider_) zoomSlider_->setValue(100);
@@ -995,6 +1048,203 @@ void AnalysisView::setupMainArea() {
     layout->addWidget(playbackPanel_);
 
     connect(tabWidget_, &QTabWidget::currentChanged, this, &AnalysisView::onTabChanged);
+
+    // ── Right "Layer" tools panel ──────────────────────────────────────────
+    // All review tools live here, stacked vertically in named groups. The
+    // panel floats over the video frame area, docked to its right edge, with
+    // a vertical TOOLS tab as the drawer handle: unpinned, hovering the tab
+    // (or the panel) shows the panel and leaving hides it; Lock pins it open.
+    // Widgets are reparented from the detail-tools row and the playback align
+    // row; connections are unaffected by reparenting. The panel is not a
+    // splitter child, so hide/show never resizes the camera frames.
+    // The panel is a direct child of the frame area, floating over the camera
+    // frames. No drop shadow is used: nesting a shadow under the fade's opacity
+    // effect renders incorrectly on X11 (and a widget can own only one graphics
+    // effect) — depth comes from the border instead. The fade effect itself is
+    // attached only while animating (see ensure/clearToolsPanelOpacityEffect),
+    // so no effect is ever active while the panel is idle or hidden.
+    rightToolsPanel_ = new QWidget(mainArea_);
+    rightToolsPanel_->setObjectName("rightToolsPanel");
+    rightToolsPanel_->setAttribute(Qt::WA_StyledBackground, true);
+    rightToolsPanel_->setFixedWidth(240);
+    auto panelLayout = new QVBoxLayout(rightToolsPanel_);
+    panelLayout->setContentsMargins(10, 10, 10, 10);
+    panelLayout->setSpacing(8);
+
+    // Header: title (icon + name) + lock/unlock.
+    auto panelHeader = new QHBoxLayout();
+    auto panelTitle = new QLabel(
+        QString("<img src=':/assets/icons/tools_panel.svg' width='16' height='16' style='vertical-align: middle;'> Tools"),
+        rightToolsPanel_);
+    panelTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700;").arg(tc.text));
+    toolsLockButton_ = new QPushButton("Lock", rightToolsPanel_);  // starts unpinned (hover-driven)
+    toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    toolsLockButton_->setCursor(Qt::PointingHandCursor);
+    toolsLockButton_->setToolTip("Unpinned: hover the TOOLS tab on the frame's right edge to show the panel.");
+    connect(toolsLockButton_, &QPushButton::clicked, this, &AnalysisView::onToolsLockToggled);
+    panelHeader->addWidget(panelTitle);
+    panelHeader->addStretch(1);
+    panelHeader->addWidget(toolsLockButton_);
+    panelLayout->addLayout(panelHeader);
+    // Push the tool rows down, clear of the header line.
+    panelLayout->addSpacing(6);
+
+    // Name caption helper (indented, not aligned with the header).
+    auto captionLabel = [&](const QString& text) {
+        auto* label = new QLabel(text, rightToolsPanel_);
+        label->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+        return label;
+    };
+    auto indentRow = [](QHBoxLayout* row) { row->setContentsMargins(6, 0, 0, 0); };
+    // Muted uppercase section header.
+    auto sectionLabel = [&](const QString& text) {
+        auto* label = new QLabel(text, rightToolsPanel_);
+        label->setStyleSheet(QString(
+            "color: %1; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 0 2px;")
+            .arg(QColor(tc.text).lighter(135).name()));
+        return label;
+    };
+    // Thin divider between tool groups.
+    auto panelDivider = [&]() -> QFrame* {
+        auto* line = new QFrame(rightToolsPanel_);
+        line->setFrameShape(QFrame::HLine);
+        line->setFrameShadow(QFrame::Plain);
+        line->setStyleSheet(QString("background-color: %1; border: none; max-height: 1px; min-height: 1px;")
+                            .arg(QColor(tc.border).lighter(118).name()));
+        return line;
+    };
+
+    // ── Marker ──
+    panelLayout->addWidget(sectionLabel("MARKER"));
+    auto markerRow = new QHBoxLayout();
+    markerRow->addWidget(markerToolCheck_);
+    markerRow->addWidget(markerShapeCombo_);
+    markerRow->addStretch(1);
+    indentRow(markerRow);
+    panelLayout->addLayout(markerRow);
+
+    // ── View ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("VIEW"));
+    auto zoomRow = new QHBoxLayout();
+    zoomRow->addWidget(captionLabel("Zoom"));
+    zoomSlider_->setFixedWidth(110);
+    zoomRow->addWidget(zoomSlider_);
+    zoomRow->addWidget(zoomValueLabel_);
+    zoomRow->addStretch(1);
+    indentRow(zoomRow);
+    panelLayout->addLayout(zoomRow);
+
+    auto brightnessRow = new QHBoxLayout();
+    brightnessRow->addWidget(captionLabel("Bright"));
+    brightnessSlider_->setFixedWidth(110);
+    brightnessRow->addWidget(brightnessSlider_);
+    brightnessRow->addWidget(brightnessValueLabel_);
+    brightnessRow->addStretch(1);
+    indentRow(brightnessRow);
+    panelLayout->addLayout(brightnessRow);
+
+    resetToolsButton_->setCursor(Qt::PointingHandCursor);
+    panelLayout->addWidget(resetToolsButton_);
+
+    // ── Defect align ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("DEFECT ALIGN"));
+    auto offsetRow = new QHBoxLayout();
+    offsetRow->addWidget(captionLabel("Camera offset"));
+    offsetRow->addWidget(cameraOffsetSpin_);
+    offsetRow->addStretch(1);
+    indentRow(offsetRow);
+    panelLayout->addLayout(offsetRow);
+
+    markDefectButton_->setCursor(Qt::PointingHandCursor);
+    panelLayout->addWidget(markDefectButton_);
+
+    alignButton_->setCursor(Qt::PointingHandCursor);
+    resetOffsetsButton_->setCursor(Qt::PointingHandCursor);
+    auto alignRow2 = new QHBoxLayout();
+    alignRow2->addWidget(alignButton_);
+    alignRow2->addWidget(resetOffsetsButton_);
+    alignRow2->addStretch(1);
+    indentRow(alignRow2);
+    panelLayout->addLayout(alignRow2);
+    if (alignStatusLabel_) {
+        alignStatusLabel_->setWordWrap(true);
+        panelLayout->addWidget(alignStatusLabel_);
+    }
+    panelLayout->addStretch(1);
+
+    // Reparent all tool widgets into the panel (removes them from old layouts).
+    const QList<QWidget*> panelTools = {
+        markerToolCheck_, markerShapeCombo_, zoomSlider_, zoomValueLabel_,
+        brightnessSlider_, brightnessValueLabel_, resetToolsButton_,
+        cameraOffsetSpin_, markDefectButton_, alignButton_,
+        resetOffsetsButton_, alignStatusLabel_
+    };
+    for (QWidget* w : panelTools) {
+        if (w) {
+            w->setParent(rightToolsPanel_);
+        }
+    }
+
+    // Drop the now-empty detail-tools corner widget.
+    if (detailToolsWidget_) {
+        metadataLayout->removeWidget(detailToolsWidget_);
+        detailToolsWidget_->deleteLater();
+        detailToolsWidget_ = nullptr;
+    }
+
+    // Drop the now-empty align row from the playback panel.
+    if (QLayout* playLayout = playbackPanel_->layout()) {
+        for (int i = playLayout->count() - 1; i >= 0; --i) {
+            QLayoutItem* item = playLayout->itemAt(i);
+            if (item->layout() && item->layout()->count() == 0) {
+                playLayout->removeItem(item);
+                delete item;
+            }
+        }
+    }
+
+    // Hover-driven auto-show/hide when unpinned (Lock toggles pinning).
+    toolsHoverTimer_ = new QTimer(this);
+    toolsHoverTimer_->setInterval(120);
+    connect(toolsHoverTimer_, &QTimer::timeout, this, &AnalysisView::onToolsHoverTick);
+    toolsHoverTimer_->start();
+
+    // Vertical TOOLS tab on the frame's right edge: the hover target that
+    // reveals the panel when unpinned. Always visible; the label text is
+    // rotated 90° so it reads top-to-bottom down the edge. restyleToolsEdgeTab
+    // renders the vertical pixmap + theme background.
+    // Compact vertical tab: slim handle, shorter run than before.
+    toolsEdgeTab_ = new QLabel(mainArea_);
+    toolsEdgeTab_->setObjectName("toolsEdgeTab");
+    toolsEdgeTab_->setFixedSize(22, 84);
+    toolsEdgeTab_->setAlignment(Qt::AlignCenter);
+    toolsEdgeTab_->setToolTip("Hover to show the Tools panel.");
+    restyleToolsEdgeTab();
+
+    // Style every panel control with the current theme (also re-runs on theme
+    // changes via updateTheme -> applyToolsPanelTheme).
+    applyToolsPanelTheme();
+
+    // Show/hide transition: fade the panel's opacity while sliding it sideways,
+    // so it reads as a drawer retracting into the frame's right edge. The fade
+    // effect is created on demand (ensureToolsPanelOpacityEffect) so nothing is
+    // composited while the panel is idle or hidden.
+    toolsPanelFadeAnim_ = new QPropertyAnimation(this);
+    toolsPanelFadeAnim_->setPropertyName("opacity");
+    toolsPanelFadeAnim_->setDuration(150);
+    connect(toolsPanelFadeAnim_, &QPropertyAnimation::finished,
+            this, &AnalysisView::onToolsPanelHideFinished);
+    toolsPanelSlideAnim_ = new QPropertyAnimation(rightToolsPanel_, "geometry", this);
+    toolsPanelSlideAnim_->setDuration(150);
+
+    // Start hidden (unpinned): the hover timer reveals it when the cursor
+    // reaches the tab or the panel.
+    rightToolsPanel_->hide();
+
+    // Float over the video frame area, clear of the playback panel.
+    positionToolsPanel();
 }
 
 void AnalysisView::applyAnalysisViewStyle() {
@@ -1043,9 +1293,15 @@ void AnalysisView::applyAnalysisViewStyle() {
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
     if (playbackInfoLabel_) {
-        playbackInfoLabel_->setStyleSheet(QString(
-            "color: %1; font-family: '%2'; font-size: %3px; font-weight: 600; margin-left: 6px;"
-        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
+        // Palette/font, never a local stylesheet (see setupPlaybackControls).
+        QPalette infoPal = playbackInfoLabel_->palette();
+        infoPal.setColor(QPalette::WindowText, QColor(tc.text));
+        playbackInfoLabel_->setPalette(infoPal);
+        QFont infoFont = playbackInfoLabel_->font();
+        infoFont.setFamily(style.tabFontFamily);
+        infoFont.setPixelSize(std::max(11, style.tabFontSize));
+        infoFont.setWeight(QFont::Normal);
+        playbackInfoLabel_->setFont(infoFont);
     }
 
     for (AnalysisVideoWidget* widget : cameraWidgets_) {
@@ -1145,7 +1401,9 @@ void AnalysisView::setCameraCount(int count) {
 void AnalysisView::setupPlaybackControls() {
     playbackPanel_ = new QWidget(this);
     playbackPanel_->setObjectName("playbackPanel"); // For CSS specificity
-    playbackPanel_->setFixedHeight(60); 
+    // No fixed height — let the panel fit tightly around its content (buttons +
+    // value) after the align-row widgets are reparented to the tools panel.
+    playbackPanel_->setMinimumHeight(78);
     playbackPanel_->setAutoFillBackground(true); // Force paint
     // Use background-color and ensure contrast. 
     ThemeColors tc = CameraConfig::getThemeColors();
@@ -1154,14 +1412,16 @@ void AnalysisView::setupPlaybackControls() {
         .arg(tc.bg, tc.border));
     
     auto layout = new QVBoxLayout(playbackPanel_);
-    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setContentsMargins(6, 4, 6, 3);
     layout->setSpacing(0);
     
     // Playback slider (System Standard)
     // === PLAYBACK CONTROL TOOLBAR (Single Line + SVGs) ===
     auto toolbarLayout = new QHBoxLayout();
     toolbarLayout->setSpacing(4);
-    toolbarLayout->setContentsMargins(0, 0, 0, 0); 
+    // Top margin reserves the flag strip where the zero/trigger marker sits,
+    // above the scrubbing line (updateSliderZeroMarker positions it there).
+    toolbarLayout->setContentsMargins(0, 14, 0, 0);
 
     auto createDivider = [&]() -> QFrame* {
         QFrame* divider = new QFrame(playbackPanel_);
@@ -1177,7 +1437,7 @@ void AnalysisView::setupPlaybackControls() {
         QPushButton* btn = new QPushButton(playbackPanel_);
         btn->setIcon(QIcon(":/assets/icons/" + iconName));
         btn->setIconSize(QSize(18, 18));
-        btn->setFixedSize(30, 30);
+        btn->setFixedSize(28, 28);
         btn->setToolTip(tooltip);
         btn->setStyleSheet(makePlaybackIconButtonStyle(tc));
         return btn;
@@ -1185,20 +1445,26 @@ void AnalysisView::setupPlaybackControls() {
 
     // 1. Speed
     speedButton_ = new QPushButton("1.0x", playbackPanel_);
-    speedButton_->setFixedSize(64, 30);
+    speedButton_->setFixedSize(72, 28);
     speedButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
     speedMenu_ = new QMenu(speedButton_);
+    // Trimmed to the slow end — those are the speeds used to inspect defects
+    // frame-by-frame at low event frame rates. Fast (2.0x) is kept as the top
+    // speed for quick scanning.
     speedMenu_->addAction("Ultra Slow (0.05x)")->setData(0.05);
     speedMenu_->addAction("Very Slow (0.10x)")->setData(0.10);
-    speedMenu_->addAction("Slow (0.15x)")->setData(0.15);
-    speedMenu_->addAction("Slow+ (0.20x)")->setData(0.20);
-    speedMenu_->addAction("Legacy Very Slow (0.25x)")->setData(0.25);
-    speedMenu_->addAction("Half Speed (0.5x)")->setData(0.5);
+    speedMenu_->addAction("Slow (0.25x)")->setData(0.25);
     speedMenu_->addAction("Normal (1.0x)")->setData(1.0);
     speedMenu_->addAction("Fast (2.0x)")->setData(2.0);
-    speedMenu_->addAction("Very Fast (4.0x)")->setData(4.0);
     speedButton_->setMenu(speedMenu_);
     connect(speedMenu_, &QMenu::triggered, this, &AnalysisView::onSpeedChanged);
+    // Compact dropdown: small font, tight rows, readable accent highlight.
+    speedMenu_->setStyleSheet(QString(
+        "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: 11px; }"
+        "QMenu::item { padding: 2px 24px 2px 8px; font-size: 11px; }"
+        "QMenu::item:selected { background-color: %4; color: %5; }"
+        "QMenu::item:disabled { color: #888888; }"
+    ).arg(tc.bg, tc.border, tc.text, tc.btnHover, tc.primary));
     toolbarLayout->addWidget(speedButton_);
     
     // 2. Play/Pause
@@ -1217,6 +1483,8 @@ void AnalysisView::setupPlaybackControls() {
     // 4. Step Back
     prevButton_ = createSvgButton("Step Back.svg", "Step Back");
     prevButton_->setAutoRepeat(true);
+    prevButton_->setAutoRepeatDelay(300);
+    prevButton_->setAutoRepeatInterval(33);  // matches Normal (1.0x)
     connect(prevButton_, &QPushButton::pressed, this, &AnalysisView::onPreviousPressed);
     connect(prevButton_, &QPushButton::released, this, &AnalysisView::onPreviousReleased);
     toolbarLayout->addWidget(prevButton_);
@@ -1233,19 +1501,27 @@ void AnalysisView::setupPlaybackControls() {
     frameInput_->hide();
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
 
-    playbackInfoLabel_ = new QLabel("Frame -- | Time --", playbackPanel_);
-    playbackInfoLabel_->setFixedWidth(210);
+    // Playback value (relative frame + time from trigger). Kept out of the
+    // button toolbar — it lives on its own row below the media buttons,
+    // regular (non-bold) weight. Styled via palette+font (NOT a local
+    // stylesheet): a bare color rule on the label would leak into this label's
+    // tooltip and make its text a different color.
+    playbackInfoLabel_ = new QLabel("-- | --", playbackPanel_);
     playbackInfoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
-    playbackInfoLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; margin-left: 6px;").arg(tc.text));
-    toolbarLayout->addSpacing(4);
-    toolbarLayout->addWidget(playbackInfoLabel_);
-    toolbarLayout->addSpacing(4);
-    toolbarLayout->addWidget(createDivider(), 0, Qt::AlignVCenter);
+    QPalette infoPal = playbackInfoLabel_->palette();
+    infoPal.setColor(QPalette::WindowText, QColor(tc.text));
+    playbackInfoLabel_->setPalette(infoPal);
+    QFont infoFont = playbackInfoLabel_->font();
+    infoFont.setPixelSize(12);
+    infoFont.setWeight(QFont::Normal);
+    playbackInfoLabel_->setFont(infoFont);
 
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
     nextButton_->setAutoRepeat(true);
+    nextButton_->setAutoRepeatDelay(300);
+    nextButton_->setAutoRepeatInterval(33);  // matches Normal (1.0x)
     connect(nextButton_, &QPushButton::pressed, this, &AnalysisView::onNextPressed);
     connect(nextButton_, &QPushButton::released, this, &AnalysisView::onNextReleased);
     toolbarLayout->addWidget(nextButton_);
@@ -1263,16 +1539,57 @@ void AnalysisView::setupPlaybackControls() {
     connect(playbackSlider_, &QSlider::valueChanged, this, &AnalysisView::onSliderValueChanged);
     playbackSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
     toolbarLayout->addWidget(playbackSlider_, 1); // Stretch factor 1
-    
-    // Zero Marker (We still track it, but attach it to layout properly later or manually position)
+
+    // Zero/trigger marker: a small flag sitting in the flag strip ABOVE the
+    // slider — never on the scrubbing line itself, so it can't be mistaken for
+    // the playhead or block scrubbing (positioned by updateSliderZeroMarker).
     sliderZeroMarker_ = new QLabel(playbackPanel_);
     QPixmap pm(":/assets/icons/Zero Marker.svg");
-    sliderZeroMarker_->setPixmap(pm.scaled(10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    sliderZeroMarker_->setFixedSize(10, 10);
+    sliderZeroMarker_->setPixmap(pm.scaled(12, 12, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    sliderZeroMarker_->setFixedSize(12, 12);
+    sliderZeroMarker_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     sliderZeroMarker_->raise();
     sliderZeroMarker_->show();
     
     layout->addLayout(toolbarLayout);
+
+    // Value row: the frame/time readout sits below the media buttons with a
+    // little gap, but not at the very bottom of the panel (the align row stays
+    // below).
+    auto infoRow = new QHBoxLayout();
+    infoRow->setSpacing(4);
+    infoRow->setContentsMargins(0, 6, 0, 0);
+    infoRow->addWidget(playbackInfoLabel_, 1);
+    layout->addLayout(infoRow);
+
+    // Second row: per-camera alignment (Align / Reset / speed / status).
+    auto alignRow = new QHBoxLayout();
+    alignRow->setSpacing(4);
+    alignRow->setContentsMargins(0, 0, 0, 0);
+    alignButton_ = new QPushButton("Align", playbackPanel_);
+    alignButton_->setToolTip("Shift each camera's timeline so all defects show at the same time, using the machine speed captured with the event (OPC UA Machine Speed tag) and camera positions (mm).");
+    alignButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
+    connect(alignButton_, &QPushButton::clicked, this, &AnalysisView::applyCameraAlignment);
+    alignRow->addWidget(alignButton_);
+
+    resetOffsetsButton_ = new QPushButton("Reset", playbackPanel_);
+    resetOffsetsButton_->setToolTip("Clear all per-camera offsets.");
+    resetOffsetsButton_->setStyleSheet(makePlaybackSpeedButtonStyle(tc));
+    connect(resetOffsetsButton_, &QPushButton::clicked, this, &AnalysisView::clearCameraOffsets);
+    alignRow->addWidget(resetOffsetsButton_);
+
+    // Same palette+font approach as the value label so this label's tooltip
+    // keeps the standard look (it has a tooltip with alignment details).
+    alignStatusLabel_ = new QLabel("—", playbackPanel_);
+    QPalette alignPal = alignStatusLabel_->palette();
+    alignPal.setColor(QPalette::WindowText, QColor(tc.text));
+    alignStatusLabel_->setPalette(alignPal);
+    QFont alignFont = alignStatusLabel_->font();
+    alignFont.setPixelSize(11);
+    alignStatusLabel_->setFont(alignFont);
+    alignRow->addWidget(alignStatusLabel_, 1);
+
+    layout->addLayout(alignRow);
 }
 
 // Slot implementations
@@ -1686,7 +2003,7 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     selectedCameraWidget_->setBrightnessOffset(brightnessSlider_ ? brightnessSlider_->value() : 0);
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
-        const int frameIndex = currentReviewFrameIndex();
+        const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
         if (cameraId < 0 || frameIndex < 0 || currentAnnotationPath_.isEmpty()) return;
         QJsonArray pts;
         for (const QPointF& p : points) {
@@ -1710,8 +2027,18 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     if (layout) {
         layout->addWidget(selectedCameraWidget_, 1);
     }
+    if (cameraOffsetSpin_) {
+        cameraOffsetSpin_->blockSignals(true);
+        if (cameraId >= 0 && cameraId < static_cast<int>(cameraFrameOffsets_.size())) {
+            cameraOffsetSpin_->setValue(cameraFrameOffsets_[cameraId]);
+        } else {
+            cameraOffsetSpin_->setValue(0);
+        }
+        cameraOffsetSpin_->blockSignals(false);
+    }
     applyAnnotationToSelectedFrame();
     updateAnnotationSliderMarkers();
+    updateAlignmentStatus();
     // Diagnostic tab is now a standalone all-camera table; no per-camera rebuild needed.
 }
 
@@ -1754,6 +2081,14 @@ int AnalysisView::currentReviewFrameIndex() const {
     return qBound(0, static_cast<int>(std::floor(currentFrame_ + 0.0001)), maxFrame);
 }
 
+int AnalysisView::displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const {
+    const int maxIdx = std::max(0, static_cast<int>(std::floor(totalFrames_)));
+    if (camIdx < 0 || camIdx >= static_cast<int>(cameraFrameOffsets_.size())) {
+        return qBound(0, masterFrameIndex, maxIdx);
+    }
+    return qBound(0, masterFrameIndex + cameraFrameOffsets_[camIdx], maxIdx);
+}
+
 void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     const int idx = currentReviewFrameIndex();
     const double relativeFrame = currentFrame_ - triggerFrameIndex_;
@@ -1769,6 +2104,9 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
         ? QString::number(relativeSeconds, 'f', 3)
         : QString::number(relativeFrame, 'f', 1));
     updatePlaybackInfoLabel();
+    // Keep the sync crosshair in step with the scrub position (and clear it when
+    // not in review mode).
+    applySyncIndicators();
 
     if (!isReviewMode_) {
         return;
@@ -1780,7 +2118,8 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     if (isStreamingMode_) {
         for (auto& pair : videoReaders_) {
             int camIdx = pair.first;
-            cv::Mat cvFrame = pair.second->getFrame(idx);
+            int displayIdx = displayedFrameIndexForCamera(camIdx, idx);
+            cv::Mat cvFrame = pair.second->getFrame(displayIdx);
 
             if (!cvFrame.empty() && camIdx < static_cast<int>(cameraWidgets_.size())) {
                 cv::Mat rgb;
@@ -1796,7 +2135,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
                 QImage finalImage = frameImage.copy();
                 cameraWidgets_[camIdx]->setFrame(finalImage);
                 cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
-                applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, idx);
+                applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, displayIdx);
 
                 if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
                     selectedCameraWidget_->setFrame(finalImage);
@@ -1876,8 +2215,9 @@ QString AnalysisView::annotationKey(int cameraId, int frameIndex) const {
     return QString("cam%1_frame%2").arg(cameraId + 1).arg(frameIndex);
 }
 
-void AnalysisView::loadEventAnnotations(const QString& videoPath) {
+QMap<QString, int> AnalysisView::loadEventAnnotations(const QString& videoPath) {
     eventAnnotations_ = QJsonObject();
+    defectMarks_ = QJsonObject();
     currentAnnotationPath_.clear();
 
     QFileInfo fi(videoPath);
@@ -1890,19 +2230,48 @@ void AnalysisView::loadEventAnnotations(const QString& videoPath) {
 
     QFile file(currentAnnotationPath_);
     if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-        return;
+        return QMap<QString, int>();
     }
 
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     if (doc.isObject()) {
         eventAnnotations_ = doc.object();
     }
+
+    QMap<QString, int> parsedOffsets;
+    // Alignment keys: "defectMarks" and "cameraOffsets", each "cam{N}" -> int.
+    if (eventAnnotations_.contains("defectMarks") && eventAnnotations_["defectMarks"].isObject()) {
+        const QJsonObject marks = eventAnnotations_["defectMarks"].toObject();
+        for (auto it = marks.begin(); it != marks.end(); ++it) {
+            // Preserve values as-is: legacy single int or new array of ints.
+            if (it.key().startsWith("cam")) {
+                defectMarks_[it.key()] = it.value();
+            }
+        }
+    }
+    if (eventAnnotations_.contains("cameraOffsets") && eventAnnotations_["cameraOffsets"].isObject()) {
+        const QJsonObject offsets = eventAnnotations_["cameraOffsets"].toObject();
+        for (auto it = offsets.begin(); it != offsets.end(); ++it) {
+            if (it.key().startsWith("cam") && it.value().isDouble()) {
+                parsedOffsets[it.key()] = it.value().toInt();
+            }
+        }
+    }
+    eventAnnotations_.remove("defectMarks");
+    eventAnnotations_.remove("cameraOffsets");
+    return parsedOffsets;
 }
 
 void AnalysisView::saveEventAnnotations() {
     if (currentAnnotationPath_.isEmpty()) {
         return;
     }
+    eventAnnotations_["defectMarks"] = defectMarks_;
+    QJsonObject offsetsObj;
+    for (int i = 0; i < static_cast<int>(cameraFrameOffsets_.size()); ++i) {
+        offsetsObj[QString("cam%1").arg(i + 1)] = cameraFrameOffsets_[i];
+    }
+    eventAnnotations_["cameraOffsets"] = offsetsObj;
     QFile file(currentAnnotationPath_);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         std::cerr << "[AnalysisView] Failed to save annotations: " << currentAnnotationPath_.toStdString() << std::endl;
@@ -1961,7 +2330,7 @@ void AnalysisView::applyAnnotationToSelectedFrame() {
         return;
     }
     const int cameraId = selectedCameraWidget_->getCameraId();
-    const int frameIndex = currentReviewFrameIndex();
+    const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
     applyAnnotationToWidget(selectedCameraWidget_, cameraId, frameIndex);
     if (markerShapeCombo_ && !eventAnnotations_.contains(annotationKey(cameraId, frameIndex))) {
         selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
@@ -2085,8 +2454,15 @@ void AnalysisView::onBeginClicked() {
     seekToFrameIndex(0);
 }
 
+int AnalysisView::playbackStepSize() const {
+    // The speed selector also drives scrubbing: at 1.0x one step = 1 frame;
+    // slower speeds still step 1 frame (rate differs), faster speeds jump
+    // multiple frames per step.
+    return std::max(1, static_cast<int>(std::round(playbackSpeed_)));
+}
+
 void AnalysisView::onPreviousPressed() {
-    seekToFrameIndex(currentReviewFrameIndex() - 1);
+    seekToFrameIndex(currentReviewFrameIndex() - playbackStepSize());
 }
 
 void AnalysisView::onPreviousReleased() {}
@@ -2096,7 +2472,7 @@ void AnalysisView::onResetClicked() {
 }
 
 void AnalysisView::onNextPressed() {
-    seekToFrameIndex(currentReviewFrameIndex() + 1);
+    seekToFrameIndex(currentReviewFrameIndex() + playbackStepSize());
 }
 
 void AnalysisView::onNextReleased() {}
@@ -2120,8 +2496,24 @@ void AnalysisView::onSpeedChanged(QAction* action) {
     // Instead of using messy fallback icons, we standardise the typography.
     // The global stylesheet handles its look and feel cleanly.
     speedButton_->setIcon(QIcon()); // Clear any broken icon
-    speedButton_->setText(QString("%1x").arg(playbackSpeed_, 0, 'f', 1));
-    
+    // Slow speeds need 2 decimals (0.05x would otherwise round to 0.1x);
+    // 1.0x / 2.0x keep 1 decimal to match the menu labels.
+    const QString speedText = playbackSpeed_ < 1.0
+        ? QString("%1x").arg(playbackSpeed_, 0, 'f', 2)
+        : QString("%1x").arg(playbackSpeed_, 0, 'f', 1);
+    speedButton_->setText(speedText);
+
+    // Scrubbing speed: holding a step button repeats at the chosen rate so
+    // Ultra Slow scrubs frame-by-frame slowly and Very Fast jumps multiple
+    // frames per repeat.
+    const int repeatInterval = std::max(1, static_cast<int>(33.0 / playbackSpeed_));
+    if (prevButton_) {
+        prevButton_->setAutoRepeatInterval(repeatInterval);
+    }
+    if (nextButton_) {
+        nextButton_->setAutoRepeatInterval(repeatInterval);
+    }
+
     // Update timer interval if playing
     if (isPlaying_) {
         setPlaybackPlaying(true);
@@ -2308,13 +2700,28 @@ void AnalysisView::updatePlaybackControlsState() {
     endButton_->setEnabled(hasData && !atEnd);
     frameInput_->setEnabled(hasData);
     speedButton_->setEnabled(hasData);
-    
+    // Right tools panel: mode gating only (Lock pins visibility, not the tools).
+    if (cameraOffsetSpin_) {
+        cameraOffsetSpin_->setEnabled(isReviewMode_);
+    }
+    if (markDefectButton_) {
+        markDefectButton_->setEnabled(isReviewMode_ && selectedCameraId_ >= 0);
+    }
+    if (alignButton_) {
+        alignButton_->setEnabled(isReviewMode_ && !videoReaders_.empty());
+    }
+    if (resetOffsetsButton_) {
+        resetOffsetsButton_->setEnabled(isReviewMode_ && !videoReaders_.empty());
+    }
+
     // Gray out appearance when disabled, restore theme colors when enabled
     ThemeColors tc = CameraConfig::getThemeColors();
     if (!hasData) {
         playbackPanel_->setStyleSheet(QString(
             "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
-            "QWidget { color: %3; }"
+            // Scoped to descendants of the panel: a bare QWidget rule would
+            // also color tooltips shown over the panel's controls.
+            "QWidget#playbackPanel QWidget { color: %3; }"
         ).arg(tc.bg, tc.border, tc.border));
     } else {
         playbackPanel_->setStyleSheet(QString(
@@ -2350,7 +2757,7 @@ void AnalysisView::updatePlaybackInfoLabel() {
     }
 
     if (!isReviewMode_) {
-        playbackInfoLabel_->setText("Frame -- | Time --");
+        playbackInfoLabel_->setText("-- | --");
         playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
         return;
     }
@@ -2367,15 +2774,48 @@ void AnalysisView::updatePlaybackInfoLabel() {
     const double seconds = frameIndex >= 0
         ? relativeSecondsForFrameIndex(frameIndex)
         : (relFrames / fps);
-    const QString baseText = QString("Frame %1 | Time %2%3 s")
+    // Values only; the named description lives in the tooltip.
+    const QString baseText = QString("%1 | %2%3 s")
         .arg(relFrames, 0, 'f', 1)
         .arg(seconds >= 0.0 ? "+" : "")
         .arg(seconds, 0, 'f', 3);
     const QString speedSummary = currentSpeedSummary(seconds);
     playbackInfoLabel_->setText(speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary));
-    playbackInfoLabel_->setToolTip(speedSummary.isEmpty()
-        ? QString("Relative frame and time from trigger.")
-        : QString("Relative frame and time from trigger.\n%1").arg(speedSummary));
+
+    // Full, descriptive tooltip: explain every value the label shows.
+    QStringList tooltipLines;
+    tooltipLines << QString("Relative frame: %1 (0 = the trigger frame; negative = before the trigger, positive = after)")
+        .arg(relFrames, 0, 'f', 1);
+    tooltipLines << QString("Time from trigger: %1%2 s")
+        .arg(seconds >= 0.0 ? "+" : "")
+        .arg(seconds, 0, 'f', 3);
+    if (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            || std::isfinite(currentEventInfo_.speedValue)) {
+        const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+        const int cameraId = selectedCameraId_;
+        const int basePositionMm = currentEventCameraPositionMm(cameraId);
+        // Local speed at this camera (interpolated between the recorded speed
+        // anchors), so draw between drive groups is reflected in the distance.
+        const double localSpeed = SpeedProfile::speedAt(
+            basePositionMm, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+        if (std::isfinite(localSpeed)) {
+            const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
+                ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
+            tooltipLines << QString("Machine speed: %1 %2")
+                .arg(localSpeed, 0, 'f', 2)
+                .arg(speedUnit);
+            if (detailTabActive) {
+                const double deltaMm = localSpeed * 1000.0 / 60.0 * seconds
+                    * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
+                tooltipLines << QString("Distance traveled from trigger: %1 mm").arg(deltaMm, 0, 'f', 1);
+                tooltipLines << QString("Camera position: %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1);
+            }
+        }
+        if (currentEventInfo_.speedStale) {
+            tooltipLines << QStringLiteral("Note: machine speed was stale at capture — distance/alignment may be inaccurate");
+        }
+    }
+    playbackInfoLabel_->setToolTip(tooltipLines.join("\n"));
 }
 
 bool AnalysisView::hasRelativeTimeAxis() const {
@@ -2465,10 +2905,14 @@ void AnalysisView::updateSliderZeroMarker() {
     // Map value to pixel position
     float ratio = static_cast<float>(zeroValue - sliderMin) / (sliderMax - sliderMin);
     int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
-    int yPos = sliderRect.y() - 16;  // Keep the zero marker above annotation dots and slider handle
+    // The flag sits ABOVE the scrubbing line, inside the strip reserved by the
+    // toolbar row's top margin — never on the track, so it can't be confused
+    // with the playhead nor block scrubbing.
+    const int yPos = sliderRect.y() - sliderZeroMarker_->height() - 4;
     
     // Position and show the marker
-    sliderZeroMarker_->move(xPos - 5, yPos);  // Center the 10px wide marker
+    sliderZeroMarker_->move(xPos - sliderZeroMarker_->width() / 2, yPos);
+    sliderZeroMarker_->raise();
     sliderZeroMarker_->show();
 }
 
@@ -2480,7 +2924,10 @@ void AnalysisView::updateAnnotationSliderMarkers() {
     }
     annotationSliderMarkers_.clear();
 
-    if (!isReviewMode_ || !playbackSlider_ || eventAnnotations_.isEmpty()) {
+    // Marks live in their own object (stripped from eventAnnotations_ on load),
+    // so a marks-only sidecar must still render its slider dots.
+    if (!isReviewMode_ || !playbackSlider_
+        || (eventAnnotations_.isEmpty() && defectMarks_.isEmpty())) {
         return;
     }
 
@@ -2557,6 +3004,57 @@ void AnalysisView::updateAnnotationSliderMarkers() {
         marker->raise();
         marker->show();
         annotationSliderMarkers_.append(marker);
+    }
+
+    // Second pass: manual defect marks (per-camera, several per camera allowed),
+    // drawn one row lower in danger red. Marks from cameras outside this event
+    // (stale sidecar data) are skipped.
+    const int defectYPos = yPos + 10;
+    for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
+        const QString camKey = it.key();
+        const int camNumber = camKey.mid(3).toInt();
+        const int camIndex = camNumber - 1;
+        if (camNumber <= 0 || videoReaders_.count(camIndex) == 0) {
+            continue;
+        }
+        if (detailTabActive && camNumber != selectedCameraId_ + 1) {
+            continue;
+        }
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (frames.isEmpty()) {
+            continue;
+        }
+        const bool multi = frames.size() > 1;
+        for (int mi = 0; mi < frames.size(); ++mi) {
+            const int frameIndex = frames.at(mi);
+            const int sliderValue = sliderValueForFrameIndex(frameIndex);
+            if (sliderValue < sliderMin || sliderValue > sliderMax) {
+                continue;
+            }
+            const double ratio = static_cast<double>(sliderValue - sliderMin) / (sliderMax - sliderMin);
+            const int xPos = sliderRect.x() + (handleWidth / 2) + static_cast<int>(ratio * usableWidth);
+            const double relativeSeconds = relativeSecondsForFrameIndex(frameIndex);
+
+            QLabel* marker = new QLabel(playbackPanel_);
+            marker->setFixedSize(9, 9);
+            marker->setToolTip(multi
+                ? QString("Defect mark %1: Camera %2 @ frame %3 (%4%5 s)")
+                    .arg(mi + 1).arg(camNumber).arg(frameIndex)
+                    .arg(relativeSeconds >= 0.0 ? "+" : "")
+                    .arg(relativeSeconds, 0, 'f', 3)
+                : QString("Defect mark: Camera %1 @ frame %2 (%3%4 s)")
+                    .arg(camNumber).arg(frameIndex)
+                    .arg(relativeSeconds >= 0.0 ? "+" : "")
+                    .arg(relativeSeconds, 0, 'f', 3));
+            marker->setStyleSheet("background-color: #FF5A5A; border: 1px solid white; border-radius: 4px;");
+            marker->move(xPos - 4, defectYPos);
+            marker->setCursor(Qt::PointingHandCursor);
+            marker->installEventFilter(this);
+            marker->setProperty("annotationFrame", frameIndex);
+            marker->raise();
+            marker->show();
+            annotationSliderMarkers_.append(marker);
+        }
     }
 }
 
@@ -2857,6 +3355,10 @@ void AnalysisView::updateTheme() {
     }
     
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    if (toolsLockButton_) {
+        toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
+    applyToolsPanelTheme();
 
     // Re-apply the current delete-mode state (the segment itself is always
     // visible now, so drive it from the toggle instead of button visibility).
@@ -2869,14 +3371,9 @@ void AnalysisView::setPlaybackPosition(double frame) {
     frameInput_->setText(QString::number(frame, 'f', 1));
 }
 
-void AnalysisView::onLinkCamerasToggled(bool linked) {
-    // Placeholder implementation for linking cameras
-    // In a real implementation this would synchronize zoom/pan across all camera widgets
-    std::cout << "[AnalysisView] Link Cameras toggled: " << (linked ? "ON" : "OFF") << std::endl;
-}
-
 void AnalysisView::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
+    positionToolsPanel();
     updateSliderZeroMarker();
     updateAnnotationSliderMarkers();
     updateLogTableReasonWidths();
@@ -2884,6 +3381,7 @@ void AnalysisView::resizeEvent(QResizeEvent* event) {
 
 void AnalysisView::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
+    positionToolsPanel();
 
     // The sidebar is fixed-width, so this only runs once the tables have their
     // final size; makes Trigger Time + Reason fill the visible width.
@@ -2969,8 +3467,17 @@ void AnalysisView::clearData() {
         setCameraCount(configuredCameraCount);
     }
     eventAnnotations_ = QJsonObject();
+    cameraFrameOffsets_.clear();
+    defectMarks_ = QJsonObject();
+    syncedMasterFrames_.clear();
+    if (cameraOffsetSpin_) {
+        cameraOffsetSpin_->blockSignals(true);
+        cameraOffsetSpin_->setValue(0);
+        cameraOffsetSpin_->blockSignals(false);
+    }
     updateAnnotationSliderMarkers();
     updatePlaybackControlsState();
+    updateAlignmentStatus();
 
     std::cout << "[AnalysisView] Data cleared." << std::endl;
 }
@@ -2998,29 +3505,746 @@ int AnalysisView::currentEventCameraPositionMm(int cameraId) const {
 }
 
 QString AnalysisView::currentSpeedSummary(double relativeSeconds) const {
-    if (!std::isfinite(currentEventInfo_.speedValue)) {
+    if (!SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            && !std::isfinite(currentEventInfo_.speedValue)) {
         return QString();
     }
 
+    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
+    const int basePositionMm = detailTabActive ? currentEventCameraPositionMm(selectedCameraId_) : 0;
+    // Local speed at the selected camera (interpolated between the recorded
+    // speed anchors), so draw between drive groups is reflected here too.
+    const double localSpeed = SpeedProfile::speedAt(
+        basePositionMm, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+
     QStringList parts;
-    parts.append(QString("Speed %1 %2")
-        .arg(currentEventInfo_.speedValue, 0, 'f', 2)
+    parts.append(QString("%1 %2")
+        .arg(localSpeed, 0, 'f', 2)
         .arg(currentEventInfo_.speedUnit.isEmpty() ? QStringLiteral("m/min") : currentEventInfo_.speedUnit));
 
-    const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
     if (detailTabActive) {
-        const int cameraId = selectedCameraId_;
-        const int basePositionMm = currentEventCameraPositionMm(cameraId);
-        const double deltaMm = currentEventInfo_.speedValue * 1000.0 / 60.0 * relativeSeconds
+        const double deltaMm = localSpeed * 1000.0 / 60.0 * relativeSeconds
             * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
-        parts.append(QString("Δ %1 mm").arg(deltaMm, 0, 'f', 1));
-        parts.append(QString("Pos %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1));
+        parts.append(QString("%1 mm").arg(deltaMm, 0, 'f', 1));
+        parts.append(QString("%1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1));
     }
 
     if (currentEventInfo_.speedStale) {
         parts.append(QStringLiteral("Stale"));
     }
     return parts.join(" | ");
+}
+
+void AnalysisView::onCameraOffsetChanged(int value) {
+    if (!isReviewMode_ || selectedCameraId_ < 0) {
+        return;
+    }
+    if (selectedCameraId_ >= static_cast<int>(cameraFrameOffsets_.size())) {
+        return;
+    }
+    cameraFrameOffsets_[selectedCameraId_] = value;
+    renderCurrentReviewFrame(false);
+    saveEventAnnotations();
+    updateAlignmentStatus();
+}
+
+void AnalysisView::onToolsLockToggled() {
+    toolsLocked_ = !toolsLocked_;
+    if (toolsLockButton_) {
+        toolsLockButton_->setText(toolsLocked_ ? "Unlock" : "Lock");
+        toolsLockButton_->setToolTip(toolsLocked_
+            ? "Pinned: the panel stays visible even when the mouse leaves it."
+            : "Unpinned: the panel auto-shows when the mouse hovers its area and hides on leave.");
+    }
+    if (toolsLocked_) {
+        toolsPanelShown_ = true;
+        animateToolsPanelShow();
+    } else {
+        onToolsHoverTick();  // hide immediately if the cursor is elsewhere
+    }
+}
+
+void AnalysisView::restyleToolsEdgeTab() {
+    if (!toolsEdgeTab_) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const bool hovered = toolsTabHovered_;
+    const QString bg = hovered ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString border = hovered ? tc.primary : tc.border;
+    toolsEdgeTab_->setStyleSheet(QString(
+        "QWidget#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
+        " border-radius: 4px; }")
+        .arg(bg, border));
+    const QColor fg = hovered ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    toolsEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
+                                                   toolsEdgeTab_->width(),
+                                                   toolsEdgeTab_->height()));
+}
+
+void AnalysisView::applyToolsPanelTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    if (rightToolsPanel_) {
+        rightToolsPanel_->setStyleSheet(QString(
+            "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
+            .arg(tc.bg, tc.border));
+    }
+    if (markerToolCheck_) {
+        markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    }
+    if (markerShapeCombo_) {
+        markerShapeCombo_->setStyleSheet(QString(
+            "QComboBox { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 6px; }"
+            "QComboBox:hover { border-color: %4; }"
+            "QComboBox::drop-down { border: none; width: 18px; }"
+            "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %5; }")
+            .arg(tc.btnBg, tc.text, tc.border, tc.primary, tc.btnHover));
+    }
+    if (zoomSlider_) {
+        zoomSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
+    }
+    if (brightnessSlider_) {
+        brightnessSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
+    }
+    if (zoomValueLabel_) {
+        zoomValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 34px;").arg(tc.text));
+    }
+    if (brightnessValueLabel_) {
+        brightnessValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 30px;").arg(tc.text));
+    }
+    if (resetToolsButton_) {
+        resetToolsButton_->setStyleSheet(makeSidebarOutlineButtonStyle(tc));
+    }
+    if (cameraOffsetSpin_) {
+        cameraOffsetSpin_->setStyleSheet(QString(
+            "QSpinBox { background: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 4px; }"
+            "QSpinBox:focus { border-color: %4; }").arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    }
+    if (markDefectButton_) {
+        markDefectButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
+    }
+    if (alignButton_) {
+        alignButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
+    if (resetOffsetsButton_) {
+        resetOffsetsButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
+    restyleToolsEdgeTab();
+}
+
+void AnalysisView::onToolsHoverTick() {
+    if (!rightToolsPanel_ || !mainArea_ || toolsLocked_) {
+        return;
+    }
+    // Unpinned: the vertical TOOLS tab is the handle — hovering it reveals the
+    // panel, and it stays open while the cursor is over the tab or the panel
+    // itself. Leaving both hides it again (with the fade+slide transition).
+    const QPoint pos = mainArea_->mapFromGlobal(QCursor::pos());
+    const QRect panelRect = toolsPanelRestingRect_;
+    // Widen the tab's hit area slightly so the 2px seam between the tab and
+    // the panel body doesn't hide the panel while the cursor crosses it.
+    const QRect tabRect = toolsEdgeTab_
+        ? toolsEdgeTab_->geometry().adjusted(-3, 0, 0, 0)
+        : QRect();
+    const bool overTab = tabRect.contains(pos);
+    if (overTab != toolsTabHovered_) {
+        toolsTabHovered_ = overTab;
+        restyleToolsEdgeTab();
+    }
+    const bool overPanel = panelRect.contains(pos);
+    // "Actually visible" means shown and not yet faded out, so moving back
+    // onto the panel mid-hide reverses the transition instead of waiting.
+    const bool shouldShow = overTab || (toolsPanelActuallyVisible() && overPanel);
+    if (shouldShow != toolsPanelShown_) {
+        toolsPanelShown_ = shouldShow;
+        if (shouldShow) {
+            animateToolsPanelShow();
+        } else {
+            animateToolsPanelHide();
+        }
+    }
+}
+
+bool AnalysisView::toolsPanelActuallyVisible() const {
+    return rightToolsPanel_ && rightToolsPanel_->isVisible()
+        && (!toolsPanelOpacity_ || toolsPanelOpacity_->opacity() > 0.01);
+}
+
+// Attach the fade effect only for the duration of a transition, so the panel
+// renders natively (no compositing, no X11 artifacts) while idle or hidden.
+void AnalysisView::ensureToolsPanelOpacityEffect() {
+    if (!toolsPanelOpacity_) {
+        toolsPanelOpacity_ = new QGraphicsOpacityEffect(rightToolsPanel_);
+        rightToolsPanel_->setGraphicsEffect(toolsPanelOpacity_);
+        if (toolsPanelFadeAnim_) {
+            toolsPanelFadeAnim_->setTargetObject(toolsPanelOpacity_);
+        }
+    }
+}
+
+void AnalysisView::clearToolsPanelOpacityEffect() {
+    if (rightToolsPanel_ && toolsPanelOpacity_) {
+        rightToolsPanel_->setGraphicsEffect(nullptr);  // deletes the effect
+        toolsPanelOpacity_ = nullptr;
+        if (toolsPanelFadeAnim_) {
+            toolsPanelFadeAnim_->setTargetObject(nullptr);
+        }
+    }
+}
+
+void AnalysisView::animateToolsPanelShow() {
+    if (!rightToolsPanel_ || !toolsPanelFadeAnim_ || !toolsPanelSlideAnim_) {
+        return;
+    }
+    // Already fully shown and idle (no effect attached): just keep it on top.
+    if (rightToolsPanel_->isVisible() && !toolsPanelOpacity_) {
+        rightToolsPanel_->raise();
+        toolsEdgeTab_->raise();
+        return;
+    }
+    // Reverse any in-flight hide.
+    toolsPanelFadeAnim_->stop();
+    toolsPanelSlideAnim_->stop();
+    ensureToolsPanelOpacityEffect();
+
+    const QRect target = toolsPanelRestingRect_;
+    QRect start = rightToolsPanel_->geometry();
+    if (!rightToolsPanel_->isVisible() || start.isEmpty()) {
+        start = target.translated(kToolsSlidePx, 0);  // slide in from the right
+        toolsPanelOpacity_->setOpacity(0.0);
+    }
+    toolsPanelSlideAnim_->setStartValue(start);
+    toolsPanelSlideAnim_->setEndValue(target);
+    toolsPanelSlideAnim_->setDuration(160);
+    toolsPanelSlideAnim_->setEasingCurve(QEasingCurve::OutCubic);
+    toolsPanelFadeAnim_->setStartValue(toolsPanelOpacity_->opacity());
+    toolsPanelFadeAnim_->setEndValue(1.0);
+    toolsPanelFadeAnim_->setDuration(160);
+    toolsPanelFadeAnim_->setEasingCurve(QEasingCurve::OutCubic);
+
+    rightToolsPanel_->show();
+    rightToolsPanel_->raise();
+    toolsEdgeTab_->raise();  // tab stays on top so the panel slides behind it
+    toolsPanelFadeAnim_->start();
+    toolsPanelSlideAnim_->start();
+}
+
+void AnalysisView::animateToolsPanelHide() {
+    if (!rightToolsPanel_ || !toolsPanelFadeAnim_ || !toolsPanelSlideAnim_) {
+        return;
+    }
+    // Reverse any in-flight show.
+    toolsPanelFadeAnim_->stop();
+    toolsPanelSlideAnim_->stop();
+    // A freshly-created effect starts at opacity 1.0 — exactly the right
+    // starting point when hiding from the idle (effect-less) shown state.
+    ensureToolsPanelOpacityEffect();
+    if (!rightToolsPanel_->isVisible() || toolsPanelOpacity_->opacity() <= 0.001) {
+        rightToolsPanel_->hide();
+        clearToolsPanelOpacityEffect();
+        return;
+    }
+
+    const QRect start = rightToolsPanel_->geometry();
+    const QRect target = start.translated(kToolsSlidePx, 0);  // retract toward the edge
+    toolsPanelSlideAnim_->setStartValue(start);
+    toolsPanelSlideAnim_->setEndValue(target);
+    toolsPanelSlideAnim_->setDuration(140);
+    toolsPanelSlideAnim_->setEasingCurve(QEasingCurve::InCubic);
+    toolsPanelFadeAnim_->setStartValue(toolsPanelOpacity_->opacity());
+    toolsPanelFadeAnim_->setEndValue(0.0);
+    toolsPanelFadeAnim_->setDuration(140);
+    toolsPanelFadeAnim_->setEasingCurve(QEasingCurve::InCubic);
+    toolsPanelFadeAnim_->start();
+    toolsPanelSlideAnim_->start();
+}
+
+void AnalysisView::onToolsPanelHideFinished() {
+    if (!rightToolsPanel_) {
+        return;
+    }
+    if (toolsPanelShown_) {
+        // Show completed: drop the fade effect so the fully-opaque panel isn't
+        // permanently composited (avoids the X11 opacity-artifact warnings).
+        clearToolsPanelOpacityEffect();
+        return;
+    }
+    if (toolsPanelOpacity_ && toolsPanelOpacity_->opacity() <= 0.001) {
+        rightToolsPanel_->hide();
+        // Snap back so the next show animates from the resting position.
+        if (!toolsPanelRestingRect_.isEmpty()) {
+            rightToolsPanel_->setGeometry(toolsPanelRestingRect_);
+        }
+        clearToolsPanelOpacityEffect();
+    }
+}
+
+void AnalysisView::positionToolsPanel() {
+    if (!rightToolsPanel_ || !mainArea_ || !tabWidget_) {
+        return;
+    }
+    // Panel aligned exactly with the video frame area (below the tab bar,
+    // above the playback panel). The vertical TOOLS tab sticks out of the
+    // frame's right edge like a drawer handle; the panel body sits just left
+    // of it so the tab stays visible as a grip. Hiding/showing never resizes
+    // the cameras.
+    const int margin = 6;
+    const QRect tabRect = tabWidget_->geometry();
+    const int tabBarH = tabWidget_->tabBar() ? tabWidget_->tabBar()->height() : 32;
+    const int top = tabRect.y() + tabBarH + margin;
+    const int bottom = tabRect.y() + tabRect.height() - margin;
+    const int panelH = qMax(120, bottom - top);
+    const int rightEdge = mainArea_->width() - margin;
+    const int tabW = toolsEdgeTab_ ? toolsEdgeTab_->width() : 0;
+    const int tabH = toolsEdgeTab_ ? toolsEdgeTab_->height() : 0;
+    if (toolsEdgeTab_) {
+        // Flush against the frame's right edge, vertically centered.
+        toolsEdgeTab_->setGeometry(rightEdge - tabW,
+                                   top + (panelH - tabH) / 2,
+                                   tabW, tabH);
+    }
+    // Panel body immediately left of the tab handle (2px breathing room).
+    const QRect panelRect(rightEdge - tabW - 2 - rightToolsPanel_->width(),
+                          top,
+                          rightToolsPanel_->width(),
+                          panelH);
+    toolsPanelRestingRect_ = panelRect;
+    rightToolsPanel_->setGeometry(panelRect);
+    // A resize while animating would fight the animation targets — stop and
+    // snap to the resting state; the hover timer re-evaluates on its next tick.
+    if (toolsPanelSlideAnim_ && toolsPanelSlideAnim_->state() == QAbstractAnimation::Running) {
+        toolsPanelSlideAnim_->stop();
+    }
+    if (toolsPanelFadeAnim_ && toolsPanelFadeAnim_->state() == QAbstractAnimation::Running) {
+        toolsPanelFadeAnim_->stop();
+    }
+    if (toolsPanelShown_) {
+        rightToolsPanel_->show();
+    } else {
+        rightToolsPanel_->hide();
+    }
+    clearToolsPanelOpacityEffect();  // idle: no compositing while static
+    rightToolsPanel_->raise();
+    toolsEdgeTab_->raise();  // tab on top: the panel slides behind it when hiding
+}
+
+QVector<int> AnalysisView::defectMarkFrames(const QJsonValue& value) const {
+    QVector<int> frames;
+    if (value.isArray()) {
+        const QJsonArray arr = value.toArray();
+        for (const QJsonValue& item : arr) {
+            if (item.isDouble()) {
+                frames.append(static_cast<int>(item.toDouble()));
+            }
+        }
+    } else if (value.isDouble()) {
+        // Legacy sidecar: single frame index per camera.
+        frames.append(static_cast<int>(value.toDouble()));
+    }
+    return frames;
+}
+
+QVector<int> AnalysisView::defectMarksForCamera(int camIndex) const {
+    const auto it = defectMarks_.find(QString("cam%1").arg(camIndex + 1));
+    if (it == defectMarks_.end()) {
+        return QVector<int>();
+    }
+    return defectMarkFrames(it.value());
+}
+
+void AnalysisView::markDefectForSelectedCamera() {
+    if (!isReviewMode_ || selectedCameraId_ < 0) {
+        return;
+    }
+    const int frame = displayedFrameIndexForCamera(selectedCameraId_, currentReviewFrameIndex());
+    QVector<int> frames = defectMarksForCamera(selectedCameraId_);
+    if (!frames.contains(frame)) {
+        frames.append(frame);
+        QJsonArray arr;
+        for (int f : frames) {
+            arr.append(f);
+        }
+        defectMarks_[QString("cam%1").arg(selectedCameraId_ + 1)] = arr;
+        saveEventAnnotations();
+    }
+    updateAnnotationSliderMarkers();
+    updateAlignmentStatus();
+}
+
+bool AnalysisView::tryAlignToMarks() {
+    // Collect marks for cameras present in this event only (stale sidecar marks
+    // from cameras outside the event never participate).
+    QMap<int, QVector<int>> marksByCam;
+    for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
+        const int camIndex = it.key().mid(3).toInt() - 1;
+        if (camIndex < 0 || videoReaders_.count(camIndex) == 0) {
+            continue;
+        }
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (!frames.isEmpty()) {
+            marksByCam[camIndex] = frames;
+        }
+    }
+    if (marksByCam.size() < 2) {
+        return false;
+    }
+
+    const int refCam = marksByCam.firstKey();
+    const QVector<int>& refMarks = marksByCam[refCam];
+
+    double fps = videoReaders_.begin()->second->getFps();
+    if (fps <= 0.0) fps = CameraConfig::getFps();
+    if (fps <= 0.0) fps = 10.0;
+    const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
+    const bool speedOk = (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+            || (std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0))
+        && !currentEventInfo_.speedStale;
+    const int refPos = speedOk ? currentEventCameraPositionMm(refCam) : 0;
+
+    QStringList applied;
+    QStringList appliedNamed;
+    QStringList fallbackCams;
+    QStringList fallbackReason;
+    for (auto& pair : videoReaders_) {
+        const int cam = pair.first;
+        if (marksByCam.contains(cam)) {
+            const QVector<int>& marks = marksByCam[cam];
+            const int n = qMin(refMarks.size(), marks.size());
+            if (n <= 0) {
+                cameraFrameOffsets_[cam] = 0;
+                continue;
+            }
+            // Offset = mean over the k-th mark pairs of (this cam's mark minus
+            // the reference cam's mark): master = mark - offset must equal the
+            // reference master, so offset[cam] = marks[cam] - marks[ref].
+            double sum = 0.0;
+            for (int k = 0; k < n; ++k) {
+                sum += static_cast<double>(marks[k] - refMarks[k]);
+            }
+            const int offset = static_cast<int>(std::lround(sum / n));
+            cameraFrameOffsets_[cam] = offset;
+            if (offset != 0) {
+                const QString seconds = QString("%1 s").arg(static_cast<double>(offset) / fps, 0, 'f', 3);
+                applied << QString("%1 %2 f (%3)").arg(cam + 1).arg(offset).arg(seconds);
+                appliedNamed << QString("cam%1 %2 f (%3)").arg(cam + 1).arg(offset).arg(seconds);
+            }
+        } else {
+            // Unmarked camera: fall back to the speed/position formula.
+            if (speedOk && refPos > 0) {
+                const int pos = currentEventCameraPositionMm(cam);
+                if (pos <= 0) {
+                    cameraFrameOffsets_[cam] = 0;
+                    fallbackCams << QString("cam%1").arg(cam + 1);
+                    fallbackReason << QString("cam%1 no position").arg(cam + 1);
+                    continue;
+                }
+                // Local speed at this camera (interpolated between the recorded
+                // speed anchors), so the draw between drive groups is reflected.
+                const double localSpeed = SpeedProfile::speedAt(
+                    pos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+                const double framesPerMm = fps * 60.0 / (localSpeed * 1000.0);
+                const int deltaMm = (pos - refPos) * sign;
+                const int offset = static_cast<int>(std::lround(deltaMm * framesPerMm));
+                cameraFrameOffsets_[cam] = offset;
+                fallbackCams << QString("cam%1").arg(cam + 1);
+                if (offset != 0) {
+                    applied << QString("%1 %2 f").arg(cam + 1).arg(offset);
+                }
+            } else {
+                cameraFrameOffsets_[cam] = 0;
+                fallbackCams << QString("cam%1").arg(cam + 1);
+                fallbackReason << QString("cam%1 no speed").arg(cam + 1);
+            }
+        }
+    }
+
+    saveEventAnnotations();
+    if (cameraOffsetSpin_ && selectedCameraId_ >= 0) {
+        cameraOffsetSpin_->blockSignals(true);
+        cameraOffsetSpin_->setValue(cameraFrameOffsets_[selectedCameraId_]);
+        cameraOffsetSpin_->blockSignals(false);
+    }
+    renderCurrentReviewFrame(false);
+    updateAlignmentStatus();
+    if (alignStatusLabel_) {
+        const QString head = QString("Aligned to marks (ref cam%1)").arg(refCam + 1);
+        const QString detail = applied.isEmpty()
+            ? QString("cameras already in sync")
+            : applied.join(", ");
+        if (fallbackCams.isEmpty()) {
+            alignStatusLabel_->setText(QString("%1: %2").arg(head, detail));
+            alignStatusLabel_->setToolTip(QString("%1: %2 (marked cameras; no speed needed)").arg(head, appliedNamed.isEmpty()
+                ? QString("cameras already in sync") : appliedNamed.join(", ")));
+        } else {
+            alignStatusLabel_->setText(QString("%1: %2 · speed fallback: %3")
+                .arg(head, detail, fallbackCams.join(", ")));
+            alignStatusLabel_->setToolTip(QString("%1: %2 · speed fallback for %3")
+                .arg(head, detail, fallbackReason.join(", ")));
+        }
+    }
+    return true;
+}
+
+void AnalysisView::applyCameraAlignment() {
+    if (!isReviewMode_ || videoReaders_.empty()) {
+        return;
+    }
+
+    // Placed defect marks are the ground truth of the sync: prefer them whenever
+    // at least two cameras in this event carry marks.
+    if (tryAlignToMarks()) {
+        return;
+    }
+
+    // Fallback: machine speed comes from the OPC UA speed tags captured with
+    // the event (EventInfo.speedValue + speedAnchors). No manual override.
+    const bool speedOk = SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
+        || (std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0);
+    if (!speedOk) {
+        if (alignStatusLabel_) alignStatusLabel_->setText("No Machine Speed captured for this event — mark defects on >= 2 cameras, then Align");
+        return;
+    }
+    if (currentEventInfo_.speedStale) {
+        if (alignStatusLabel_) alignStatusLabel_->setText("Machine Speed was stale at capture — mark defects on >= 2 cameras, then Align");
+        return;
+    }
+    const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
+        ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
+
+    double fps = videoReaders_.begin()->second->getFps();
+    if (fps <= 0.0) fps = CameraConfig::getFps();
+    if (fps <= 0.0) fps = 10.0;
+
+    const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
+
+    const int refCam = videoReaders_.begin()->first;
+    const int refPos = currentEventCameraPositionMm(refCam);
+    if (refPos <= 0) {
+        if (alignStatusLabel_) alignStatusLabel_->setText("Set camera positions in Camera config, then Align");
+        return;
+    }
+    const double refLocalSpeed = SpeedProfile::speedAt(
+        refPos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+
+    QStringList applied;
+    QStringList appliedNamed;
+    for (auto& pair : videoReaders_) {
+        const int pos = currentEventCameraPositionMm(pair.first);
+        if (pos <= 0) {
+            cameraFrameOffsets_[pair.first] = 0;
+            continue;
+        }
+        // Local speed at this camera (interpolated between the recorded speed
+        // anchors), so the draw between drive groups is reflected in the offset.
+        const double localSpeed = SpeedProfile::speedAt(
+            pos, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
+        const double framesPerMm = fps * 60.0 / (localSpeed * 1000.0);
+        const int deltaMm = (pos - refPos) * sign;
+        const int offset = static_cast<int>(std::lround(deltaMm * framesPerMm));
+        cameraFrameOffsets_[pair.first] = offset;
+        if (offset != 0) {
+            const QString seconds = QString("%1 s").arg(static_cast<double>(offset) / fps, 0, 'f', 3);
+            applied << QString("%1 %2 f (%3)").arg(pair.first + 1).arg(offset).arg(seconds);
+            appliedNamed << QString("cam%1 %2 f (%3)").arg(pair.first + 1).arg(offset).arg(seconds);
+        }
+    }
+
+    saveEventAnnotations();
+    if (cameraOffsetSpin_ && selectedCameraId_ >= 0) {
+        cameraOffsetSpin_->blockSignals(true);
+        cameraOffsetSpin_->setValue(cameraFrameOffsets_[selectedCameraId_]);
+        cameraOffsetSpin_->blockSignals(false);
+    }
+    renderCurrentReviewFrame(false);
+    updateAlignmentStatus();
+    if (alignStatusLabel_) {
+        const QString speedText = QString("%1 %2").arg(refLocalSpeed, 0, 'f', 1).arg(speedUnit);
+        if (applied.isEmpty()) {
+            alignStatusLabel_->setText(QString("Aligned @ %1 — no offset needed (cameras already aligned)").arg(speedText));
+            alignStatusLabel_->setToolTip(QString("Aligned at %1 — no camera needed a shift.").arg(speedText));
+        } else {
+            alignStatusLabel_->setText(QString("Aligned @ %1: %2").arg(speedText, applied.join(", ")));
+            alignStatusLabel_->setToolTip(QString("Aligned at %1: %2").arg(speedText, appliedNamed.join(", ")));
+        }
+    }
+}
+
+void AnalysisView::clearCameraOffsets() {
+    std::fill(cameraFrameOffsets_.begin(), cameraFrameOffsets_.end(), 0);
+    saveEventAnnotations();
+    renderCurrentReviewFrame(false);
+    updateAlignmentStatus();
+    if (cameraOffsetSpin_ && selectedCameraId_ >= 0) {
+        cameraOffsetSpin_->blockSignals(true);
+        cameraOffsetSpin_->setValue(0);
+        cameraOffsetSpin_->blockSignals(false);
+    }
+}
+
+void AnalysisView::updateAlignmentStatus() {
+    if (!alignStatusLabel_) {
+        return;
+    }
+    if (!isReviewMode_) {
+        alignStatusLabel_->setText("—");
+        syncedMasterFrames_.clear();
+        applySyncIndicators();
+        return;
+    }
+    const int numReaders = static_cast<int>(videoReaders_.size());
+
+    // Alignment verdict: when the k-th marked defect of every marked camera
+    // displays at the same master frame (mark - offset), all cameras are in sync.
+    // Only marks from cameras present in this event count (stale sidecar marks
+    // for cameras outside the event are ignored).
+    int markedCamCount = 0;
+    QMap<int, QVector<int>> markMasterFrames;  // camera index -> master frames
+    for (auto it = defectMarks_.begin(); it != defectMarks_.end(); ++it) {
+        const int camIndex = it.key().mid(3).toInt() - 1;
+        if (camIndex < 0 || videoReaders_.count(camIndex) == 0) {
+            continue;
+        }
+        const QVector<int> frames = defectMarkFrames(it.value());
+        if (frames.isEmpty()) {
+            continue;
+        }
+        ++markedCamCount;
+        QVector<int> masters;
+        masters.reserve(frames.size());
+        const int offset = (camIndex >= 0 && camIndex < static_cast<int>(cameraFrameOffsets_.size()))
+            ? cameraFrameOffsets_[camIndex] : 0;
+        for (int f : frames) {
+            masters.append(f - offset);
+        }
+        markMasterFrames[camIndex] = masters;
+    }
+
+    QString text = QString("Marks: %1/%2 cameras — mark the same defect on >= 2 cameras, then Align")
+        .arg(markedCamCount).arg(numReaders);
+    QString named = text;
+
+    syncedMasterFrames_.clear();
+    if (markMasterFrames.size() >= 2) {
+        // Compare marks pairwise (k-th mark of every camera). A camera with fewer
+        // marks simply doesn't participate in the k-th comparison.
+        int maxMarks = 0;
+        for (auto it = markMasterFrames.constBegin(); it != markMasterFrames.constEnd(); ++it) {
+            maxMarks = qMax(maxMarks, it.value().size());
+        }
+        QVector<int> synced;
+        QStringList disagreeNotes;
+        int firstMarkMin = 0, firstMarkMax = 0;
+        bool haveFirst = false;
+        for (int k = 0; k < maxMarks; ++k) {
+            int value = -1;
+            bool agree = true;
+            int kMin = 0, kMax = 0;
+            bool haveK = false;
+            for (auto it = markMasterFrames.constBegin(); it != markMasterFrames.constEnd(); ++it) {
+                if (k >= it.value().size()) {
+                    continue;  // this camera has no k-th mark — not a disagreement
+                }
+                const int cur = it.value().at(k);
+                if (value < 0) {
+                    value = cur;
+                    kMin = kMax = cur;
+                    haveK = true;
+                    if (k == 0) {
+                        firstMarkMin = firstMarkMax = cur;
+                        haveFirst = true;
+                    }
+                } else if (cur != value) {
+                    agree = false;
+                    kMin = qMin(kMin, cur);
+                    kMax = qMax(kMax, cur);
+                    if (k == 0) {
+                        firstMarkMin = qMin(firstMarkMin, cur);
+                        firstMarkMax = qMax(firstMarkMax, cur);
+                    }
+                }
+            }
+            if (agree && value >= 0) {
+                synced.append(value);
+            } else if (haveK) {
+                disagreeNotes << QString("mark %1 off by %2 f").arg(k + 1).arg(kMax - kMin);
+            }
+        }
+        syncedMasterFrames_ = synced;
+
+        if (!synced.isEmpty()) {
+            QStringList framesText;
+            QStringList framesTextNamed;
+            for (int f : synced) {
+                const double seconds = relativeSecondsForFrameIndex(f);
+                framesText << QString("%1 (%2%3 s)")
+                    .arg(f).arg(seconds >= 0.0 ? "+" : "").arg(seconds, 0, 'f', 3);
+                framesTextNamed << QString("frame %1 (%2%3 s)")
+                    .arg(f).arg(seconds >= 0.0 ? "+" : "").arg(seconds, 0, 'f', 3);
+            }
+            text += QString(" · all defects @ %1").arg(framesText.join(", "));
+            named += QString(" · all defects @ %1").arg(framesTextNamed.join(", "));
+            if (!disagreeNotes.isEmpty()) {
+                text += QString(" · %1 — re-check marks").arg(disagreeNotes.join(", "));
+                named += QString(" · %1 — re-check marks").arg(disagreeNotes.join(", "));
+            }
+        } else if (haveFirst) {
+            text += QString(" · first marks differ by %1 f — re-check marks").arg(firstMarkMax - firstMarkMin);
+            named += QString(" · first marks differ by %1 frames — re-check marks").arg(firstMarkMax - firstMarkMin);
+        }
+    }
+    alignStatusLabel_->setText(text);
+    alignStatusLabel_->setToolTip(named);
+    applySyncIndicators();
+}
+
+void AnalysisView::applySyncIndicators() {
+    // Show the crosshair only while viewing a master frame where every marked
+    // camera's defect is confirmed to line up.
+    const bool show = isReviewMode_ && !syncedMasterFrames_.isEmpty()
+        && syncedMasterFrames_.contains(currentReviewFrameIndex());
+    const QString label = show
+        ? QString("SYNC @ frame %1").arg(currentReviewFrameIndex())
+        : QString();
+
+    for (auto& pair : videoReaders_) {
+        const int cam = pair.first;
+        if (cam >= 0 && cam < static_cast<int>(cameraWidgets_.size()) && cameraWidgets_[cam]) {
+            cameraWidgets_[cam]->setSyncIndicator(show, label, syncIndicatorPosForCamera(cam));
+        }
+    }
+    if (selectedCameraWidget_) {
+        const int cam = selectedCameraWidget_->getCameraId();
+        if (cam >= 0) {
+            selectedCameraWidget_->setSyncIndicator(show, label, syncIndicatorPosForCamera(cam));
+        }
+    }
+}
+
+QPointF AnalysisView::syncIndicatorPosForCamera(int camIndex) const {
+    // Anchor the crosshair on the drawn annotation of this camera's first marked
+    // frame (the defect spot); fall back to frame center.
+    const QVector<int> marks = defectMarksForCamera(camIndex);
+    if (!marks.isEmpty()) {
+        const QString key = annotationKey(camIndex, marks.first());
+        if (eventAnnotations_.contains(key) && eventAnnotations_[key].isObject()) {
+            const QJsonObject ann = eventAnnotations_[key].toObject();
+            const QJsonArray pts = ann["points"].toArray();
+            double sx = 0.0, sy = 0.0;
+            int n = 0;
+            for (const QJsonValue& val : pts) {
+                const QJsonObject p = val.toObject();
+                if (p.contains("nx") && p.contains("ny")) {
+                    sx += p["nx"].toDouble();
+                    sy += p["ny"].toDouble();
+                    ++n;
+                }
+            }
+            if (n > 0) {
+                return QPointF(sx / n, sy / n);
+            }
+        }
+    }
+    return QPointF(0.5, 0.5);
 }
 
 

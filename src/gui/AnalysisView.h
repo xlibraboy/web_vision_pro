@@ -26,7 +26,12 @@
 #include <QtConcurrent>
 #include <QDateTime>
 #include <QTimer>
+#include <QPropertyAnimation>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QMap>
+#include <QVector>
+#include <QPointF>
 #include <QStringList>
 #include <vector>
 #include <deque>
@@ -39,6 +44,7 @@
 
 
 class AnalysisVideoWidget;
+class QGraphicsOpacityEffect;
 
 /**
  * Analysis View - Video playback and analysis interface
@@ -90,7 +96,6 @@ public slots:
 private slots:
     void onServerButtonClicked();
     void onAdminButtonClicked();
-    void onLinkCamerasToggled(bool linked);
     void onDeleteClicked();
     void onTogglePermanentClicked();
     
@@ -113,6 +118,8 @@ private slots:
     void onFrameInputChanged();
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
+    // How many frames one step / scrub advances at the current speed selector.
+    int playbackStepSize() const;
 
     // Diagnostic tab refresh slots
     void refreshDiagTable();
@@ -144,6 +151,41 @@ private:
     void updateAnnotationSliderMarkers();
     void setPlaybackPlaying(bool playing);
     void seekToRelativeFrame(double relativeFrame);
+
+    // Per-camera playback alignment (review-time defect sync)
+    int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;
+    void markDefectForSelectedCamera();
+    void applyCameraAlignment();
+    // Align cameras using placed defect marks as ground truth (needs >= 2 marked
+    // cameras in this event). Returns false to let applyCameraAlignment fall back
+    // to the machine-speed/position formula.
+    bool tryAlignToMarks();
+    void clearCameraOffsets();
+    void updateAlignmentStatus();
+    void onCameraOffsetChanged(int value);
+    // Defect-mark helpers (a camera may carry several marks).
+    // Parses a sidecar value: legacy single int or new array of ints.
+    QVector<int> defectMarkFrames(const QJsonValue& value) const;
+    QVector<int> defectMarksForCamera(int camIndex) const;
+    // Sync crosshair: show on every camera view while viewing a synced frame.
+    void applySyncIndicators();
+    QPointF syncIndicatorPosForCamera(int camIndex) const;
+
+    // Right tools panel
+    void onToolsLockToggled();
+    void onToolsHoverTick();
+    void positionToolsPanel();
+    void restyleToolsEdgeTab();
+    void applyToolsPanelTheme();
+    // Show/hide transition (fade + slide).
+    void animateToolsPanelShow();
+    void animateToolsPanelHide();
+    void onToolsPanelHideFinished();
+    bool toolsPanelActuallyVisible() const;
+    // Attach/remove the fade effect around a transition only, so the panel
+    // renders natively (no compositing artifacts) while idle or hidden.
+    void ensureToolsPanelOpacityEffect();
+    void clearToolsPanelOpacityEffect();
     
     // Main layout
     
@@ -289,7 +331,7 @@ private:
     void renderCurrentReviewFrame(bool updateSlider);
     void seekToFrameIndex(int frameIndex, bool updateSlider = true);
     QString annotationKey(int cameraId, int frameIndex) const;
-    void loadEventAnnotations(const QString& videoPath);
+    QMap<QString, int> loadEventAnnotations(const QString& videoPath);
     void saveEventAnnotations();
     void applyAnnotationToSelectedFrame();
     void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
@@ -335,6 +377,45 @@ private:
     QStringList currentEventCameraLabels_;
     QJsonObject eventAnnotations_;
     EventDatabase::EventInfo currentEventInfo_;
+
+    // Per-camera playback frame offset (slot 0-based) applied on top of the shared
+    // review timeline in renderCurrentReviewFrame(). Index = camera slot.
+    std::vector<int> cameraFrameOffsets_;
+    // Manual defect marks: key "cam{N}" (N 1-based) -> absolute frame index
+    // (legacy sidecars) or array of frame indices (multiple marks per camera).
+    QJsonObject defectMarks_;
+    // Master-frame positions (k-th marks of every marked camera) that are in
+    // sync. Empty when marks don't fully agree; drives the on-frame crosshair.
+    QVector<int> syncedMasterFrames_;
+
+    QPushButton*    markDefectButton_ = nullptr;
+    QSpinBox*       cameraOffsetSpin_ = nullptr;
+    QPushButton*    alignButton_ = nullptr;
+    QPushButton*    resetOffsetsButton_ = nullptr;
+    QLabel*         alignStatusLabel_ = nullptr;
+
+    // Right "Layer" tools panel: all review tools stacked vertically in named
+    // groups, slightly transparent, floating over the video frame area.
+    // Locked = pinned (always visible); unlocked = hover-driven: the vertical
+    // TOOLS tab on the frame's right edge reveals the panel with a fade+slide
+    // transition. The panel owns no graphics effect while idle (depth comes
+    // from its border); a single QGraphicsOpacityEffect is attached only for
+    // the duration of the fade, so nothing is ever nested under another effect
+    // (which renders incorrectly on X11).
+    QWidget*         rightToolsPanel_ = nullptr;
+    QLabel*          toolsEdgeTab_ = nullptr;
+    QPushButton*     toolsLockButton_ = nullptr;
+    QPushButton*     resetToolsButton_ = nullptr;
+    bool             toolsLocked_ = false;  // start unpinned (hover-driven)
+    bool             toolsTabHovered_ = false;  // cursor is over the edge tab
+    QTimer*          toolsHoverTimer_ = nullptr;
+    // Show/hide animation state. toolsPanelOpacity_ is non-null only while a
+    // transition is in progress.
+    QGraphicsOpacityEffect*    toolsPanelOpacity_ = nullptr;
+    QPropertyAnimation*        toolsPanelFadeAnim_ = nullptr;
+    QPropertyAnimation*        toolsPanelSlideAnim_ = nullptr;
+    QRect                      toolsPanelRestingRect_;  // panel rect, mainArea_ coords
+    bool                       toolsPanelShown_ = false;  // target visibility state
 
     
     // On-demand video loading (per active camera)
