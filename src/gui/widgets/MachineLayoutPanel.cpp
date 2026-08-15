@@ -74,14 +74,43 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     headerLayout->addWidget(label);
     headerLayout->addWidget(eventCombo_);
 
-    // Reset view (shown only while zoomed in)
+    // Zoom controls: − / + step the shared mm scale around the view center
+    // (same 2x-per-notch step as the mouse wheel), Reset view restores the
+    // full fit. − / + are always enabled; Reset view only while zoomed.
+    const QString zoomBtnStyle = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 0; font-size: 14px; font-weight: 700; }"
+        "QPushButton:hover { border-color: %4; }"
+        "QPushButton:disabled { color: %5; border-color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name());
+
+    zoomOutBtn_ = new QPushButton(tr("−"), header);
+    zoomOutBtn_->setToolTip(tr("Zoom out (mouse wheel out)"));
+    zoomOutBtn_->setFixedSize(28, 28);
+    zoomOutBtn_->setStyleSheet(zoomBtnStyle);
+    connect(zoomOutBtn_, &QPushButton::clicked, this, [this] {
+        zoomAt((minMm_ + maxMm_) / 2.0, 0.5);
+    });
+    headerLayout->addWidget(zoomOutBtn_);
+
+    zoomInBtn_ = new QPushButton(tr("+"), header);
+    zoomInBtn_->setToolTip(tr("Zoom in (mouse wheel in)"));
+    zoomInBtn_->setFixedSize(28, 28);
+    zoomInBtn_->setStyleSheet(zoomBtnStyle);
+    connect(zoomInBtn_, &QPushButton::clicked, this, [this] {
+        zoomAt((minMm_ + maxMm_) / 2.0, 2.0);
+    });
+    headerLayout->addWidget(zoomInBtn_);
+
+    // Reset view (enabled only while zoomed in)
     resetZoomBtn_ = new QPushButton(tr("Reset view"), header);
     resetZoomBtn_->setStyleSheet(QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
         " border-radius: 6px; padding: 4px 10px; font-size: 12px; }"
         "QPushButton:hover { border-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
-    resetZoomBtn_->setVisible(false);
+        "QPushButton:disabled { color: %5; border-color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name()));
+    resetZoomBtn_->setEnabled(false);  // always visible, enabled only while zoomed
     connect(resetZoomBtn_, &QPushButton::clicked, this, [this] { resetZoom(); });
     headerLayout->addWidget(resetZoomBtn_);
     headerLayout->addStretch(1);
@@ -442,7 +471,11 @@ void MachineLayoutPanel::zoomAt(double centerMm, double factor) {
     // Keep the mm under the cursor at the same screen position.
     double newLo = centerMm - (centerMm - minMm_) / factor;
     double newHi = newLo + span / factor;
-    if (newHi - newLo < minSpan) {
+    // The min-window guard only applies while zooming IN. Clicking a camera
+    // or defect zooms to a tight 1 mm window (zoomToMm), which can be far
+    // below minSpan; zooming OUT from there must always be allowed, otherwise
+    // the user is stuck at the marker and can never zoom back out.
+    if (factor > 1.0 && newHi - newLo < minSpan) {
         return;  // already at maximum zoom
     }
     newLo = std::max(fitMinMm_, newLo);
@@ -451,8 +484,9 @@ void MachineLayoutPanel::zoomAt(double centerMm, double factor) {
         resetZoom();  // zoomed out to (or beyond) the full fit view
         return;
     }
-    if (newHi - newLo < minSpan) {
-        // Clamping collapsed the window — pin it around the cursor.
+    if (factor > 1.0 && newHi - newLo < minSpan) {
+        // Zoom-in collapsed the window while clamping — pin it around the
+        // cursor. (Zooming out can't collapse the window: it only grows.)
         newLo = std::max(fitMinMm_, centerMm - minSpan / 2.0);
         newHi = std::min(fitMaxMm_, centerMm + minSpan / 2.0);
     }
@@ -531,7 +565,7 @@ void MachineLayoutPanel::resetZoom() {
 
 void MachineLayoutPanel::updateZoomUi() {
     if (resetZoomBtn_) {
-        resetZoomBtn_->setVisible(zoomActive_);
+        resetZoomBtn_->setEnabled(zoomActive_);
     }
 }
 
@@ -582,8 +616,8 @@ void MachineLayoutPanel::applyEventFilter() {
 }
 
 double MachineLayoutPanel::niceStep() const {
-    // 1-2-5 ladder over the visible span: the tick step the floor lanes draw
-    // and the position cursor snaps to.
+    // 1-2-5 ladder over the visible span: the tick step the MM POSITION ruler
+    // lane draws and the position cursor snaps to.
     const double span = maxMm_ - minMm_;
     const double raw = span / 8.0;
     const double mag = std::pow(10.0, std::floor(std::log10(raw > 0.0 ? raw : 1.0)));
@@ -696,15 +730,16 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
 
     // Shared layout numbers (lane geometry), hoisted to member accessors later.
     const int leftMargin = 12;
-    const int contentBottom = 460;
+    const int contentBottom = 512;
     const int dy = qMax(0, (height() - contentBottom) / 2);
 
-    // Recompute floorAxisY_ and defectLaneAxisY_ once per paint so the helpers
-    // (and the cursor) can reference them.
+    // Recompute floorAxisY_, defectLaneAxisY_ and mmRulerAxisY_ once per paint
+    // so the helpers (and the cursor) can reference them.
     const int lane1AxisY = floorAxisY_[0] = 56 + dy;
     const int lane2AxisY = floorAxisY_[1] = lane1AxisY + 88;
     const int lane3AxisY = floorAxisY_[2] = lane2AxisY + 88;
     defectLaneAxisY_     = lane3AxisY + 88;
+    mmRulerAxisY_        = defectLaneAxisY_ + 56;
     Q_UNUSED(leftMargin); // each helper computes its own leftMargin
 
     drawSectionBar(painter, tc);
@@ -712,6 +747,7 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     drawFloorLanes(painter, tc);
     drawCameraMarkers(painter, tc);
     drawDefectStrip(painter, tc);
+    drawMmRuler(painter, tc);
     drawPositionCursor(painter, tc);
     drawLegends(painter, tc);
     drawSummary(painter, tc);
@@ -850,8 +886,8 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // floor so every camera position is visible; the defect lane sits below the
     // camera lanes. The whole block is vertically centered in the canvas so
     // there's no dead space at the bottom.
-    constexpr int kLanePitch = 88;  // title row + axis + markers + ticks
-    const int contentBottom = 460;  // approx bottom of the summary/hint text
+    constexpr int kLanePitch = 88;  // title row + axis + markers
+    const int contentBottom = 512;  // approx bottom of the summary/hint text
     const int dy = qMax(0, (height() - contentBottom) / 2);
     const int lane1TitleY = 8 + dy;
     const int lane1AxisY = floorAxisY_[0];
@@ -872,11 +908,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     painter.drawText(leftMargin, lane1TitleY + 14, CameraFloor::name(floorForDisplayRow(0)).toUpper());
     painter.drawText(leftMargin, lane2TitleY + 14, CameraFloor::name(floorForDisplayRow(1)).toUpper());
     painter.drawText(leftMargin, lane3TitleY + 14, CameraFloor::name(floorForDisplayRow(2)).toUpper());
-    painter.drawText(leftMargin, defectTitleY + 14, QString("MARKED & ALIGNED DEFECTS  (mm)"));
-
-    // Nice tick step for the mm axis (shared with the cursor snap; guarded
-    // in case refresh() has not run yet).
-    const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
+    painter.drawText(leftMargin, defectTitleY + 14, QString("MARKED & ALIGNED DEFECTS"));
 
     // Per-lane vertical bounds: split each floor lane into an upper (drive)
     // and lower (operator) sub-row. Axis line is centered; 32px above and 32px below.
@@ -904,36 +936,13 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
                          rows[f].lowerBottom - rows[f].lowerTop, opTint);
     }
 
-    // Axis lines + mm ruler (ticks + labels) on every floor lane so the
-    // position can be read anywhere, not just on the bottom lane. Labels are
-    // thinned when zoomed in so they never collide, and show decimals for
-    // sub-mm steps.
-    QFont tickFont = painter.font();
-    tickFont.setPixelSize(9);
-    painter.setFont(tickFont);
+    // Plain axis lines on every floor lane (markers sit on them). The mm
+    // tick scale now lives on the dedicated MM POSITION lane below the defect
+    // lane (drawMmRuler), so the floor lanes stay clean and uncluttered.
     const int laneAxes[CameraFloor::kCount] = {lane1AxisY, lane2AxisY, lane3AxisY};
-    const double pxPerTick = (width() - 2 * leftMargin) * step
-                           / std::max(1.0, owner_->maxMm_ - owner_->minMm_);
-    const int labelEvery = std::max(1, static_cast<int>(std::ceil(70.0 / std::max(1.0, pxPerTick))));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
-        const int axisY = laneAxes[f];
         painter.setPen(QPen(QColor(tc.border), 1));
-        painter.drawLine(leftMargin, axisY, width() - leftMargin, axisY);
-        const double tickStart = std::ceil(owner_->minMm_ / step) * step;
-        int tickCount = 0;
-        for (double mm = tickStart; mm <= owner_->maxMm_ + step * 0.5; mm += step) {
-            const int x = static_cast<int>(owner_->mmToX(mm));
-            painter.setPen(QPen(QColor(tc.border), 1));
-            painter.drawLine(x, axisY - 4, x, axisY + 4);
-            if (tickCount++ % labelEvery == 0) {
-                painter.setPen(QColor(tc.text));
-                const QString label = (step < 1.0)
-                    ? QString::number(mm, 'f', 1)
-                    : QString::number(mm, 'f', 0);
-                painter.drawText(QRect(x - 40, axisY + 6, 80, 14),
-                                 Qt::AlignHCenter | Qt::AlignTop, label);
-            }
-        }
+        painter.drawLine(leftMargin, laneAxes[f], width() - leftMargin, laneAxes[f]);
     }
 
     // Per-sub-row side labels (left edge). Bold 9px, muted color.
@@ -952,6 +961,51 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
 
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawLine(leftMargin, defectLaneAxisY, width() - leftMargin, defectLaneAxisY);
+}
+
+void MachineLayoutPanel::Canvas::drawMmRuler(QPainter& painter, const ThemeColors& tc) {
+    const int leftMargin = 12;
+    const int axisY = mmRulerAxisY_;
+
+    // Dedicated MM POSITION lane: a single full-scale ruler (ticks + labels)
+    // shared by every floor and defect lane above it, so the exact mm of any
+    // camera or defect can be read in one place.
+    QFont titleFont = painter.font();
+    titleFont.setPixelSize(13);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(leftMargin, axisY - 24, QStringLiteral("MM POSITION"));
+
+    // Axis line
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.drawLine(leftMargin, axisY, width() - leftMargin, axisY);
+
+    // Full-scale ticks + labels (nice step, shared with the cursor snap;
+    // guarded in case refresh() has not run yet).
+    const double step = mmStep_ > 0.0 ? mmStep_ : 100.0;
+    const double pxPerTick = (width() - 2 * leftMargin) * step
+                           / std::max(1.0, owner_->maxMm_ - owner_->minMm_);
+    const int labelEvery = std::max(1, static_cast<int>(std::ceil(70.0 / std::max(1.0, pxPerTick))));
+
+    QFont tickFont = painter.font();
+    tickFont.setPixelSize(9);
+    painter.setFont(tickFont);
+    const double tickStart = std::ceil(owner_->minMm_ / step) * step;
+    int tickCount = 0;
+    for (double mm = tickStart; mm <= owner_->maxMm_ + step * 0.5; mm += step) {
+        const int x = static_cast<int>(owner_->mmToX(mm));
+        painter.setPen(QPen(QColor(tc.border), 1));
+        painter.drawLine(x, axisY - 4, x, axisY + 4);
+        if (tickCount++ % labelEvery == 0) {
+            painter.setPen(QColor(tc.text));
+            const QString label = (step < 1.0)
+                ? QString::number(mm, 'f', 1)
+                : QString::number(mm, 'f', 0);
+            painter.drawText(QRect(x - 40, axisY + 6, 80, 14),
+                             Qt::AlignHCenter | Qt::AlignTop, label);
+        }
+    }
 }
 
 void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const ThemeColors& tc) {
@@ -1044,7 +1098,9 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
         painter.setFont(noteFont);
         painter.setPen(QColor(tc.text));
         const bool singleEvent = owner_->eventCombo_ && owner_->eventCombo_->currentData().toInt() >= 0;
-        painter.drawText(QRect(leftMargin, defectLaneAxisY + 26, width() - 2 * leftMargin, 14),
+        // Note sits above the defect axis (between the lane title and the
+        // axis) so it never collides with the MM POSITION ruler below.
+        painter.drawText(QRect(leftMargin, defectLaneAxisY - 24, width() - 2 * leftMargin, 14),
                          Qt::AlignLeft | Qt::AlignVCenter,
                          singleEvent
                              ? QStringLiteral("This event has no positionable defects.")
@@ -1082,10 +1138,9 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
 
 void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColors& tc) {
     const int leftMargin = 12;
-    const int defectLaneAxisY = defectLaneAxisY_;
 
-    // ── Legend ──
-    int ly = defectLaneAxisY + 50;
+    // ── Legend ── (below the dedicated MM POSITION ruler lane)
+    int ly = mmRulerAxisY_ + 48;
     QFont legendFont = painter.font();
     legendFont.setPixelSize(10);
     legendFont.setBold(true);
@@ -1140,11 +1195,10 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
 
 void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
     const int leftMargin = 12;
-    const int defectLaneAxisY = defectLaneAxisY_;
     const QVector<CameraMark>& cameras = owner_->cameras_;
     const QVector<DefectMark>& defects = owner_->defects_;
 
-    int ly = defectLaneAxisY + 50;
+    int ly = mmRulerAxisY_ + 48;
 
     // ── Summary ──
     QFont sumFont = painter.font();
@@ -1369,9 +1423,12 @@ void MachineLayoutPanel::Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void MachineLayoutPanel::Canvas::wheelEvent(QWheelEvent* event) {
-    // Zoom the shared mm scale around the mm under the cursor.
+    // Zoom the shared mm scale around the mm under the cursor. 2x per wheel
+    // notch (standard 120-unit notch) in either direction, so a few notches
+    // restore the full view from a deep marker zoom (and fine wheels with
+    // smaller deltas still scale smoothly).
     const double centerMm = mmAt(event->pos().x());
-    const double factor = std::pow(1.0015, event->angleDelta().y());
+    const double factor = std::pow(2.0, event->angleDelta().y() / 120.0);
     owner_->zoomAt(centerMm, factor);
     event->accept();
 }

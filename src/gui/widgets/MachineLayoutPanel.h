@@ -25,6 +25,9 @@ struct ThemeColors;  // full definition in config/CameraConfig.h
  *    each event's sidecar annotations and projected onto the machine using the
  *    event speed. A header combo isolates a single event's defects or shows all
  *    recent marked events at once.
+ *  - MM POSITION lane: a single dedicated full-scale mm ruler (ticks + labels)
+ *    below the defect lane, so the exact position of any camera or defect can
+ *    be read in one place (the floor lanes themselves stay clean).
  *
  * Everything is rebuilt on refresh() / show, so the visual always mirrors the
  * actual configuration and the most recent marked events.
@@ -115,6 +118,7 @@ private:
         void drawFloorLanes(QPainter& p, const ThemeColors& tc);
         void drawCameraMarkers(QPainter& p, const ThemeColors& tc);
         void drawDefectStrip(QPainter& p, const ThemeColors& tc);
+        void drawMmRuler(QPainter& p, const ThemeColors& tc);
         void drawPositionCursor(QPainter& p, const ThemeColors& tc);
         void drawLegends(QPainter& p, const ThemeColors& tc);
         void drawSummary(QPainter& p, const ThemeColors& tc);
@@ -132,6 +136,7 @@ private:
         int selectedDefect_ = -1;   // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
+        int mmRulerAxisY_ = 0;  // dedicated full-scale mm ruler lane
 
         // Vertical position cursor (tracks the exact pointer mm) + drag pan.
         bool   cursorVisible_  = false;   // pointer is over the canvas
@@ -178,5 +183,7 @@ private:
 
     Canvas* canvas_ = nullptr;
     QComboBox* eventCombo_ = nullptr;
+    QPushButton* zoomOutBtn_ = nullptr;
+    QPushButton* zoomInBtn_ = nullptr;
     QPushButton* resetZoomBtn_ = nullptr;
 };
