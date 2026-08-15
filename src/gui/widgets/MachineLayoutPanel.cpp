@@ -1328,14 +1328,14 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
             painter.drawRoundedRect(QRect(x - 9, yCenter - 8, 18, 18), 4, 4);
         }
 
-        // Vertical camera label (reads bottom-to-top) so tightly spaced
-        // cameras never overlap on the mm line.
+        // Vertical camera id (reads bottom-to-top) so tightly spaced cameras
+        // never overlap on the mm line.
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
         painter.setPen(glow ? Qt::white : QColor(tc.text));
-        painter.drawText(QRect(0, -8, 50, 16), Qt::AlignLeft | Qt::AlignVCenter,
-                         QString("CAM-%1").arg(cam.id, 2, 10, QChar('0')));
+        painter.drawText(QRect(0, -8, 30, 16), Qt::AlignLeft | Qt::AlignVCenter,
+                         QString::number(cam.id));
         painter.restore();
     }
     const int lane3AxisY = floorAxisY_[CameraFloor::kCount - 1];
