@@ -100,6 +100,7 @@ private:
         QString location;
         int mm = 0;
         bool operatorSide = false;  // false = DRIVE side
+        double fps = 0.0;           // optional frame rate (0 = unknown)
     };
     struct RefPoint {
         QString name;

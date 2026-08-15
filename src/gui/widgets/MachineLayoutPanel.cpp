@@ -90,8 +90,9 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
         "QComboBox QAbstractItemView { background-color: %1; color: %2;"
         " selection-background-color: %4; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
-    refCombo_->addItem(QStringLiteral("OFF"), false);
-    refCombo_->addItem(QStringLiteral("Reference 1"), true);
+    refCombo_->addItem(QStringLiteral("OFF"), 0);
+    refCombo_->addItem(QStringLiteral("Reference 1"), 1);
+    refCombo_->addItem(QStringLiteral("Reference 2"), 2);
     refSet_ = buildReferenceSet(QStringLiteral("Reference 1"));
     refEnabled_ = false;
     headerLayout->addWidget(refCombo_);
@@ -149,7 +150,10 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
 
     connect(refCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) {
-        refEnabled_ = refCombo_->currentData().toBool();
+        const int sel = refCombo_->currentData().toInt();
+        refEnabled_ = sel > 0;
+        refSet_ = buildReferenceSet(sel >= 2 ? QStringLiteral("Reference 2")
+                                             : QStringLiteral("Reference 1"));
         // The fit range changes with the overlay, so reset any zoom to show
         // the full picture (reference markers can sit far beyond the live
         // camera span).
@@ -193,8 +197,9 @@ void MachineLayoutPanel::showEvent(QShowEvent* event) {
 
 void MachineLayoutPanel::setReferenceOverlayEnabled(bool on) {
     if (refCombo_) {
-        const int idx = refCombo_->findData(on);
-        if (idx >= 0 && refCombo_->currentIndex() != idx) {
+        // OFF = index 0, Reference 1 = index 1 (the default reference set).
+        const int idx = on ? 1 : 0;
+        if (refCombo_->currentIndex() != idx) {
             refCombo_->setCurrentIndex(idx);  // triggers the connected refresh
         }
     }
@@ -845,6 +850,37 @@ MachineLayoutPanel::RefSet MachineLayoutPanel::buildReferenceSet(const QString& 
             { QStringLiteral("After Press OS"), QStringLiteral("After Press"), 25195, true },
             { QStringLiteral("Sizer DS"), QStringLiteral("Size Press"), 229258, false },
             { QStringLiteral("Calender DS"), QStringLiteral("Calender"), 240076, false },
+        };
+        set.speedInputs = {
+            { QStringLiteral("Press speed"), QStringLiteral("Press"), 21100 },
+            { QStringLiteral("Before Calendar speed"), QStringLiteral("5D Before Calender"), 240076 },
+        };
+        set.webBreaks = {
+            { QStringLiteral("First Dryer"), QStringLiteral("First Dryer"), 30140 },
+            { QStringLiteral("First Dryer"), QStringLiteral("Before Calender"), 240076 },
+            { QStringLiteral("Reel Change Input"), QStringLiteral("Reel"), 250076 },
+        };
+        set.triggers = {
+            { QStringLiteral("Operator/Manual Trigger"), QStringLiteral("—"), 16600 },
+            { QStringLiteral("WIS (Web Inspection System)"), QStringLiteral("—"), 210000 },
+        };
+    } else if (name == QLatin1String("Reference 2")) {
+        // Second reference machine: a different (mostly portable) camera
+        // layout on the same physical machine. Speed inputs, web breaks and
+        // trigger records are unchanged from Reference 1 — only the camera
+        // list differs (FPS is carried where known, e.g. Pickup OS at 50 fps).
+        set.cameras = {
+            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false },
+            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true },
+            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false },
+            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true, 50.0 },
+            { QStringLiteral("Center Roll DS"), QStringLiteral("Press"), 32092, false },
+            { QStringLiteral("Pre-Dryer DS"), QStringLiteral("Pre-Dryer"), 74201, false },
+            { QStringLiteral("Sizer DS"), QStringLiteral("Sizer"), 154981, false },
+            { QStringLiteral("4P DS"), QStringLiteral("Press"), 38351, false },
+            { QStringLiteral("After-Size Press OS (Portable CAM)"), QStringLiteral("Size Press"), 136302, true },
+            { QStringLiteral("After-Dryer DS"), QStringLiteral("After-Dryer"), 190100, false },
+            { QStringLiteral("Pre-Dryer OS (Portable CAM)"), QStringLiteral("Pre-Dryer"), 200000, true },
         };
         set.speedInputs = {
             { QStringLiteral("Press speed"), QStringLiteral("Press"), 21100 },
@@ -2006,15 +2042,17 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
         QToolTip::showText(event->globalPos(), owner_->triggers_[hoveredTrigger_].detail, this);
     } else if (hoveredRefCam_ >= 0) {
         const RefCamera& r = owner_->refSet_.cameras[hoveredRefCam_];
-        QToolTip::showText(event->globalPos(),
-            QString("Reference camera — %1 (%2)\nMachine position: %3 mm\nSide: %4\n"
-                    "(%5 overlay — read-only, not wired to the system)")
-                .arg(r.name, r.location)
-                .arg(r.mm)
-                .arg(r.operatorSide ? QStringLiteral("OPERATOR SIDE")
-                                     : QStringLiteral("DRIVE SIDE"),
-                     owner_->refSet_.name),
-            this);
+        QString tip = QString("Reference camera — %1 (%2)\nMachine position: %3 mm\nSide: %4\n")
+                          .arg(r.name, r.location)
+                          .arg(r.mm)
+                          .arg(r.operatorSide ? QStringLiteral("OPERATOR SIDE")
+                                              : QStringLiteral("DRIVE SIDE"));
+        if (r.fps > 0.0) {
+            tip += QStringLiteral("Frame rate: %1 fps\n").arg(r.fps, 0, 'f', 1);
+        }
+        tip += QStringLiteral("(%1 overlay — read-only, not wired to the system)")
+                   .arg(owner_->refSet_.name);
+        QToolTip::showText(event->globalPos(), tip, this);
     } else if (hoveredRefTrigger_ >= 0) {
         const RefPoint& r = owner_->refSet_.triggers[hoveredRefTrigger_];
         QToolTip::showText(event->globalPos(),
