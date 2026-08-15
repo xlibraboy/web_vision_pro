@@ -1479,13 +1479,13 @@ void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const T
         painter.setBrush(Qt::NoBrush);
         if (r.operatorSide) {
             QPainterPath tri;
-            tri.moveTo(x, yCenter - 8);
-            tri.lineTo(x + 7, yCenter + 4);
-            tri.lineTo(x - 7, yCenter + 4);
+            tri.moveTo(x, yCenter - 7);
+            tri.lineTo(x + 6, yCenter + 3);
+            tri.lineTo(x - 6, yCenter + 3);
             tri.closeSubpath();
             painter.drawPath(tri);
         } else {
-            painter.drawRoundedRect(QRect(x - 7, yCenter - 7, 14, 14), 3, 3);
+            painter.drawRoundedRect(QRect(x - 6, yCenter - 6, 12, 12), 3, 3);
         }
 
         // Vertical camera id (rotated), muted gray — the full reference name
