@@ -1318,14 +1318,14 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         if (isOperator) {
             // Upward triangle = OPERATOR SIDE
             QPainterPath tri;
-            tri.moveTo(x, yCenter - 10);
-            tri.lineTo(x + 9, yCenter + 6);
-            tri.lineTo(x - 9, yCenter + 6);
+            tri.moveTo(x, yCenter - 8);
+            tri.lineTo(x + 7, yCenter + 4);
+            tri.lineTo(x - 7, yCenter + 4);
             tri.closeSubpath();
             painter.drawPath(tri);
         } else {
             // Rounded rect = DRIVE SIDE (and default)
-            painter.drawRoundedRect(QRect(x - 9, yCenter - 8, 18, 18), 4, 4);
+            painter.drawRoundedRect(QRect(x - 7, yCenter - 7, 14, 14), 3, 3);
         }
 
         // Vertical camera id (reads bottom-to-top) so tightly spaced cameras
