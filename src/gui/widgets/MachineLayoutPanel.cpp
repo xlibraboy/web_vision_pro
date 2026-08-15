@@ -75,6 +75,27 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     headerLayout->addWidget(label);
     headerLayout->addWidget(eventCombo_);
 
+    // Reference data overlay: a read-only reference set (not wired to the
+    // system) the operator can overlay to compare the live configuration
+    // against a known machine layout (see buildReferenceSet).
+    auto* refLabel = new QLabel(QStringLiteral("REFERENCE DATA:"), header);
+    refLabel->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600;").arg(tc.text));
+    headerLayout->addWidget(refLabel);
+    refCombo_ = new QComboBox(header);
+    refCombo_->setStyleSheet(QString(
+        "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 4px 8px; font-size: 12px; min-width: 120px; }"
+        "QComboBox:hover { border-color: %4; }"
+        "QComboBox::drop-down { border: none; width: 22px; }"
+        "QComboBox QAbstractItemView { background-color: %1; color: %2;"
+        " selection-background-color: %4; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    refCombo_->addItem(QStringLiteral("OFF"), false);
+    refCombo_->addItem(QStringLiteral("Reference 1"), true);
+    refSet_ = buildReferenceSet(QStringLiteral("Reference 1"));
+    refEnabled_ = false;
+    headerLayout->addWidget(refCombo_);
+
     // Zoom controls: − / + step the shared mm scale around the view center
     // (same 2x-per-notch step as the mouse wheel), Reset view restores the
     // full fit. − / + are always enabled; Reset view only while zoomed.
@@ -125,6 +146,16 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
         applyEventFilter();
         canvas_->update();
     });
+
+    connect(refCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+        refEnabled_ = refCombo_->currentData().toBool();
+        // The fit range changes with the overlay, so reset any zoom to show
+        // the full picture (reference markers can sit far beyond the live
+        // camera span).
+        resetZoom();
+        refresh();
+    });
 }
 
 void MachineLayoutPanel::setCameras(const std::vector<CameraInfo>& cameras) {
@@ -158,6 +189,20 @@ void MachineLayoutPanel::setCameras(const std::vector<CameraInfo>& cameras) {
 void MachineLayoutPanel::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     refresh();  // the visual always mirrors the current configuration
+}
+
+void MachineLayoutPanel::setReferenceOverlayEnabled(bool on) {
+    if (refCombo_) {
+        const int idx = refCombo_->findData(on);
+        if (idx >= 0 && refCombo_->currentIndex() != idx) {
+            refCombo_->setCurrentIndex(idx);  // triggers the connected refresh
+        }
+    }
+    if (refEnabled_ != on) {
+        refEnabled_ = on;
+        resetZoom();
+        refresh();
+    }
 }
 
 void MachineLayoutPanel::refresh() {
@@ -438,6 +483,26 @@ void MachineLayoutPanel::rebuildScale() {
         lo = std::min(lo, static_cast<double>(t.mm));
         hi = std::max(hi, static_cast<double>(t.mm));
     }
+    // Reference overlay: include its positions so enabling it shows the full
+    // machine span (reference data can sit far beyond the live camera range).
+    if (refEnabled_) {
+        for (const RefCamera& r : refSet_.cameras) {
+            lo = std::min(lo, static_cast<double>(r.mm));
+            hi = std::max(hi, static_cast<double>(r.mm));
+        }
+        for (const RefPoint& r : refSet_.speedInputs) {
+            lo = std::min(lo, static_cast<double>(r.mm));
+            hi = std::max(hi, static_cast<double>(r.mm));
+        }
+        for (const RefPoint& r : refSet_.webBreaks) {
+            lo = std::min(lo, static_cast<double>(r.mm));
+            hi = std::max(hi, static_cast<double>(r.mm));
+        }
+        for (const RefPoint& r : refSet_.triggers) {
+            lo = std::min(lo, static_cast<double>(r.mm));
+            hi = std::max(hi, static_cast<double>(r.mm));
+        }
+    }
     if (lo > hi) {
         lo = 0.0;
         hi = 1000.0;
@@ -646,6 +711,8 @@ void MachineLayoutPanel::applyEventFilter() {
         canvas_->cursorHitCamera_ = -1;
         canvas_->cursorHitDefect_ = -1;
         canvas_->cursorHitTrigger_ = -1;
+        canvas_->cursorHitRefCam_ = -1;
+        canvas_->cursorHitRefTrigger_ = -1;
     }
     defects_.clear();
     triggers_.clear();
@@ -709,7 +776,15 @@ void MachineLayoutPanel::Canvas::updateCursorHits() {
             break;
         }
     }
-    if (cursorHitCamera_ < 0) {
+    if (cursorHitCamera_ < 0 && owner_->refEnabled_) {
+        for (int i = 0; i < owner_->refSet_.cameras.size(); ++i) {
+            if (std::abs(owner_->refSet_.cameras[i].mm - cursorMm_) <= tolMm) {
+                cursorHitRefCam_ = i;
+                break;
+            }
+        }
+    }
+    if (cursorHitCamera_ < 0 && cursorHitRefCam_ < 0) {
         for (int i = 0; i < owner_->defects_.size(); ++i) {
             if (std::abs(owner_->defects_[i].mm - cursorMm_) <= tolMm) {
                 cursorHitDefect_ = i;
@@ -717,10 +792,19 @@ void MachineLayoutPanel::Canvas::updateCursorHits() {
             }
         }
     }
-    if (cursorHitCamera_ < 0 && cursorHitDefect_ < 0) {
+    if (cursorHitCamera_ < 0 && cursorHitRefCam_ < 0 && cursorHitDefect_ < 0) {
         for (int i = 0; i < owner_->triggers_.size(); ++i) {
             if (std::abs(owner_->triggers_[i].mm - cursorMm_) <= tolMm) {
                 cursorHitTrigger_ = i;
+                break;
+            }
+        }
+    }
+    if (cursorHitCamera_ < 0 && cursorHitRefCam_ < 0 && cursorHitDefect_ < 0
+        && cursorHitTrigger_ < 0 && owner_->refEnabled_) {
+        for (int i = 0; i < owner_->refSet_.triggers.size(); ++i) {
+            if (std::abs(owner_->refSet_.triggers[i].mm - cursorMm_) <= tolMm) {
+                cursorHitRefTrigger_ = i;
                 break;
             }
         }
@@ -744,6 +828,58 @@ QString MachineLayoutPanel::formatEventTime(const QString& timestamp) {
         dt = QDateTime::fromString(timestamp, "yyyyMMdd_HHmmss_zzz");
     }
     return dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : timestamp;
+}
+
+MachineLayoutPanel::RefSet MachineLayoutPanel::buildReferenceSet(const QString& name) {
+    // Hardcoded read-only reference snapshot of a known machine layout. Not
+    // wired to the system — the operator overlays it to compare positions.
+    RefSet set;
+    set.name = name;
+    if (name == QLatin1String("Reference 1")) {
+        set.cameras = {
+            { QStringLiteral("Trim DS"), QStringLiteral("Trim"), 16600, false },
+            { QStringLiteral("Trim OS"), QStringLiteral("Trim"), 16600, true },
+            { QStringLiteral("Pickup DS"), QStringLiteral("Pick UP"), 18816, false },
+            { QStringLiteral("Pickup OS"), QStringLiteral("Pick UP"), 18816, true },
+            { QStringLiteral("After Press DS"), QStringLiteral("After Press"), 25195, false },
+            { QStringLiteral("After Press OS"), QStringLiteral("After Press"), 25195, true },
+            { QStringLiteral("Sizer DS"), QStringLiteral("Size Press"), 229258, false },
+            { QStringLiteral("Calender DS"), QStringLiteral("Calender"), 240076, false },
+        };
+        set.speedInputs = {
+            { QStringLiteral("Press speed"), QStringLiteral("Press"), 21100 },
+            { QStringLiteral("Before Calendar speed"), QStringLiteral("5D Before Calender"), 240076 },
+        };
+        set.webBreaks = {
+            { QStringLiteral("First Dryer"), QStringLiteral("First Dryer"), 30140 },
+            { QStringLiteral("First Dryer"), QStringLiteral("Before Calender"), 240076 },
+            { QStringLiteral("Reel Change Input"), QStringLiteral("Reel"), 250076 },
+        };
+        set.triggers = {
+            { QStringLiteral("Operator/Manual Trigger"), QStringLiteral("—"), 16600 },
+            { QStringLiteral("WIS (Web Inspection System)"), QStringLiteral("—"), 210000 },
+        };
+    }
+    return set;
+}
+
+int MachineLayoutPanel::floorForRefCamera(const RefCamera& r) const {
+    // Reference cameras carry no floor — draw them on the floor lane of the
+    // live camera nearest in position, so reference markers sit beside their
+    // live counterparts for a direct comparison.
+    int bestFloor = CameraFloor::kFirst;
+    int bestDist = std::numeric_limits<int>::max();
+    for (const CameraMark& c : cameras_) {
+        if (!c.hasPosition) {
+            continue;
+        }
+        const int d = std::abs(c.mm - r.mm);
+        if (d < bestDist) {
+            bestDist = d;
+            bestFloor = c.floor;
+        }
+    }
+    return bestFloor;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -780,6 +916,28 @@ QRect MachineLayoutPanel::Canvas::triggerMarkerRect(const TriggerMark& trig) con
     return QRect(x - 8, triggerLaneAxisY_ - 12, 16, 20);
 }
 
+QRect MachineLayoutPanel::Canvas::refCamMarkerRect(const RefCamera& r, int floorLane) const {
+    const int x = static_cast<int>(owner_->mmToX(r.mm));
+    const int axisY = floorAxisY_[displayRowForLane(floorLane)];
+    const int yCenter = r.operatorSide ? axisY + 18 : axisY - 18;
+    return QRect(x - 10, yCenter - 10, 20, 20);
+}
+
+QRect MachineLayoutPanel::Canvas::refSpeedMarkerRect(const RefPoint& r) const {
+    const int x = static_cast<int>(owner_->mmToX(r.mm));
+    return QRect(x - 6, refLaneAxisY_ - 14, 12, 12);
+}
+
+QRect MachineLayoutPanel::Canvas::refBreakMarkerRect(const RefPoint& r) const {
+    const int x = static_cast<int>(owner_->mmToX(r.mm));
+    return QRect(x - 6, refLaneAxisY_ + 2, 12, 14);
+}
+
+QRect MachineLayoutPanel::Canvas::refTriggerMarkerRect(const RefPoint& r) const {
+    const int x = static_cast<int>(owner_->mmToX(r.mm));
+    return QRect(x - 6, triggerLaneAxisY_ - 12, 12, 20);
+}
+
 void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter painter(this);
@@ -792,26 +950,37 @@ void MachineLayoutPanel::Canvas::paintEvent(QPaintEvent* event) {
 
     // Shared layout numbers (lane geometry), hoisted to member accessors later.
     const int leftMargin = 12;
-    const int contentBottom = 568;
+    const int contentBottom = owner_->refEnabled_ ? 680 : 600;
     const int dy = qMax(0, (height() - contentBottom) / 2);
 
-    // Recompute floorAxisY_, defectLaneAxisY_, triggerLaneAxisY_ and
-    // mmRulerAxisY_ once per paint so the helpers (and the cursor) can
-    // reference them.
+    // Recompute floorAxisY_, defectLaneAxisY_, triggerLaneAxisY_, refLaneAxisY_
+    // and mmRulerAxisY_ once per paint so the helpers (and the cursor) can
+    // reference them. The reference data lane is only reserved when the
+    // overlay is enabled; otherwise the ruler sits directly under the trigger
+    // lane as before.
     const int lane1AxisY = floorAxisY_[0] = 56 + dy;
     const int lane2AxisY = floorAxisY_[1] = lane1AxisY + 88;
     const int lane3AxisY = floorAxisY_[2] = lane2AxisY + 88;
     defectLaneAxisY_     = lane3AxisY + 88;
     triggerLaneAxisY_    = defectLaneAxisY_ + 56;
-    mmRulerAxisY_        = triggerLaneAxisY_ + 56;
+    if (owner_->refEnabled_) {
+        refLaneAxisY_    = triggerLaneAxisY_ + 44;
+        mmRulerAxisY_    = refLaneAxisY_ + 56;
+    } else {
+        refLaneAxisY_    = -1;
+        mmRulerAxisY_    = triggerLaneAxisY_ + 56;
+    }
     Q_UNUSED(leftMargin); // each helper computes its own leftMargin
 
     drawSectionBar(painter, tc);
     drawPaperWeb(painter, tc);
     drawFloorLanes(painter, tc);
     drawCameraMarkers(painter, tc);
+    drawReferenceCameras(painter, tc);
     drawDefectStrip(painter, tc);
     drawTriggerStrip(painter, tc);
+    drawReferenceTriggers(painter, tc);
+    drawReferenceStrip(painter, tc);
     drawMmRuler(painter, tc);
     drawPositionCursor(painter, tc);
     drawLegends(painter, tc);
@@ -952,7 +1121,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // camera lanes. The whole block is vertically centered in the canvas so
     // there's no dead space at the bottom.
     constexpr int kLanePitch = 88;  // title row + axis + markers
-    const int contentBottom = 568;  // approx bottom of the summary/hint text
+    const int contentBottom = owner_->refEnabled_ ? 680 : 600;  // matches paintEvent
     const int dy = qMax(0, (height() - contentBottom) / 2);
     const int lane1TitleY = 8 + dy;
     const int lane1AxisY = floorAxisY_[0];
@@ -1255,6 +1424,108 @@ void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const Theme
     }
 }
 
+void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const ThemeColors& tc) {
+    if (!owner_->refEnabled_ || owner_->refSet_.cameras.isEmpty()) {
+        return;
+    }
+    // Hollow (dashed outline, no fill) markers on the floor lane of the
+    // nearest live camera, side-aware like the live markers (DRIVE upper
+    // sub-row, OPERATOR lower). Clearly distinct from the solid live cameras.
+    const RefSet& ref = owner_->refSet_;
+    for (int i = 0; i < ref.cameras.size(); ++i) {
+        const RefCamera& r = ref.cameras[i];
+        const int lane = owner_->floorForRefCamera(r);
+        const int axisY = floorAxisY_[displayRowForLane(lane)];
+        const int x = static_cast<int>(owner_->mmToX(r.mm));
+        const int yCenter = r.operatorSide ? axisY + 18 : axisY - 18;
+        const bool glow = (i == hoveredRefCam_ || i == cursorHitRefCam_);
+
+        // Faint dashed guide from the section-bar bottom down to the marker.
+        painter.setPen(QPen(QColor(255, 255, 255, 36), 1, Qt::DashLine));
+        painter.drawLine(x, 36, x, yCenter);
+
+        const QColor outlineCol = glow ? Qt::white : QColor("#9AA4AF");
+        painter.setPen(QPen(outlineCol, 1.5, Qt::DashLine));
+        painter.setBrush(Qt::NoBrush);
+        if (r.operatorSide) {
+            QPainterPath tri;
+            tri.moveTo(x, yCenter - 10);
+            tri.lineTo(x + 9, yCenter + 6);
+            tri.lineTo(x - 9, yCenter + 6);
+            tri.closeSubpath();
+            painter.drawPath(tri);
+        } else {
+            painter.drawRoundedRect(QRect(x - 9, yCenter - 8, 18, 18), 4, 4);
+        }
+
+        // Vertical reference name (rotated), muted gray.
+        painter.save();
+        painter.translate(x, yCenter - 12);
+        painter.rotate(-90);
+        painter.setPen(glow ? Qt::white : QColor("#9AA4AF"));
+        painter.drawText(QRect(0, -8, 60, 16), Qt::AlignLeft | Qt::AlignVCenter, r.name);
+        painter.restore();
+    }
+}
+
+void MachineLayoutPanel::Canvas::drawReferenceTriggers(QPainter& painter, const ThemeColors& tc) {
+    if (!owner_->refEnabled_ || owner_->refSet_.triggers.isEmpty()) {
+        return;
+    }
+    // Hollow dashed pins on the TRIGGER lane, distinct from the solid colored
+    // per-event trigger pins.
+    const RefSet& ref = owner_->refSet_;
+    const int axisY = triggerLaneAxisY_;
+    for (int i = 0; i < ref.triggers.size(); ++i) {
+        const RefPoint& r = ref.triggers[i];
+        const int x = static_cast<int>(owner_->mmToX(r.mm));
+        const bool glow = (i == hoveredRefTrigger_ || i == cursorHitRefTrigger_);
+        painter.setPen(QPen(glow ? Qt::white : QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.drawLine(x, axisY, x, axisY + 7);  // stem below the axis
+        painter.setBrush(Qt::NoBrush);
+        painter.drawEllipse(QRect(x - 4, axisY - 10, 8, 8));  // hollow sensor head
+    }
+}
+
+void MachineLayoutPanel::Canvas::drawReferenceStrip(QPainter& painter, const ThemeColors& tc) {
+    if (!owner_->refEnabled_ || refLaneAxisY_ < 0) {
+        return;
+    }
+    const int leftMargin = 12;
+    const int axisY = refLaneAxisY_;
+    const RefSet& ref = owner_->refSet_;
+
+    // Compact lane between TRIGGER and MM POSITION: reference speed inputs
+    // (cyan dots above the axis) and web break sensors (red × below the axis).
+    QFont titleFont = painter.font();
+    titleFont.setPixelSize(13);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(tc.text));
+    painter.drawText(leftMargin, axisY - 20, QStringLiteral("REFERENCE DATA"));
+
+    painter.setPen(QPen(QColor(tc.border), 1));
+    painter.drawLine(leftMargin, axisY, width() - leftMargin, axisY);
+
+    for (int i = 0; i < ref.speedInputs.size(); ++i) {
+        const RefPoint& r = ref.speedInputs[i];
+        const int x = static_cast<int>(owner_->mmToX(r.mm));
+        const bool glow = (i == hoveredRefSpeed_);
+        painter.setPen(QPen(glow ? Qt::white : QColor("#00E5FF"), 1.5));
+        painter.setBrush(QColor(0, 229, 255, 70));
+        painter.drawEllipse(QRect(x - 4, axisY - 13, 8, 8));
+        painter.setBrush(Qt::NoBrush);
+    }
+    for (int i = 0; i < ref.webBreaks.size(); ++i) {
+        const RefPoint& r = ref.webBreaks[i];
+        const int x = static_cast<int>(owner_->mmToX(r.mm));
+        const bool glow = (i == hoveredRefBreak_);
+        painter.setPen(QPen(glow ? Qt::white : QColor("#FF5A5A"), 1.6));
+        painter.drawLine(x - 5, axisY + 4, x + 5, axisY + 14);
+        painter.drawLine(x - 5, axisY + 14, x + 5, axisY + 4);
+    }
+}
+
 void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColors& tc) {
     const int leftMargin = 12;
 
@@ -1324,6 +1595,43 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.setPen(QColor(tc.text));
     painter.drawText(trigX + 16, trigY,
         QStringLiteral("SENSOR PIN  (sheetbreak trigger position, colored per event)"));
+
+    // ── Reference overlay legend (only while a reference set is enabled) ──
+    if (owner_->refEnabled_) {
+        const int refY = trigY + 22;
+        painter.setPen(QColor(tc.text));
+        painter.drawText(leftMargin, refY, QStringLiteral("REFERENCE (%1):").arg(owner_->refSet_.name.toUpper()));
+        const int refX = leftMargin + 110;
+        // hollow square = reference camera
+        painter.setPen(QPen(QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(QRect(refX, refY - 9, 12, 12), 3, 3);
+        painter.setPen(QColor(tc.text));
+        painter.drawText(refX + 18, refY, QStringLiteral("CAM"));
+        int rx = refX + 18 + painter.fontMetrics().horizontalAdvance(QStringLiteral("CAM")) + 26;
+        // cyan dot = speed input
+        painter.setPen(QPen(QColor("#00E5FF"), 1.5));
+        painter.setBrush(QColor(0, 229, 255, 70));
+        painter.drawEllipse(QRect(rx, refY - 8, 8, 8));
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QColor(tc.text));
+        painter.drawText(rx + 14, refY, QStringLiteral("SPEED IN"));
+        rx += 14 + painter.fontMetrics().horizontalAdvance(QStringLiteral("SPEED IN")) + 26;
+        // red × = web break
+        painter.setPen(QPen(QColor("#FF5A5A"), 1.6));
+        painter.drawLine(rx + 4, refY - 8, rx + 12, refY);
+        painter.drawLine(rx + 4, refY, rx + 12, refY - 8);
+        painter.setPen(QColor(tc.text));
+        painter.drawText(rx + 18, refY, QStringLiteral("WEB BREAK"));
+        rx += 18 + painter.fontMetrics().horizontalAdvance(QStringLiteral("WEB BREAK")) + 26;
+        // dashed pin = trigger record
+        painter.setPen(QPen(QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.drawLine(rx + 4, refY, rx + 4, refY + 6);
+        painter.drawEllipse(QRect(rx + 1, refY - 9, 8, 8));
+        painter.setPen(QColor(tc.text));
+        painter.drawText(rx + 14, refY,
+            QStringLiteral("TRIGGER RECORD  (read-only overlay, not wired to the system)"));
+    }
 }
 
 void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColors& tc) {
@@ -1333,13 +1641,14 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
 
     int ly = mmRulerAxisY_ + 48;
 
-    // ── Summary ──
+    // ── Summary ── (starts below the legend rows so the two blocks never
+    // overlap; an extra row is reserved when the reference overlay is on.)
     QFont sumFont = painter.font();
     sumFont.setPixelSize(11);
     sumFont.setBold(false);
     painter.setFont(sumFont);
     painter.setPen(QColor(tc.text));
-    int sy = ly + 44;
+    int sy = ly + (owner_->refEnabled_ ? 90 : 66);
     int camerasWithPosition = 0;
     int floorCounts[CameraFloor::kCount] = {0, 0, 0};
     for (const CameraMark& c : cameras) {
@@ -1381,6 +1690,21 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     painter.drawText(leftMargin, sy,
         "Rounded = DRIVE SIDE · triangle = OPERATOR SIDE · diamond = defect · sensor pin = trigger. "
         "Each marker is colored per event; hover a camera, defect or trigger for details.");
+    if (owner_->refEnabled_) {
+        sy += 16;
+        painter.drawText(leftMargin, sy,
+            QString("%1 overlay: %2 reference camera%3 · %4 speed input%5 · %6 web break%7 · %8 trigger record%9 "
+                     "(read-only, not wired to the system)")
+                .arg(owner_->refSet_.name)
+                .arg(owner_->refSet_.cameras.size())
+                .arg(owner_->refSet_.cameras.size() == 1 ? QString() : QStringLiteral("s"))
+                .arg(owner_->refSet_.speedInputs.size())
+                .arg(owner_->refSet_.speedInputs.size() == 1 ? QString() : QStringLiteral("s"))
+                .arg(owner_->refSet_.webBreaks.size())
+                .arg(owner_->refSet_.webBreaks.size() == 1 ? QString() : QStringLiteral("s"))
+                .arg(owner_->refSet_.triggers.size())
+                .arg(owner_->refSet_.triggers.size() == 1 ? QString() : QStringLiteral("s")));
+    }
 }
 
 void MachineLayoutPanel::Canvas::drawZoomIndicator(QPainter& p, const ThemeColors& tc) {
@@ -1469,6 +1793,71 @@ void MachineLayoutPanel::Canvas::mousePressEvent(QMouseEvent* event) {
         }
     }
 
+    // 2c. Reference camera hit-test (read-only overlay).
+    if (owner_->refEnabled_) {
+        const RefSet& ref = owner_->refSet_;
+        for (int i = 0; i < ref.cameras.size(); ++i) {
+            const int lane = owner_->floorForRefCamera(ref.cameras[i]);
+            if (refCamMarkerRect(ref.cameras[i], lane).adjusted(-2, -2, 2, 2).contains(p)) {
+                const RefCamera& r = ref.cameras[i];
+                QToolTip::showText(event->globalPos(),
+                    QString("Reference camera — %1 (%2)\nMachine position: %3 mm\nSide: %4\n"
+                            "(%5 overlay — read-only, not wired to the system)")
+                        .arg(r.name, r.location)
+                        .arg(r.mm)
+                        .arg(r.operatorSide ? QStringLiteral("OPERATOR SIDE")
+                                             : QStringLiteral("DRIVE SIDE"),
+                             owner_->refSet_.name),
+                    this);
+                owner_->zoomToMm(r.mm);
+                update();
+                return;
+            }
+        }
+        // 2d. Reference trigger hit-test (hollow pins on the TRIGGER lane).
+        for (int i = 0; i < ref.triggers.size(); ++i) {
+            if (refTriggerMarkerRect(ref.triggers[i]).adjusted(-3, -3, 3, 3).contains(p)) {
+                const RefPoint& r = ref.triggers[i];
+                QToolTip::showText(event->globalPos(),
+                    QString("Trigger record — %1\nMachine position: %2 mm\n"
+                            "(%3 overlay — read-only, not wired to the system)")
+                        .arg(r.name).arg(r.mm).arg(owner_->refSet_.name),
+                    this);
+                owner_->zoomToMm(r.mm);
+                update();
+                return;
+            }
+        }
+        // 2e. Reference speed input hit-test.
+        for (int i = 0; i < ref.speedInputs.size(); ++i) {
+            if (refSpeedMarkerRect(ref.speedInputs[i]).adjusted(-2, -2, 2, 2).contains(p)) {
+                const RefPoint& r = ref.speedInputs[i];
+                QToolTip::showText(event->globalPos(),
+                    QString("Speed input — %1\nLocation: %2\nMachine position: %3 mm\n"
+                            "(%4 overlay — read-only, not wired to the system)")
+                        .arg(r.name, r.location).arg(r.mm).arg(owner_->refSet_.name),
+                    this);
+                owner_->zoomToMm(r.mm);
+                update();
+                return;
+            }
+        }
+        // 2f. Reference web break hit-test.
+        for (int i = 0; i < ref.webBreaks.size(); ++i) {
+            if (refBreakMarkerRect(ref.webBreaks[i]).adjusted(-2, -2, 2, 2).contains(p)) {
+                const RefPoint& r = ref.webBreaks[i];
+                QToolTip::showText(event->globalPos(),
+                    QString("Web break sensor — %1\nLocation: %2\nMachine position: %3 mm\n"
+                            "(%4 overlay — read-only, not wired to the system)")
+                        .arg(r.name, r.location).arg(r.mm).arg(owner_->refSet_.name),
+                    this);
+                owner_->zoomToMm(r.mm);
+                update();
+                return;
+            }
+        }
+    }
+
     // 3. Empty canvas → clear selection and start panning (the view moves
     // only while zoomed in; the position cursor still follows the pointer).
     selectedCamera_ = -1;
@@ -1534,6 +1923,10 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
     hoveredTrigger_ = -1;
+    hoveredRefCam_ = -1;
+    hoveredRefSpeed_ = -1;
+    hoveredRefBreak_ = -1;
+    hoveredRefTrigger_ = -1;
     const QPoint p = event->pos();
     const QVector<CameraMark>& cameras = owner_->cameras_;
     for (int i = 0; i < cameras.size(); ++i) {
@@ -1560,6 +1953,40 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
             }
         }
     }
+    if (hoveredCamera_ < 0 && hoveredDefect_ < 0 && hoveredTrigger_ < 0 && owner_->refEnabled_) {
+        const RefSet& ref = owner_->refSet_;
+        for (int i = 0; i < ref.cameras.size(); ++i) {
+            const int lane = owner_->floorForRefCamera(ref.cameras[i]);
+            if (refCamMarkerRect(ref.cameras[i], lane).adjusted(-2, -2, 2, 2).contains(p)) {
+                hoveredRefCam_ = i;
+                break;
+            }
+        }
+        if (hoveredRefCam_ < 0) {
+            for (int i = 0; i < ref.triggers.size(); ++i) {
+                if (refTriggerMarkerRect(ref.triggers[i]).adjusted(-3, -3, 3, 3).contains(p)) {
+                    hoveredRefTrigger_ = i;
+                    break;
+                }
+            }
+        }
+        if (hoveredRefCam_ < 0 && hoveredRefTrigger_ < 0) {
+            for (int i = 0; i < ref.speedInputs.size(); ++i) {
+                if (refSpeedMarkerRect(ref.speedInputs[i]).adjusted(-2, -2, 2, 2).contains(p)) {
+                    hoveredRefSpeed_ = i;
+                    break;
+                }
+            }
+        }
+        if (hoveredRefCam_ < 0 && hoveredRefTrigger_ < 0 && hoveredRefSpeed_ < 0) {
+            for (int i = 0; i < ref.webBreaks.size(); ++i) {
+                if (refBreakMarkerRect(ref.webBreaks[i]).adjusted(-2, -2, 2, 2).contains(p)) {
+                    hoveredRefBreak_ = i;
+                    break;
+                }
+            }
+        }
+    }
     if (hoveredCamera_ >= 0) {
         const CameraMark& c = cameras[hoveredCamera_];
         QToolTip::showText(event->globalPos(),
@@ -1577,6 +2004,38 @@ void MachineLayoutPanel::Canvas::mouseMoveEvent(QMouseEvent* event) {
         QToolTip::showText(event->globalPos(), owner_->defects_[hoveredDefect_].detail, this);
     } else if (hoveredTrigger_ >= 0) {
         QToolTip::showText(event->globalPos(), owner_->triggers_[hoveredTrigger_].detail, this);
+    } else if (hoveredRefCam_ >= 0) {
+        const RefCamera& r = owner_->refSet_.cameras[hoveredRefCam_];
+        QToolTip::showText(event->globalPos(),
+            QString("Reference camera — %1 (%2)\nMachine position: %3 mm\nSide: %4\n"
+                    "(%5 overlay — read-only, not wired to the system)")
+                .arg(r.name, r.location)
+                .arg(r.mm)
+                .arg(r.operatorSide ? QStringLiteral("OPERATOR SIDE")
+                                     : QStringLiteral("DRIVE SIDE"),
+                     owner_->refSet_.name),
+            this);
+    } else if (hoveredRefTrigger_ >= 0) {
+        const RefPoint& r = owner_->refSet_.triggers[hoveredRefTrigger_];
+        QToolTip::showText(event->globalPos(),
+            QString("Trigger record — %1\nMachine position: %2 mm\n"
+                    "(%3 overlay — read-only, not wired to the system)")
+                .arg(r.name).arg(r.mm).arg(owner_->refSet_.name),
+            this);
+    } else if (hoveredRefSpeed_ >= 0) {
+        const RefPoint& r = owner_->refSet_.speedInputs[hoveredRefSpeed_];
+        QToolTip::showText(event->globalPos(),
+            QString("Speed input — %1\nLocation: %2\nMachine position: %3 mm\n"
+                    "(%4 overlay — read-only, not wired to the system)")
+                .arg(r.name, r.location).arg(r.mm).arg(owner_->refSet_.name),
+            this);
+    } else if (hoveredRefBreak_ >= 0) {
+        const RefPoint& r = owner_->refSet_.webBreaks[hoveredRefBreak_];
+        QToolTip::showText(event->globalPos(),
+            QString("Web break sensor — %1\nLocation: %2\nMachine position: %3 mm\n"
+                    "(%4 overlay — read-only, not wired to the system)")
+                .arg(r.name, r.location).arg(r.mm).arg(owner_->refSet_.name),
+            this);
     } else {
         QToolTip::hideText();
     }
@@ -1624,9 +2083,15 @@ void MachineLayoutPanel::Canvas::leaveEvent(QEvent* event) {
     hoveredCamera_ = -1;
     hoveredDefect_ = -1;
     hoveredTrigger_ = -1;
+    hoveredRefCam_ = -1;
+    hoveredRefSpeed_ = -1;
+    hoveredRefBreak_ = -1;
+    hoveredRefTrigger_ = -1;
     cursorHitCamera_ = -1;
     cursorHitDefect_ = -1;
     cursorHitTrigger_ = -1;
+    cursorHitRefCam_ = -1;
+    cursorHitRefTrigger_ = -1;
     // Auto-reset the zoom when the pointer genuinely leaves the panel. Only a
     // SPONTANEOUS leave (a real pointer exit delivered by the window system)
     // arms the delayed reset: showing a tooltip (clicking a marker to zoom)

@@ -45,6 +45,9 @@ public:
     void setCameras(const std::vector<CameraInfo>& cameras);
     void refresh();
 
+    // Enable/disable the read-only reference overlay (REFERENCE DATA combo).
+    void setReferenceOverlayEnabled(bool on);
+
     // Zoom/pan the shared mm scale (centered on the given mm / shifted by mm).
     void zoomAt(double centerMm, double factor);
     void zoomToMm(double mm);  // 1 mm window centered on a marker position
@@ -87,6 +90,30 @@ private:
         int eventIndex = -1;      // index into eventGroups_
     };
 
+    // ── Read-only reference overlay ────────────────────────────────────────
+    // A reference set is a hardcoded snapshot of a known machine layout. It is
+    // NOT wired to the system: enabling it in the header overlays its cameras,
+    // speed inputs, web breaks and trigger records onto the live layout so the
+    // operator can compare the configured machine against the reference.
+    struct RefCamera {
+        QString name;
+        QString location;
+        int mm = 0;
+        bool operatorSide = false;  // false = DRIVE side
+    };
+    struct RefPoint {
+        QString name;
+        QString location;
+        int mm = 0;
+    };
+    struct RefSet {
+        QString name;                // e.g. "Reference 1"
+        QVector<RefCamera> cameras;
+        QVector<RefPoint> speedInputs;
+        QVector<RefPoint> webBreaks;
+        QVector<RefPoint> triggers;
+    };
+
     struct EventGroup {
         QString label;            // "2026-02-08 15:30:00"
         QColor color;
@@ -125,6 +152,10 @@ private:
         QRect cameraMarkerRect(const CameraMark& cam) const;
         QRect defectMarkerRect(const DefectMark& def) const;
         QRect triggerMarkerRect(const TriggerMark& trig) const;
+        QRect refCamMarkerRect(const RefCamera& r, int floorLane) const;
+        QRect refSpeedMarkerRect(const RefPoint& r) const;
+        QRect refBreakMarkerRect(const RefPoint& r) const;
+        QRect refTriggerMarkerRect(const RefPoint& r) const;
 
         void drawSectionBar(QPainter& p, const ThemeColors& tc);
         void drawPaperWeb(QPainter& p, const ThemeColors& tc);
@@ -132,6 +163,9 @@ private:
         void drawCameraMarkers(QPainter& p, const ThemeColors& tc);
         void drawDefectStrip(QPainter& p, const ThemeColors& tc);
         void drawTriggerStrip(QPainter& p, const ThemeColors& tc);
+        void drawReferenceCameras(QPainter& p, const ThemeColors& tc);  // hollow markers on floor lanes
+        void drawReferenceTriggers(QPainter& p, const ThemeColors& tc);  // hollow pins on TRIGGER lane
+        void drawReferenceStrip(QPainter& p, const ThemeColors& tc);     // speed inputs + web breaks lane
         void drawMmRuler(QPainter& p, const ThemeColors& tc);
         void drawPositionCursor(QPainter& p, const ThemeColors& tc);
         void drawLegends(QPainter& p, const ThemeColors& tc);
@@ -145,15 +179,22 @@ private:
         int hoveredCamera_ = -1;
         int hoveredDefect_ = -1;
         int hoveredTrigger_ = -1;
+        int hoveredRefCam_ = -1;
+        int hoveredRefSpeed_ = -1;
+        int hoveredRefBreak_ = -1;
+        int hoveredRefTrigger_ = -1;
         int cursorHitCamera_ = -1;  // marker aligned with the cursor line
         int cursorHitDefect_ = -1;
         int cursorHitTrigger_ = -1;
+        int cursorHitRefCam_ = -1;
+        int cursorHitRefTrigger_ = -1;
         int selectedCamera_ = -1;   // -1 = none
         int selectedDefect_ = -1;   // -1 = none
         int selectedTrigger_ = -1;  // -1 = none
         int floorAxisY_[CameraFloor::kCount] = {0, 0, 0};  // per-floor lane axes
         int defectLaneAxisY_ = 0;
         int triggerLaneAxisY_ = 0;  // trigger record position lane
+        int refLaneAxisY_ = 0;      // reference data lane (speed inputs + web breaks)
         int mmRulerAxisY_ = 0;  // dedicated full-scale mm ruler lane
 
         // Vertical position cursor (tracks the exact pointer mm) + drag pan.
@@ -184,9 +225,14 @@ private:
     double mmToX(double mm) const;
     static QColor groupColor(int group);
     static QString formatEventTime(const QString& timestamp);
+    static RefSet buildReferenceSet(const QString& name);  // hardcoded reference data
+    int floorForRefCamera(const RefCamera& r) const;  // floor lane of the nearest live camera
 
     std::vector<CameraInfo> cardCameras_;  // live override from camera cards
     QVector<CameraMark> cameras_;
+    RefSet refSet_;                 // active reference set (hardcoded, read-only)
+    bool refEnabled_ = false;       // reference overlay shown (header combo)
+    QComboBox* refCombo_ = nullptr; // REFERENCE DATA: OFF / Reference 1
     QVector<SectionRange> sectionRanges_;  // per-group mm span for the section bar
     QVector<EventGroup> eventGroups_;
     QVector<DefectMark> defects_;          // filtered by the event combo
