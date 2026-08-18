@@ -1222,6 +1222,9 @@ void AnalysisView::setupMainArea() {
     toolsEdgeTab_->setAlignment(Qt::AlignCenter);
     toolsEdgeTab_->setToolTip("Hover to show the Tools panel.");
     restyleToolsEdgeTab();
+    // Initial tab is All Camera (index 0) — the TOOLS tab only belongs to the
+    // Single Camera detail view. onTabChanged() re-evaluates on every switch.
+    toolsEdgeTab_->hide();
 
     // Style every panel control with the current theme (also re-runs on theme
     // changes via updateTheme -> applyToolsPanelTheme).
@@ -2053,6 +2056,17 @@ void AnalysisView::onTabChanged(int index) {
     }
     if (headerToolsSeparator_) {
         headerToolsSeparator_->setVisible(index == 1);
+    }
+
+    // Hide the right Tools edge tab and panel on All Camera (index 0) and
+    // Diagnostic (index 2) — they are only meaningful for the Single Camera
+    // detail view (index 1).
+    if (toolsEdgeTab_) {
+        toolsEdgeTab_->setVisible(index == 1);
+    }
+    if (rightToolsPanel_ && index != 1) {
+        rightToolsPanel_->hide();
+        toolsPanelShown_ = false;
     }
 
     // Keep diagnostics live; force an immediate refresh when switching to the tab.
@@ -3634,6 +3648,13 @@ void AnalysisView::applyToolsPanelTheme() {
 
 void AnalysisView::onToolsHoverTick() {
     if (!rightToolsPanel_ || !mainArea_ || toolsLocked_) {
+        return;
+    }
+    // The vertical TOOLS tab is hidden outside the Single Camera detail tab —
+    // its visibility is the invariant that the tools panel is usable here, so
+    // never reveal the panel while the handle is invisible (its geometry would
+    // still match hovers over the All Camera / Diagnostic tabs).
+    if (!toolsEdgeTab_ || !toolsEdgeTab_->isVisible()) {
         return;
     }
     // Unpinned: the vertical TOOLS tab is the handle — hovering it reveals the
