@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QSplitter>
+#include <QFutureWatcher>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -118,6 +119,18 @@ private slots:
     void onFrameInputChanged();
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
+    void setupEventDashboards();
+    void refreshDashboardForCamera(int camIdx);
+    void generateThumbnails(int camIdx);
+    void refreshDashboardThumbnails();
+    int cameraIndexForBinPath(const QString& binPath) const;
+    void startNextSignalScan();
+    void onDashboardSeekRequested(int frame);
+    void onSignalScanFinished(const QString& binPath, const QVector<int>& sampleFrames,
+                              const QVector<double>& brightness,
+                              const QVector<int>& defectFrames,
+                              int totalFrames, double fps);
+    void onSignalScanFailed(const QString& binPath, const QString& reason);
     // How many frames one step / scrub advances at the current speed selector.
     int playbackStepSize() const;
 
@@ -420,6 +433,23 @@ private:
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
+    // Source .bin path per opened camera (for the signal scanner cache).
+    std::map<int, QString> videoReaderPaths_;
+    // Event dashboard (prototype): single-camera time-series + thumbnails.
+    class EventDashboard* detailDashboard_ = nullptr;   // Camera tab, below video
+    class EventSignalScanner* signalScanner_ = nullptr;
+    QStringList pendingScanPaths_;
+    QFutureWatcher<QVector<QImage>>* thumbWatcher_ = nullptr;
+    int thumbCamPending_ = -1;
+    int currentDashCam_ = -1;
+    struct CameraSignal {
+        QVector<int> samples;
+        QVector<double> brightness;
+        QVector<int> defects;
+        int totalFrames = 0;
+        double fps = 0.0;
+    };
+    std::map<int, CameraSignal> signalByCam_;
     bool isStreamingMode_;  // True when loading from file instead of RAM
     
     QTimer* stepTimer_;  // For hold-click stepping

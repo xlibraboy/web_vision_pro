@@ -26,6 +26,7 @@ src/core/SpeedProfile.cpp
 src/core/VideoStreamReader.cpp
 src/processing/ImageBuffer.cpp
 src/processing/DefectDetector.cpp
+src/processing/EventSignalScanner.cpp
 src/processing/VideoEncoder.cpp
 src/gui/MainWindow.cpp
 src/gui/LiveDashboard.cpp
@@ -33,6 +34,7 @@ src/gui/AnalysisView.cpp
 src/gui/DetailView.cpp
 src/gui/widgets/CameraWidget.cpp
 src/gui/widgets/AnalysisVideoWidget.cpp
+src/gui/widgets/EventDashboard.cpp
 src/gui/ConfigDialog.cpp
 src/config/CameraConfig.cpp
 src/communication/OpcUaClientService.cpp
@@ -58,6 +60,7 @@ src/gui/DetailView.h
 src/gui/ConfigDialog.h
 src/gui/widgets/CameraWidget.h
 src/gui/widgets/AnalysisVideoWidget.h
+src/gui/widgets/EventDashboard.h
 src/gui/widgets/ToggleSwitch.h
 src/gui/widgets/IconManager.h
 src/gui/widgets/CameraCard.h
@@ -71,6 +74,7 @@ src/gui/widgets/MachineLayoutPanel.h
 src/gui/widgets/DocsDialog.h
 src/communication/OpcUaClientService.h
 src/communication/OpcUaRuntimeStatus.h
+src/processing/EventSignalScanner.h
 )
 
 # Include Directories
