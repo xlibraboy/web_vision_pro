@@ -346,7 +346,9 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     painter.setPen(QColor(tc.border));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
     
-    // Draw title bar at top (ALWAYS)
+    // Draw title bar at top (only when a title is set; the single-camera
+    // detail tab leaves it empty — the tab label already names the camera).
+    if (!title_.isEmpty()) {
     QRect titleRect(0, 0, width(), 24); // Increased height slightly
     painter.setClipping(false);
     painter.fillRect(titleRect, titleBarColor);
@@ -356,6 +358,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.drawText(titleRect.adjusted(8, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, title_);
+    }
     
     // Draw timestamp bar at bottom ONLY if we have a frame
     if (!currentFrame_.isNull()) {

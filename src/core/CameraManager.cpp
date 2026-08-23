@@ -507,8 +507,15 @@ void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
         } catch (...) {}
     };
 
-    setBool("ExposureTimeBaseEnable", info.enableExposureTimeBase);
-    setBool("EnableExposureTimeBase", info.enableExposureTimeBase);
+    // scA780 workaround: writing these legacy exposure-base booleans crashes
+    // GenApi (#SS -> SIGBUS) even when the value is unchanged, and the config
+    // only ever stores false. Skip the disable-write entirely.
+    if (!info.enableExposureTimeBase) {
+        std::cout << "[CameraManager] Skipping ExposureTimeBase* writes (disabled in config)." << std::endl;
+    } else {
+        setBool("ExposureTimeBaseEnable", info.enableExposureTimeBase);
+        setBool("EnableExposureTimeBase", info.enableExposureTimeBase);
+    }
     setFloat("ExposureTimeAbs", info.exposureTimeAbs);
     setFloat("ExposureTime", info.exposureTimeAbs); // newer SFNC fallback
     if (info.enableExposureTimeBase) {
@@ -540,6 +547,8 @@ bool openConfiguredDeviceDirect(int configArrayIndex,
     }
 
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {
@@ -707,7 +716,12 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
     }
 }
 
-CameraManager::CameraManager(int numCameras) 
+std::recursive_mutex& CameraManager::pylonApiMutex() {
+    static std::recursive_mutex m;
+    return m;
+}
+
+CameraManager::CameraManager(int numCameras)
     : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
       defectDetectionEnabled_(false) {
     prevTempStatus_.assign(numCameras, TemperatureStatus::Unknown);
@@ -1182,8 +1196,9 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
 
         CTlFactory& tlFactory = CTlFactory::GetInstance();
         DeviceInfoList_t devices;
-        
-        // Find all attached devices. 
+
+        // Find all attached devices.
+        std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
         if (tlFactory.EnumerateDevices(devices) == 0) {
             std::cerr << "[CameraManager] No cameras found!" << std::endl;
             return false;
@@ -1618,9 +1633,12 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
             }
 
             try {
+                std::cout << "[CameraManager][cfg] enum " << nodeName << " <- "
+                          << value.toStdString() << std::endl;
                 GenApi::CEnumerationPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->FromString(value.toStdString().c_str());
+                    std::cout << "[CameraManager][cfg] enum " << nodeName << " OK" << std::endl;
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -1630,9 +1648,11 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setBoolIfWritable = [&nodemap](const char* nodeName, bool value) {
             try {
+                std::cout << "[CameraManager][cfg] bool " << nodeName << " <- " << value << std::endl;
                 GenApi::CBooleanPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
+                    std::cout << "[CameraManager][cfg] bool " << nodeName << " OK" << std::endl;
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -1642,6 +1662,7 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setFloatIfWritable = [&nodemap](const char* nodeName, double value) {
             try {
+                std::cout << "[CameraManager][cfg] float " << nodeName << " <- " << value << std::endl;
                 GenApi::CFloatPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
@@ -1654,6 +1675,7 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setIntIfWritable = [&nodemap](const char* nodeName, int value) {
             try {
+                std::cout << "[CameraManager][cfg] int " << nodeName << " <- " << value << std::endl;
                 GenApi::CIntegerPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
@@ -1726,8 +1748,14 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
         width_ = clampNodeValue(widthNode, config.width, "Width");
         height_ = clampNodeValue(heightNode, config.height, "Height");
 
-        setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
-        setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
+        // scA780 workaround: see note in applyLiveDeviceSettings — writing a
+        // disable into these legacy nodes crashes GenApi; skip when disabled.
+        if (!config.enableExposureTimeBase) {
+            std::cout << "[CameraManager] Skipping ExposureTimeBase* config writes (disabled in config)." << std::endl;
+        } else {
+            setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
+            setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
+        }
         if (!preserveStartupUserSet) {
             setFloatIfWritable("ExposureTimeAbs", config.exposureTimeAbs);
             setFloatIfWritable("ExposureTime", config.exposureTimeAbs);
@@ -1994,6 +2022,7 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
 
     CTlFactory& tlFactory = CTlFactory::GetInstance();
     DeviceInfoList_t devices;
+    std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
     tlFactory.EnumerateDevices(devices);
     std::set<int> claimed;
 
@@ -2826,6 +2855,8 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices(bool forceRefres
     static bool cacheValid = false;
     constexpr auto kCacheTtl = std::chrono::milliseconds(2500);
 
+    // Pylon factory access must be exclusive vs lifecycle attach paths.
+    std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
         const auto now = std::chrono::steady_clock::now();
@@ -2836,6 +2867,8 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices(bool forceRefres
 
     std::vector<GigEDeviceInfo> devices;
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {
@@ -2892,6 +2925,8 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
         return IpConfigResult::WriteFailed;
     }
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {

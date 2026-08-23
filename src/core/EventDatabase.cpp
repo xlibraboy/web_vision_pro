@@ -81,11 +81,14 @@ void EventDatabase::scanDirectory() {
         // Otherwise, create default metadata from BIN header
         QFile f(fileInfo.absoluteFilePath());
         if (f.open(QIODevice::ReadOnly)) {
-            char header[28]; // Magic(8) + Ver(4) + W(4) + H(4) + Type(4) + Count(4)
-            if (f.read(header, 28) == 28) {
-                int32_t width = *reinterpret_cast<int32_t*>(header + 12);
-                int32_t height = *reinterpret_cast<int32_t*>(header + 16);
-                int32_t count = *reinterpret_cast<int32_t*>(header + 24);
+            // RawFileHeader layout (RawFormat.h): magic[4] ver@4 w@8 h@12
+            // pixfmt@16 fps(double)@24 totalFrames@32 triggerIndex@36
+            char header[40];
+            if (f.read(header, 40) == 40) {
+                int32_t width = *reinterpret_cast<int32_t*>(header + 8);
+                int32_t height = *reinterpret_cast<int32_t*>(header + 12);
+                double headerFps = *reinterpret_cast<double*>(header + 24);
+                int32_t count = *reinterpret_cast<int32_t*>(header + 32);
 
                 EventInfo event;
                 event.timestamp = timestamp;
@@ -93,7 +96,7 @@ void EventDatabase::scanDirectory() {
                 event.metadataPath = dir.filePath("event_" + timestamp + ".json");
                 event.triggerIndex = 0; // Unknown, default to start
                 event.totalFrames = count;
-                event.fps = 10.0; // Default
+                event.fps = (headerFps > 0.0) ? headerFps : 10.0;
                 event.width = width;
                 event.height = height;
                 event.permanent = false;

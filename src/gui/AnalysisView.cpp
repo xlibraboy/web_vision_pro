@@ -8,6 +8,8 @@
 #include "../core/EventDatabase.h"
 #include "../core/SpeedProfile.h"
 #include "../core/VideoStreamReader.h"
+#include "../processing/EventSignalScanner.h"
+#include "widgets/EventDashboard.h"
 #include <QApplication>
 #include <QCursor>
 #include <QVBoxLayout>
@@ -517,6 +519,8 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     // even if the current system config now has fewer active cameras.
     const int maxEventCameras = 16;
     videoReaders_.clear();
+    videoReaderPaths_.clear();
+    pendingScanPaths_.clear();
     
     bool anyOpened = false;
     int highestOpenedCameraIndex = -1;
@@ -536,6 +540,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
             auto reader = std::make_unique<VideoStreamReader>();
             if (reader->open(camPath)) {
                 videoReaders_[i] = std::move(reader);
+                videoReaderPaths_[i] = camPath;
                 anyOpened = true;
                 highestOpenedCameraIndex = std::max(highestOpenedCameraIndex, i);
             }
@@ -674,9 +679,290 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     updateAnnotationSliderMarkers();
     updatePlaybackInfoLabel();
     updateAlignmentStatus();
-    
-    std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1 
+
+    // Wire up the event dashboards (prototype A + B) and start signal scans.
+    setupEventDashboards();
+
+    std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
+}
+
+namespace {
+
+QImage matToThumbnailImage(const cv::Mat& m) {
+    if (m.empty()) {
+        return QImage();
+    }
+    if (m.channels() == 1) {
+        QImage g(m.data, m.cols, m.rows, static_cast<int>(m.step), QImage::Format_Grayscale8);
+        return g.copy();
+    }
+    QImage bgr(m.data, m.cols, m.rows, static_cast<int>(m.step), QImage::Format_BGR888);
+    return bgr.copy();
+}
+
+} // namespace
+
+void AnalysisView::setupEventDashboards() {
+    // A review can be loaded several times in quick succession (auto-open of
+    // the newest event, tab switches). Never cancel an in-flight scan that is
+    // already working on one of THIS event's files — restarting it would
+    // starve the dashboard. Only cancel scans for foreign files.
+    if (signalScanner_ && signalScanner_->isRunning()) {
+        const QString running = signalScanner_->currentBinPath();
+        bool belongsToEvent = false;
+        for (const auto& pair : videoReaderPaths_) {
+            if (pair.second == running) {
+                belongsToEvent = true;
+                break;
+            }
+        }
+        if (!belongsToEvent) {
+            signalScanner_->cancel();
+        }
+    }
+    if (thumbWatcher_ && thumbWatcher_->isRunning()) {
+        thumbWatcher_->cancel();
+        thumbWatcher_->waitForFinished();
+    }
+    pendingScanPaths_.clear();
+
+    int total = 0;
+    double fps = 0.0;
+    if (!videoReaders_.empty() && videoReaders_.begin()->second) {
+        total = videoReaders_.begin()->second->getTotalFrames();
+        fps = videoReaders_.begin()->second->getFps();
+    }
+
+    // Show the camera the user already selected; otherwise the first opened.
+    currentDashCam_ = -1;
+    if (selectedCameraId_ >= 0 && videoReaders_.count(selectedCameraId_)) {
+        currentDashCam_ = selectedCameraId_;
+    } else if (!videoReaders_.empty()) {
+        currentDashCam_ = videoReaders_.begin()->first;
+    }
+    const QString label = currentDashCam_ >= 0
+                              ? currentEventCameraLabel(currentDashCam_)
+                              : QStringLiteral("CAM-01");
+
+    EventDashboard* dash = detailDashboard_;
+    if (dash) {
+        dash->setEventData(label, total, triggerFrameIndex_, fps, {}, {}, {}, {}, {}, {}, {});
+        dash->setCurrentFrame(triggerFrameIndex_);
+        dash->setThumbnails({});
+    }
+
+    // Queue a signal scan for every opened camera file that has no result
+    // yet (cache hits return instantly via finished()).
+    if (!signalScanner_) {
+        signalScanner_ = new EventSignalScanner(this);
+        connect(signalScanner_, &EventSignalScanner::finished,
+                this, &AnalysisView::onSignalScanFinished);
+        connect(signalScanner_, &EventSignalScanner::failed,
+                this, &AnalysisView::onSignalScanFailed);
+        connect(signalScanner_, &EventSignalScanner::progress, this,
+                [this](int scanned, int totalSteps) {
+            if (!detailDashboard_) return;
+            auto it = videoReaderPaths_.find(currentDashCam_);
+            if (it == videoReaderPaths_.end()) return;
+            if (signalScanner_->currentBinPath() != it->second) return;
+            detailDashboard_->setLoadingSignals(true);
+            detailDashboard_->setSignalProgress(totalSteps > 0
+                ? static_cast<int>(100LL * scanned / totalSteps) : -1);
+        });
+    }
+    if (!thumbWatcher_) {
+        thumbWatcher_ = new QFutureWatcher<QVector<QImage>>(this);
+        connect(thumbWatcher_, &QFutureWatcher<QVector<QImage>>::finished,
+                this, &AnalysisView::refreshDashboardThumbnails);
+    }
+    for (const auto& pair : videoReaderPaths_) {
+        const QString& path = pair.second;
+        if (signalByCam_.count(path) || pendingScanPaths_.contains(path)) {
+            continue;
+        }
+        pendingScanPaths_.append(path);
+    }
+    startNextSignalScan();
+
+    if (currentDashCam_ >= 0) {
+        refreshDashboardForCamera(currentDashCam_);
+    }
+    updateDashboardLoadingState();
+}
+
+void AnalysisView::updateDashboardLoadingState() {
+    if (!detailDashboard_) {
+        return;
+    }
+    QString curPath;
+    if (currentDashCam_ >= 0) {
+        auto it = videoReaderPaths_.find(currentDashCam_);
+        if (it != videoReaderPaths_.end()) curPath = it->second;
+    }
+    const bool haveSignal = signalByCam_.count(curPath) > 0;
+    const bool scanPending = !curPath.isEmpty() && !haveSignal
+        && (pendingScanPaths_.contains(curPath)
+            || (signalScanner_ && signalScanner_->isRunning()
+                && signalScanner_->currentBinPath() == curPath));
+    detailDashboard_->setLoadingSignals(scanPending);
+
+    const bool thumbsLoading = thumbWatcher_ && thumbWatcher_->isRunning()
+        && thumbCamPending_ == currentDashCam_;
+    detailDashboard_->setLoadingThumbnails(thumbsLoading);
+}
+
+void AnalysisView::startNextSignalScan() {
+    if (!signalScanner_ || signalScanner_->isRunning()) {
+        return;
+    }
+    while (!pendingScanPaths_.isEmpty()) {
+        const QString path = pendingScanPaths_.takeFirst();
+        if (QFile::exists(path)) {
+            signalScanner_->scanAsync(path);
+            updateDashboardLoadingState();
+            return;
+        }
+    }
+    updateDashboardLoadingState();
+}
+
+void AnalysisView::onSignalScanFinished(const QString& binPath, const EventSignalData& data) {
+    CameraSignal sig;
+    sig.samples = data.sampleFrames;
+    sig.brightness = data.brightness;
+    sig.stddev = data.stddev;
+    sig.spotPct = data.spotPct;
+    sig.defects = data.defectBrightness;
+    sig.localDefects = data.defectLocal;
+    sig.contrastDefects = data.defectContrast;
+    sig.totalFrames = data.totalFrames;
+    sig.fps = data.fps;
+    signalByCam_[binPath] = sig;
+
+    // Refresh only if this result belongs to the camera being displayed.
+    if (currentDashCam_ >= 0) {
+        auto pathIt = videoReaderPaths_.find(currentDashCam_);
+        if (pathIt != videoReaderPaths_.end() && pathIt->second == binPath) {
+            refreshDashboardForCamera(currentDashCam_);
+        }
+    }
+    startNextSignalScan();
+}
+
+void AnalysisView::onSignalScanFailed(const QString& binPath, const QString& reason) {
+    std::cout << "[AnalysisView] Signal scan failed for "
+              << binPath.toStdString() << ": " << reason.toStdString() << std::endl;
+    startNextSignalScan();
+    updateDashboardLoadingState();
+}
+
+void AnalysisView::refreshDashboardForCamera(int camIdx) {
+    if (!detailDashboard_) {
+        return;
+    }
+    if (camIdx < 0 || !videoReaders_.count(camIdx)) {
+        if (!videoReaders_.empty()) {
+            camIdx = videoReaders_.begin()->first;
+        } else {
+            return;
+        }
+    }
+    currentDashCam_ = camIdx;
+
+    auto it = videoReaders_.find(camIdx);
+    const int total = (it != videoReaders_.end() && it->second)
+                          ? it->second->getTotalFrames() : 0;
+    double fps = (it != videoReaders_.end() && it->second) ? it->second->getFps() : 0.0;
+    QVector<int> samples;
+    QVector<double> brightness;
+    QVector<double> stddev;
+    QVector<double> spotPct;
+    QVector<int> defects;
+    QVector<int> localDefects;
+    QVector<int> contrastDefects;
+    auto pathIt = videoReaderPaths_.find(camIdx);
+    if (pathIt != videoReaderPaths_.end()) {
+        auto sigIt = signalByCam_.find(pathIt->second);
+        if (sigIt != signalByCam_.end()) {
+            samples = sigIt->second.samples;
+            brightness = sigIt->second.brightness;
+            stddev = sigIt->second.stddev;
+            spotPct = sigIt->second.spotPct;
+            defects = sigIt->second.defects;
+            localDefects = sigIt->second.localDefects;
+            contrastDefects = sigIt->second.contrastDefects;
+            if (sigIt->second.fps > 0.0) {
+                fps = sigIt->second.fps;
+            }
+        }
+    }
+    const QString label = currentEventCameraLabel(camIdx);
+    EventDashboard* dash = detailDashboard_;
+    if (dash) {
+        dash->setEventData(label, total, triggerFrameIndex_, fps, samples, brightness,
+                           stddev, spotPct, defects, localDefects, contrastDefects);
+        dash->setCurrentFrame(currentReviewFrameIndex());
+    }
+    generateThumbnails(camIdx);
+}
+
+void AnalysisView::generateThumbnails(int camIdx) {
+    if (!thumbWatcher_) {
+        return;
+    }
+    if (thumbWatcher_->isRunning()) {
+        thumbWatcher_->cancel();
+        thumbWatcher_->waitForFinished();
+    }
+    auto pathIt = videoReaderPaths_.find(camIdx);
+    if (pathIt == videoReaderPaths_.end()) {
+        return;
+    }
+    thumbCamPending_ = camIdx;
+    updateDashboardLoadingState();
+    // Own reader instance: keeps disk I/O off the playback reader.
+    thumbWatcher_->setFuture(QtConcurrent::run([path = pathIt->second]() {
+        VideoStreamReader reader;
+        QVector<QImage> out;
+        if (!reader.open(path)) {
+            return out;
+        }
+        const int total = reader.getTotalFrames();
+        const int count = qMin(EventDashboard::kThumbCount, std::max(1, total));
+        for (int i = 0; i < count; ++i) {
+            const int frameIdx = (count > 1)
+                                     ? static_cast<int>(std::round(i * (total - 1) / (count - 1.0)))
+                                     : 0;
+            out.push_back(matToThumbnailImage(reader.getFrame(frameIdx)));
+        }
+        return out;
+    }));
+}
+
+void AnalysisView::refreshDashboardThumbnails() {
+    if (!thumbWatcher_) {
+        return;
+    }
+    // A cancelled run emits finished() with an EMPTY result store; calling
+    // result() then returns garbage memory (observed as SIGBUS). Only read
+    // results that are actually present, and ignore stale cameras.
+    const auto fut = thumbWatcher_->future();
+    if (fut.isCanceled() || !fut.isResultReadyAt(0)) {
+        return;
+    }
+    if (thumbCamPending_ < 0 || thumbCamPending_ != currentDashCam_) {
+        return; // thumbnails for a camera the user has already moved past
+    }
+    const QVector<QImage> imgs = thumbWatcher_->result();
+    if (detailDashboard_) {
+        detailDashboard_->setThumbnails(imgs);
+    }
+    updateDashboardLoadingState();
+}
+
+void AnalysisView::onDashboardSeekRequested(int frame) {
+    seekToFrameIndex(frame, true);
 }
 
 void AnalysisView::setupLeftSidebar() {
@@ -986,6 +1272,12 @@ void AnalysisView::setupMainArea() {
     selectedCameraWidget_ = new AnalysisVideoWidget(-1, "Select a camera", singleCameraTab_);
     singleLayout->addWidget(selectedCameraWidget_, 1);
 
+    // Prototype: event dashboard below the video in the Camera tab.
+    detailDashboard_ = new EventDashboard(singleCameraTab_);
+    connect(detailDashboard_, &EventDashboard::seekRequested,
+            this, &AnalysisView::onDashboardSeekRequested);
+    singleLayout->addWidget(detailDashboard_);
+
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
         const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
@@ -1172,6 +1464,23 @@ void AnalysisView::setupMainArea() {
         alignStatusLabel_->setWordWrap(true);
         panelLayout->addWidget(alignStatusLabel_);
     }
+
+    // ── Event dashboard ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("EVENT DASHBOARD"));
+    dashboardToggleCheck_ = new QCheckBox("Chart + Thumbnails", rightToolsPanel_);
+    dashboardToggleCheck_->setChecked(true);
+    dashboardToggleCheck_->setToolTip(
+        "Show or hide the per-camera time-series dashboard (Camera tab).");
+    connect(dashboardToggleCheck_, &QCheckBox::toggled, this, [this](bool on) {
+        if (detailDashboard_) {
+            detailDashboard_->setVisible(on);
+        }
+    });
+    dashboardToggleCheck_->setStyleSheet(
+        QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    panelLayout->addWidget(dashboardToggleCheck_);
+
     panelLayout->addStretch(1);
 
     // Reparent all tool widgets into the panel (removes them from old layouts).
@@ -1997,7 +2306,7 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     
     // Update the single camera view
     removeSelectedCameraWidget();
-    selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, label, singleCameraTab_);
+    selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, QString(), singleCameraTab_);
     if (markerShapeCombo_) {
         selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
     }
@@ -2028,8 +2337,15 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     connect(selectedCameraWidget_, &AnalysisVideoWidget::doubleClicked,
             this, &AnalysisView::onSelectedCameraDoubleClicked);
     if (layout) {
-        layout->addWidget(selectedCameraWidget_, 1);
+        // Keep the video above the dashboard (prototype B) when present.
+        const int dashIdx = detailDashboard_ ? layout->indexOf(detailDashboard_) : -1;
+        if (dashIdx >= 0) {
+            layout->insertWidget(dashIdx, selectedCameraWidget_, 1);
+        } else {
+            layout->addWidget(selectedCameraWidget_, 1);
+        }
     }
+    refreshDashboardForCamera(cameraId);
     if (cameraOffsetSpin_) {
         cameraOffsetSpin_->blockSignals(true);
         if (cameraId >= 0 && cameraId < static_cast<int>(cameraFrameOffsets_.size())) {
@@ -2112,6 +2428,10 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
         const bool sliderBlocked = playbackSlider_->blockSignals(true);
         playbackSlider_->setValue(sliderValueForFrameIndex(idx));
         playbackSlider_->blockSignals(sliderBlocked);
+    }
+    // Keep the dashboard on the playhead.
+    if (detailDashboard_) {
+        detailDashboard_->setCurrentFrame(idx);
     }
 
     frameInput_->setText(hasRelativeTimeAxis()
@@ -2763,6 +3083,11 @@ void AnalysisView::setLiveMode() {
     
     // Hide zero marker in live mode
     sliderZeroMarker_->hide();
+
+    // Dashboards are review-only visualizations.
+    if (detailDashboard_) {
+        detailDashboard_->clear();
+    }
 }
 
 void AnalysisView::updatePlaybackInfoLabel() {
@@ -3432,6 +3757,16 @@ void AnalysisView::clearData() {
         tiffLoaderWatcher_->cancel();
         tiffLoaderWatcher_->waitForFinished();
     }
+    // Stop dashboard scan/thumbnail workers; the scanner owns its own reader
+    // so releasing videoReaders_ below stays safe.
+    if (signalScanner_ && signalScanner_->isRunning()) {
+        signalScanner_->cancel();
+    }
+    pendingScanPaths_.clear();
+    if (thumbWatcher_ && thumbWatcher_->isRunning()) {
+        thumbWatcher_->cancel();
+        thumbWatcher_->waitForFinished();
+    }
 
     // Reset UI with slider signals blocked to avoid re-entering review rendering while
     // readers/metadata are being released.
@@ -3472,6 +3807,11 @@ void AnalysisView::clearData() {
     recordedSequence_.clear();
     frameMetadata_.clear();
     videoReaders_.clear();
+    videoReaderPaths_.clear();
+    signalByCam_.clear();
+    if (detailDashboard_) {
+        detailDashboard_->clear();
+    }
     currentAnnotationPath_.clear();
     currentEventCameraLabels_.clear();
     currentEventInfo_ = EventDatabase::EventInfo();
@@ -3605,6 +3945,9 @@ void AnalysisView::applyToolsPanelTheme() {
     }
     if (markerToolCheck_) {
         markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    }
+    if (dashboardToggleCheck_) {
+        dashboardToggleCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
     }
     if (markerShapeCombo_) {
         markerShapeCombo_->setStyleSheet(QString(

@@ -2,7 +2,10 @@
 
 #include <QWidget>
 #include <QSplitter>
+#include <QFutureWatcher>
 #include <QPushButton>
+
+struct EventSignalData;
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QSlider>
@@ -118,6 +121,15 @@ private slots:
     void onFrameInputChanged();
     void onSpeedChanged(QAction* action);
     void onPlaybackTick();  // Timer-based playback update
+    void setupEventDashboards();
+    void refreshDashboardForCamera(int camIdx);
+    void generateThumbnails(int camIdx);
+    void refreshDashboardThumbnails();
+    void updateDashboardLoadingState();
+    void startNextSignalScan();
+    void onDashboardSeekRequested(int frame);
+    void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
+    void onSignalScanFailed(const QString& binPath, const QString& reason);
     // How many frames one step / scrub advances at the current speed selector.
     int playbackStepSize() const;
 
@@ -406,6 +418,7 @@ private:
     QLabel*          toolsEdgeTab_ = nullptr;
     QPushButton*     toolsLockButton_ = nullptr;
     QPushButton*     resetToolsButton_ = nullptr;
+    QCheckBox*       dashboardToggleCheck_ = nullptr;  // TOOLS panel: show/hide event dashboard
     bool             toolsLocked_ = false;  // start unpinned (hover-driven)
     bool             toolsTabHovered_ = false;  // cursor is over the edge tab
     QTimer*          toolsHoverTimer_ = nullptr;
@@ -420,6 +433,27 @@ private:
     
     // On-demand video loading (per active camera)
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
+    // Source .bin path per opened camera (for the signal scanner cache).
+    std::map<int, QString> videoReaderPaths_;
+    // Event dashboard (prototype): single-camera time-series + thumbnails.
+    class EventDashboard* detailDashboard_ = nullptr;   // Camera tab, below video
+    class EventSignalScanner* signalScanner_ = nullptr;
+    QStringList pendingScanPaths_;
+    QFutureWatcher<QVector<QImage>>* thumbWatcher_ = nullptr;
+    int thumbCamPending_ = -1;
+    int currentDashCam_ = -1;
+    struct CameraSignal {
+        QVector<int> samples;
+        QVector<double> brightness;
+        QVector<double> stddev;
+        QVector<double> spotPct;
+        QVector<int> defects;
+        QVector<int> localDefects;
+        QVector<int> contrastDefects;
+        int totalFrames = 0;
+        double fps = 0.0;
+    };
+    std::map<QString, CameraSignal> signalByCam_;
     bool isStreamingMode_;  // True when loading from file instead of RAM
     
     QTimer* stepTimer_;  // For hold-click stepping
