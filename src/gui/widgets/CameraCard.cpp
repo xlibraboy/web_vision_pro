@@ -42,7 +42,7 @@ CameraCard::CameraCard(const CameraInfo& info, QWidget* parent)
 }
 
 QSize CameraCard::sizeHint() const {
-    const int expandedHeight = 450;
+    const int expandedHeight = 380;
     const int collapsedHeight = 92;
     return QSize(isExpanded_ ? 0 : 0, isExpanded_ ? expandedHeight : collapsedHeight);
 }
@@ -300,8 +300,10 @@ void CameraCard::createContent(const CameraInfo& info) {
 
     contentLayout_->addWidget(basicInfoGroup_);
 
-    // Network Settings Group
-    networkInfoGroup_ = new QGroupBox("Network Settings", contentWidget_);
+    // Camera Assignment Group
+    // Focus: bind a camera (MAC) to this slot. IP/subnet/gateway editing lives in
+    // the IpConfiguratorPanel; the card only shows assignment feedback.
+    networkInfoGroup_ = new QGroupBox("Camera Assignment", contentWidget_);
     networkInfoGroup_->setStyleSheet(groupStyle);
 
     networkFieldsLayout_ = new QGridLayout(networkInfoGroup_);
@@ -311,6 +313,15 @@ void CameraCard::createContent(const CameraInfo& info) {
     networkFieldsLayout_->setColumnStretch(1, 1);
 
     int networkRow = 0;
+
+    // MAC Address (the assignment action: pick which physical camera binds here)
+    macCombo_ = new QComboBox(networkInfoGroup_);
+    macCombo_->addItem("None / Auto");
+    macCombo_->setEditable(true);
+    macCombo_->setCurrentText(info.macAddress);
+    macCombo_->setStyleSheet(fieldStyle);
+    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "MAC Address:", macCombo_);
+    connect(macCombo_, &QComboBox::currentTextChanged, this, &CameraCard::macChanged);
 
     // Configured IP (Read Only)
     ipLabel_ = new QLabel(info.ipAddress, networkInfoGroup_);
@@ -323,25 +334,6 @@ void CameraCard::createContent(const CameraInfo& info) {
     detectedIpLabel_->setStyleSheet(infoValueStyle + " QLabel { font-family: 'SF Mono', Monaco, monospace; color: #8B949E; }");
     detectedIpLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Detected IP:", detectedIpLabel_);
-
-    // MAC Address
-    macCombo_ = new QComboBox(networkInfoGroup_);
-    macCombo_->addItem("None / Auto");
-    macCombo_->setEditable(true);
-    macCombo_->setCurrentText(info.macAddress);
-    macCombo_->setStyleSheet(fieldStyle);
-    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "MAC Address:", macCombo_);
-    connect(macCombo_, &QComboBox::currentTextChanged, this, &CameraCard::macChanged);
-
-    // Subnet Mask
-    subnetEdit_ = new QLineEdit(info.subnetMask, networkInfoGroup_);
-    subnetEdit_->setStyleSheet(fieldStyle);
-    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Subnet Mask:", subnetEdit_);
-
-    // Gateway
-    gatewayEdit_ = new QLineEdit(info.defaultGateway, networkInfoGroup_);
-    gatewayEdit_->setStyleSheet(fieldStyle);
-    addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Gateway:", gatewayEdit_);
 
     contentLayout_->addWidget(networkInfoGroup_);
 
@@ -442,8 +434,6 @@ void CameraCard::setEditable(bool editable) {
     floorCombo_->setEnabled(editable);
     positionSpin_->setEnabled(editable);
     macCombo_->setEnabled(editable);
-    subnetEdit_->setEnabled(editable);
-    gatewayEdit_->setEnabled(editable);
     deviceSettingsBtn_->setEnabled(editable);
 }
 
@@ -460,8 +450,8 @@ void CameraCard::setDetectedIp(const QString& ip) {
 
 void CameraCard::setNetworkConfig(const QString& ip, const QString& mask, const QString& gateway) {
     ipLabel_->setText(ip);
-    subnetEdit_->setText(mask);
-    gatewayEdit_->setText(gateway);
+    // Mask/gateway are managed by the IpConfiguratorPanel; keep the stored
+    // config in sync without exposing them as card fields.
     cameraInfo_.ipAddress = ip;
     cameraInfo_.subnetMask = mask;
     cameraInfo_.defaultGateway = gateway;
@@ -739,9 +729,9 @@ QString CameraCard::macAddress() const {
 }
 
 QString CameraCard::subnetMask() const {
-    return subnetEdit_->text();
+    return cameraInfo_.subnetMask;
 }
 
 QString CameraCard::gateway() const {
-    return gatewayEdit_->text();
+    return cameraInfo_.defaultGateway;
 }
