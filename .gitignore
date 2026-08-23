@@ -16,8 +16,12 @@ compile_commands.json
 # IDEs
 .vscode/
 .idea/
+.kiro/
 *.swp
 *.swo
+
+# Python
+__pycache__/
 
 # Project Specific
 data/
