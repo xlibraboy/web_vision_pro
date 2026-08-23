@@ -760,6 +760,16 @@ void AnalysisView::setupEventDashboards() {
                 this, &AnalysisView::onSignalScanFinished);
         connect(signalScanner_, &EventSignalScanner::failed,
                 this, &AnalysisView::onSignalScanFailed);
+        connect(signalScanner_, &EventSignalScanner::progress, this,
+                [this](int scanned, int totalSteps) {
+            if (!detailDashboard_) return;
+            auto it = videoReaderPaths_.find(currentDashCam_);
+            if (it == videoReaderPaths_.end()) return;
+            if (signalScanner_->currentBinPath() != it->second) return;
+            detailDashboard_->setLoadingSignals(true);
+            detailDashboard_->setSignalProgress(totalSteps > 0
+                ? static_cast<int>(100LL * scanned / totalSteps) : -1);
+        });
     }
     if (!thumbWatcher_) {
         thumbWatcher_ = new QFutureWatcher<QVector<QImage>>(this);
@@ -778,6 +788,28 @@ void AnalysisView::setupEventDashboards() {
     if (currentDashCam_ >= 0) {
         refreshDashboardForCamera(currentDashCam_);
     }
+    updateDashboardLoadingState();
+}
+
+void AnalysisView::updateDashboardLoadingState() {
+    if (!detailDashboard_) {
+        return;
+    }
+    QString curPath;
+    if (currentDashCam_ >= 0) {
+        auto it = videoReaderPaths_.find(currentDashCam_);
+        if (it != videoReaderPaths_.end()) curPath = it->second;
+    }
+    const bool haveSignal = signalByCam_.count(curPath) > 0;
+    const bool scanPending = !curPath.isEmpty() && !haveSignal
+        && (pendingScanPaths_.contains(curPath)
+            || (signalScanner_ && signalScanner_->isRunning()
+                && signalScanner_->currentBinPath() == curPath));
+    detailDashboard_->setLoadingSignals(scanPending);
+
+    const bool thumbsLoading = thumbWatcher_ && thumbWatcher_->isRunning()
+        && thumbCamPending_ == currentDashCam_;
+    detailDashboard_->setLoadingThumbnails(thumbsLoading);
 }
 
 void AnalysisView::startNextSignalScan() {
@@ -788,9 +820,11 @@ void AnalysisView::startNextSignalScan() {
         const QString path = pendingScanPaths_.takeFirst();
         if (QFile::exists(path)) {
             signalScanner_->scanAsync(path);
+            updateDashboardLoadingState();
             return;
         }
     }
+    updateDashboardLoadingState();
 }
 
 void AnalysisView::onSignalScanFinished(const QString& binPath, const EventSignalData& data) {
@@ -820,6 +854,7 @@ void AnalysisView::onSignalScanFailed(const QString& binPath, const QString& rea
     std::cout << "[AnalysisView] Signal scan failed for "
               << binPath.toStdString() << ": " << reason.toStdString() << std::endl;
     startNextSignalScan();
+    updateDashboardLoadingState();
 }
 
 void AnalysisView::refreshDashboardForCamera(int camIdx) {
@@ -885,6 +920,7 @@ void AnalysisView::generateThumbnails(int camIdx) {
         return;
     }
     thumbCamPending_ = camIdx;
+    updateDashboardLoadingState();
     // Own reader instance: keeps disk I/O off the playback reader.
     thumbWatcher_->setFuture(QtConcurrent::run([path = pathIt->second]() {
         VideoStreamReader reader;
@@ -922,6 +958,7 @@ void AnalysisView::refreshDashboardThumbnails() {
     if (detailDashboard_) {
         detailDashboard_->setThumbnails(imgs);
     }
+    updateDashboardLoadingState();
 }
 
 void AnalysisView::onDashboardSeekRequested(int frame) {

@@ -36,6 +36,10 @@ public:
     // round(i * (total-1) / (count-1)).
     void setThumbnails(const QVector<QImage>& thumbs);
     void setCurrentFrame(int frame);
+    // Loading indicators: shown only while the corresponding data is absent.
+    void setLoadingSignals(bool on);
+    void setSignalProgress(int percent); // -1 = indeterminate
+    void setLoadingThumbnails(bool on);
     void clear();
     void applyTheme(const QColor& background, const QColor& curve,
                     const QColor& text);
@@ -75,6 +79,9 @@ private:
     QVector<int> defectContrast_;
     QVector<QImage> thumbs_;
     int currentFrame_ = 0;
+    bool loadingSignals_ = false;
+    int signalProgress_ = -1;
+    bool loadingThumbs_ = false;
 
     QColor bgColor_ = QColor(QStringLiteral("#1B1B1F"));
     QColor curveColor_ = QColor(QStringLiteral("#4FC3F7"));

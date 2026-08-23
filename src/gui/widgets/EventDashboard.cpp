@@ -95,6 +95,24 @@ void EventDashboard::setCurrentFrame(int frame) {
     update();
 }
 
+void EventDashboard::setLoadingSignals(bool on) {
+    if (loadingSignals_ == on) return;
+    loadingSignals_ = on;
+    update();
+}
+
+void EventDashboard::setSignalProgress(int percent) {
+    if (signalProgress_ == percent) return;
+    signalProgress_ = percent;
+    if (loadingSignals_) update();
+}
+
+void EventDashboard::setLoadingThumbnails(bool on) {
+    if (loadingThumbs_ == on) return;
+    loadingThumbs_ = on;
+    update();
+}
+
 void EventDashboard::clear() {
     cameraLabel_.clear();
     totalFrames_ = 0;
@@ -107,6 +125,9 @@ void EventDashboard::clear() {
     defectContrast_.clear();
     thumbs_.clear();
     currentFrame_ = 0;
+    loadingSignals_ = false;
+    signalProgress_ = -1;
+    loadingThumbs_ = false;
     update();
 }
 
@@ -136,6 +157,18 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // ---------- Chart region ----------
     QRectF plot(kMargin, chartTop(), width() - 2 * kMargin, chartHeight());
     p.fillRect(plot, kPlotAreaColor);
+
+    if (brightness_.isEmpty() && loadingSignals_) {
+        // Fresh event: scanner still working — show indeterminate state.
+        const QString msg = (signalProgress_ >= 0)
+            ? QStringLiteral("Analyzing signals… %1%").arg(signalProgress_)
+            : QStringLiteral("Analyzing signals…");
+        QFont f = font();
+        f.setItalic(true);
+        p.setFont(f);
+        p.setPen(QColor(textColor_).darker(130));
+        p.drawText(plot, Qt::AlignCenter, msg);
+    }
 
     double yMin = 0.0;
     double yMax = 255.0;
@@ -264,6 +297,16 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // ---------- Thumbnail strip ----------
     const double stripW = width() - 2 * kMargin;
     const double slotW = stripW / kThumbCount;
+
+    if (thumbs_.isEmpty() && loadingThumbs_) {
+        QFont f = font();
+        f.setItalic(true);
+        p.setFont(f);
+        p.setPen(QColor(textColor_).darker(130));
+        p.drawText(QRectF(kMargin, stripTop(), stripW, stripHeight()),
+                   Qt::AlignCenter, QStringLiteral("Loading thumbnails…"));
+    }
+
     for (int i = 0; i < kThumbCount; ++i) {
         QRectF slot(kMargin + i * slotW, stripTop(), slotW - 1.0, stripHeight());
         p.fillRect(slot, kPlotAreaColor);

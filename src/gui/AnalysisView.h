@@ -125,6 +125,7 @@ private slots:
     void refreshDashboardForCamera(int camIdx);
     void generateThumbnails(int camIdx);
     void refreshDashboardThumbnails();
+    void updateDashboardLoadingState();
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
