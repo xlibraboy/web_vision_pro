@@ -540,6 +540,8 @@ bool openConfiguredDeviceDirect(int configArrayIndex,
     }
 
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {
@@ -707,7 +709,12 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
     }
 }
 
-CameraManager::CameraManager(int numCameras) 
+std::recursive_mutex& CameraManager::pylonApiMutex() {
+    static std::recursive_mutex m;
+    return m;
+}
+
+CameraManager::CameraManager(int numCameras)
     : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
       defectDetectionEnabled_(false) {
     prevTempStatus_.assign(numCameras, TemperatureStatus::Unknown);
@@ -1182,8 +1189,9 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
 
         CTlFactory& tlFactory = CTlFactory::GetInstance();
         DeviceInfoList_t devices;
-        
-        // Find all attached devices. 
+
+        // Find all attached devices.
+        std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
         if (tlFactory.EnumerateDevices(devices) == 0) {
             std::cerr << "[CameraManager] No cameras found!" << std::endl;
             return false;
@@ -1994,6 +2002,7 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
 
     CTlFactory& tlFactory = CTlFactory::GetInstance();
     DeviceInfoList_t devices;
+    std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
     tlFactory.EnumerateDevices(devices);
     std::set<int> claimed;
 
@@ -2826,6 +2835,8 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices(bool forceRefres
     static bool cacheValid = false;
     constexpr auto kCacheTtl = std::chrono::milliseconds(2500);
 
+    // Pylon factory access must be exclusive vs lifecycle attach paths.
+    std::lock_guard<std::recursive_mutex> pylonLock(pylonApiMutex());
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
         const auto now = std::chrono::steady_clock::now();
@@ -2836,6 +2847,8 @@ std::vector<GigEDeviceInfo> CameraManager::enumerateGigEDevices(bool forceRefres
 
     std::vector<GigEDeviceInfo> devices;
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {
@@ -2892,6 +2905,8 @@ IpConfigResult CameraManager::configureIpConfiguration(const std::string& mac, c
         return IpConfigResult::WriteFailed;
     }
     try {
+        // Exclusive vs other factory users (enumerate/lifecycle).
+        std::lock_guard<std::recursive_mutex> pylonLock(CameraManager::pylonApiMutex());
         Pylon::CTlFactory& TlFactory = Pylon::CTlFactory::GetInstance();
         Pylon::IGigETransportLayer* pTl = dynamic_cast<Pylon::IGigETransportLayer*>(TlFactory.CreateTl(Pylon::BaslerGigEDeviceClass));
         if (pTl == nullptr) {

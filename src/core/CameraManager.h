@@ -53,6 +53,13 @@ enum class IpConfigResult {
 
 class CameraManager {
 public:
+    // Serializes ALL pylon CTlFactory/GenApi usage (enumeration, attach).
+    // Pylon 6.2's factory is not safe under concurrent enumeration from the
+    // GUI (ConfigDialog refresh) and the lifecycle worker — concurrent use
+    // corrupts GenApi state and crashes with SIGBUS (#SS).
+    static std::recursive_mutex& pylonApiMutex();
+
+public:
     // Temperature status aliases — types defined in TemperatureStatus.h
     using TemperatureStatus = TempStatus::Status;
     static constexpr TemperatureStatus TS_Ok       = TempStatus::Ok;
