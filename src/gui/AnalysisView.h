@@ -418,6 +418,7 @@ private:
     QLabel*          toolsEdgeTab_ = nullptr;
     QPushButton*     toolsLockButton_ = nullptr;
     QPushButton*     resetToolsButton_ = nullptr;
+    QCheckBox*       dashboardToggleCheck_ = nullptr;  // TOOLS panel: show/hide event dashboard
     bool             toolsLocked_ = false;  // start unpinned (hover-driven)
     bool             toolsTabHovered_ = false;  // cursor is over the edge tab
     QTimer*          toolsHoverTimer_ = nullptr;

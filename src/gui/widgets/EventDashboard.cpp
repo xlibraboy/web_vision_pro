@@ -226,9 +226,11 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                    Qt::AlignHCenter | Qt::AlignTop, text);
     }
 
-    // Camera label (top-left corner of the chart).
-    p.drawText(QRectF(plot.left() + 4, plot.top() + 2, 160, 14),
-               Qt::AlignLeft, cameraLabel_);
+    // Camera label intentionally not painted: the Camera tab's tab title and
+    // the video area already identify the camera — a third copy here is
+    // noise. The hover tooltip still reports it.
+    // p.drawText(QRectF(plot.left() + 4, plot.top() + 2, 160, 14),
+    //            Qt::AlignLeft, cameraLabel_);
 }
 
 void EventDashboard::mousePressEvent(QMouseEvent* event) {

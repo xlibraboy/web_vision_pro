@@ -1408,6 +1408,23 @@ void AnalysisView::setupMainArea() {
         alignStatusLabel_->setWordWrap(true);
         panelLayout->addWidget(alignStatusLabel_);
     }
+
+    // ── Event dashboard ──
+    panelLayout->addWidget(panelDivider());
+    panelLayout->addWidget(sectionLabel("EVENT DASHBOARD"));
+    dashboardToggleCheck_ = new QCheckBox("Chart + Thumbnails", rightToolsPanel_);
+    dashboardToggleCheck_->setChecked(true);
+    dashboardToggleCheck_->setToolTip(
+        "Show or hide the per-camera time-series dashboard (Camera tab).");
+    connect(dashboardToggleCheck_, &QCheckBox::toggled, this, [this](bool on) {
+        if (detailDashboard_) {
+            detailDashboard_->setVisible(on);
+        }
+    });
+    dashboardToggleCheck_->setStyleSheet(
+        QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    panelLayout->addWidget(dashboardToggleCheck_);
+
     panelLayout->addStretch(1);
 
     // Reparent all tool widgets into the panel (removes them from old layouts).
@@ -2233,7 +2250,7 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     
     // Update the single camera view
     removeSelectedCameraWidget();
-    selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, label, singleCameraTab_);
+    selectedCameraWidget_ = new AnalysisVideoWidget(cameraId, QString(), singleCameraTab_);
     if (markerShapeCombo_) {
         selectedCameraWidget_->setMarkerShape(markerShapeCombo_->currentData().toString());
     }
@@ -3872,6 +3889,9 @@ void AnalysisView::applyToolsPanelTheme() {
     }
     if (markerToolCheck_) {
         markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    }
+    if (dashboardToggleCheck_) {
+        dashboardToggleCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
     }
     if (markerShapeCombo_) {
         markerShapeCombo_->setStyleSheet(QString(
