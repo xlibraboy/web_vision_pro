@@ -52,25 +52,6 @@ class AnalysisVideoWidget;
 class QGraphicsOpacityEffect;
 
 /**
- * HistogramWidget - Paints a 256-bin grayscale histogram as a bar chart.
- * Used in the right tools panel to show per-camera trigger-frame histograms.
- */
-class HistogramWidget : public QWidget {
-    Q_OBJECT
-public:
-    explicit HistogramWidget(QWidget* parent = nullptr);
-    void setHistogram(const std::vector<uint32_t>& bins, const QString& cameraLabel);
-    void clear();
-protected:
-    void paintEvent(QPaintEvent* event) override;
-    QSize minimumSizeHint() const override { return QSize(200, 80); }
-    QSize sizeHint() const override { return QSize(200, 100); }
-private:
-    std::vector<uint32_t> bins_;
-    QString cameraLabel_;
-};
-
-/**
  * Analysis View - Video playback and analysis interface
  * Features: Left sidebar with controls, tabbed camera grid, playback controls
  */
@@ -450,11 +431,6 @@ private:
     QPropertyAnimation*        toolsPanelSlideAnim_ = nullptr;
     QRect                      toolsPanelRestingRect_;  // panel rect, mainArea_ coords
     bool                       toolsPanelShown_ = false;  // target visibility state
-
-    // Histogram display in tools panel
-    HistogramWidget*           histogramWidget_ = nullptr;
-    QLabel*                    histogramTitle_ = nullptr;
-    void updateHistogramForCamera(int camIndex);
 
     
     // On-demand video loading (per active camera)
