@@ -57,6 +57,8 @@ public:
     int floor() const;
     QString ipAddress() const;
     QString macAddress() const;
+    // Subnet mask / gateway are not edited on the card (see IpConfiguratorPanel);
+    // these return the stored configuration values so they survive saves.
     QString subnetMask() const;
     QString gateway() const;
     QString detectedIp() const;
@@ -154,8 +156,6 @@ private:
     QLabel* ipLabel_;
     QLabel* detectedIpLabel_;
     QComboBox* macCombo_;
-    QLineEdit* subnetEdit_;
-    QLineEdit* gatewayEdit_;
     QPushButton* deviceSettingsBtn_;
 
     // Data
