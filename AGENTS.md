@@ -2,6 +2,8 @@
 
 Industrial vision system for paper machine inspection using Basler GigE cameras, Qt5 GUI, OpenCV processing, and Pylon 6.x API.
 
+Machine reference (drives, speed anchors, sheet-break sensors, camera positions on the mm ruler): [docs/machine-reference.md](docs/machine-reference.md).
+
 ## Project Structure
 
 ```
