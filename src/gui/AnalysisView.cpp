@@ -704,16 +704,28 @@ QImage matToThumbnailImage(const cv::Mat& m) {
 } // namespace
 
 void AnalysisView::setupEventDashboards() {
-    // Cancel anything left over from the previously opened event.
+    // A review can be loaded several times in quick succession (auto-open of
+    // the newest event, tab switches). Never cancel an in-flight scan that is
+    // already working on one of THIS event's files — restarting it would
+    // starve the dashboard. Only cancel scans for foreign files.
     if (signalScanner_ && signalScanner_->isRunning()) {
-        signalScanner_->cancel();
+        const QString running = signalScanner_->currentBinPath();
+        bool belongsToEvent = false;
+        for (const auto& pair : videoReaderPaths_) {
+            if (pair.second == running) {
+                belongsToEvent = true;
+                break;
+            }
+        }
+        if (!belongsToEvent) {
+            signalScanner_->cancel();
+        }
     }
     if (thumbWatcher_ && thumbWatcher_->isRunning()) {
         thumbWatcher_->cancel();
         thumbWatcher_->waitForFinished();
     }
     pendingScanPaths_.clear();
-    signalByCam_.clear();
 
     int total = 0;
     double fps = 0.0;
@@ -740,7 +752,8 @@ void AnalysisView::setupEventDashboards() {
         dash->setThumbnails({});
     }
 
-    // Queue a signal scan for every opened camera file.
+    // Queue a signal scan for every opened camera file that has no result
+    // yet (cache hits return instantly via finished()).
     if (!signalScanner_) {
         signalScanner_ = new EventSignalScanner(this);
         connect(signalScanner_, &EventSignalScanner::finished,
@@ -754,12 +767,16 @@ void AnalysisView::setupEventDashboards() {
                 this, &AnalysisView::refreshDashboardThumbnails);
     }
     for (const auto& pair : videoReaderPaths_) {
-        pendingScanPaths_.append(pair.second);
+        const QString& path = pair.second;
+        if (signalByCam_.count(path) || pendingScanPaths_.contains(path)) {
+            continue;
+        }
+        pendingScanPaths_.append(path);
     }
     startNextSignalScan();
 
     if (currentDashCam_ >= 0) {
-        generateThumbnails(currentDashCam_);
+        refreshDashboardForCamera(currentDashCam_);
     }
 }
 
@@ -776,31 +793,24 @@ void AnalysisView::startNextSignalScan() {
     }
 }
 
-int AnalysisView::cameraIndexForBinPath(const QString& binPath) const {
-    for (const auto& pair : videoReaderPaths_) {
-        if (pair.second == binPath) {
-            return pair.first;
-        }
-    }
-    return -1;
-}
-
 void AnalysisView::onSignalScanFinished(const QString& binPath,
                                         const QVector<int>& sampleFrames,
                                         const QVector<double>& brightness,
                                         const QVector<int>& defectFrames,
                                         int totalFrames, double fps) {
-    const int camIdx = cameraIndexForBinPath(binPath);
-    if (camIdx >= 0) {
-        CameraSignal sig;
-        sig.samples = sampleFrames;
-        sig.brightness = brightness;
-        sig.defects = defectFrames;
-        sig.totalFrames = totalFrames;
-        sig.fps = fps;
-        signalByCam_[camIdx] = sig;
-        if (camIdx == currentDashCam_) {
-            refreshDashboardForCamera(camIdx);
+    CameraSignal sig;
+    sig.samples = sampleFrames;
+    sig.brightness = brightness;
+    sig.defects = defectFrames;
+    sig.totalFrames = totalFrames;
+    sig.fps = fps;
+    signalByCam_[binPath] = sig;
+
+    // Refresh only if this result belongs to the camera being displayed.
+    if (currentDashCam_ >= 0) {
+        auto pathIt = videoReaderPaths_.find(currentDashCam_);
+        if (pathIt != videoReaderPaths_.end() && pathIt->second == binPath) {
+            refreshDashboardForCamera(currentDashCam_);
         }
     }
     startNextSignalScan();
@@ -832,13 +842,16 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     QVector<int> samples;
     QVector<double> brightness;
     QVector<int> defects;
-    auto sigIt = signalByCam_.find(camIdx);
-    if (sigIt != signalByCam_.end()) {
-        samples = sigIt->second.samples;
-        brightness = sigIt->second.brightness;
-        defects = sigIt->second.defects;
-        if (sigIt->second.fps > 0.0) {
-            fps = sigIt->second.fps;
+    auto pathIt = videoReaderPaths_.find(camIdx);
+    if (pathIt != videoReaderPaths_.end()) {
+        auto sigIt = signalByCam_.find(pathIt->second);
+        if (sigIt != signalByCam_.end()) {
+            samples = sigIt->second.samples;
+            brightness = sigIt->second.brightness;
+            defects = sigIt->second.defects;
+            if (sigIt->second.fps > 0.0) {
+                fps = sigIt->second.fps;
+            }
         }
     }
     const QString label = currentEventCameraLabel(camIdx);

@@ -123,7 +123,6 @@ private slots:
     void refreshDashboardForCamera(int camIdx);
     void generateThumbnails(int camIdx);
     void refreshDashboardThumbnails();
-    int cameraIndexForBinPath(const QString& binPath) const;
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const QVector<int>& sampleFrames,
@@ -449,7 +448,7 @@ private:
         int totalFrames = 0;
         double fps = 0.0;
     };
-    std::map<int, CameraSignal> signalByCam_;
+    std::map<QString, CameraSignal> signalByCam_;
     bool isStreamingMode_;  // True when loading from file instead of RAM
     
     QTimer* stepTimer_;  // For hold-click stepping

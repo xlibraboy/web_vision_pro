@@ -26,6 +26,8 @@ public:
     void scanAsync(const QString& binPath);
     void cancel();
     bool isRunning() const;
+    // File currently assigned to the worker (valid even before it finishes).
+    QString currentBinPath() const { return binPath_; }
 
     // Upper bound on decoded frames per scan.
     static constexpr int kMaxScannedFrames = 600;
