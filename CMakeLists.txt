@@ -27,6 +27,7 @@ src/core/VideoStreamReader.cpp
 src/processing/ImageBuffer.cpp
 src/processing/DefectDetector.cpp
 src/processing/EventSignalScanner.cpp
+src/processing/HistogramAnalyzer.cpp
 src/processing/VideoEncoder.cpp
 src/gui/MainWindow.cpp
 src/gui/LiveDashboard.cpp

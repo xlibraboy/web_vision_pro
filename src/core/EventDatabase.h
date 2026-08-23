@@ -5,6 +5,8 @@
 #include <QMap>
 #include <QJsonObject>
 #include <vector>
+#include <map>
+#include <cstdint>
 #include <limits>
 #include "../gui/CameraInfo.h"
 
@@ -58,6 +60,10 @@ public:
         // value means the trigger recorded all cameras.
         int triggerGroup = CameraGroup::kUnassigned;
         bool permanent = false; // Excluded from automatic retention cleanup
+        // Per-camera grayscale histogram at the trigger frame.
+        // Key = 1-based camera ID, value = 256-bin uint32 pixel counts.
+        // Empty for legacy events or when histogram was not computed.
+        std::map<int, std::vector<uint32_t>> histograms;
     };
     
     // Singleton access

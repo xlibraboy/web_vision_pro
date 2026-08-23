@@ -3,6 +3,7 @@
 #include "RawFormat.h"
 #include "SpeedProfile.h"
 #include "../config/CameraConfig.h"
+#include "../processing/HistogramAnalyzer.h"
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -549,6 +550,20 @@ void EventController::saveWorker() {
                         event.cameraPositionsMm.push_back(eventCameraPositions.count(cameraId)
                             ? eventCameraPositions[cameraId]
                             : 0);
+                    }
+                }
+
+                // Compute trigger-frame histogram per camera
+                for (auto& pair : framesToSave) {
+                    const int camId = pair.first;
+                    const std::deque<FrameData>& frames = pair.second;
+                    const int trigIdx = triggerIndices[camId];
+                    if (frames.empty() || trigIdx < 0 || trigIdx >= static_cast<int>(frames.size())) {
+                        continue;
+                    }
+                    HistogramAnalyzer::Histogram hist = HistogramAnalyzer::compute(frames[trigIdx].image);
+                    if (!hist.bins.empty()) {
+                        event.histograms[camId] = std::move(hist.bins);
                     }
                 }
 

@@ -96,6 +96,86 @@ public:
     }
 };
 
+// ─── HistogramWidget ───────────────────────────────────────────────────────
+HistogramWidget::HistogramWidget(QWidget* parent) : QWidget(parent) {
+    setMinimumHeight(80);
+    setMaximumHeight(100);
+}
+
+void HistogramWidget::setHistogram(const std::vector<uint32_t>& bins, const QString& cameraLabel) {
+    bins_ = bins;
+    cameraLabel_ = cameraLabel;
+    update();
+}
+
+void HistogramWidget::clear() {
+    bins_.clear();
+    cameraLabel_.clear();
+    update();
+}
+
+void HistogramWidget::paintEvent(QPaintEvent* /*event*/) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    ThemeColors tc = CameraConfig::getThemeColors();
+
+    // Background
+    p.fillRect(rect(), QColor(tc.btnBg));
+    p.setPen(QColor(tc.border));
+    p.drawRect(rect().adjusted(0, 0, -1, -1));
+
+    if (bins_.empty()) {
+        p.setPen(QColor(tc.text));
+        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("No histogram data"));
+        return;
+    }
+
+    // Find peak for normalization
+    uint32_t peak = 1;
+    for (uint32_t v : bins_) {
+        if (v > peak) peak = v;
+    }
+
+    // Draw bars
+    const int margin = 4;
+    const int labelH = cameraLabel_.isEmpty() ? 0 : 14;
+    const int topMargin = 2 + labelH;
+    const int barAreaW = width() - 2 * margin;
+    const int barAreaH = height() - margin - topMargin;
+    const int binCount = static_cast<int>(bins_.size());
+    const double barW = static_cast<double>(barAreaW) / static_cast<double>(binCount);
+
+    // Camera label
+    if (!cameraLabel_.isEmpty()) {
+        p.setPen(QColor(tc.text));
+        QFont f = p.font();
+        f.setPixelSize(10);
+        f.setBold(true);
+        p.setFont(f);
+        p.drawText(QRect(margin, 2, barAreaW, labelH), Qt::AlignLeft | Qt::AlignVCenter, cameraLabel_);
+    }
+
+    // Bars with gradient fill
+    QColor barColor(tc.primary);
+    for (int i = 0; i < binCount; ++i) {
+        const double normalized = static_cast<double>(bins_[static_cast<size_t>(i)]) / static_cast<double>(peak);
+        const int barH = static_cast<int>(normalized * barAreaH);
+        if (barH <= 0) continue;
+
+        const int x = margin + static_cast<int>(i * barW);
+        const int w = qMax(1, static_cast<int>((i + 1) * barW) - x);
+        const int y = topMargin + barAreaH - barH;
+
+        QColor c = barColor;
+        c.setAlpha(140 + static_cast<int>(normalized * 115));
+        p.fillRect(x, y, w, barH, c);
+    }
+
+    // Axis line
+    p.setPen(QColor(tc.border));
+    p.drawLine(margin, topMargin + barAreaH, margin + barAreaW, topMargin + barAreaH);
+}
+
 // Render a vertically-oriented label pixmap (text rotated 90° so it reads
 // top-to-bottom) used for the compact TOOLS tab on the frame's right edge.
 // Small pixel size + tight letter spacing keep the handle slim.
@@ -679,9 +759,10 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     updateAnnotationSliderMarkers();
     updatePlaybackInfoLabel();
     updateAlignmentStatus();
-
-    // Wire up the event dashboards (prototype A + B) and start signal scans.
+    // Wire up the event dashboards and start signal scans.
     setupEventDashboards();
+
+    updateHistogramForCamera(selectedCameraId_ >= 0 ? selectedCameraId_ : 0);
 
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
@@ -1481,6 +1562,13 @@ void AnalysisView::setupMainArea() {
         QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
     panelLayout->addWidget(dashboardToggleCheck_);
 
+    // ── Histogram ──
+    panelLayout->addWidget(panelDivider());
+    histogramTitle_ = sectionLabel("HISTOGRAM");
+    panelLayout->addWidget(histogramTitle_);
+    histogramWidget_ = new HistogramWidget(rightToolsPanel_);
+    panelLayout->addWidget(histogramWidget_);
+
     panelLayout->addStretch(1);
 
     // Reparent all tool widgets into the panel (removes them from old layouts).
@@ -2273,6 +2361,7 @@ void AnalysisView::onCameraClicked(int cameraId) {
     selectedCameraId_ = cameraId;
     updateDynamicTab(cameraId);
     tabWidget_->setCurrentIndex(1);  // Switch to single camera tab
+    updateHistogramForCamera(cameraId);
 }
 
 void AnalysisView::onSelectedCameraDoubleClicked(int cameraId) {
@@ -4443,6 +4532,35 @@ void AnalysisView::clearCameraOffsets() {
         cameraOffsetSpin_->setValue(0);
         cameraOffsetSpin_->blockSignals(false);
     }
+}
+
+void AnalysisView::updateHistogramForCamera(int camIndex) {
+    if (!histogramWidget_) return;
+
+    // camIndex is 0-based camera slot; histograms are keyed by 1-based camera ID
+    const int cameraId = camIndex + 1;
+
+    if (!isReviewMode_ || currentEventInfo_.histograms.empty()) {
+        histogramWidget_->clear();
+        return;
+    }
+
+    auto it = currentEventInfo_.histograms.find(cameraId);
+    if (it == currentEventInfo_.histograms.end()) {
+        // Try the first available camera histogram
+        if (!currentEventInfo_.histograms.empty()) {
+            it = currentEventInfo_.histograms.begin();
+        } else {
+            histogramWidget_->clear();
+            return;
+        }
+    }
+
+    QString label = currentEventCameraLabel(camIndex);
+    if (label.isEmpty()) {
+        label = QString("Camera %1").arg(cameraId);
+    }
+    histogramWidget_->setHistogram(it->second, label);
 }
 
 void AnalysisView::updateAlignmentStatus() {

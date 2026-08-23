@@ -197,6 +197,19 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
         speedAnchors.append(a);
     }
     meta["speedAnchors"] = speedAnchors;
+
+    // Per-camera trigger-frame histograms
+    if (!event.histograms.empty()) {
+        QJsonObject histObj;
+        for (const auto& pair : event.histograms) {
+            QJsonArray binsArr;
+            for (uint32_t count : pair.second) {
+                binsArr.append(static_cast<qint64>(count));
+            }
+            histObj[QString::number(pair.first)] = binsArr;
+        }
+        meta["histograms"] = histObj;
+    }
     
     QJsonDocument doc(meta);
     QFile file(filepath);
@@ -270,6 +283,23 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
         anchor.tagName = a["tagName"].toString();
         anchor.nodeId = a["nodeId"].toString();
         event.speedAnchors.push_back(anchor);
+    }
+
+    // Per-camera trigger-frame histograms
+    if (meta.contains("histograms")) {
+        const QJsonObject histObj = meta["histograms"].toObject();
+        for (auto it = histObj.constBegin(); it != histObj.constEnd(); ++it) {
+            const int cameraId = it.key().toInt();
+            const QJsonArray binsArr = it.value().toArray();
+            std::vector<uint32_t> bins;
+            bins.reserve(static_cast<size_t>(binsArr.size()));
+            for (const QJsonValue& v : binsArr) {
+                bins.push_back(static_cast<uint32_t>(v.toVariant().toULongLong()));
+            }
+            if (!bins.empty()) {
+                event.histograms[cameraId] = std::move(bins);
+            }
+        }
     }
     
     return event;

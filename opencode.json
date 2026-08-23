@@ -13,11 +13,9 @@
   "mcp": {
     "obsidian": {
       "type": "local",
-      "command": ["npx", "-y", "obsidian-mcp"],
+      "command": ["/home/autoinst578/.n/bin/obsidian-mcp", "/home/autoinst578/Documents/Obsidian Vault"],
       "enabled": true,
-      "env": {
-        "OBSIDIAN_API_KEY": "${OBSIDIAN_REST_API_KEY}"
-      }
+      "timeout": 30000
     }
   }
 }
