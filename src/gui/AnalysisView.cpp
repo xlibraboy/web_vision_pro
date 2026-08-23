@@ -1565,8 +1565,22 @@ void AnalysisView::setupMainArea() {
     // ── Histogram ──
     panelLayout->addWidget(panelDivider());
     histogramTitle_ = sectionLabel("HISTOGRAM");
+    const QString histogramTip = QStringLiteral(
+        "Brightness histogram of this camera's frame at the moment the event "
+        "triggered (saved with the event).\n\n"
+        "How to read it:\n"
+        "• Left edge = dark pixels (0), right edge = bright pixels (255)\n"
+        "• Bar height = how many pixels have that brightness; the tallest bar "
+        "reaches full height\n"
+        "• A broad hump in the middle = well-exposed scene\n"
+        "• Spike at the far left = under-exposed/dark frame; spike at the far "
+        "right = over-exposed or glare\n"
+        "• Compare cameras: the one that saw the defect often looks different "
+        "from its neighbours");
+    histogramTitle_->setToolTip(histogramTip);
     panelLayout->addWidget(histogramTitle_);
     histogramWidget_ = new HistogramWidget(rightToolsPanel_);
+    histogramWidget_->setToolTip(histogramTip);
     panelLayout->addWidget(histogramWidget_);
 
     panelLayout->addStretch(1);
