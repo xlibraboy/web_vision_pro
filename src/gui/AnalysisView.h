@@ -445,7 +445,7 @@ private:
         QVector<int> samples;
         QVector<double> brightness;
         QVector<double> stddev;
-        QVector<double> changePct;
+        QVector<double> spotPct;
         QVector<int> defects;
         QVector<int> localDefects;
         QVector<int> contrastDefects;

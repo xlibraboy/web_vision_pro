@@ -63,7 +63,7 @@ void EventDashboard::setEventData(const QString& cameraLabel, int totalFrames, i
                                   double fps, const QVector<int>& sampleFrames,
                                   const QVector<double>& brightness,
                                   const QVector<double>& stddev,
-                                  const QVector<double>& changePct,
+                                  const QVector<double>& spotPct,
                                   const QVector<int>& defectBrightness,
                                   const QVector<int>& defectLocal,
                                   const QVector<int>& defectContrast) {
@@ -74,7 +74,7 @@ void EventDashboard::setEventData(const QString& cameraLabel, int totalFrames, i
     sampleFrames_ = sampleFrames;
     brightness_ = brightness;
     stddev_ = stddev;
-    changePct_ = changePct;
+    spotPct_ = spotPct;
     defectBrightness_ = defectBrightness;
     defectLocal_ = defectLocal;
     defectContrast_ = defectContrast;
@@ -101,7 +101,7 @@ void EventDashboard::clear() {
     sampleFrames_.clear();
     brightness_.clear();
     stddev_.clear();
-    changePct_.clear();
+    spotPct_.clear();
     defectBrightness_.clear();
     defectLocal_.clear();
     defectContrast_.clear();
@@ -200,7 +200,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         double fixedMax; // 0 = autoscale from data
     };
     const LaneDef lanes[kLaneCount] = {
-        {"CHANGE %", &changePct_, &defectLocal_, kLocalColor, 0.0},
+        {"SPOTS %", &spotPct_, &defectLocal_, kLocalColor, 0.0},
         {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 0.0},
     };
     for (int li = 0; li < kLaneCount; ++li) {
@@ -351,8 +351,8 @@ void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
             if (stddev_.size() == sampleFrames_.size()) {
                 tip += QStringLiteral(" | contrast %1").arg(stddev_.at(si), 0, 'f', 1);
             }
-            if (changePct_.size() == sampleFrames_.size()) {
-                tip += QStringLiteral(" | change %1%").arg(changePct_.at(si), 0, 'f', 2);
+            if (spotPct_.size() == sampleFrames_.size()) {
+                tip += QStringLiteral(" | spots %1%").arg(spotPct_.at(si), 0, 'f', 2);
             }
         }
         QToolTip::showText(event->globalPos(), tip, this);

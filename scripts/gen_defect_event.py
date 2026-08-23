@@ -15,6 +15,7 @@ for visual interest in thumbnails.
 import datetime
 import json
 import os
+import math
 import random
 import struct
 
@@ -41,20 +42,25 @@ def build_header():
 
 _BASE_TEX = None
 def _base_texture():
-    """Static scene texture shared by ALL frames (temporally stable camera)."""
+    """Smooth, temporally stable scene: low-frequency shading + fine noise.
+
+    Real webs have smooth brightness fields; sharp local features are then
+    genuine anomalies, which is what the SPOTS % lane measures.
+    """
     global _BASE_TEX
     if _BASE_TEX is None:
         rnd = random.Random(1234)
         buf = bytearray(W * H)
+        phase_x = rnd.uniform(0, 6.28)
+        phase_y = rnd.uniform(0, 6.28)
         for y in range(H):
-            base_row = max(0, min(255, BASE_MEAN + rnd.randint(-16, 16)))
-            row_start = y * W
-            x = 0
-            while x < W:
-                v = max(0, min(255, base_row + rnd.randint(-20, 20)))
-                run = rnd.randint(16, 48)
-                buf[row_start + x: row_start + min(W, x + run)] = bytes([v]) * min(run, W - x)
-                x += run
+            shade_y = 15.0 * math.sin(y * 0.045 + phase_y)
+            for x in range(W):
+                v = (BASE_MEAN
+                     + 14.0 * math.sin(x * 0.037 + phase_x)
+                     + shade_y
+                     + rnd.uniform(-6, 6))
+                buf[y * W + x] = max(0, min(255, int(v)))
         _BASE_TEX = buf
     return _BASE_TEX
 
@@ -74,16 +80,17 @@ def render_frame(idx):
         for yy in range(200, 261):
             row = yy * W
             frame[row + 100: row + 300] = bytes([230]) * 200
-    # small dark blob (visual only, negligible mean impact)
-    if idx % 3 == 0:
-        cx, cy, rx, ry = W // 2, H // 2, 12, 6
+    # Web-riding dark hole: passes the FOV every 3rd frame (absent from
+    # frame 0 so the baseline is clean). Strong local contrast -> SPOTS rule.
+    if idx != 0 and idx % 3 == 0:
+        cx, cy, rx, ry = W // 2, H // 2, 14, 8
         for dy in range(-ry, ry + 1):
             for dx in range(-rx, rx + 1):
                 if dx * dx / (rx * rx) + dy * dy / (ry * ry) <= 1.0:
                     xx, yy = cx + dx, cy + dy
                     j = yy * W + xx
                     if 0 <= j < len(frame):
-                        frame[j] = 40
+                        frame[j] = 15
     return bytes(frame)
 
 def main():

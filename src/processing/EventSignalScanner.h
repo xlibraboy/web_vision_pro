@@ -13,9 +13,9 @@ struct EventSignalData {
     QVector<int> sampleFrames;        // frame index per sample
     QVector<double> brightness;       // mean 0..255
     QVector<double> stddev;           // contrast 0..128
-    QVector<double> changePct;        // % pixels differing >25 levels vs baseline
+    QVector<double> spotPct;          // % pixels in small bright/dark spots vs local neighborhood
     QVector<int> defectBrightness;    // brightness-jump hits (DefectDetector)
-    QVector<int> defectLocal;         // local-anomaly hits (changed-pixel rule)
+    QVector<int> defectLocal;         // spot-anomaly hits (local morphology rule)
     QVector<int> defectContrast;      // low-contrast hits
     int totalFrames = 0;
     double fps = 0.0;
@@ -50,8 +50,9 @@ public:
 
     // Upper bound on decoded frames per scan.
     static constexpr int kMaxScannedFrames = 600;
-    // Local-anomaly rule: % of pixels (vs baseline) differing >25 levels.
-    static constexpr double kLocalChangeMinPct = 1.0;
+    // Spot-anomaly rule: % of pixels in small bright/dark spots vs local
+    // neighborhood (motion-invariant, works on a moving web).
+    static constexpr double kLocalSpotMinPct = 0.05;
     // Low-contrast rule: stddev below this flags washed-out/flat frames.
     static constexpr double kLowContrastStd = 10.0;
 

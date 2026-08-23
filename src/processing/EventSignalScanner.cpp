@@ -11,7 +11,10 @@
 #include <QJsonObject>
 
 namespace {
-constexpr int kCacheVersion = 2;
+constexpr int kCacheVersion = 3;
+constexpr int kSpotKernel = 31;        // local-neighborhood size
+constexpr int kSpotDelta = 50;         // gray levels vs neighborhood
+
 constexpr int kChangePixelThreshold = 25; // gray levels
 
 int strideForTotalFrames(int totalFrames) {
@@ -32,31 +35,26 @@ bool statBinFile(const QString& binPath, qint64* sizeOut, qint64* mtimeOut) {
     return true;
 }
 
-double changedPixelPct(const cv::Mat& cur, const cv::Mat& baseline) {
-    if (cur.empty() || baseline.empty() || cur.size() != baseline.size()) {
+// Fraction of pixels forming small bright or dark anomalies relative to
+// their LOCAL neighborhood (morphological top-hat / black-hat). Motion of
+// the underlying web cancels out, so this works on continuously moving
+// paper where a fixed-baseline comparison would saturate.
+double spotPixelPct(const cv::Mat& gray) {
+    if (gray.empty()) {
         return 0.0;
     }
-    cv::Mat diff;
-    cv::absdiff(cur, baseline, diff);
-    // Count pixels whose absolute difference exceeds the threshold.
-    const int total = diff.rows * diff.cols;
+    const cv::Mat kernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(kSpotKernel, kSpotKernel));
+    cv::Mat tophat, blackhat;
+    cv::morphologyEx(gray, tophat, cv::MORPH_TOPHAT, kernel);
+    cv::morphologyEx(gray, blackhat, cv::MORPH_BLACKHAT, kernel);
+    const int total = gray.rows * gray.cols;
     if (total <= 0) {
         return 0.0;
     }
-    int changed = 0;
-    if (diff.channels() == 1) {
-        changed = cv::countNonZero(diff > kChangePixelThreshold);
-    } else {
-        // Grayscale-project multi-channel frames before comparing.
-        cv::Mat gCur, gBase, gDiff;
-        if (cur.channels() == 3) cv::cvtColor(cur, gCur, cv::COLOR_BGR2GRAY);
-        else cv::cvtColor(cur, gCur, cv::COLOR_BGRA2GRAY);
-        if (baseline.channels() == 3) cv::cvtColor(baseline, gBase, cv::COLOR_BGR2GRAY);
-        else cv::cvtColor(baseline, gBase, cv::COLOR_BGRA2GRAY);
-        cv::absdiff(gCur, gBase, gDiff);
-        changed = cv::countNonZero(gDiff > kChangePixelThreshold);
-    }
-    return 100.0 * changed / total;
+    const int bright = cv::countNonZero(tophat > kSpotDelta);
+    const int dark = cv::countNonZero(blackhat > kSpotDelta);
+    return 100.0 * (bright + dark) / total;
 }
 
 } // namespace
@@ -146,7 +144,6 @@ bool EventSignalScanner::runScan(const QString& binPath) {
     out.totalFrames = totalFrames;
     out.fps = fps;
 
-    cv::Mat baseline; // first sampled frame — reference for local anomalies
     int lastPercent = -1;
     for (int step = 0; step < steps; ++step) {
         if (cancelled_.load()) {
@@ -168,18 +165,12 @@ bool EventSignalScanner::runScan(const QString& binPath) {
             out.brightness.push_back(m[0]);
             out.stddev.push_back(s[0]);
             out.sampleFrames.push_back(frameIndex);
-
-            if (baseline.empty()) {
-                baseline = gray.clone();
-                out.changePct.push_back(0.0);
-            } else {
-                out.changePct.push_back(changedPixelPct(gray, baseline));
-            }
+            out.spotPct.push_back(spotPixelPct(gray));
 
             if (detector.detect(frame)) {
                 out.defectBrightness.push_back(frameIndex);
             }
-            if (out.changePct.back() >= kLocalChangeMinPct) {
+            if (out.spotPct.back() >= kLocalSpotMinPct) {
                 out.defectLocal.push_back(frameIndex);
             }
             if (s[0] < kLowContrastStd) {
@@ -189,7 +180,7 @@ bool EventSignalScanner::runScan(const QString& binPath) {
             // Keep series aligned with the sample grid.
             out.brightness.push_back(out.brightness.isEmpty() ? 0.0 : out.brightness.back());
             out.stddev.push_back(out.stddev.isEmpty() ? 0.0 : out.stddev.back());
-            out.changePct.push_back(out.changePct.isEmpty() ? 0.0 : out.changePct.back());
+            out.spotPct.push_back(out.spotPct.isEmpty() ? 0.0 : out.spotPct.back());
             out.sampleFrames.push_back(frameIndex);
         }
         const int percent = (step * 100) / steps;
@@ -251,14 +242,14 @@ bool EventSignalScanner::loadCache(const QString& binPath, EventSignalData* out)
     out->sampleFrames = readInts("sampleFrames");
     out->brightness = readDoubles("brightness");
     out->stddev = readDoubles("stddev");
-    out->changePct = readDoubles("changePct");
+    out->spotPct = readDoubles("spotPct");
     out->defectBrightness = readInts("defectFrames");
     out->defectLocal = readInts("localFrames");
     out->defectContrast = readInts("contrastFrames");
     if (out->sampleFrames.isEmpty()
             || out->brightness.size() != out->sampleFrames.size()
             || out->stddev.size() != out->sampleFrames.size()
-            || out->changePct.size() != out->sampleFrames.size()) {
+            || out->spotPct.size() != out->sampleFrames.size()) {
         return false;
     }
     out->totalFrames = obj.value(QStringLiteral("totalFrames")).toInt();
@@ -293,8 +284,8 @@ void EventSignalScanner::saveCache(const QString& binPath, int stride, const Eve
     obj.insert(QStringLiteral("stddev"), sdArr);
 
     QJsonArray cArr;
-    for (double v : data.changePct) cArr.append(v);
-    obj.insert(QStringLiteral("changePct"), cArr);
+    for (double v : data.spotPct) cArr.append(v);
+    obj.insert(QStringLiteral("spotPct"), cArr);
 
     QJsonArray dArr;
     for (int v : data.defectBrightness) dArr.append(v);

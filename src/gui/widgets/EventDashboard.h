@@ -28,7 +28,7 @@ public:
                       double fps, const QVector<int>& sampleFrames,
                       const QVector<double>& brightness,
                       const QVector<double>& stddev,
-                      const QVector<double>& changePct,
+                      const QVector<double>& spotPct,
                       const QVector<int>& defectBrightness,
                       const QVector<int>& defectLocal,
                       const QVector<int>& defectContrast);
@@ -69,7 +69,7 @@ private:
     QVector<int> sampleFrames_;
     QVector<double> brightness_;
     QVector<double> stddev_;
-    QVector<double> changePct_;
+    QVector<double> spotPct_;
     QVector<int> defectBrightness_;
     QVector<int> defectLocal_;
     QVector<int> defectContrast_;

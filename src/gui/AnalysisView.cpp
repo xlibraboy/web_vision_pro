@@ -798,7 +798,7 @@ void AnalysisView::onSignalScanFinished(const QString& binPath, const EventSigna
     sig.samples = data.sampleFrames;
     sig.brightness = data.brightness;
     sig.stddev = data.stddev;
-    sig.changePct = data.changePct;
+    sig.spotPct = data.spotPct;
     sig.defects = data.defectBrightness;
     sig.localDefects = data.defectLocal;
     sig.contrastDefects = data.defectContrast;
@@ -842,7 +842,7 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     QVector<int> samples;
     QVector<double> brightness;
     QVector<double> stddev;
-    QVector<double> changePct;
+    QVector<double> spotPct;
     QVector<int> defects;
     QVector<int> localDefects;
     QVector<int> contrastDefects;
@@ -853,7 +853,7 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
             samples = sigIt->second.samples;
             brightness = sigIt->second.brightness;
             stddev = sigIt->second.stddev;
-            changePct = sigIt->second.changePct;
+            spotPct = sigIt->second.spotPct;
             defects = sigIt->second.defects;
             localDefects = sigIt->second.localDefects;
             contrastDefects = sigIt->second.contrastDefects;
@@ -866,7 +866,7 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     EventDashboard* dash = detailDashboard_;
     if (dash) {
         dash->setEventData(label, total, triggerFrameIndex_, fps, samples, brightness,
-                           stddev, changePct, defects, localDefects, contrastDefects);
+                           stddev, spotPct, defects, localDefects, contrastDefects);
         dash->setCurrentFrame(currentReviewFrameIndex());
     }
     generateThumbnails(camIdx);
