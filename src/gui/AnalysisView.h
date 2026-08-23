@@ -4,6 +4,8 @@
 #include <QSplitter>
 #include <QFutureWatcher>
 #include <QPushButton>
+
+struct EventSignalData;
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QSlider>
@@ -125,10 +127,7 @@ private slots:
     void refreshDashboardThumbnails();
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
-    void onSignalScanFinished(const QString& binPath, const QVector<int>& sampleFrames,
-                              const QVector<double>& brightness,
-                              const QVector<int>& defectFrames,
-                              int totalFrames, double fps);
+    void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
     void onSignalScanFailed(const QString& binPath, const QString& reason);
     // How many frames one step / scrub advances at the current speed selector.
     int playbackStepSize() const;
@@ -445,7 +444,11 @@ private:
     struct CameraSignal {
         QVector<int> samples;
         QVector<double> brightness;
+        QVector<double> stddev;
+        QVector<double> changePct;
         QVector<int> defects;
+        QVector<int> localDefects;
+        QVector<int> contrastDefects;
         int totalFrames = 0;
         double fps = 0.0;
     };

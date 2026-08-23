@@ -747,7 +747,7 @@ void AnalysisView::setupEventDashboards() {
 
     EventDashboard* dash = detailDashboard_;
     if (dash) {
-        dash->setEventData(label, total, triggerFrameIndex_, fps, {}, {}, {});
+        dash->setEventData(label, total, triggerFrameIndex_, fps, {}, {}, {}, {}, {}, {}, {});
         dash->setCurrentFrame(triggerFrameIndex_);
         dash->setThumbnails({});
     }
@@ -793,17 +793,17 @@ void AnalysisView::startNextSignalScan() {
     }
 }
 
-void AnalysisView::onSignalScanFinished(const QString& binPath,
-                                        const QVector<int>& sampleFrames,
-                                        const QVector<double>& brightness,
-                                        const QVector<int>& defectFrames,
-                                        int totalFrames, double fps) {
+void AnalysisView::onSignalScanFinished(const QString& binPath, const EventSignalData& data) {
     CameraSignal sig;
-    sig.samples = sampleFrames;
-    sig.brightness = brightness;
-    sig.defects = defectFrames;
-    sig.totalFrames = totalFrames;
-    sig.fps = fps;
+    sig.samples = data.sampleFrames;
+    sig.brightness = data.brightness;
+    sig.stddev = data.stddev;
+    sig.changePct = data.changePct;
+    sig.defects = data.defectBrightness;
+    sig.localDefects = data.defectLocal;
+    sig.contrastDefects = data.defectContrast;
+    sig.totalFrames = data.totalFrames;
+    sig.fps = data.fps;
     signalByCam_[binPath] = sig;
 
     // Refresh only if this result belongs to the camera being displayed.
@@ -841,14 +841,22 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     double fps = (it != videoReaders_.end() && it->second) ? it->second->getFps() : 0.0;
     QVector<int> samples;
     QVector<double> brightness;
+    QVector<double> stddev;
+    QVector<double> changePct;
     QVector<int> defects;
+    QVector<int> localDefects;
+    QVector<int> contrastDefects;
     auto pathIt = videoReaderPaths_.find(camIdx);
     if (pathIt != videoReaderPaths_.end()) {
         auto sigIt = signalByCam_.find(pathIt->second);
         if (sigIt != signalByCam_.end()) {
             samples = sigIt->second.samples;
             brightness = sigIt->second.brightness;
+            stddev = sigIt->second.stddev;
+            changePct = sigIt->second.changePct;
             defects = sigIt->second.defects;
+            localDefects = sigIt->second.localDefects;
+            contrastDefects = sigIt->second.contrastDefects;
             if (sigIt->second.fps > 0.0) {
                 fps = sigIt->second.fps;
             }
@@ -857,7 +865,8 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     const QString label = currentEventCameraLabel(camIdx);
     EventDashboard* dash = detailDashboard_;
     if (dash) {
-        dash->setEventData(label, total, triggerFrameIndex_, fps, samples, brightness, defects);
+        dash->setEventData(label, total, triggerFrameIndex_, fps, samples, brightness,
+                           stddev, changePct, defects, localDefects, contrastDefects);
         dash->setCurrentFrame(currentReviewFrameIndex());
     }
     generateThumbnails(camIdx);
@@ -898,6 +907,16 @@ void AnalysisView::generateThumbnails(int camIdx) {
 void AnalysisView::refreshDashboardThumbnails() {
     if (!thumbWatcher_) {
         return;
+    }
+    // A cancelled run emits finished() with an EMPTY result store; calling
+    // result() then returns garbage memory (observed as SIGBUS). Only read
+    // results that are actually present, and ignore stale cameras.
+    const auto fut = thumbWatcher_->future();
+    if (fut.isCanceled() || !fut.isResultReadyAt(0)) {
+        return;
+    }
+    if (thumbCamPending_ < 0 || thumbCamPending_ != currentDashCam_) {
+        return; // thumbnails for a camera the user has already moved past
     }
     const QVector<QImage> imgs = thumbWatcher_->result();
     if (detailDashboard_) {

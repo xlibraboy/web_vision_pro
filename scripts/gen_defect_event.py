@@ -39,20 +39,41 @@ def build_header():
     struct.pack_into("<II", hdr, 32, TOTAL, TRIGGER)
     return bytes(hdr)
 
+_BASE_TEX = None
+def _base_texture():
+    """Static scene texture shared by ALL frames (temporally stable camera)."""
+    global _BASE_TEX
+    if _BASE_TEX is None:
+        rnd = random.Random(1234)
+        buf = bytearray(W * H)
+        for y in range(H):
+            base_row = max(0, min(255, BASE_MEAN + rnd.randint(-16, 16)))
+            row_start = y * W
+            x = 0
+            while x < W:
+                v = max(0, min(255, base_row + rnd.randint(-20, 20)))
+                run = rnd.randint(16, 48)
+                buf[row_start + x: row_start + min(W, x + run)] = bytes([v]) * min(run, W - x)
+                x += run
+        _BASE_TEX = buf
+    return _BASE_TEX
+
 def render_frame(idx):
-    target = DEFECT_MEAN if DEFECT_START <= idx <= DEFECT_END else BASE_MEAN
-    rnd = random.Random(idx)
-    frame = bytearray(W * H)
-    # coarse blocks keep generation fast; per-pixel jitter adds texture
-    for y in range(H):
-        base_row = max(0, min(255, target + rnd.randint(-6, 6)))
-        row_start = y * W
-        x = 0
-        while x < W:
-            v = max(0, min(255, base_row + rnd.randint(-8, 8)))
-            run = rnd.randint(16, 48)
-            frame[row_start + x: row_start + min(W, x + run)] = bytes([v]) * min(run, W - x)
-            x += run
+    frame = bytearray(_base_texture())
+    # Bright plateau: global flash (brightness rule; also a full-frame local change).
+    if DEFECT_START <= idx <= DEFECT_END:
+        for i in range(W * H):
+            v = frame[i] + (DEFECT_MEAN - BASE_MEAN)
+            frame[i] = 255 if v > 255 else v
+    # Flat segment: frames 110-119 uniform fill (stddev ~0 -> low-contrast rule).
+    if 110 <= idx <= 119:
+        return bytes([90]) * (W * H)
+    # Local anomaly: bright rectangle on frames 70-72 (>1% of pixels changed
+    # vs baseline) -> exercises the dashboard's local-anomaly rule.
+    if 70 <= idx <= 72:
+        for yy in range(200, 261):
+            row = yy * W
+            frame[row + 100: row + 300] = bytes([230]) * 200
     # small dark blob (visual only, negligible mean impact)
     if idx % 3 == 0:
         cx, cy, rx, ry = W // 2, H // 2, 12, 6
@@ -106,7 +127,7 @@ def main():
         json.dump(meta, jf, indent=4)
     print("wrote", bin_path)
     print("metadata ts:", TS)
-    print(f"expected detector hits at frames {DEFECT_START} and {DEFECT_END + 1}")
+    print(f"expected brightness hits at {DEFECT_START}/{DEFECT_END + 1}, local-anomaly hits at 70/71/72")
 
 if __name__ == "__main__":
     main()

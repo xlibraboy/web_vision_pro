@@ -27,7 +27,11 @@ public:
     void setEventData(const QString& cameraLabel, int totalFrames, int triggerIndex,
                       double fps, const QVector<int>& sampleFrames,
                       const QVector<double>& brightness,
-                      const QVector<int>& defectFrames);
+                      const QVector<double>& stddev,
+                      const QVector<double>& changePct,
+                      const QVector<int>& defectBrightness,
+                      const QVector<int>& defectLocal,
+                      const QVector<int>& defectContrast);
     // Evenly sampled thumbnails; slot i corresponds to frame
     // round(i * (total-1) / (count-1)).
     void setThumbnails(const QVector<QImage>& thumbs);
@@ -51,6 +55,7 @@ protected:
 private:
     int chartTop() const;
     int chartHeight() const;
+    int laneTop(int i) const;
     int stripTop() const;
     int stripHeight() const;
     double frameToX(double frame) const;
@@ -63,7 +68,11 @@ private:
     double fps_ = 20.0;
     QVector<int> sampleFrames_;
     QVector<double> brightness_;
-    QVector<int> defectFrames_;
+    QVector<double> stddev_;
+    QVector<double> changePct_;
+    QVector<int> defectBrightness_;
+    QVector<int> defectLocal_;
+    QVector<int> defectContrast_;
     QVector<QImage> thumbs_;
     int currentFrame_ = 0;
 

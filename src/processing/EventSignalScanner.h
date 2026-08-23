@@ -7,16 +7,34 @@
 #include <atomic>
 
 /**
+ * One event's per-camera scan result (all series share sampleFrames indices).
+ */
+struct EventSignalData {
+    QVector<int> sampleFrames;        // frame index per sample
+    QVector<double> brightness;       // mean 0..255
+    QVector<double> stddev;           // contrast 0..128
+    QVector<double> changePct;        // % pixels differing >25 levels vs baseline
+    QVector<int> defectBrightness;    // brightness-jump hits (DefectDetector)
+    QVector<int> defectLocal;         // local-anomaly hits (changed-pixel rule)
+    QVector<int> defectContrast;      // low-contrast hits
+    int totalFrames = 0;
+    double fps = 0.0;
+};
+
+Q_DECLARE_METATYPE(EventSignalData)
+
+/**
  * EventSignalScanner - Offline per-camera signal extraction for the event
  * dashboard.
  *
  * Decodes a RAW event file with an adaptive stride (bounded work regardless
- * of future frame counts / resolutions) and computes:
- *  - mean brightness per sampled frame (the time-series curve)
- *  - exact frames where DefectDetector reports a hit
+ * of future frame counts / resolutions) and computes per sampled frame:
+ *  - mean brightness and contrast (stddev)
+ *  - changed-pixel ratio vs the baseline (first sampled) frame
+ *  - three defect rules: brightness jump / local anomaly / low contrast
  *
  * Results are cached next to the .bin as "<bin>.signal.json", invalidated
- * automatically when the .bin size or mtime changes.
+ * automatically when the .bin size or mtime changes (or format version bumps).
  */
 class EventSignalScanner : public QObject {
     Q_OBJECT
@@ -26,35 +44,26 @@ public:
     void scanAsync(const QString& binPath);
     void cancel();
     bool isRunning() const;
+
     // File currently assigned to the worker (valid even before it finishes).
     QString currentBinPath() const { return binPath_; }
 
     // Upper bound on decoded frames per scan.
     static constexpr int kMaxScannedFrames = 600;
+    // Local-anomaly rule: % of pixels (vs baseline) differing >25 levels.
+    static constexpr double kLocalChangeMinPct = 1.0;
+    // Low-contrast rule: stddev below this flags washed-out/flat frames.
+    static constexpr double kLowContrastStd = 10.0;
 
     static QString cachePathForBin(const QString& binPath);
 
     // Cache I/O. loadCache returns false when absent or stale.
-    static bool loadCache(const QString& binPath,
-                          QVector<int>* sampleFrames,
-                          QVector<double>* brightness,
-                          QVector<int>* defectFrames,
-                          int* totalFrames,
-                          double* fps);
-    static void saveCache(const QString& binPath, int stride,
-                          const QVector<int>& sampleFrames,
-                          const QVector<double>& brightness,
-                          const QVector<int>& defectFrames,
-                          int totalFrames, double fps);
+    static bool loadCache(const QString& binPath, EventSignalData* out);
+    static void saveCache(const QString& binPath, int stride, const EventSignalData& data);
 
 signals:
     void progress(int scanned, int totalSteps);
-    void finished(const QString& binPath,
-                  const QVector<int>& sampleFrames,
-                  const QVector<double>& brightness,
-                  const QVector<int>& defectFrames,
-                  int totalFrames,
-                  double fps);
+    void finished(const QString& binPath, const EventSignalData& data);
     void failed(const QString& binPath, const QString& reason);
 
 private:

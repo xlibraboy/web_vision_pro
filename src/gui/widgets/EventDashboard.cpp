@@ -9,12 +9,16 @@
 
 namespace {
 constexpr int kMargin = 8;
-constexpr int kChartH = 110;
+constexpr int kChartH = 96;
+constexpr int kLaneH = 26;
+constexpr int kLaneCount = 2; // CHANGE % and CONTRAST
 constexpr int kStripH = 72;
-constexpr int kGap = 6;
+constexpr int kGap = 5;
 
 const QColor kTriggerColor = QColor(QStringLiteral("#E57373"));
 const QColor kDefectColor = QColor(QStringLiteral("#FF9800"));
+const QColor kLocalColor = QColor(QStringLiteral("#FF5252"));
+const QColor kContrastColor = QColor(QStringLiteral("#B388FF"));
 const QColor kPlayheadColor = QColor(QStringLiteral("#FFD54F"));
 const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
 } // namespace
@@ -22,12 +26,18 @@ const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
 EventDashboard::EventDashboard(QWidget* parent)
     : QWidget(parent) {
     setMouseTracking(true);
-    setMinimumHeight(kMargin + kChartH + kGap + kStripH + kMargin);
+    setMinimumHeight(kMargin * 2 + kChartH + kStripH
+                     + kLaneCount * (kLaneH + kGap));
 }
 
 int EventDashboard::chartTop() const { return kMargin; }
 int EventDashboard::chartHeight() const { return kChartH; }
-int EventDashboard::stripTop() const { return kMargin + kChartH + kGap; }
+int EventDashboard::laneTop(int i) const {
+    return kMargin + kChartH + kGap + i * (kLaneH + kGap);
+}
+int EventDashboard::stripTop() const {
+    return laneTop(kLaneCount);
+}
 int EventDashboard::stripHeight() const { return kStripH; }
 
 double EventDashboard::frameToX(double frame) const {
@@ -52,14 +62,22 @@ void EventDashboard::emitSeekAt(int x) {
 void EventDashboard::setEventData(const QString& cameraLabel, int totalFrames, int triggerIndex,
                                   double fps, const QVector<int>& sampleFrames,
                                   const QVector<double>& brightness,
-                                  const QVector<int>& defectFrames) {
+                                  const QVector<double>& stddev,
+                                  const QVector<double>& changePct,
+                                  const QVector<int>& defectBrightness,
+                                  const QVector<int>& defectLocal,
+                                  const QVector<int>& defectContrast) {
     cameraLabel_ = cameraLabel;
     totalFrames_ = std::max(0, totalFrames);
     triggerIndex_ = qBound(0, triggerIndex, std::max(0, totalFrames_ - 1));
     fps_ = (fps > 0.0) ? fps : 20.0;
     sampleFrames_ = sampleFrames;
     brightness_ = brightness;
-    defectFrames_ = defectFrames;
+    stddev_ = stddev;
+    changePct_ = changePct;
+    defectBrightness_ = defectBrightness;
+    defectLocal_ = defectLocal;
+    defectContrast_ = defectContrast;
     update();
 }
 
@@ -82,7 +100,11 @@ void EventDashboard::clear() {
     totalFrames_ = 0;
     sampleFrames_.clear();
     brightness_.clear();
-    defectFrames_.clear();
+    stddev_.clear();
+    changePct_.clear();
+    defectBrightness_.clear();
+    defectLocal_.clear();
+    defectContrast_.clear();
     thumbs_.clear();
     currentFrame_ = 0;
     update();
@@ -96,7 +118,8 @@ void EventDashboard::applyTheme(const QColor& background, const QColor& curve, c
 }
 
 QSize EventDashboard::sizeHint() const {
-    return QSize(400, kMargin * 2 + kChartH + kGap + kStripH);
+    return QSize(400, kMargin * 2 + kChartH + kStripH
+                          + kLaneCount * (kLaneH + kGap));
 }
 
 void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
@@ -133,10 +156,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         return plot.bottom() - ((v - yMin) / span) * plot.height();
     };
 
-    // Defect spikes as vertical ticks behind the curve.
+    // Brightness-jump defect spikes as vertical ticks behind the curve.
     QPen pen(kDefectColor, 1);
     p.setPen(pen);
-    for (int d : defectFrames_) {
+    for (int d : defectBrightness_) {
         const double dx = frameToX(d);
         p.drawLine(QPointF(dx, plot.top()), QPointF(dx, plot.bottom()));
     }
@@ -167,6 +190,69 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                Qt::AlignRight, QStringLiteral("brightness %1–%2")
                                    .arg(static_cast<int>(yMin))
                                    .arg(static_cast<int>(yMax)));
+
+    // ---------- Signal lanes: CHANGE % and CONTRAST ----------
+    struct LaneDef {
+        const char* label;
+        const QVector<double>* series;
+        const QVector<int>* marks;
+        QColor markColor;
+        double fixedMax; // 0 = autoscale from data
+    };
+    const LaneDef lanes[kLaneCount] = {
+        {"CHANGE %", &changePct_, &defectLocal_, kLocalColor, 0.0},
+        {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 0.0},
+    };
+    for (int li = 0; li < kLaneCount; ++li) {
+        const LaneDef& ld = lanes[li];
+        QRectF lane(kMargin, laneTop(li), width() - 2 * kMargin, kLaneH);
+        p.fillRect(lane, kPlotAreaColor);
+
+        double lo = 0.0;
+        double hi = ld.fixedMax;
+        if (!ld.series->isEmpty()) {
+            hi = std::max(hi, *std::max_element(ld.series->constBegin(),
+                                                ld.series->constEnd()));
+        }
+        if (hi <= lo) {
+            hi = 1.0;
+        }
+        auto yLane = [&](double v) {
+            return lane.bottom() - ((v - lo) / std::max(1e-9, hi - lo)) * lane.height();
+        };
+
+        // Rule ticks behind the trace.
+        pen.setColor(ld.markColor);
+        pen.setWidth(1);
+        p.setPen(pen);
+        for (int d : *ld.marks) {
+            const double dx = frameToX(d);
+            p.drawLine(QPointF(dx, lane.top()), QPointF(dx, lane.bottom()));
+        }
+
+        if (sampleFrames_.size() == ld.series->size() && !ld.series->isEmpty()) {
+            QPainterPath lp;
+            for (int i = 0; i < sampleFrames_.size(); ++i) {
+                const QPointF pt(frameToX(sampleFrames_.at(i)),
+                                 yLane(std::max(lo, std::min(hi, ld.series->at(i)))));
+                if (i == 0) lp.moveTo(pt); else lp.lineTo(pt);
+            }
+            pen.setColor(curveColor_);
+            pen.setWidth(1);
+            p.setPen(pen);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            p.drawPath(lp);
+            p.setRenderHint(QPainter::Antialiasing, false);
+        }
+
+        p.setPen(textColor_);
+        p.setFont(font());
+        p.drawText(QRectF(lane.left() + 4, lane.top() + 1, 90, 12),
+                   Qt::AlignLeft | Qt::AlignTop, QLatin1String(ld.label));
+        p.drawText(QRectF(lane.right() - 120, lane.top() + 1, 116, 12),
+                   Qt::AlignRight | Qt::AlignTop,
+                   QStringLiteral("max %1").arg(hi, 0, 'f', 1));
+    }
 
     // Trigger line across chart + strip.
     const double trigX = frameToX(triggerIndex_);
@@ -245,15 +331,31 @@ void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (totalFrames_ > 0) {
-        const int f = qBound(0, xToFrameFloor(event->pos().x()), totalFrames_ - 1);
-        emit frameHovered(f);
-        const double relSec = (f - triggerIndex_) / fps_;
-        QToolTip::showText(event->globalPos(),
-                           QStringLiteral("%1  frame %2  (%3%4s)")
-                               .arg(cameraLabel_, QString::number(f),
-                                    relSec >= 0 ? QStringLiteral("+") : QString())
-                               .arg(relSec, 0, 'f', 1),
-                           this);
+        const int fIdx = qBound(0, xToFrameFloor(event->pos().x()), totalFrames_ - 1);
+        emit frameHovered(fIdx);
+        const double relSec = (fIdx - triggerIndex_) / fps_;
+        QString tip = QStringLiteral("%1  frame %2  (%3%4s)")
+                          .arg(cameraLabel_, QString::number(fIdx),
+                               relSec >= 0 ? QStringLiteral("+") : QString())
+                          .arg(relSec, 0, 'f', 1);
+        // Nearest sampled values for the signal lanes.
+        if (sampleFrames_.size() == brightness_.size() && !sampleFrames_.isEmpty()) {
+            int si = 0;
+            for (int i = 0; i < sampleFrames_.size(); ++i) {
+                if (std::abs(sampleFrames_.at(i) - fIdx)
+                    < std::abs(sampleFrames_.at(si) - fIdx)) {
+                    si = i;
+                }
+            }
+            tip += QStringLiteral("\nbrightness %1").arg(brightness_.at(si), 0, 'f', 1);
+            if (stddev_.size() == sampleFrames_.size()) {
+                tip += QStringLiteral(" | contrast %1").arg(stddev_.at(si), 0, 'f', 1);
+            }
+            if (changePct_.size() == sampleFrames_.size()) {
+                tip += QStringLiteral(" | change %1%").arg(changePct_.at(si), 0, 'f', 2);
+            }
+        }
+        QToolTip::showText(event->globalPos(), tip, this);
     }
 }
 

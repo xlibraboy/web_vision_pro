@@ -507,8 +507,15 @@ void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
         } catch (...) {}
     };
 
-    setBool("ExposureTimeBaseEnable", info.enableExposureTimeBase);
-    setBool("EnableExposureTimeBase", info.enableExposureTimeBase);
+    // scA780 workaround: writing these legacy exposure-base booleans crashes
+    // GenApi (#SS -> SIGBUS) even when the value is unchanged, and the config
+    // only ever stores false. Skip the disable-write entirely.
+    if (!info.enableExposureTimeBase) {
+        std::cout << "[CameraManager] Skipping ExposureTimeBase* writes (disabled in config)." << std::endl;
+    } else {
+        setBool("ExposureTimeBaseEnable", info.enableExposureTimeBase);
+        setBool("EnableExposureTimeBase", info.enableExposureTimeBase);
+    }
     setFloat("ExposureTimeAbs", info.exposureTimeAbs);
     setFloat("ExposureTime", info.exposureTimeAbs); // newer SFNC fallback
     if (info.enableExposureTimeBase) {
@@ -1626,9 +1633,12 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
             }
 
             try {
+                std::cout << "[CameraManager][cfg] enum " << nodeName << " <- "
+                          << value.toStdString() << std::endl;
                 GenApi::CEnumerationPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->FromString(value.toStdString().c_str());
+                    std::cout << "[CameraManager][cfg] enum " << nodeName << " OK" << std::endl;
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -1638,9 +1648,11 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setBoolIfWritable = [&nodemap](const char* nodeName, bool value) {
             try {
+                std::cout << "[CameraManager][cfg] bool " << nodeName << " <- " << value << std::endl;
                 GenApi::CBooleanPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
+                    std::cout << "[CameraManager][cfg] bool " << nodeName << " OK" << std::endl;
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -1650,6 +1662,7 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setFloatIfWritable = [&nodemap](const char* nodeName, double value) {
             try {
+                std::cout << "[CameraManager][cfg] float " << nodeName << " <- " << value << std::endl;
                 GenApi::CFloatPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
@@ -1662,6 +1675,7 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         const auto setIntIfWritable = [&nodemap](const char* nodeName, int value) {
             try {
+                std::cout << "[CameraManager][cfg] int " << nodeName << " <- " << value << std::endl;
                 GenApi::CIntegerPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
                     node->SetValue(value);
@@ -1734,8 +1748,14 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
         width_ = clampNodeValue(widthNode, config.width, "Width");
         height_ = clampNodeValue(heightNode, config.height, "Height");
 
-        setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
-        setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
+        // scA780 workaround: see note in applyLiveDeviceSettings — writing a
+        // disable into these legacy nodes crashes GenApi; skip when disabled.
+        if (!config.enableExposureTimeBase) {
+            std::cout << "[CameraManager] Skipping ExposureTimeBase* config writes (disabled in config)." << std::endl;
+        } else {
+            setBoolIfWritable("ExposureTimeBaseEnable", config.enableExposureTimeBase);
+            setBoolIfWritable("EnableExposureTimeBase", config.enableExposureTimeBase);
+        }
         if (!preserveStartupUserSet) {
             setFloatIfWritable("ExposureTimeAbs", config.exposureTimeAbs);
             setFloatIfWritable("ExposureTime", config.exposureTimeAbs);
