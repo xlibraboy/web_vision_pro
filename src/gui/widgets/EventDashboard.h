@@ -21,6 +21,9 @@ class EventDashboard : public QWidget {
     Q_OBJECT
 public:
     static constexpr int kThumbCount = 24;
+    // Detail strip half-window in frames (shows ±kDetailRadius around the
+    // playhead, i.e. 2*kDetailRadius+1 consecutive samples when stride=1).
+    static constexpr int kDetailRadius = 30;
 
     explicit EventDashboard(QWidget* parent = nullptr);
 
@@ -36,6 +39,9 @@ public:
     // round(i * (total-1) / (count-1)).
     void setThumbnails(const QVector<QImage>& thumbs);
     void setCurrentFrame(int frame);
+    // Detail strip (magnified signal window around the playhead) on/off.
+    void setDetailZoomEnabled(bool on);
+    bool isDetailZoomEnabled() const { return detailEnabled_; }
     // Loading indicators: shown only while the corresponding data is absent.
     void setLoadingSignals(bool on);
     void setSignalProgress(int percent); // -1 = indeterminate
@@ -59,12 +65,22 @@ protected:
 private:
     int chartTop() const;
     int chartHeight() const;
+    // Detail strip geometry (between the main chart and the signal lanes).
+    int detailTop() const;
+    int detailHeight() const;
     int laneTop(int i) const;
     int stripTop() const;
     int stripHeight() const;
     double frameToX(double frame) const;
     int xToFrameFloor(int x) const;
     void emitSeekAt(int x);
+    void emitSeekAtPos(const QPoint& pos);
+    bool inDetailRect(const QPoint& pos) const;
+    int frameIndexAtPos(const QPoint& pos) const;
+    void updateMinimumHeight();
+    // [start, end] frame window shown by the detail strip (clamped to the
+    // event and to 2*kDetailRadius+1 frames wide when possible).
+    void detailWindow(int* startFrame, int* endFrame) const;
 
     QString cameraLabel_;
     int totalFrames_ = 0;
@@ -79,6 +95,7 @@ private:
     QVector<int> defectContrast_;
     QVector<QImage> thumbs_;
     int currentFrame_ = 0;
+    bool detailEnabled_ = true;
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;

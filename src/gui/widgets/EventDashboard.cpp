@@ -10,6 +10,7 @@
 namespace {
 constexpr int kMargin = 8;
 constexpr int kChartH = 96;
+constexpr int kDetailH = 56;
 constexpr int kLaneH = 26;
 constexpr int kLaneCount = 2; // CHANGE % and CONTRAST
 constexpr int kStripH = 72;
@@ -26,25 +27,86 @@ const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
 EventDashboard::EventDashboard(QWidget* parent)
     : QWidget(parent) {
     setMouseTracking(true);
+    updateMinimumHeight();
+}
+
+void EventDashboard::updateMinimumHeight() {
     setMinimumHeight(kMargin * 2 + kChartH + kStripH
-                     + kLaneCount * (kLaneH + kGap));
+                     + kLaneCount * (kLaneH + kGap)
+                     + (detailEnabled_ ? kDetailH + kGap : 0));
 }
 
 int EventDashboard::chartTop() const { return kMargin; }
 int EventDashboard::chartHeight() const { return kChartH; }
+int EventDashboard::detailTop() const {
+    return kMargin + kChartH + kGap;
+}
+int EventDashboard::detailHeight() const {
+    return detailEnabled_ ? kDetailH : 0;
+}
 int EventDashboard::laneTop(int i) const {
-    return kMargin + kChartH + kGap + i * (kLaneH + kGap);
+    return detailTop() + detailHeight()
+           + i * (kLaneH + kGap)
+           + (detailEnabled_ ? kGap : 0);
 }
 int EventDashboard::stripTop() const {
     return laneTop(kLaneCount);
 }
 int EventDashboard::stripHeight() const { return kStripH; }
 
+void EventDashboard::setDetailZoomEnabled(bool on) {
+    if (detailEnabled_ == on) return;
+    detailEnabled_ = on;
+    updateMinimumHeight();
+    update();
+}
+
+void EventDashboard::detailWindow(int* startFrame, int* endFrame) const {
+    const int last = std::max(0, totalFrames_ - 1);
+    int start = currentFrame_ - kDetailRadius;
+    int end = currentFrame_ + kDetailRadius;
+    if (start < 0) {
+        end -= start; // shift window right to keep full width at the left edge
+        start = 0;
+    }
+    if (end > last) {
+        start -= (end - last); // shift left at the right edge
+        end = last;
+    }
+    *startFrame = std::max(0, start);
+    *endFrame = end;
+}
+
 double EventDashboard::frameToX(double frame) const {
     const int w = width();
     const double usable = std::max(1.0, static_cast<double>(w - 2 * kMargin));
     const double span = std::max(1, totalFrames_ - 1);
     return kMargin + (frame / span) * usable;
+}
+
+bool EventDashboard::inDetailRect(const QPoint& pos) const {
+    return detailEnabled_ && totalFrames_ > 1
+           && pos.y() >= detailTop() && pos.y() < detailTop() + detailHeight();
+}
+
+int EventDashboard::frameIndexAtPos(const QPoint& pos) const {
+    if (inDetailRect(pos)) {
+        int winStart = 0;
+        int winEnd = 0;
+        detailWindow(&winStart, &winEnd);
+        const double t = static_cast<double>(pos.x() - kMargin)
+                         / std::max(1, width() - 2 * kMargin);
+        return qBound(0, static_cast<int>(std::lround(winStart + t * (winEnd - winStart))),
+                      std::max(0, totalFrames_ - 1));
+    }
+    return qBound(0, xToFrameFloor(pos.x()), std::max(0, totalFrames_ - 1));
+}
+
+void EventDashboard::emitSeekAtPos(const QPoint& pos) {
+    if (totalFrames_ <= 0) {
+        return;
+    }
+    emit seekRequested(frameIndexAtPos(pos));
 }
 
 int EventDashboard::xToFrameFloor(int x) const {
@@ -139,8 +201,7 @@ void EventDashboard::applyTheme(const QColor& background, const QColor& curve, c
 }
 
 QSize EventDashboard::sizeHint() const {
-    return QSize(400, kMargin * 2 + kChartH + kStripH
-                          + kLaneCount * (kLaneH + kGap));
+    return QSize(400, minimumHeight());
 }
 
 void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
@@ -227,6 +288,132 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     p.drawText(QRectF(plot.left() + 4, plot.top() + 1, 110, 12),
                Qt::AlignLeft | Qt::AlignTop, QStringLiteral("BRIGHTNESS"));
 
+    // ---------- Detail strip: magnified window around the playhead ----------
+    const bool detailActive = detailEnabled_ && totalFrames_ > 1;
+    QRectF det;
+    int winStart = 0;
+    int winEnd = 0;
+    if (detailActive) {
+        det = QRectF(kMargin, detailTop(), width() - 2 * kMargin, kDetailH);
+        p.fillRect(det, kPlotAreaColor);
+        detailWindow(&winStart, &winEnd);
+        const double spanW = std::max(1, winEnd - winStart);
+        auto dxFor = [&](double frame) {
+            return det.left() + ((frame - winStart) / spanW) * det.width();
+        };
+
+        // Window slice of the sampled series (contiguous when stride=1).
+        QVector<int> idx;
+        for (int i = 0; i < sampleFrames_.size(); ++i) {
+            if (sampleFrames_.at(i) >= winStart && sampleFrames_.at(i) <= winEnd) {
+                idx.append(i);
+            }
+        }
+
+        if (!brightness_.isEmpty() && idx.size() >= 2
+                && sampleFrames_.size() == brightness_.size()) {
+            // Local autoscale: magnifies both axes relative to the main chart.
+            double yMin = 255.0;
+            double yMax = 0.0;
+            for (int i : idx) {
+                yMin = std::min(yMin, brightness_.at(i));
+                yMax = std::max(yMax, brightness_.at(i));
+            }
+            if (yMax - yMin < 10.0) { // same flat-line guard as the main chart
+                const double mid = (yMax + yMin) / 2.0;
+                yMin = mid - 5.0;
+                yMax = mid + 5.0;
+            }
+            yMin = std::max(0.0, yMin - 2.0);
+            yMax = std::min(255.0, yMax + 2.0);
+
+            auto dyFor = [&](double v) {
+                const double span = std::max(1.0, yMax - yMin);
+                return det.bottom() - ((v - yMin) / span) * (det.height() - 12)
+                       - 10.0; // reserve bottom edge for the frame ruler
+            };
+
+            // Defect ticks within the window, color-matched to the lanes.
+            pen.setWidth(1);
+            for (const QVector<int>* marks : { &defectBrightness_, &defectLocal_, &defectContrast_ }) {
+                pen.setColor(marks == &defectBrightness_ ? kDefectColor
+                             : marks == &defectLocal_     ? kLocalColor
+                                                          : kContrastColor);
+                p.setPen(pen);
+                for (int d : *marks) {
+                    if (d < winStart || d > winEnd) continue;
+                    p.drawLine(QPointF(dxFor(d), det.top()), QPointF(dxFor(d), det.bottom()));
+                }
+            }
+
+            // Curve + per-sample point markers (individual frames become
+            // visible as discrete dots at this zoom level).
+            QPainterPath dp;
+            for (int k = 0; k < idx.size(); ++k) {
+                const int i = idx.at(k);
+                const QPointF pt(dxFor(sampleFrames_.at(i)), dyFor(brightness_.at(i)));
+                if (k == 0) dp.moveTo(pt); else dp.lineTo(pt);
+            }
+            pen.setColor(curveColor_);
+            pen.setWidth(1);
+            p.setPen(pen);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            p.drawPath(dp);
+            if (det.width() / spanW >= 3.0) {
+                p.setBrush(curveColor_);
+                for (int k = 0; k < idx.size(); ++k) {
+                    const int i = idx.at(k);
+                    p.drawRect(QRectF(dxFor(sampleFrames_.at(i)) - 1.5,
+                                      dyFor(brightness_.at(i)) - 1.5, 3, 3));
+                }
+                p.setBrush(Qt::NoBrush);
+            }
+            p.setRenderHint(QPainter::Antialiasing, false);
+
+            // Local trigger tick (the global line below is clipped out here).
+            if (triggerIndex_ >= winStart && triggerIndex_ <= winEnd) {
+                pen.setColor(kTriggerColor);
+                pen.setWidth(2);
+                p.setPen(pen);
+                p.drawLine(QPointF(dxFor(triggerIndex_), det.top()),
+                           QPointF(dxFor(triggerIndex_), det.bottom()));
+            }
+
+            // Frame-number ruler at both window edges.
+            p.setPen(QColor(textColor_).darker(120));
+            p.setFont(font());
+            p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
+                       Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
+            p.drawText(QRectF(det.right() - 62, det.bottom() - 11, 60, 11),
+                       Qt::AlignRight | Qt::AlignBottom, QString::number(winEnd));
+        } else {
+            QFont f = font();
+            f.setItalic(true);
+            p.setFont(f);
+            p.setPen(QColor(textColor_).darker(130));
+            p.drawText(det, Qt::AlignCenter,
+                       loadingSignals_ ? QStringLiteral("Analyzing signals…")
+                                       : QStringLiteral("No samples in window"));
+        }
+
+        // Label.
+        p.setPen(textColor_);
+        p.setFont(font());
+        p.drawText(QRectF(det.left() + 4, det.top() + 1, 150, 12),
+                   Qt::AlignLeft | Qt::AlignTop,
+                   QStringLiteral("DETAIL ±%1f").arg(kDetailRadius));
+
+        // Local playhead marker: small filled notch on the strip's top edge
+        // (its x differs from the global-scale playhead line below).
+        const double localPlayX = dxFor(currentFrame_);
+        if (localPlayX >= det.left() && localPlayX <= det.right()) {
+            pen.setColor(kPlayheadColor);
+            pen.setWidth(1);
+            p.setPen(pen);
+            p.drawLine(QPointF(localPlayX, det.top()), QPointF(localPlayX, det.bottom()));
+        }
+    }
+
     // ---------- Signal lanes: CHANGE % and CONTRAST ----------
     struct LaneDef {
         const char* label;
@@ -290,12 +477,19 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                    QStringLiteral("max %1").arg(hi, 0, 'f', 1));
     }
 
-    // Trigger line across chart + strip.
+    // Trigger line across chart + strip. When the detail strip is active the
+    // global-scale x has no meaning inside it (different time scale), so the
+    // line is drawn in two segments around that region.
     const double trigX = frameToX(triggerIndex_);
     pen.setColor(kTriggerColor);
     pen.setWidth(2);
     p.setPen(pen);
-    p.drawLine(QPointF(trigX, plot.top() - 3), QPointF(trigX, stripTop() + stripHeight() + 3));
+    if (detailActive) {
+        p.drawLine(QPointF(trigX, plot.top() - 3), QPointF(trigX, det.top() - 2));
+        p.drawLine(QPointF(trigX, det.bottom() + 2), QPointF(trigX, stripTop() + stripHeight() + 3));
+    } else {
+        p.drawLine(QPointF(trigX, plot.top() - 3), QPointF(trigX, stripTop() + stripHeight() + 3));
+    }
 
     // ---------- Thumbnail strip ----------
     const double stripW = width() - 2 * kMargin;
@@ -338,9 +532,16 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     p.setBrush(Qt::NoBrush);
     p.drawRect(QRectF(kMargin + curSlot * slotW, stripTop(), slotW - 1.0, stripHeight()));
 
-    // Playhead across both regions.
+    // Playhead across both regions (same segment split as the trigger line).
     const double playX = frameToX(currentFrame_);
-    p.drawLine(QPointF(playX, plot.top() - 3), QPointF(playX, stripTop() + stripHeight() + 3));
+    pen.setColor(kPlayheadColor);
+    p.setPen(pen);
+    if (detailActive) {
+        p.drawLine(QPointF(playX, plot.top() - 3), QPointF(playX, det.top() - 2));
+        p.drawLine(QPointF(playX, det.bottom() + 2), QPointF(playX, stripTop() + stripHeight() + 3));
+    } else {
+        p.drawLine(QPointF(playX, plot.top() - 3), QPointF(playX, stripTop() + stripHeight() + 3));
+    }
 
     // ---------- Time axis ----------
     p.setPen(textColor_);
@@ -367,17 +568,17 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
 void EventDashboard::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
-        emitSeekAt(event->pos().x());
+        emitSeekAtPos(event->pos());
     }
 }
 
 void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
     if (event->buttons() & Qt::LeftButton) {
-        emitSeekAt(event->pos().x());
+        emitSeekAtPos(event->pos());
         return;
     }
     if (totalFrames_ > 0) {
-        const int fIdx = qBound(0, xToFrameFloor(event->pos().x()), totalFrames_ - 1);
+        const int fIdx = frameIndexAtPos(event->pos());
         emit frameHovered(fIdx);
         const double relSec = (fIdx - triggerIndex_) / fps_;
         QString tip = QStringLiteral("%1  frame %2  (%3%4s)")
