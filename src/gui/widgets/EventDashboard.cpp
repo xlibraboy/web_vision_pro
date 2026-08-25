@@ -223,6 +223,9 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                Qt::AlignRight, QStringLiteral("brightness %1–%2")
                                    .arg(static_cast<int>(yMin))
                                    .arg(static_cast<int>(yMax)));
+    // Lane name (top-left), styled like the SPOTS % / CONTRAST lane labels.
+    p.drawText(QRectF(plot.left() + 4, plot.top() + 1, 110, 12),
+               Qt::AlignLeft | Qt::AlignTop, QStringLiteral("BRIGHTNESS"));
 
     // ---------- Signal lanes: CHANGE % and CONTRAST ----------
     struct LaneDef {
