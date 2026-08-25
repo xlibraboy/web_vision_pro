@@ -748,8 +748,8 @@ void MainWindow::setupUi() {
     connect(analysisView_, &AnalysisView::manualTriggerRequested, this, &MainWindow::manualTrigger);
     // Control Panel: the Server button is the master switch for the live vision
     // system (start/stop camera acquisition; triggers, recording, and defect
-    // detection are all gated on streaming frames). The Login button mirrors the
-    // menu-bar Administrator Login toggle.
+    // detection are all gated on streaming frames). The Login button is the
+    // sole Administrator Login toggle.
     connect(analysisView_, &AnalysisView::serverToggled, this, [this](bool running) {
         if (!cameraManager_) {
             return;
@@ -811,10 +811,6 @@ void MainWindow::setupUi() {
 
     // Settings Menu
     QMenu* settingsMenu = menu->addMenu("Settings");
-    adminLoginAction_ = settingsMenu->addAction("Administrator Login");
-    connect(adminLoginAction_, &QAction::triggered, this, &MainWindow::toggleAdmin);
-
-    settingsMenu->addSeparator();
 
     // Configuration Window
     configAction_ = settingsMenu->addAction("System Configuration");
@@ -1132,7 +1128,6 @@ void MainWindow::toggleAdmin() {
         }
 
         isAdmin_ = false;
-        adminLoginAction_->setText("Administrator Login");
         statusBar()->showMessage("Administrator Logged Out");
         
         if (defectDetectionCheck_) {
@@ -1174,7 +1169,6 @@ bool MainWindow::promptAdminLogin() {
     }
 
     isAdmin_ = true;
-    adminLoginAction_->setText("Logout Administrator");
     statusBar()->showMessage("Administrator Logged In");
 
     if (defectDetectionCheck_) {

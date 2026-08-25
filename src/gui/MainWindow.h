@@ -78,7 +78,6 @@ private:
     QLabel* emulationBadge_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
     QTimer  diskBadgeTimer_;
-    QAction* adminLoginAction_; // Login toggle
     QAction* customLayoutAction_;
     QAction* configAction_;
     QAction* aboutAction_;
