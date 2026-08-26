@@ -32,6 +32,10 @@ public:
     void setAcquisitionFps(double fps);
     // Update Display FPS label (called when user selects a camera)
     void setDisplayFps(double fps);
+    // Refresh the device-identity rows that can change when a camera
+    // attaches/detaches (Model / IP / Image Size). Temperature has its own
+    // updateTemperature().
+    void setDeviceInfo(const QString& model, const QString& ip, const QString& imageSize);
     void updateTheme();
 
 signals:    void backRequested();

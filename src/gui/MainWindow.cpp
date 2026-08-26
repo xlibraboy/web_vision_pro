@@ -332,6 +332,14 @@ MainWindow::MainWindow(QWidget *parent)
             if (cameraId >= 0) {
                 detailView_->setAcquisitionFps(cameraManager_->getCameraAcquisitionFps(cameraId));
                 detailView_->setDisplayFps(cameraManager_->getCameraFps(cameraId));
+                // Identity rows can change when a camera attaches late — keep
+                // them live too, so "Not Connected / 0 x 0" never sticks.
+                cv::Size res = cameraManager_->getCameraResolution(cameraId);
+                detailView_->setDeviceInfo(
+                    QString::fromStdString(cameraManager_->getModelName(cameraId)),
+                    QString::fromStdString(cameraManager_->getIpAddress(cameraId)),
+                    QString("%1 x %2").arg(res.width).arg(res.height));
+                detailView_->updateTemperature(cameraManager_->getTemperature(cameraId));
             } else {
                 detailView_->setAcquisitionFps(-1.0);
                 detailView_->setDisplayFps(-1.0);

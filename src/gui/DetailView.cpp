@@ -59,8 +59,7 @@ void DetailView::setupUi() {
     infoLayout->addRow("Actual Frame Period:", lblActualFramePeriod_);
     infoLayout->addRow("Temperature °C:", lblTemp_);
 
-    lblDisplayFps_->setToolTip("Resulting Framerate reported by the camera. If this is much lower than Acquisition FPS, the camera may be limited by exposure time, sensor readout time, AOI, or transmission bandwidth.");
-    lblActualFramePeriod_->setToolTip("Computed from Resulting Framerate: 1,000,000 / resulting FPS in microseconds.\nExposure time must stay below this period.");
+    lblDisplayFps_->setToolTip("Resulting Framerate reported by the camera. If this is much lower than Acquisition FPS, the camera may be limited by exposure time, sensor readout time, AOI, or transmission bandwidth.");    lblActualFramePeriod_->setToolTip("Computed from Resulting Framerate: 1,000,000 / resulting FPS in microseconds.\nExposure time must stay below this period.");
     lblConfiguredFramePeriod_->setToolTip("Computed from Acquisition FPS: 1,000,000 / configured FPS in microseconds.\nExposure time must stay below this period.");
 
     // Parameters Group (Below Camera Info)
@@ -465,6 +464,12 @@ QString DetailView::fpsMismatchStyle(double fps) {
                    : QString();
 }
 
+void DetailView::setDeviceInfo(const QString& model, const QString& ip, const QString& imageSize) {
+    lblModel_->setText(model);
+    lblIP_->setText(ip);
+    lblImageSize_->setText(imageSize);
+}
+
 void DetailView::setDisplayFps(double fps) {
     displayFps_ = fps;
     if (fps < 0) {
@@ -489,13 +494,16 @@ void DetailView::updateTheme() {
 
 void DetailView::setAcquisitionFps(double fps) {
     acquisitionFps_ = fps;
-    if (fps < 0) {
+    // 0 = node unreadable/disabled (e.g. AcquisitionFrameRateEnable off) —
+    // same as unknown; also avoids 1e6/0 = "inf µs".
+    if (fps <= 0) {
         lblFPS_->setText("N/A");
         lblConfiguredFramePeriod_->setText("N/A");
-    } else {
-        lblFPS_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
-        lblConfiguredFramePeriod_->setText(QString::number(1000000.0 / fps, 'f', 1) + " µs");
+        setDisplayFps(displayFps_);
+        return;
     }
+    lblFPS_->setText(QString("%1 FPS").arg(fps, 0, 'f', 1));
+    lblConfiguredFramePeriod_->setText(QString::number(1000000.0 / fps, 'f', 1) + " µs");
     // Re-evaluate the mismatch highlight against the new configured rate.
     setDisplayFps(displayFps_);
 }
