@@ -12,6 +12,7 @@
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
+#include "../processing/EventSignalScanner.h"
 #include "../communication/OpcUaClientService.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -973,6 +974,21 @@ void ConfigDialog::setupUI() {
     postTriggerSpin_->setSuffix(" sec");
     postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
     recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
+
+    // Frame-count estimate: (pre + post) seconds × fallback FPS. Above 600
+    // frames the whole-event dashboard chart samples every Mth frame (600
+    // cap); the DETAIL strip still shows every frame around the playhead.
+    recordingInfoLabel_ = new QLabel(bufferGroup);
+    recordingInfoLabel_->setWordWrap(true);
+    recordingInfoLabel_->setStyleSheet(QStringLiteral(
+        "QLabel { color: %1; font-size: 11px; }").arg(tc.text));
+    recordingForm->addRow(recordingInfoLabel_);
+    connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ConfigDialog::updateRecordingInfoLabel);
+    connect(preTriggerSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ConfigDialog::updateRecordingInfoLabel);
+    connect(postTriggerSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ConfigDialog::updateRecordingInfoLabel);
 
     // Camera Mode: Real hardware vs. Emulated cameras (no hardware needed).
     // Defaults to Real. Switching re-runs the camera lifecycle (Pylon is
@@ -2530,6 +2546,7 @@ void ConfigDialog::loadSettings() {
     globalFpsSpin_->setValue(CameraConfig::getFps());
     preTriggerSpin_->setValue(CameraConfig::getPreTriggerSeconds());
     postTriggerSpin_->setValue(CameraConfig::getPostTriggerSeconds());
+    updateRecordingInfoLabel();
     eventRetentionSpin_->setValue(CameraConfig::getEventRetentionCount());
     if (lowDiskThresholdSpin_) lowDiskThresholdSpin_->setValue(CameraConfig::getLowDiskWarningPct());
     if (cameraSourceCombo_) {
@@ -2904,6 +2921,24 @@ void ConfigDialog::relayoutUiPreferencePanels() {
     }
 
     updateGeometry();
+}
+
+void ConfigDialog::updateRecordingInfoLabel() {
+    if (!recordingInfoLabel_) return;
+    const int frames = (preTriggerSpin_->value() + postTriggerSpin_->value())
+                       * globalFpsSpin_->value();
+    if (frames <= EventSignalScanner::kMaxScannedFrames) {
+        recordingInfoLabel_->setText(QStringLiteral(
+            "≈ %1 frames per event — every frame is charted.").arg(frames));
+    } else {
+        const int stride = (frames + EventSignalScanner::kMaxScannedFrames - 1)
+                           / EventSignalScanner::kMaxScannedFrames;
+        recordingInfoLabel_->setText(QStringLiteral(
+            "≈ %1 frames per event — above %2 the whole-event chart samples "
+            "every %3rd frame; the DETAIL strip still shows every frame "
+            "around the playhead.").arg(frames)
+                .arg(EventSignalScanner::kMaxScannedFrames).arg(stride));
+    }
 }
 
 void ConfigDialog::connectCameraCardSignals(CameraCard* card) {

@@ -200,12 +200,17 @@ private:
     void connectCameraCardSignals(CameraCard* card);
     CameraCard* findCameraCard(int cameraId) const;
     CameraCard* findCameraCard(QObject* sender) const;
+    // Recording frame-count estimate under the Recording section.
+    void updateRecordingInfoLabel();
 
     // Global settings UI
     QSpinBox* globalFpsSpin_;
     QComboBox* cameraSourceCombo_ = nullptr;
     QSpinBox* preTriggerSpin_;
     QSpinBox* postTriggerSpin_;
+    // Live frame-count estimate under the Recording section: informs when the
+    // event exceeds the whole-event chart's 600-sample cap.
+    QLabel* recordingInfoLabel_ = nullptr;
     QSpinBox* eventRetentionSpin_;
     QSpinBox* lowDiskThresholdSpin_ = nullptr;
     QButtonGroup* themeButtonGroup_ = nullptr;
