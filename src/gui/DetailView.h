@@ -34,8 +34,7 @@ public:
     void setDisplayFps(double fps);
     void updateTheme();
 
-signals:
-    void backRequested();
+signals:    void backRequested();
     void analysisRequested();
     void parameterChanged(int cameraId, QString param, double value);
     void snapshotRequested(int cameraId); // Signal for CameraManager
@@ -97,4 +96,9 @@ private:
     bool isAdmin_;
     bool gainIsRaw_ = false;
     int currentCameraId_ = -1;
+
+    // FPS mismatch highlight: configured vs camera-reported rate.
+    double acquisitionFps_ = -1.0;
+    double displayFps_ = -1.0;
+    QString fpsMismatchStyle(double fps);
 };
