@@ -761,6 +761,10 @@ void AnalysisView::setupEventDashboards() {
                 this, &AnalysisView::onSignalScanFinished);
         connect(signalScanner_, &EventSignalScanner::failed,
                 this, &AnalysisView::onSignalScanFailed);
+        connect(signalScanner_, &EventSignalScanner::windowFinished,
+                this, &AnalysisView::onDetailWindowFinished);
+        connect(signalScanner_, &EventSignalScanner::windowFailed,
+                this, &AnalysisView::onDetailWindowFailed);
         connect(signalScanner_, &EventSignalScanner::progress, this,
                 [this](int scanned, int totalSteps) {
             if (!detailDashboard_) return;
@@ -826,6 +830,49 @@ void AnalysisView::startNextSignalScan() {
         }
     }
     updateDashboardLoadingState();
+}
+
+void AnalysisView::maybeScanDetailWindow(int frameIndex) {
+    if (!isStreamingMode_ || !detailDashboard_ || !signalScanner_) return;
+    if (!detailDashboard_->isDetailZoomEnabled()) return;                 // hidden at >= 1x
+    if (totalFrames_ <= EventSignalScanner::kMaxScannedFrames) return;    // full series is stride-1
+    if (currentDashCam_ < 0) return;
+    const auto pathIt = videoReaderPaths_.find(currentDashCam_);
+    if (pathIt == videoReaderPaths_.end()) return;
+
+    // Snap the window to a 15-frame grid so slow playback doesn't fire one
+    // scan per frame; a new scan only when the snapped window changes.
+    constexpr int kSnapGrid = 15;
+    const int radius = EventDashboard::kDetailRadius;
+    const int maxStart = std::max(0, static_cast<int>(totalFrames_) - 1 - 2 * radius);
+    int start = ((frameIndex - radius) / kSnapGrid) * kSnapGrid;
+    start = std::max(0, std::min(start, (maxStart / kSnapGrid) * kSnapGrid));
+    const int end = std::min(static_cast<int>(totalFrames_) - 1, start + 2 * radius);
+
+    const QString key = EventSignalScanner::windowCacheKey(pathIt->second, start, end);
+    if (key == detailWindowKey_) return; // in flight or already pushed
+    detailWindowKey_ = key;
+    detailDashboard_->setDetailLoading(true);
+    signalScanner_->scanWindowAsync(pathIt->second, start, end);
+}
+
+void AnalysisView::onDetailWindowFinished(const QString& binPath, int startFrame, int endFrame,
+                                          const EventSignalData& data) {
+    if (!detailDashboard_) return;
+    // Drop stale results (camera switched / event changed while scanning).
+    const auto it = videoReaderPaths_.find(currentDashCam_);
+    if (it == videoReaderPaths_.end() || it->second != binPath) return;
+    detailDashboard_->setDetailSeries(startFrame, endFrame, data.sampleFrames,
+                                      data.brightness, data.stddev, data.spotPct,
+                                      data.defectBrightness, data.defectLocal,
+                                      data.defectContrast);
+}
+
+void AnalysisView::onDetailWindowFailed(const QString& binPath, int startFrame, int endFrame,
+                                        const QString& reason) {
+    Q_UNUSED(binPath); Q_UNUSED(startFrame); Q_UNUSED(endFrame);
+    if (detailDashboard_) detailDashboard_->setDetailLoading(false);
+    std::cerr << "[AnalysisView] Detail window scan failed: " << reason.toStdString() << std::endl;
 }
 
 void AnalysisView::onSignalScanFinished(const QString& binPath, const EventSignalData& data) {
@@ -2433,6 +2480,8 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     // Keep the dashboard on the playhead.
     if (detailDashboard_) {
         detailDashboard_->setCurrentFrame(idx);
+        // Lazy detail sub-scan for >600-frame events (cheap no-op otherwise).
+        maybeScanDetailWindow(idx);
     }
 
     frameInput_->setText(hasRelativeTimeAxis()
@@ -3081,6 +3130,8 @@ void AnalysisView::setLiveMode() {
     isReviewMode_ = false;
     isRecording_ = false;
     reviewFps_ = 0.0;
+    detailWindowKey_.clear();
+    if (detailDashboard_) detailDashboard_->setDetailLoading(false);
     setPlaybackPlaying(false);
     recordedSequence_.clear();
 
@@ -3759,6 +3810,8 @@ void AnalysisView::clearData() {
 
     isPlaying_ = false;
     reviewFps_ = 0.0;
+    detailWindowKey_.clear();
+    if (detailDashboard_) detailDashboard_->setDetailLoading(false);
     if (playbackTimer_) {
         playbackTimer_->stop();
     }

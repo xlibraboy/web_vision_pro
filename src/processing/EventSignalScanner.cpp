@@ -84,6 +84,23 @@ EventSignalScanner::EventSignalScanner(QObject* parent)
         }
         emit finished(path, data);
     });
+
+    static bool windowMetaRegistered = []() {
+        qRegisterMetaType<WindowScanResult>("WindowScanResult");
+        return true;
+    }();
+    Q_UNUSED(windowMetaRegistered);
+
+    connect(&windowWatcher_, &QFutureWatcher<WindowScanResult>::finished, this, [this]() {
+        const WindowScanResult r = windowWatcher_.result();
+        if (r.ok) {
+            rememberWindow(r.binPath, r.startFrame, r.endFrame, r.data);
+            emit windowFinished(r.binPath, r.startFrame, r.endFrame, r.data);
+        } else if (!windowCancelled_.load()) {
+            emit windowFailed(r.binPath, r.startFrame, r.endFrame,
+                              r.reason.isEmpty() ? QStringLiteral("window scan failed") : r.reason);
+        }
+    });
 }
 
 void EventSignalScanner::scanAsync(const QString& binPath) {
@@ -113,6 +130,142 @@ void EventSignalScanner::cancel() {
 
 bool EventSignalScanner::isRunning() const {
     return watcher_.isRunning();
+}
+
+QString EventSignalScanner::windowCacheKey(const QString& binPath, int startFrame, int endFrame) {
+    return QStringLiteral("%1|%2|%3").arg(binPath).arg(startFrame).arg(endFrame);
+}
+
+bool EventSignalScanner::popCachedWindow(const QString& binPath, int startFrame, int endFrame,
+                                         EventSignalData* out) {
+    const QString key = windowCacheKey(binPath, startFrame, endFrame);
+    auto it = windowCache_.find(key);
+    if (it == windowCache_.end()) {
+        return false;
+    }
+    *out = it.value();
+    // LRU refresh.
+    windowCacheOrder_.removeAll(key);
+    windowCacheOrder_.append(key);
+    return true;
+}
+
+void EventSignalScanner::rememberWindow(const QString& binPath, int startFrame, int endFrame,
+                                        const EventSignalData& data) {
+    const QString key = windowCacheKey(binPath, startFrame, endFrame);
+    windowCache_.insert(key, data);
+    windowCacheOrder_.removeAll(key);
+    windowCacheOrder_.append(key);
+    while (windowCacheOrder_.size() > kWindowCacheMax) {
+        windowCache_.remove(windowCacheOrder_.takeFirst());
+    }
+}
+
+void EventSignalScanner::scanWindowAsync(const QString& binPath, int startFrame, int endFrame) {
+    if (isWindowRunning()) {
+        return;
+    }
+    EventSignalData cached;
+    if (popCachedWindow(binPath, startFrame, endFrame, &cached)) {
+        emit windowFinished(binPath, startFrame, endFrame, cached);
+        return;
+    }
+    windowCancelled_.store(false);
+    windowWatcher_.setFuture(QtConcurrent::run([this, binPath, startFrame, endFrame]() {
+        return runWindowScan(binPath, startFrame, endFrame);
+    }));
+}
+
+void EventSignalScanner::cancelWindow() {
+    windowCancelled_.store(true);
+}
+
+bool EventSignalScanner::isWindowRunning() const {
+    return windowWatcher_.isRunning();
+}
+
+WindowScanResult EventSignalScanner::runWindowScan(const QString& binPath, int startFrame,
+                                                   int endFrame) {
+    WindowScanResult result;
+    result.binPath = binPath;
+    result.startFrame = startFrame;
+    result.endFrame = endFrame;
+
+    VideoStreamReader reader;
+    if (!reader.open(binPath)) {
+        result.reason = QStringLiteral("cannot open RAW file");
+        return result;
+    }
+    const int totalFrames = reader.getTotalFrames();
+    if (totalFrames <= 0) {
+        result.reason = QStringLiteral("no frames in file");
+        return result;
+    }
+    // Clamp to the event; require a sane span.
+    const int start = std::max(0, startFrame);
+    const int end = std::min(endFrame, totalFrames - 1);
+    result.startFrame = start;
+    result.endFrame = end;
+    if (start > end) {
+        result.reason = QStringLiteral("empty window");
+        return result;
+    }
+
+    DefectDetector detector;
+    // Seed the stateful brightness-jump detector with the frame before the
+    // window so the first in-window sample has a fair baseline.
+    if (start > 0) {
+        const cv::Mat lookback = reader.getFrame(start - 1);
+        if (!lookback.empty()) {
+            detector.detect(lookback);
+        }
+    }
+
+    EventSignalData out;
+    out.totalFrames = totalFrames;
+    out.fps = reader.getFps();
+    for (int frameIndex = start; frameIndex <= end; ++frameIndex) {
+        if (windowCancelled_.load()) {
+            result.reason = QStringLiteral("cancelled");
+            return result;
+        }
+        const cv::Mat frame = reader.getFrame(frameIndex);
+        if (!frame.empty()) {
+            cv::Mat gray;
+            if (frame.channels() == 1) {
+                gray = frame;
+            } else if (frame.channels() == 3) {
+                cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+            } else {
+                cv::cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
+            }
+            const cv::Scalar m, s;
+            cv::meanStdDev(gray, m, s);
+            out.brightness.push_back(m[0]);
+            out.stddev.push_back(s[0]);
+            out.sampleFrames.push_back(frameIndex);
+            out.spotPct.push_back(spotPixelPct(gray));
+
+            if (detector.detect(frame)) {
+                out.defectBrightness.push_back(frameIndex);
+            }
+            if (out.spotPct.back() >= kLocalSpotMinPct) {
+                out.defectLocal.push_back(frameIndex);
+            }
+            if (s[0] < kLowContrastStd) {
+                out.defectContrast.push_back(frameIndex);
+            }
+        } else {
+            out.brightness.push_back(out.brightness.isEmpty() ? 0.0 : out.brightness.back());
+            out.stddev.push_back(out.stddev.isEmpty() ? 0.0 : out.stddev.back());
+            out.spotPct.push_back(out.spotPct.isEmpty() ? 0.0 : out.spotPct.back());
+            out.sampleFrames.push_back(frameIndex);
+        }
+    }
+
+    result.data = out;
+    result.ok = true;
+    return result;
 }
 
 bool EventSignalScanner::runScan(const QString& binPath) {

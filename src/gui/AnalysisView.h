@@ -131,6 +131,13 @@ private slots:
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
+    void onDetailWindowFinished(const QString& binPath, int startFrame, int endFrame,
+                                const EventSignalData& data);
+    void onDetailWindowFailed(const QString& binPath, int startFrame, int endFrame,
+                              const QString& reason);
+    // Fire a lazy stride-1 sub-scan when the detail strip's snapped window
+    // changes on a >600-frame event (no-op otherwise).
+    void maybeScanDetailWindow(int frameIndex);
     void onSignalScanFailed(const QString& binPath, const QString& reason);
     // How many frames one step / scrub advances at the current speed selector.
     int playbackStepSize() const;
@@ -445,6 +452,9 @@ private:
     std::map<int, std::unique_ptr<class VideoStreamReader>> videoReaders_;
     // Source .bin path per opened camera (for the signal scanner cache).
     std::map<int, QString> videoReaderPaths_;
+    // Lazy detail sub-scan state: key of the window in flight or already
+    // pushed to the dashboard (prevents per-tick re-requests).
+    QString detailWindowKey_;
     // Event dashboard (prototype): single-camera time-series + thumbnails.
     class EventDashboard* detailDashboard_ = nullptr;   // Camera tab, below video
     class EventSignalScanner* signalScanner_ = nullptr;

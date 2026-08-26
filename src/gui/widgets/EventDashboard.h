@@ -44,6 +44,18 @@ public:
     // Detail strip (magnified signal window around the playhead) on/off.
     void setDetailZoomEnabled(bool on);
     bool isDetailZoomEnabled() const { return detailEnabled_; }
+    // Stride-1 series for the detail window (lazy sub-scan result). When set
+    // and covering the visible window, the strip draws these instead of the
+    // coarse whole-event samples.
+    void setDetailSeries(int winStart, int winEnd,
+                         const QVector<int>& frames,
+                         const QVector<double>& brightness,
+                         const QVector<double>& stddev,
+                         const QVector<double>& spotPct,
+                         const QVector<int>& defectBrightness,
+                         const QVector<int>& defectLocal,
+                         const QVector<int>& defectContrast);
+    void setDetailLoading(bool on);
     // Loading indicators: shown only while the corresponding data is absent.
     void setLoadingSignals(bool on);
     void setSignalProgress(int percent); // -1 = indeterminate
@@ -100,6 +112,17 @@ private:
     int currentFrame_ = 0;
     bool detailEnabled_ = true;
     int detailRadius_ = kDetailRadius;
+    // Lazy stride-1 sub-scan result covering [detailWinStart_ .. detailWinEnd_].
+    int detailWinStart_ = 0;
+    int detailWinEnd_ = -1;
+    QVector<int> detailFrames_;
+    QVector<double> detailBrightness_;
+    QVector<double> detailStddev_;
+    QVector<double> detailSpotPct_;
+    QVector<int> detailDefectBrightness_;
+    QVector<int> detailDefectLocal_;
+    QVector<int> detailDefectContrast_;
+    bool detailLoading_ = false;
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;

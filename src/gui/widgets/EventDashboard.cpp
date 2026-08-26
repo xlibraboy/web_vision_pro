@@ -62,6 +62,33 @@ void EventDashboard::setDetailZoomEnabled(bool on) {
     update();
 }
 
+void EventDashboard::setDetailSeries(int winStart, int winEnd,
+                                     const QVector<int>& frames,
+                                     const QVector<double>& brightness,
+                                     const QVector<double>& stddev,
+                                     const QVector<double>& spotPct,
+                                     const QVector<int>& defectBrightness,
+                                     const QVector<int>& defectLocal,
+                                     const QVector<int>& defectContrast) {
+    detailWinStart_ = winStart;
+    detailWinEnd_ = winEnd;
+    detailFrames_ = frames;
+    detailBrightness_ = brightness;
+    detailStddev_ = stddev;
+    detailSpotPct_ = spotPct;
+    detailDefectBrightness_ = defectBrightness;
+    detailDefectLocal_ = defectLocal;
+    detailDefectContrast_ = defectContrast;
+    detailLoading_ = false;
+    update();
+}
+
+void EventDashboard::setDetailLoading(bool on) {
+    if (detailLoading_ == on) return;
+    detailLoading_ = on;
+    update();
+}
+
 void EventDashboard::detailWindow(int* startFrame, int* endFrame) const {
     const int last = std::max(0, totalFrames_ - 1);
     int start = currentFrame_ - detailRadius_;
@@ -141,6 +168,17 @@ void EventDashboard::setEventData(const QString& cameraLabel, int totalFrames, i
     defectBrightness_ = defectBrightness;
     defectLocal_ = defectLocal;
     defectContrast_ = defectContrast;
+    // New event/camera: any previous lazy window series is stale.
+    detailWinStart_ = 0;
+    detailWinEnd_ = -1;
+    detailFrames_.clear();
+    detailBrightness_.clear();
+    detailStddev_.clear();
+    detailSpotPct_.clear();
+    detailDefectBrightness_.clear();
+    detailDefectLocal_.clear();
+    detailDefectContrast_.clear();
+    detailLoading_ = false;
     update();
 }
 
@@ -188,6 +226,16 @@ void EventDashboard::clear() {
     defectContrast_.clear();
     thumbs_.clear();
     currentFrame_ = 0;
+    detailWinStart_ = 0;
+    detailWinEnd_ = -1;
+    detailFrames_.clear();
+    detailBrightness_.clear();
+    detailStddev_.clear();
+    detailSpotPct_.clear();
+    detailDefectBrightness_.clear();
+    detailDefectLocal_.clear();
+    detailDefectContrast_.clear();
+    detailLoading_ = false;
     loadingSignals_ = false;
     signalProgress_ = -1;
     loadingThumbs_ = false;
@@ -303,6 +351,103 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             return det.left() + ((frame - winStart) / spanW) * det.width();
         };
 
+        // Prefer the lazy stride-1 sub-scan when it covers the window;
+        // otherwise slice the coarse whole-event series.
+        const bool detailCovers = detailWinStart_ <= winStart && detailWinEnd_ >= winEnd
+                                  && detailFrames_.size() == detailBrightness_.size()
+                                  && !detailFrames_.isEmpty();
+
+        // Shared drawing: curve + per-sample dots + defect ticks + trigger
+        // tick + rulers, over an arbitrary (frame, brightness) series.
+        auto drawDetailContent =
+            [&](const QVector<int>& frames, const QVector<double>& brightness,
+                const QVector<int>* ticksB, const QVector<int>* ticksL,
+                const QVector<int>* ticksC) {
+                double yMin = 255.0;
+                double yMax = 0.0;
+                for (int i = 0; i < frames.size(); ++i) {
+                    yMin = std::min(yMin, brightness.at(i));
+                    yMax = std::max(yMax, brightness.at(i));
+                }
+                if (yMax - yMin < 10.0) { // same flat-line guard as the main chart
+                    const double mid = (yMax + yMin) / 2.0;
+                    yMin = mid - 5.0;
+                    yMax = mid + 5.0;
+                }
+                yMin = std::max(0.0, yMin - 2.0);
+                yMax = std::min(255.0, yMax + 2.0);
+
+                auto dyFor = [&](double v) {
+                    const double span = std::max(1.0, yMax - yMin);
+                    return det.bottom() - ((v - yMin) / span) * (det.height() - 12)
+                           - 10.0; // reserve bottom edge for the frame ruler
+                };
+
+                pen.setWidth(1);
+                for (const QVector<int>* marks : { ticksB, ticksL, ticksC }) {
+                    if (!marks) continue;
+                    pen.setColor(marks == ticksB ? kDefectColor
+                                 : marks == ticksL ? kLocalColor
+                                                   : kContrastColor);
+                    p.setPen(pen);
+                    for (int d : *marks) {
+                        if (d < winStart || d > winEnd) continue;
+                        p.drawLine(QPointF(dxFor(d), det.top()), QPointF(dxFor(d), det.bottom()));
+                    }
+                }
+
+                QPainterPath dp;
+                for (int i = 0; i < frames.size(); ++i) {
+                    const QPointF pt(dxFor(frames.at(i)), dyFor(brightness.at(i)));
+                    if (i == 0) dp.moveTo(pt); else dp.lineTo(pt);
+                }
+                pen.setColor(curveColor_);
+                pen.setWidth(1);
+                p.setPen(pen);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                p.drawPath(dp);
+                if (det.width() / std::max(1.0, spanW) >= 3.0) {
+                    p.setBrush(curveColor_);
+                    for (int i = 0; i < frames.size(); ++i) {
+                        p.drawRect(QRectF(dxFor(frames.at(i)) - 1.5,
+                                          dyFor(brightness.at(i)) - 1.5, 3, 3));
+                    }
+                    p.setBrush(Qt::NoBrush);
+                }
+                p.setRenderHint(QPainter::Antialiasing, false);
+
+                // Local trigger tick (the global line below is clipped out here).
+                if (triggerIndex_ >= winStart && triggerIndex_ <= winEnd) {
+                    pen.setColor(kTriggerColor);
+                    pen.setWidth(2);
+                    p.setPen(pen);
+                    p.drawLine(QPointF(dxFor(triggerIndex_), det.top()),
+                               QPointF(dxFor(triggerIndex_), det.bottom()));
+                }
+
+                // Frame-number ruler at both window edges.
+                p.setPen(QColor(textColor_).darker(120));
+                p.setFont(font());
+                p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
+                           Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
+                p.drawText(QRectF(det.right() - 62, det.bottom() - 11, 60, 11),
+                           Qt::AlignRight | Qt::AlignBottom, QString::number(winEnd));
+
+                // Local Y range: makes the magnification explicit vs the main
+                // chart's whole-event range label.
+                p.setPen(textColor_);
+                p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
+                           Qt::AlignRight | Qt::AlignTop,
+                           QStringLiteral("y %1–%2")
+                               .arg(static_cast<int>(yMin))
+                               .arg(static_cast<int>(yMax)));
+            };
+
+        if (detailCovers) {
+            drawDetailContent(detailFrames_, detailBrightness_,
+                              &detailDefectBrightness_, &detailDefectLocal_,
+                              &detailDefectContrast_);
+        } else {
         // Window slice of the sampled series (contiguous when stride=1).
         QVector<int> idx;
         for (int i = 0; i < sampleFrames_.size(); ++i) {
@@ -402,8 +547,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             p.setFont(f);
             p.setPen(QColor(textColor_).darker(130));
             p.drawText(det, Qt::AlignCenter,
-                       loadingSignals_ ? QStringLiteral("Analyzing signals…")
-                                       : QStringLiteral("No samples in window"));
+                       (loadingSignals_ || (detailLoading_ && detailFrames_.isEmpty()))
+                           ? QStringLiteral("Analyzing signals…")
+                           : QStringLiteral("No samples in window"));
+        }
         }
 
         // Label.
