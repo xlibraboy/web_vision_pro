@@ -732,6 +732,8 @@ void AnalysisView::setupEventDashboards() {
         total = videoReaders_.begin()->second->getTotalFrames();
         fps = videoReaders_.begin()->second->getFps();
     }
+    // Playback truth: 1.0x = this event's real capture rate (primary camera).
+    reviewFps_ = fps;
 
     // Show the camera the user already selected; otherwise the first opened.
     currentDashCam_ = -1;
@@ -2754,14 +2756,20 @@ void AnalysisView::setPlaybackPlaying(bool playing) {
 
     if (playbackTimer_) {
         if (playing) {
-            const int interval = std::max(1, static_cast<int>(33.0 / playbackSpeed_));
-            playbackTimer_->start(interval);
+            playbackTimer_->start(playbackTickIntervalMs());
         } else {
             playbackTimer_->stop();
         }
     }
 
     updatePlaybackControlsState();
+}
+
+int AnalysisView::playbackTickIntervalMs() const {
+    // 1.0x = true real-time when the event's capture fps is known (RAW header);
+    // legacy 33 ms (~30 fps) assumption otherwise.
+    const double fps = (reviewFps_ > 0.0) ? reviewFps_ : (1000.0 / 33.0);
+    return std::max(1, static_cast<int>(std::lround(1000.0 / (fps * playbackSpeed_))));
 }
 
 void AnalysisView::seekToRelativeFrame(double relativeFrame) {
@@ -2838,8 +2846,8 @@ void AnalysisView::onSpeedChanged(QAction* action) {
 
     // Scrubbing speed: holding a step button repeats at the chosen rate so
     // Ultra Slow scrubs frame-by-frame slowly and Very Fast jumps multiple
-    // frames per repeat.
-    const int repeatInterval = std::max(1, static_cast<int>(33.0 / playbackSpeed_));
+    // frames per repeat. Same real-time calibration as playback.
+    const int repeatInterval = playbackTickIntervalMs();
     if (prevButton_) {
         prevButton_->setAutoRepeatInterval(repeatInterval);
     }
@@ -3072,6 +3080,7 @@ void AnalysisView::updatePlaybackControlsState() {
 void AnalysisView::setLiveMode() {
     isReviewMode_ = false;
     isRecording_ = false;
+    reviewFps_ = 0.0;
     setPlaybackPlaying(false);
     recordedSequence_.clear();
 
@@ -3749,6 +3758,7 @@ void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Clearing data to free memory..." << std::endl;
 
     isPlaying_ = false;
+    reviewFps_ = 0.0;
     if (playbackTimer_) {
         playbackTimer_->stop();
     }

@@ -88,6 +88,13 @@ public:
     using SpeedProvider = std::function<bool(double* mPerMin)>;
     void setSpeedProvider(SpeedProvider provider);
 
+    // Resolves each camera's REAL acquisition fps at trigger/save time so
+    // buffer sizing, capture targets, and RAW headers reflect reality instead
+    // of the global configured fallback. Return 0 to fall back to the
+    // configured fps (camera closed / node unreadable).
+    using CameraFpsProvider = std::function<double(int cameraId)>;
+    void setCameraFpsProvider(CameraFpsProvider provider);
+
     // Provides the full machine-speed profile (position mm + actual local
     // speed per anchor) captured at trigger time and persisted onto the event.
     // Returns false when no anchors are usable.
@@ -180,5 +187,13 @@ private:
 
     EventSavedCallback callback_;
     SpeedProvider speedProvider_;
+    CameraFpsProvider cameraFpsProvider_;
+    // Effective fps for one camera: provider value when valid, else the
+    // configured fallback fps_.
+    double cameraFps(int cameraId) const;
+    // Per-camera pre/post frame counts, scaled from the global frame settings
+    // by that camera's real fps.
+    int preFramesFor(int cameraId) const;
+    int postFramesFor(int cameraId) const;
     SpeedAnchorsProvider speedAnchorsProvider_;
 };

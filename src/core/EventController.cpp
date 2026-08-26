@@ -83,7 +83,10 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     
     // Initialize state if camera not seen before
     if (cameraStates_.find(cameraId) == cameraStates_.end()) {
-        size_t totalCapacity = bufferSize_ + postTriggerLimit_;
+        // Per-camera capacity: pre/post frame counts scaled by this camera's
+        // real fps (equals the global frame counts when fps matches config).
+        const size_t totalCapacity =
+            static_cast<size_t>(preFramesFor(cameraId) + postFramesFor(cameraId));
         cameraStates_[cameraId].circularBuffer.resize(totalCapacity);
     }
     
@@ -314,7 +317,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             }
             const int configIndex = pair.first - 1;
             if (configIndex < 0 || configIndex >= static_cast<int>(cameras.size())) {
-                pair.second.captureTargetFrames = postTriggerLimit_;
+                pair.second.captureTargetFrames = postFramesFor(pair.first);
                 continue;
             }
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
@@ -324,22 +327,24 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             // framesPerMm uses the LOCAL speed at this camera's position
             // (interpolated between the recorded anchors), so the draw between
             // drive groups is reflected in the capture window.
-            // framesPerMm = fps * (60 s/min) / (speed mm/min)
+            // framesPerMm = fps * (60 s/min) / (speed mm/min) — using THIS
+            // camera's real fps so mixed-fps lines stay time-aligned.
             const double localSpeed = SpeedProfile::speedAt(
                 cameraPosition, currentTriggerContext_.speedAnchors, speedMperMin);
-            const double framesPerMm = fps_ * 60.0 / (localSpeed * 1000.0);
+            const double fpsCam = cameraFps(pair.first);
+            const double framesPerMm = fpsCam * 60.0 / (localSpeed * 1000.0);
             const int deltaMm = (cameraPosition - context.triggerPositionMm) * sign;
             int offsetFrames = static_cast<int>(std::lround(deltaMm * framesPerMm));
             // An upstream camera cannot recover a defect that already left its
             // pre-trigger buffer; clamp to the oldest recoverable frame.
-            if (offsetFrames < -bufferSize_) {
-                offsetFrames = -bufferSize_;
+            if (offsetFrames < -preFramesFor(pair.first)) {
+                offsetFrames = -preFramesFor(pair.first);
             }
             pair.second.captureOffsetFrames = offsetFrames;
             // Minimum 1 so every participating camera writes at least one frame
             // and the allDone evaluation runs (a target of 0 would early-return
             // before the ring write and could deadlock the whole event).
-            pair.second.captureTargetFrames = std::max(1, postTriggerLimit_ + offsetFrames);
+            pair.second.captureTargetFrames = std::max(1, postFramesFor(pair.first) + offsetFrames);
         }
     } else {
         if (alignmentWanted) {
@@ -355,7 +360,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
                 currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
                 currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
             }
-            pair.second.captureTargetFrames = postTriggerLimit_;
+            pair.second.captureTargetFrames = postFramesFor(pair.first);
         }
     }
 
@@ -386,6 +391,25 @@ bool EventController::triggerEvent(const TriggerContext& context) {
 
 void EventController::setSpeedProvider(SpeedProvider provider) {
     speedProvider_ = std::move(provider);
+}
+
+void EventController::setCameraFpsProvider(CameraFpsProvider provider) {
+    cameraFpsProvider_ = std::move(provider);
+}
+
+double EventController::cameraFps(int cameraId) const {
+    const double detected = cameraFpsProvider_ ? cameraFpsProvider_(cameraId) : 0.0;
+    return (detected > 0.0) ? detected : fps_;
+}
+
+int EventController::preFramesFor(int cameraId) const {
+    const double scale = (fps_ > 0.0) ? cameraFps(cameraId) / fps_ : 1.0;
+    return std::max(1, static_cast<int>(std::lround(bufferSize_ * scale)));
+}
+
+int EventController::postFramesFor(int cameraId) const {
+    const double scale = (fps_ > 0.0) ? cameraFps(cameraId) / fps_ : 1.0;
+    return std::max(1, static_cast<int>(std::lround(postTriggerLimit_ * scale)));
 }
 
 void EventController::setSpeedAnchorsProvider(SpeedAnchorsProvider provider) {
@@ -515,7 +539,7 @@ void EventController::saveWorker() {
                 event.metadataPath = "";
                 event.triggerIndex = primaryTriggerIndex;
                 event.totalFrames = primaryFramesCount;
-                event.fps = fps_;
+                event.fps = cameraFps(primaryCameraId);
                 event.width = primaryWidth;
                 event.height = primaryHeight;
                 event.triggerReason = triggerContext.reason;
@@ -601,7 +625,9 @@ void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
     // Map OpenCV type to generic pixelFormat: 0=Mono8, 1=BGR8, 2=RGB8
     if (frames[0].image.channels() == 1) header.pixelFormat = 0;
     else header.pixelFormat = 1; // Assume BGR8 for 3-channel default
-    header.fps = fps_;
+    // Per-camera truth: each .bin records the fps its camera actually ran at,
+    // so playback time axes and slow-motion are correct for mixed-fps lines.
+    header.fps = cameraFps(cameraId);
     header.totalFrames = static_cast<uint32_t>(frames.size());
     header.triggerIndex = triggerIndex;
 

@@ -164,6 +164,10 @@ private:
     void updateSliderZeroMarker();  // Position the zero marker on the slider
     void updateAnnotationSliderMarkers();
     void setPlaybackPlaying(bool playing);
+    // Timer interval for one playback/scrub tick at the current speed:
+    // real-time (1000/reviewFps_) when the event fps is known, legacy 33 ms
+    // assumption otherwise.
+    int playbackTickIntervalMs() const;
     void seekToRelativeFrame(double relativeFrame);
 
     // Per-camera playback alignment (review-time defect sync)
@@ -311,6 +315,10 @@ private:
     double currentFrame_;
     double totalFrames_;
     double playbackSpeed_;
+    // Real fps of the event's primary camera (from its RAW header). Drives
+    // playback/scrub timing so 1.0x means true real-time; 0 = unknown
+    // (non-streaming modes) and the legacy 30 fps assumption applies.
+    double reviewFps_ = 0.0;
     int triggerFrameIndex_; // Index of the trigger point (t=0)
     int baseWidth_;
     int baseHeight_;

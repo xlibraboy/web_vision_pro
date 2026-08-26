@@ -430,6 +430,15 @@ void MainWindow::initializeEventController() {
     const int preTriggerFrames = CameraConfig::getPreTriggerSeconds() * static_cast<int>(configuredFps);
     const int postTriggerFrames = CameraConfig::getPostTriggerSeconds() * static_cast<int>(configuredFps);
     EventController::instance().initialize(preTriggerFrames, configuredFps, postTriggerFrames);
+    // Per-camera FPS truth: the recorder scales each camera's buffers, capture
+    // targets, and RAW header fps from its REAL acquisition rate (falling back
+    // to the configured value when the node is unreadable).
+    EventController::instance().setCameraFpsProvider(
+        [this](int cameraId) -> double {
+            return cameraManager_
+                ? cameraManager_->getCameraAcquisitionFps(cameraId - 1)
+                : 0.0;
+        });
 }
 
 void MainWindow::applyOpcUaSettings() {
