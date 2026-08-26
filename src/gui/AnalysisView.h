@@ -103,6 +103,7 @@ private slots:
     void onAdminButtonClicked();
     void onDeleteClicked();
     void onTogglePermanentClicked();
+    void onInstantClearClicked();
     
     void onLogSelected(int row, int col);
     void onTiffLoadingFinished();
@@ -228,6 +229,8 @@ private:
     QTableWidget* permanentPaperBreakTable_;
     QWidget* permanentSectionWidget_;
     QPushButton* togglePermanentTableButton_;
+    QPushButton* instantClearButton_ = nullptr;
+    QSpinBox* instantClearKeepSpin_ = nullptr;
     
     // Main area
     QWidget* mainArea_;

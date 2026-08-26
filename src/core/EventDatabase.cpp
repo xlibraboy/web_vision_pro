@@ -394,3 +394,25 @@ bool EventDatabase::deleteEvent(const QString& timestamp) {
     
     return true;
 }
+
+int EventDatabase::clearNonPermanentEvents(int keep) {
+    // Non-permanent events newest-first; keep the first `keep` of them.
+    std::vector<EventInfo> candidates;
+    candidates.reserve(events_.size());
+    for (auto it = events_.cbegin(); it != events_.cend(); ++it) {
+        if (!it.value().permanent) {
+            candidates.push_back(it.value());
+        }
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const EventInfo& a, const EventInfo& b) {
+        return a.timestamp > b.timestamp;
+    });
+
+    int deleted = 0;
+    for (int i = keep; i < static_cast<int>(candidates.size()); ++i) {
+        if (deleteEvent(candidates[static_cast<size_t>(i)].timestamp)) {
+            ++deleted;
+        }
+    }
+    return deleted;
+}

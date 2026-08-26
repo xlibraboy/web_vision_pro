@@ -1175,6 +1175,35 @@ void AnalysisView::setupLeftSidebar() {
 
     logLayout->addWidget(splitActionRow_);
     
+    // Instant Clear row: bulk-delete all non-permanent records, keeping the
+    // N most recent (0 = clear everything). Permanent records are untouched.
+    auto instantClearRow = new QHBoxLayout();
+    instantClearRow->setContentsMargins(0, 2, 0, 0);
+    instantClearRow->setSpacing(6);
+
+    instantClearButton_ = new QPushButton("Instant Clear", logGroup);
+    instantClearButton_->setMinimumHeight(24);
+    instantClearButton_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    instantClearButton_->setCursor(Qt::PointingHandCursor);
+    instantClearButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    instantClearButton_->setToolTip("Delete all non-permanent records, keeping the configured number of the most recent.");
+    connect(instantClearButton_, &QPushButton::clicked, this, &AnalysisView::onInstantClearClicked);
+    instantClearRow->addWidget(instantClearButton_, 1);
+
+    instantClearKeepSpin_ = new QSpinBox(logGroup);
+    instantClearKeepSpin_->setRange(0, 10000);
+    instantClearKeepSpin_->setValue(std::max(0, CameraConfig::getInstantClearKeepCount()));
+    instantClearKeepSpin_->setSuffix(" keep");
+    instantClearKeepSpin_->setMinimumHeight(24);
+    instantClearKeepSpin_->setFixedWidth(92);
+    instantClearKeepSpin_->setToolTip("How many of the most recent non-permanent records to keep when Instant Clear is pressed.");
+    connect(instantClearKeepSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) {
+        CameraConfig::setInstantClearKeepCount(v);
+    });
+    instantClearRow->addWidget(instantClearKeepSpin_);
+
+    logLayout->addLayout(instantClearRow);
+    
     paperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     logLayout->setStretch(1, 3);
@@ -2200,6 +2229,43 @@ void AnalysisView::onDeleteClicked() {
 
         updateRecordCountLabel();
     }
+}
+
+void AnalysisView::onInstantClearClicked() {
+    const int keep = instantClearKeepSpin_ ? instantClearKeepSpin_->value() : 0;
+
+    // Count non-permanent records so the confirmation is accurate.
+    int nonPermanentCount = 0;
+    for (int row = 0; row < paperBreakTable_->rowCount(); ++row) {
+        QTableWidgetItem* item = paperBreakTable_->item(row, 0);
+        if (item && !item->data(Qt::UserRole + 2).toBool()) {
+            ++nonPermanentCount;
+        }
+    }
+    const int toDelete = std::max(0, nonPermanentCount - keep);
+    if (toDelete <= 0) {
+        QMessageBox::information(this, "Instant Clear",
+                                 QString("No non-permanent records to clear (keeping the %1 most recent).").arg(keep));
+        return;
+    }
+
+    const QString msg = keep > 0
+        ? QString("Delete %1 non-permanent record(s), keeping the %2 most recent?\n\nPermanent records are not affected.")
+              .arg(toDelete).arg(keep)
+        : QString("Delete ALL %1 non-permanent record(s)?\n\nPermanent records are not affected.").arg(toDelete);
+    if (QMessageBox::question(this, "Confirm Instant Clear", msg,
+                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    // Stop review/playback and close file handles before deleting files on disk.
+    clearData();
+
+    const int deleted = EventDatabase::instance().clearNonPermanentEvents(keep);
+    std::cout << "[AnalysisView] Instant clear: deleted " << deleted
+              << " non-permanent event(s), keeping " << keep << std::endl;
+
+    reloadEventTables();
 }
 
 void AnalysisView::onTogglePermanentClicked() {
@@ -3714,6 +3780,15 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
     if (deleteButton_) {
         deleteButton_->setEnabled(enabled);
     }
+
+    // Instant Clear follows the same admin + delete-mode gate.
+    const bool canClear = enabled && adminMode_;
+    if (instantClearButton_) {
+        instantClearButton_->setEnabled(canClear);
+    }
+    if (instantClearKeepSpin_) {
+        instantClearKeepSpin_->setEnabled(canClear);
+    }
     
     // Switch Selection Mode & Stylesheet
     paperBreakTable_->clearSelection();
@@ -3759,6 +3834,9 @@ void AnalysisView::updateTheme() {
     }
     
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    if (instantClearButton_) {
+        instantClearButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    }
     if (toolsLockButton_) {
         toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     }
@@ -4731,6 +4809,19 @@ void AnalysisView::setAdminMode(bool isAdmin) {
         if (!isAdmin) {
             enableDeleteCheck_->setChecked(false);
         }
+    }
+
+    // Instant Clear is destructive — admin only, and requires delete mode to
+    // be enabled so it can never be pressed accidentally by an operator.
+    if (instantClearButton_) {
+        instantClearButton_->setEnabled(isAdmin && enableDeleteCheck_
+            ? enableDeleteCheck_->isChecked()
+            : false);
+    }
+    if (instantClearKeepSpin_) {
+        instantClearKeepSpin_->setEnabled(isAdmin && enableDeleteCheck_
+            ? enableDeleteCheck_->isChecked()
+            : false);
     }
 
     updatePermanentButtonLabel();

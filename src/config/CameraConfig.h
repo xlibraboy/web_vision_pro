@@ -148,6 +148,11 @@ public:
     static int getEventRetentionCount();
     static void setEventRetentionCount(int count);
 
+    // Number of most recent non-permanent records to keep when the user
+    // triggers an "instant clear" from the Paper Break Log sidebar.
+    static int getInstantClearKeepCount();
+    static void setInstantClearKeepCount(int count);
+
     // Low-disk warning threshold: free space below this %% of volume is amber.
     static int getLowDiskWarningPct();
     static void setLowDiskWarningPct(int pct);

@@ -115,6 +115,16 @@ void CameraConfig::setEventRetentionCount(int count) {
     settings.setValue("EventRetentionCount", count);
 }
 
+int CameraConfig::getInstantClearKeepCount() {
+    QSettings settings("PaperVision", "SystemConfig");
+    return settings.value("InstantClearKeepCount", 0).toInt();
+}
+
+void CameraConfig::setInstantClearKeepCount(int count) {
+    QSettings settings("PaperVision", "SystemConfig");
+    settings.setValue("InstantClearKeepCount", count);
+}
+
 int CameraConfig::getLowDiskWarningPct() {
     QSettings settings("PaperVision", "SystemConfig");
     return qBound(1, settings.value("LowDiskWarningPct", 10).toInt(), 99);

@@ -82,6 +82,11 @@ public:
     // Delete event (files and registry)
     bool deleteEvent(const QString& timestamp);
 
+    // Bulk-delete all non-permanent events, keeping only the `keep` most recent
+    // (0 = delete every non-permanent event). Permanent records are untouched.
+    // Returns the number of events deleted.
+    int clearNonPermanentEvents(int keep);
+
     // Update event retention mode and persist it to metadata.
     bool setPermanent(const QString& timestamp, bool permanent);
     
