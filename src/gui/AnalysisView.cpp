@@ -2851,6 +2851,12 @@ void AnalysisView::onSpeedChanged(QAction* action) {
     if (isPlaying_) {
         setPlaybackPlaying(true);
     }
+
+    // Dashboard detail strip is an inspection aid: show it only at slow
+    // speeds, hide again at 1x and above.
+    if (detailDashboard_) {
+        detailDashboard_->setDetailZoomEnabled(playbackSpeed_ < 1.0);
+    }
 }
 
 

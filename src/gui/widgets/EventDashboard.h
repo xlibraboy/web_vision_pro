@@ -21,9 +21,11 @@ class EventDashboard : public QWidget {
     Q_OBJECT
 public:
     static constexpr int kThumbCount = 24;
-    // Detail strip half-window in frames (shows ±kDetailRadius around the
-    // playhead, i.e. 2*kDetailRadius+1 consecutive samples when stride=1).
+    // Detail strip half-window in frames (shows ±detailRadius_ around the
+    // playhead). Default 30; mouse-wheel adjustable over the strip (10–120).
     static constexpr int kDetailRadius = 30;
+    static constexpr int kDetailRadiusMin = 10;
+    static constexpr int kDetailRadiusMax = 120;
 
     explicit EventDashboard(QWidget* parent = nullptr);
 
@@ -60,6 +62,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
     void leaveEvent(QEvent* event) override;
 
 private:
@@ -96,6 +99,7 @@ private:
     QVector<QImage> thumbs_;
     int currentFrame_ = 0;
     bool detailEnabled_ = true;
+    int detailRadius_ = kDetailRadius;
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;

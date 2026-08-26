@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QToolTip>
 #include <algorithm>
 #include <cmath>
@@ -63,8 +64,8 @@ void EventDashboard::setDetailZoomEnabled(bool on) {
 
 void EventDashboard::detailWindow(int* startFrame, int* endFrame) const {
     const int last = std::max(0, totalFrames_ - 1);
-    int start = currentFrame_ - kDetailRadius;
-    int end = currentFrame_ + kDetailRadius;
+    int start = currentFrame_ - detailRadius_;
+    int end = currentFrame_ + detailRadius_;
     if (start < 0) {
         end -= start; // shift window right to keep full width at the left edge
         start = 0;
@@ -401,7 +402,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         p.setFont(font());
         p.drawText(QRectF(det.left() + 4, det.top() + 1, 150, 12),
                    Qt::AlignLeft | Qt::AlignTop,
-                   QStringLiteral("DETAIL ±%1f").arg(kDetailRadius));
+                   QStringLiteral("DETAIL ±%1f (wheel to zoom)").arg(detailRadius_));
 
         // Local playhead marker: small filled notch on the strip's top edge
         // (its x differs from the global-scale playhead line below).
@@ -608,4 +609,22 @@ void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
 
 void EventDashboard::leaveEvent(QEvent* /*event*/) {
     QToolTip::hideText();
+}
+
+void EventDashboard::wheelEvent(QWheelEvent* event) {
+    // Wheel over the detail strip zooms its frame window (not the whole
+    // dashboard). One notch = ±5 frames, clamped to a usable range.
+    if (!inDetailRect(event->position().toPoint())) {
+        QWidget::wheelEvent(event);
+        return;
+    }
+    const int before = detailRadius_;
+    const int step = event->angleDelta().y() > 0 ? 5 : -5;
+    detailRadius_ = qBound(kDetailRadiusMin, detailRadius_ + step, kDetailRadiusMax);
+    if (detailRadius_ != before) {
+        update();
+        QToolTip::showText(event->globalPosition().toPoint(),
+                           QStringLiteral("Detail window ±%1 frames").arg(detailRadius_), this);
+    }
+    event->accept();
 }
