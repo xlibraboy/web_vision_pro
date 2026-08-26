@@ -387,6 +387,15 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                        Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
             p.drawText(QRectF(det.right() - 62, det.bottom() - 11, 60, 11),
                        Qt::AlignRight | Qt::AlignBottom, QString::number(winEnd));
+
+            // Local Y range: makes the magnification explicit vs the main
+            // chart's whole-event range label.
+            p.setPen(textColor_);
+            p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
+                       Qt::AlignRight | Qt::AlignTop,
+                       QStringLiteral("y %1–%2")
+                           .arg(static_cast<int>(yMin))
+                           .arg(static_cast<int>(yMax)));
         } else {
             QFont f = font();
             f.setItalic(true);
