@@ -2259,14 +2259,42 @@ double CameraManager::getCameraAcquisitionFps(int configArrayIndex) {
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
-            GenApi::CFloatPtr ptrFpsAbs(nodemap.GetNode("AcquisitionFrameRateAbs"));
-            if (GenApi::IsReadable(ptrFpsAbs)) {
-                return ptrFpsAbs->GetValue();
+
+            // The requested rate only applies when AcquisitionFrameRateEnable
+            // is on; when it's off the camera free-runs, so read the actual
+            // resulting rate instead.
+            bool rateEnabled = false;
+            GenApi::CBooleanPtr ptrEnable(nodemap.GetNode("AcquisitionFrameRateEnable"));
+            if (ptrEnable && GenApi::IsReadable(ptrEnable)) {
+                rateEnabled = ptrEnable->GetValue();
+            } else {
+                GenApi::CBooleanPtr ptrEnableAlt(nodemap.GetNode("AcquisitionFrameRateEnabled"));
+                if (ptrEnableAlt && GenApi::IsReadable(ptrEnableAlt)) {
+                    rateEnabled = ptrEnableAlt->GetValue();
+                }
             }
 
-            GenApi::CFloatPtr ptrFps(nodemap.GetNode("AcquisitionFrameRate"));
-            if (GenApi::IsReadable(ptrFps)) {
-                return ptrFps->GetValue();
+            if (rateEnabled) {
+                GenApi::CFloatPtr ptrFpsAbs(nodemap.GetNode("AcquisitionFrameRateAbs"));
+                if (GenApi::IsReadable(ptrFpsAbs)) {
+                    return ptrFpsAbs->GetValue();
+                }
+
+                GenApi::CFloatPtr ptrFps(nodemap.GetNode("AcquisitionFrameRate"));
+                if (GenApi::IsReadable(ptrFps)) {
+                    return ptrFps->GetValue();
+                }
+            }
+
+            // Disabled or unreadable requested-rate node: report the real
+            // acquisition rate (ResultingFrameRateAbs / ResultingFrameRate).
+            GenApi::CFloatPtr ptrResultAbs(nodemap.GetNode("ResultingFrameRateAbs"));
+            if (GenApi::IsReadable(ptrResultAbs)) {
+                return ptrResultAbs->GetValue();
+            }
+            GenApi::CFloatPtr ptrResult(nodemap.GetNode("ResultingFrameRate"));
+            if (GenApi::IsReadable(ptrResult)) {
+                return ptrResult->GetValue();
             }
         }
     } catch (...) {}

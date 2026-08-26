@@ -438,6 +438,37 @@ size_t EventController::getBufferCapacity(int cameraId) {
     return it->second.circularBuffer.size();
 }
 
+// Called when a camera's acquisition fps changes at runtime (Device Settings).
+// Resizes the camera's ring buffer to the new capacity, preserving the most
+// recent frames when shrinking.
+void EventController::updateCameraFps(int cameraId) {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    auto it = cameraStates_.find(cameraId);
+    if (it == cameraStates_.end()) {
+        return;
+    }
+    const size_t newCapacity =
+        static_cast<size_t>(preFramesFor(cameraId) + postFramesFor(cameraId));
+    if (newCapacity == it->second.circularBuffer.size()) {
+        return;
+    }
+
+    // Extract the newest min(oldSize, newSize) frames in arrival order.
+    std::vector<FrameData> kept;
+    const size_t oldSize = it->second.circularBuffer.size();
+    const size_t keepCount = std::min(newCapacity, oldSize);
+    kept.reserve(keepCount);
+    for (size_t i = 0; i < keepCount; ++i) {
+        const size_t idx = (it->second.writeIndex + oldSize - keepCount + i) % oldSize;
+        kept.push_back(std::move(it->second.circularBuffer[idx]));
+    }
+
+    it->second.circularBuffer.assign(kept.begin(), kept.end());
+    it->second.writeIndex = keepCount % newCapacity;
+    it->second.currentFillSize = keepCount;
+    it->second.postFramesRecorded = 0;
+}
+
 void EventController::setEventSavedCallback(EventSavedCallback callback) {
     callback_ = callback;
 }

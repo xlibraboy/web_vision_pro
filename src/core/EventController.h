@@ -81,6 +81,9 @@ public:
     using EventSavedCallback = std::function<void(const std::string&, int, int, int)>;
     void setEventSavedCallback(EventSavedCallback callback);
 
+    // Live RAM buffer diagnostics (cameraId is 1-based config ID)
+    void updateCameraFps(int cameraId);
+
     // Provides the live machine speed (m/min) used to spatially align a trigger
     // across cameras: each camera's saved window is centered on when the defect
     // passes it (offset = (P_cam - P_trigger) / V). Returns false when no valid

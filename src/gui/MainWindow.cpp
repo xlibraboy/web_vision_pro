@@ -439,12 +439,15 @@ void MainWindow::initializeEventController() {
     const int postTriggerFrames = CameraConfig::getPostTriggerSeconds() * static_cast<int>(configuredFps);
     EventController::instance().initialize(preTriggerFrames, configuredFps, postTriggerFrames);
     // Per-camera FPS truth: the recorder scales each camera's buffers, capture
-    // targets, and RAW header fps from its REAL acquisition rate (falling back
-    // to the configured value when the node is unreadable).
+    // targets, and RAW header fps from the rate frames ACTUALLY arrive at
+    // (ResultingFrameRate — exposure/bandwidth-limited). The requested
+    // AcquisitionFrameRate is only a target: when exposure time eats into the
+    // frame period the real rate drops, and the ring buffer must shrink to
+    // match. Falls back to the configured value when the node is unreadable.
     EventController::instance().setCameraFpsProvider(
         [this](int cameraId) -> double {
             return cameraManager_
-                ? cameraManager_->getCameraAcquisitionFps(cameraId - 1)
+                ? cameraManager_->getCameraFps(cameraId - 1)
                 : 0.0;
         });
 }
@@ -714,6 +717,11 @@ void MainWindow::setupUi() {
             cameraManager_->setCameraGain(cameraId, value);
         } else if (param == "Exposure") {
             cameraManager_->setCameraExposure(cameraId, value);
+
+            // Exposure affects the camera's resulting rate (exposure-limited
+            // fps): keep the ring buffer capacity in sync with the real rate
+            // so RAM FRAME reflects what the camera delivers now.
+            EventController::instance().updateCameraFps(cameraId + 1);
 
             std::vector<CameraInfo> cameras = CameraConfig::getCameras();
             if (cameraId >= 0 && cameraId < static_cast<int>(cameras.size())) {
@@ -1330,6 +1338,10 @@ void MainWindow::ensureConfigTab() {
 
         connect(configWindow_, &ConfigDialog::cameraDeviceSettingsChanged, this,
                 [this](int cameraIndex, const CameraInfo& info) {
+                    // The acquisition fps may have changed: resize the ring
+                    // buffer so RAM FRAME capacity reflects the new rate.
+                    EventController::instance().updateCameraFps(cameraIndex + 1);
+
                     if (!detailView_ || !detailView_->videoWidget()) {
                         return;
                     }
