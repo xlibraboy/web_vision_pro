@@ -653,6 +653,7 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     analysisVideoTitlePresets_.updateStyles();
     analysisTimestampPresets_.updateStyles();
     analysisTabPresets_.updateStyles();
+    analysisMetadataPresets_.updateStyles();
     setupUiModificationTracking();
 
     // Periodically re-scan GigE devices while the config tab is visible so the
@@ -2056,6 +2057,43 @@ void ConfigDialog::setupUI() {
         createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface."),
         analysisPlaybackSurfaceCombo_);
 
+    analysisDefaultMetadataCombo_ = new QComboBox(uiGroup);
+    analysisDefaultMetadataCombo_->addItem("None", "none");
+    analysisDefaultMetadataCombo_->addItem("Standard", "standard");
+    analysisDefaultMetadataCombo_->addItem("Timestamp + Frame Counter", "full");
+    analysisDefaultMetadataCombo_->addItem("Timestamp Only", "timestamp");
+    analysisDefaultMetadataCombo_->addItem("Frame Counter Only", "framecounter");
+    analysisDefaultMetadataCombo_->addItem("Real Time Only", "realtime");
+    analysisDefaultMetadataCombo_->addItem("Relative Frame Only", "relative");
+    analysisDefaultMetadataCombo_->setStyleSheet(QString(
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    analysisDefaultMetadataCombo_->setFixedWidth(200);
+    analysisViewForm->addRow(
+        createLiveViewRowLabel("Default Metadata", "Metadata overlay shown by default when an event is opened in Analysis View."),
+        analysisDefaultMetadataCombo_);
+
+    analysisMetadataFontCombo_ = new QComboBox(uiGroup);
+    populateCuratedFontCombo(analysisMetadataFontCombo_);
+    analysisMetadataFontCombo_->setStyleSheet(QString(
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox:hover { border-color: %4; } "
+        "QComboBox:focus { border-color: %4; } "
+        "QComboBox::drop-down { border: none; padding-right: 6px; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    analysisMetadataSizeSpin_ = new QSpinBox(uiGroup);
+    analysisMetadataSizeSpin_->setRange(7, 20);
+    analysisMetadataSizeSpin_->setSuffix(" px");
+    analysisMetadataSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    analysisMetadataSizeSpin_->setFixedWidth(72);
+    analysisViewForm->addRow(
+        createLiveViewRowLabel("Metadata Font", "Typography for the metadata side of the analysis frame HUD."),
+        createTypographyRow(analysisViewGroup, analysisMetadataFontCombo_, analysisMetadataSizeSpin_,
+                            "Typography for the metadata side of the analysis frame HUD.", 7, 8, 12, analysisMetadataPresets_));
+
     analysisSettingsCardLayout->addLayout(analysisViewForm);
 
     QHBoxLayout* liveViewActionsLayout = new QHBoxLayout();
@@ -2195,6 +2233,9 @@ void ConfigDialog::setupUI() {
         style.tabFontFamily = currentCuratedFontFamily(analysisTabFontCombo_);
         style.tabFontSize = analysisTabSizeSpin_->value();
         style.playbackSurfaceStyle = analysisPlaybackSurfaceCombo_->currentData().toString();
+        style.defaultMetadataMode = analysisDefaultMetadataCombo_->currentData().toString();
+        style.defaultMetadataFontFamily = currentCuratedFontFamily(analysisMetadataFontCombo_);
+        style.defaultMetadataFontSize = analysisMetadataSizeSpin_->value();
 
         const QColor borderColor(previewThemeColors.border);
         const QColor textColor(previewThemeColors.text);
@@ -2240,6 +2281,9 @@ void ConfigDialog::setupUI() {
     connect(analysisTabFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
     connect(analysisTabSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
     connect(analysisPlaybackSurfaceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
+    connect(analysisDefaultMetadataCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
+    connect(analysisMetadataFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
+    connect(analysisMetadataSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
     connect(this, &ConfigDialog::themeSelectionChanged, this, refreshAnalysisPreview);
 
     QFrame* livePreviewContainer = new QFrame(liveViewGroup);
@@ -2727,6 +2771,12 @@ void ConfigDialog::loadSettings() {
     if (analysisSurfaceIndex != -1) {
         analysisPlaybackSurfaceCombo_->setCurrentIndex(analysisSurfaceIndex);
     }
+    const int analysisMetadataIndex = analysisDefaultMetadataCombo_->findData(analysisStyle.defaultMetadataMode);
+    if (analysisMetadataIndex != -1) {
+        analysisDefaultMetadataCombo_->setCurrentIndex(analysisMetadataIndex);
+    }
+    selectCuratedFont(analysisMetadataFontCombo_, analysisStyle.defaultMetadataFontFamily);
+    analysisMetadataSizeSpin_->setValue(analysisStyle.defaultMetadataFontSize);
 
     // Initial network status update
     refreshNetworkStatus();
@@ -2748,6 +2798,9 @@ void ConfigDialog::setupUiModificationTracking() {
     connect(analysisTabFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisTabSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisPlaybackSurfaceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
+    connect(analysisDefaultMetadataCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
+    connect(analysisMetadataFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ConfigDialog::checkUiSettingsModified);
+    connect(analysisMetadataSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkUiSettingsModified);
     connect(liveViewResetBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
     connect(analysisResetBtn_, &QPushButton::clicked, this, &ConfigDialog::checkUiSettingsModified);
 
@@ -2773,6 +2826,9 @@ ConfigDialog::UiSettingsSnapshot ConfigDialog::captureCurrentSettings() const {
     snap.analysisTabFont = analysisTabFontCombo_ ? currentCuratedFontFamily(analysisTabFontCombo_) : QString();
     snap.analysisTabSize = analysisTabSizeSpin_ ? analysisTabSizeSpin_->value() : 0;
     snap.analysisPlaybackSurface = analysisPlaybackSurfaceCombo_ ? analysisPlaybackSurfaceCombo_->currentData().toString() : QString();
+    snap.analysisDefaultMetadataMode = analysisDefaultMetadataCombo_ ? analysisDefaultMetadataCombo_->currentData().toString() : QString();
+    snap.analysisMetadataFont = analysisMetadataFontCombo_ ? currentCuratedFontFamily(analysisMetadataFontCombo_) : QString();
+    snap.analysisMetadataSize = analysisMetadataSizeSpin_ ? analysisMetadataSizeSpin_->value() : 0;
     return snap;
 }
 
@@ -3423,7 +3479,10 @@ void ConfigDialog::saveUiSettings() {
         analysisTimestampSizeSpin_->value(),
         currentCuratedFontFamily(analysisTabFontCombo_),
         analysisTabSizeSpin_->value(),
-        analysisPlaybackSurfaceCombo_->currentData().toString()
+        analysisPlaybackSurfaceCombo_->currentData().toString(),
+        analysisDefaultMetadataCombo_ ? analysisDefaultMetadataCombo_->currentData().toString() : QStringLiteral("realtime"),
+        currentCuratedFontFamily(analysisMetadataFontCombo_),
+        analysisMetadataSizeSpin_->value()
     });
 
     QMessageBox::information(this, "UI Preferences Saved", "UI preferences saved.");
@@ -3452,7 +3511,10 @@ void ConfigDialog::applyUiSettings() {
         analysisTimestampSizeSpin_->value(),
         currentCuratedFontFamily(analysisTabFontCombo_),
         analysisTabSizeSpin_->value(),
-        analysisPlaybackSurfaceCombo_->currentData().toString()
+        analysisPlaybackSurfaceCombo_->currentData().toString(),
+        analysisDefaultMetadataCombo_ ? analysisDefaultMetadataCombo_->currentData().toString() : QStringLiteral("realtime"),
+        currentCuratedFontFamily(analysisMetadataFontCombo_),
+        analysisMetadataSizeSpin_->value()
     });
 
     originalValues_ = captureCurrentSettings();
@@ -3601,6 +3663,13 @@ void ConfigDialog::resetAnalysisViewSettings() {
     if (playbackSurfaceIndex != -1) {
         analysisPlaybackSurfaceCombo_->setCurrentIndex(playbackSurfaceIndex);
     }
+
+    const int metadataIndex = analysisDefaultMetadataCombo_->findData(defaults.defaultMetadataMode);
+    if (metadataIndex != -1) {
+        analysisDefaultMetadataCombo_->setCurrentIndex(metadataIndex);
+    }
+    selectCuratedFont(analysisMetadataFontCombo_, defaults.defaultMetadataFontFamily);
+    analysisMetadataSizeSpin_->setValue(defaults.defaultMetadataFontSize);
 }
 
 void ConfigDialog::setAdminMode(bool isAdmin) {
@@ -3671,6 +3740,9 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     if (analysisTabFontCombo_) analysisTabFontCombo_->setEnabled(isAdmin);
     if (analysisTabSizeSpin_) analysisTabSizeSpin_->setEnabled(isAdmin);
     if (analysisPlaybackSurfaceCombo_) analysisPlaybackSurfaceCombo_->setEnabled(isAdmin);
+    if (analysisDefaultMetadataCombo_) analysisDefaultMetadataCombo_->setEnabled(isAdmin);
+    if (analysisMetadataFontCombo_) analysisMetadataFontCombo_->setEnabled(isAdmin);
+    if (analysisMetadataSizeSpin_) analysisMetadataSizeSpin_->setEnabled(isAdmin);
     if (liveViewResetBtn_) liveViewResetBtn_->setEnabled(isAdmin);
     if (analysisResetBtn_) analysisResetBtn_->setEnabled(isAdmin);
     if (uiSaveBtn_) uiSaveBtn_->setEnabled(isAdmin);

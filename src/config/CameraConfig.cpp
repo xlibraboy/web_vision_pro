@@ -271,6 +271,9 @@ AnalysisViewStyle CameraConfig::getAnalysisViewStyle() {
     style.tabFontFamily = settings.value("AnalysisView/TabFontFamily", style.tabFontFamily).toString();
     style.tabFontSize = settings.value("AnalysisView/TabFontSize", style.tabFontSize).toInt();
     style.playbackSurfaceStyle = settings.value("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle).toString();
+    style.defaultMetadataMode = settings.value("AnalysisView/DefaultMetadataMode", style.defaultMetadataMode).toString();
+    style.defaultMetadataFontFamily = settings.value("AnalysisView/DefaultMetadataFontFamily", style.defaultMetadataFontFamily).toString();
+    style.defaultMetadataFontSize = settings.value("AnalysisView/DefaultMetadataFontSize", style.defaultMetadataFontSize).toInt();
     return style;
 }
 
@@ -282,7 +285,10 @@ AnalysisViewStyle CameraConfig::getDefaultAnalysisViewStyle() {
         8,
         QStringLiteral("Noto Sans"),
         12,
-        QStringLiteral("dark")
+        QStringLiteral("dark"),
+        QStringLiteral("realtime"),
+        QStringLiteral("Consolas"),
+        8
     };
 }
 
@@ -295,7 +301,11 @@ void CameraConfig::setAnalysisViewStyle(const AnalysisViewStyle& style) {
     settings.setValue("AnalysisView/TabFontFamily", style.tabFontFamily);
     settings.setValue("AnalysisView/TabFontSize", style.tabFontSize);
     settings.setValue("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle);
+    settings.setValue("AnalysisView/DefaultMetadataMode", style.defaultMetadataMode);
+    settings.setValue("AnalysisView/DefaultMetadataFontFamily", style.defaultMetadataFontFamily);
+    settings.setValue("AnalysisView/DefaultMetadataFontSize", style.defaultMetadataFontSize);
 }
+
 OpcUaSettings CameraConfig::getDefaultOpcUaSettings() {
     return defaultOpcUaSettings();
 }

@@ -142,6 +142,9 @@ private:
         QString analysisTabFont;
         int analysisTabSize;
         QString analysisPlaybackSurface;
+        QString analysisDefaultMetadataMode;
+        QString analysisMetadataFont;
+        int analysisMetadataSize;
 
         bool operator==(const UiSettingsSnapshot& other) const {
             return themePreset == other.themePreset
@@ -158,7 +161,10 @@ private:
                 && analysisTimestampSize == other.analysisTimestampSize
                 && analysisTabFont == other.analysisTabFont
                 && analysisTabSize == other.analysisTabSize
-                && analysisPlaybackSurface == other.analysisPlaybackSurface;
+                && analysisPlaybackSurface == other.analysisPlaybackSurface
+                && analysisDefaultMetadataMode == other.analysisDefaultMetadataMode
+                && analysisMetadataFont == other.analysisMetadataFont
+                && analysisMetadataSize == other.analysisMetadataSize;
         }
         bool operator!=(const UiSettingsSnapshot& other) const {
             return !(*this == other);
@@ -233,6 +239,9 @@ private:
     QComboBox* analysisTabFontCombo_ = nullptr;
     QSpinBox* analysisTabSizeSpin_ = nullptr;
     QComboBox* analysisPlaybackSurfaceCombo_ = nullptr;
+    QComboBox* analysisDefaultMetadataCombo_ = nullptr;
+    QComboBox* analysisMetadataFontCombo_ = nullptr;
+    QSpinBox* analysisMetadataSizeSpin_ = nullptr;
     QScrollArea* uiPreferencesScrollArea_ = nullptr;
     QHBoxLayout* liveViewContentLayout_ = nullptr;
     QHBoxLayout* analysisViewContentLayout_ = nullptr;
@@ -368,5 +377,6 @@ private:
     PresetButtonGroup analysisVideoTitlePresets_;
     PresetButtonGroup analysisTimestampPresets_;
     PresetButtonGroup analysisTabPresets_;
+    PresetButtonGroup analysisMetadataPresets_;
     QColor accentColor_;
 };

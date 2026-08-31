@@ -38,9 +38,15 @@ void AnalysisVideoWidget::setTimestamp(const QString& timestamp, const QString& 
     update();
 }
 
+void AnalysisVideoWidget::setPlaybackInfo(const QString& info) {
+    playbackInfo_ = info;
+    update();
+}
+
 void AnalysisVideoWidget::clear() {
     currentFrame_ = QImage();
     timestamp_ = "00:00:00.000";
+    playbackInfo_.clear();
     update();
 }
 
@@ -360,15 +366,52 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     painter.drawText(titleRect.adjusted(8, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, title_);
     }
     
-    // Draw timestamp bar at bottom ONLY if we have a frame
-    if (!currentFrame_.isNull()) {
-        QRect tsRect(0, height() - 16, width(), 16);
-        painter.fillRect(tsRect, timestampBarColor);
+    // Unified bottom overlay: a single rounded bar holding the metadata
+    // (left) and the playback info (right), so both read as one polished HUD
+    // strip inside the frame instead of a full-width bar plus a floating chip.
+    if (!currentFrame_.isNull() && (!timestamp_.isEmpty() || !playbackInfo_.isEmpty())) {
+        painter.setClipping(false);
+
+        // Metadata side (left) uses its own configurable font; the playback
+        // info side (right) uses the timestamp font.
+        QFont metaFont(style.defaultMetadataFontFamily.isEmpty()
+                           ? style.timestampFontFamily : style.defaultMetadataFontFamily);
+        metaFont.setPixelSize(std::max(10, style.defaultMetadataFontSize > 0
+                                        ? style.defaultMetadataFontSize : style.timestampFontSize));
+        metaFont.setBold(true);
+        const QFontMetrics metaFm(metaFont);
+
+        QFont playbackFont(style.timestampFontFamily);
+        playbackFont.setPixelSize(std::max(10, style.timestampFontSize));
+        playbackFont.setBold(true);
+        const QFontMetrics playbackFm(playbackFont);
+
+        const int padX = 10;
+        const int gap = 10; // between the left and right text groups
+        const int leftW = timestamp_.isEmpty() ? 0 : metaFm.horizontalAdvance(timestamp_);
+        const int rightW = playbackInfo_.isEmpty() ? 0 : playbackFm.horizontalAdvance(playbackInfo_);
+        const int contentW = leftW + rightW + (leftW > 0 && rightW > 0 ? gap : 0);
+        const int barW = std::min(width() - 12, contentW + 2 * padX);
+        const int barH = std::max(metaFm.height(), playbackFm.height()) + 10;
+        // Dock the bar to the bottom-left of the frame with a small margin.
+        const QRect barRect(6, height() - barH - 8, barW, barH);
+
+        // Subtle semi-transparent backing so text stays legible over any frame.
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 150));
+        painter.drawRoundedRect(barRect, 6, 6);
+
         painter.setPen(timestampTextColor);
-        QFont timestampFont(style.timestampFontFamily);
-        timestampFont.setPixelSize(style.timestampFontSize);
-        painter.setFont(timestampFont);
-        painter.drawText(tsRect.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignRight, timestamp_);
+        if (!timestamp_.isEmpty()) {
+            painter.setFont(metaFont);
+            painter.drawText(barRect.adjusted(padX, 0, -padX, 0),
+                             Qt::AlignVCenter | Qt::AlignLeft, timestamp_);
+        }
+        if (!playbackInfo_.isEmpty()) {
+            painter.setFont(playbackFont);
+            painter.drawText(barRect.adjusted(padX, 0, -padX, 0),
+                             Qt::AlignVCenter | Qt::AlignRight, playbackInfo_);
+        }
     }
 }
 

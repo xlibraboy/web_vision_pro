@@ -37,6 +37,13 @@ struct AnalysisViewStyle {
     QString tabFontFamily;
     int tabFontSize;
     QString playbackSurfaceStyle;
+    // Default metadata overlay mode shown on analysis frames. Values match the
+    // AnalysisView metadata combo data: none, standard, full, timestamp,
+    // framecounter, realtime, relative.
+    QString defaultMetadataMode;
+    // Typography for the metadata side of the analysis HUD overlay.
+    QString defaultMetadataFontFamily;
+    int defaultMetadataFontSize;
 };
 struct OpcUaTriggerTagSettings {
     QString name;

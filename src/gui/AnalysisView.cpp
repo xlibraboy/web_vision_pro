@@ -1245,7 +1245,15 @@ void AnalysisView::setupMainArea() {
     metadataDisplayCombo_->addItem("Frame Counter Only", "framecounter");
     metadataDisplayCombo_->addItem("Real Time Only", "realtime");
     metadataDisplayCombo_->addItem("Relative Frame Only", "relative");
-    metadataDisplayCombo_->setCurrentIndex(0);
+    // Default to the metadata overlay mode configured in UI Preferences
+    // (Analysis View -> Default Metadata), so events open with the operator's
+    // preferred overlay. Falls back to "realtime" when the saved value is unknown.
+    int defaultMetadataIndex = metadataDisplayCombo_->findData(
+        CameraConfig::getAnalysisViewStyle().defaultMetadataMode);
+    if (defaultMetadataIndex < 0) {
+        defaultMetadataIndex = metadataDisplayCombo_->findData("realtime");
+    }
+    metadataDisplayCombo_->setCurrentIndex(defaultMetadataIndex);
     metadataDisplayCombo_->setFixedWidth(220);
     headerToolsSeparator_ = new QFrame(metadataHeaderWidget_);
     headerToolsSeparator_->setFrameShape(QFrame::VLine);
@@ -1681,17 +1689,6 @@ void AnalysisView::applyAnalysisViewStyle() {
             "color: %1; font-family: '%2'; font-size: %3px; margin-right: 4px; font-weight: 600;"
         ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
     }
-    if (playbackInfoLabel_) {
-        // Palette/font, never a local stylesheet (see setupPlaybackControls).
-        QPalette infoPal = playbackInfoLabel_->palette();
-        infoPal.setColor(QPalette::WindowText, QColor(tc.text));
-        playbackInfoLabel_->setPalette(infoPal);
-        QFont infoFont = playbackInfoLabel_->font();
-        infoFont.setFamily(style.tabFontFamily);
-        infoFont.setPixelSize(std::max(11, style.tabFontSize));
-        infoFont.setWeight(QFont::Normal);
-        playbackInfoLabel_->setFont(infoFont);
-    }
 
     for (AnalysisVideoWidget* widget : cameraWidgets_) {
         if (widget) {
@@ -1890,22 +1887,6 @@ void AnalysisView::setupPlaybackControls() {
     frameInput_->hide();
     connect(frameInput_, &QLineEdit::editingFinished, this, &AnalysisView::onFrameInputChanged);
 
-    // Playback value (relative frame + time from trigger). Kept out of the
-    // button toolbar — it lives on its own row below the media buttons,
-    // regular (non-bold) weight. Styled via palette+font (NOT a local
-    // stylesheet): a bare color rule on the label would leak into this label's
-    // tooltip and make its text a different color.
-    playbackInfoLabel_ = new QLabel("-- | --", playbackPanel_);
-    playbackInfoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
-    QPalette infoPal = playbackInfoLabel_->palette();
-    infoPal.setColor(QPalette::WindowText, QColor(tc.text));
-    playbackInfoLabel_->setPalette(infoPal);
-    QFont infoFont = playbackInfoLabel_->font();
-    infoFont.setPixelSize(12);
-    infoFont.setWeight(QFont::Normal);
-    playbackInfoLabel_->setFont(infoFont);
-
     // 7. Step Forward
     nextButton_ = createSvgButton("Step Forward.svg", "Step Forward");
     nextButton_->setAutoRepeat(true);
@@ -1941,15 +1922,6 @@ void AnalysisView::setupPlaybackControls() {
     sliderZeroMarker_->show();
     
     layout->addLayout(toolbarLayout);
-
-    // Value row: the frame/time readout sits below the media buttons with a
-    // little gap, but not at the very bottom of the panel (the align row stays
-    // below).
-    auto infoRow = new QHBoxLayout();
-    infoRow->setSpacing(4);
-    infoRow->setContentsMargins(0, 6, 0, 0);
-    infoRow->addWidget(playbackInfoLabel_, 1);
-    layout->addLayout(infoRow);
 
     // Second row: per-camera alignment (Align / Reset / speed / status).
     auto alignRow = new QHBoxLayout();
@@ -2565,6 +2537,10 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     QString overlayText = getMetadataOverlayText(idx, relativeFrame);
     QString tooltipText = getMetadataTooltip(idx, relativeFrame);
 
+    // The playback info (relative frame + time from trigger) and the metadata
+    // overlay are complementary, so each is passed to the widget as-is.
+    const QString playbackText = playbackInfoText_;
+
     if (isStreamingMode_) {
         for (auto& pair : videoReaders_) {
             int camIdx = pair.first;
@@ -2585,11 +2561,13 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
                 QImage finalImage = frameImage.copy();
                 cameraWidgets_[camIdx]->setFrame(finalImage);
                 cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
+                cameraWidgets_[camIdx]->setPlaybackInfo(playbackText);
                 applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, displayIdx);
 
                 if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
                     selectedCameraWidget_->setFrame(finalImage);
                     selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                    selectedCameraWidget_->setPlaybackInfo(playbackText);
                     applyAnnotationToSelectedFrame();
                 }
             }
@@ -2621,6 +2599,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
             if (i < static_cast<int>(cameraWidgets_.size())) {
                 cameraWidgets_[i]->setFrame(slice);
                 cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
+                cameraWidgets_[i]->setPlaybackInfo(playbackText);
                 applyAnnotationToWidget(cameraWidgets_[i], i, idx);
             }
         }
@@ -2633,6 +2612,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
                 QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
                 selectedCameraWidget_->setFrame(slice);
                 selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+                selectedCameraWidget_->setPlaybackInfo(playbackText);
                 applyAnnotationToSelectedFrame();
             }
         }
@@ -2642,6 +2622,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     if (!cameraWidgets_.empty()) {
         cameraWidgets_[0]->setFrame(frameImage);
         cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
+        cameraWidgets_[0]->setPlaybackInfo(playbackText);
         applyAnnotationToWidget(cameraWidgets_[0], 0, idx);
     }
     for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
@@ -2651,6 +2632,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     if (selectedCameraWidget_) {
         selectedCameraWidget_->setFrame(frameImage);
         selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
+        selectedCameraWidget_->setPlaybackInfo(playbackText);
         applyAnnotationToSelectedFrame();
     }
 }
@@ -2788,15 +2770,19 @@ void AnalysisView::applyAnnotationToSelectedFrame() {
 }
 
 QString AnalysisView::getMetadataOverlayText(int frameIndex, double relativeFrame) {
-    const QString relativeText = QString("REC: %1").arg(relativeFrame, 0, 'f', 1);
+    Q_UNUSED(relativeFrame);
     const QString mode = metadataDisplayCombo_ ? metadataDisplayCombo_->currentData().toString() : QString("standard");
 
     if (mode == "none") {
         return QString();
     }
 
-    if (mode == "relative" || frameIndex < 0 || frameIndex >= (int)frameMetadata_.size()) {
-        return relativeText;
+    if (mode == "relative") {
+        return QString(); // Relative frame/time is already shown in the left playback info.
+    }
+
+    if (frameIndex < 0 || frameIndex >= (int)frameMetadata_.size()) {
+        return QString();
     }
 
     const auto& meta = frameMetadata_[frameIndex];
@@ -2811,20 +2797,20 @@ QString AnalysisView::getMetadataOverlayText(int frameIndex, double relativeFram
     }
 
     if (mode == "timestamp") {
-        return QString("%1  |  TS: %2").arg(relativeText, meta.displayTime);
+        return QString("TS: %1").arg(meta.displayTime);
     }
     if (mode == "framecounter") {
-        return QString("%1  |  FC: %2").arg(relativeText).arg(meta.frameCounter);
+        return QString("FC: %1").arg(meta.frameCounter);
     }
     if (mode == "realtime") {
         return realTimeText.isEmpty()
-            ? QString("%1  |  Time: N/A").arg(relativeText)
-            : QString("%1  |  Time: %2").arg(relativeText, realTimeText);
+            ? QString("Time: N/A")
+            : QString("Time: %1").arg(realTimeText);
     }
 
-    QString text = QString("%1  |  TS: %2  |  FC: %3").arg(relativeText, meta.displayTime).arg(meta.frameCounter);
+    QString text = QString("TS: %1 | FC: %2").arg(meta.displayTime).arg(meta.frameCounter);
     if (!realTimeText.isEmpty()) {
-        text += QString("  |  Time: %1").arg(realTimeText);
+        text += QString(" | Time: %1").arg(realTimeText);
     }
     return text;
 }
@@ -3222,13 +3208,8 @@ void AnalysisView::setLiveMode() {
 }
 
 void AnalysisView::updatePlaybackInfoLabel() {
-    if (!playbackInfoLabel_) {
-        return;
-    }
-
     if (!isReviewMode_) {
-        playbackInfoLabel_->setText("-- | --");
-        playbackInfoLabel_->setToolTip("Relative frame and time from trigger.");
+        playbackInfoText_.clear();
         return;
     }
 
@@ -3250,7 +3231,7 @@ void AnalysisView::updatePlaybackInfoLabel() {
         .arg(seconds >= 0.0 ? "+" : "")
         .arg(seconds, 0, 'f', 3);
     const QString speedSummary = currentSpeedSummary(seconds);
-    playbackInfoLabel_->setText(speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary));
+    playbackInfoText_ = speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary);
 
     // Full, descriptive tooltip: explain every value the label shows.
     QStringList tooltipLines;
@@ -3285,7 +3266,15 @@ void AnalysisView::updatePlaybackInfoLabel() {
             tooltipLines << QStringLiteral("Note: machine speed was stale at capture — distance/alignment may be inaccurate");
         }
     }
-    playbackInfoLabel_->setToolTip(tooltipLines.join("\n"));
+    const QString fullTooltip = tooltipLines.join("\n");
+    for (AnalysisVideoWidget* widget : cameraWidgets_) {
+        if (widget) {
+            widget->setToolTip(fullTooltip);
+        }
+    }
+    if (selectedCameraWidget_) {
+        selectedCameraWidget_->setToolTip(fullTooltip);
+    }
 }
 
 bool AnalysisView::hasRelativeTimeAxis() const {
@@ -3810,6 +3799,17 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
 void AnalysisView::updateTheme() {
     ThemeColors tc = CameraConfig::getThemeColors();
     leftSidebar_->setStyleSheet(makeSidebarPanelStyle(tc));
+    
+    // Re-sync the metadata overlay default from UI Preferences: apply the
+    // configured mode to the current event (and to any future ones) whenever
+    // the user saves preferences.
+    if (metadataDisplayCombo_) {
+        const QString savedMode = CameraConfig::getAnalysisViewStyle().defaultMetadataMode;
+        const int savedIndex = metadataDisplayCombo_->findData(savedMode);
+        if (savedIndex >= 0 && metadataDisplayCombo_->currentData().toString() != savedMode) {
+            metadataDisplayCombo_->setCurrentIndex(savedIndex);
+        }
+    }
     
     // 1. Sidebar Buttons
     serverButton_->setStyleSheet(serverConnecting_ ? makeSidebarConnectingButtonStyle(tc)

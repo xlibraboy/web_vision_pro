@@ -290,9 +290,12 @@ private:
     QPushButton* prevButton_;
     QPushButton* resetButton_;
     QLineEdit* frameInput_;
-    QLabel* playbackInfoLabel_ = nullptr;
     QPushButton* nextButton_;
     QPushButton* endButton_;
+    // Playback info (relative frame + time from trigger + optional speed
+    // summary) composed in updatePlaybackInfoLabel and drawn in-frame by
+    // AnalysisVideoWidget::setPlaybackInfo.
+    QString playbackInfoText_;
     
     // Export controls
     QPushButton* saveAviButton_;

@@ -20,6 +20,10 @@ public:
     ~AnalysisVideoWidget() = default;
     
     void setTimestamp(const QString& timestamp, const QString& tooltip = "");
+    // Playback info (relative frame + time from trigger + optional speed
+    // summary) drawn as a small overlay inside the frame, left-aligned, above
+    // the bottom timestamp bar. Distinct from the metadata timestamp text.
+    void setPlaybackInfo(const QString& info);
     void setTitle(const QString& title);
     void setFrame(const QImage& frame);
     void clear(); // Clear frame and reset to "No Signal" state
@@ -59,6 +63,7 @@ private:
     int cameraId_;
     QString title_;
     QString timestamp_;
+    QString playbackInfo_;
     QImage currentFrame_;
     QImage scaledFrameCache_;
     QSize scaledFrameCacheWidgetSize_;
