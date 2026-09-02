@@ -476,11 +476,25 @@ void fillLiveSettingsFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::LiveD
     readString("DeviceID", out.deviceId);
 }
 
+// Frame-rate source mapping: the per-card acquisition toggle selects WHERE
+// the rate comes from, not whether the rate is controlled at all. Enabled
+// card -> the card's own fps; disabled card -> the System Configuration
+// fallback fps (Recording group). AcquisitionFrameRateEnable must stay ON in
+// both cases — with it OFF the sensor free-runs at its max rate and the
+// fallback config never reaches the hardware (nor paces emulated cameras).
+double effectiveFrameRate(double cardFps, bool useCardFps) {
+    if (useCardFps) {
+        return cardFps;
+    }
+    const double fallback = CameraConfig::getFps();
+    return fallback > 0.0 ? fallback : cardFps;
+}
+
 // Writes the live (non-stop-required) exposure/rate nodes. Mirrors the
 // startup configureCamera() writes: base/raw are applied when enabled,
-// absolute exposure always, frame rate per its enable flag. These nodes
-// accept changes while the camera is grabbing (Basler scout behavior —
-// no acquisition stop required).
+// absolute exposure always, frame rate always (card fps or fallback fps).
+// These nodes accept changes while the camera is grabbing (Basler scout
+// behavior — no acquisition stop required).
 void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
     const auto setBool = [&](const char* name, bool value) {
         try {
@@ -523,12 +537,10 @@ void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
         setInt("ExposureTimeRaw", info.exposureTimeRaw);
     }
 
-    setBool("AcquisitionFrameRateEnable", info.enableAcquisitionFps);
-    setBool("AcquisitionFrameRateEnabled", info.enableAcquisitionFps);
-    if (info.enableAcquisitionFps) {
-        setFloat("AcquisitionFrameRateAbs", info.fps);
-        setFloat("AcquisitionFrameRate", info.fps); // SFNC fallback
-    }
+    setBool("AcquisitionFrameRateEnable", true);
+    setBool("AcquisitionFrameRateEnabled", true);
+    setFloat("AcquisitionFrameRateAbs", effectiveFrameRate(info.fps, info.enableAcquisitionFps));
+    setFloat("AcquisitionFrameRate", effectiveFrameRate(info.fps, info.enableAcquisitionFps)); // SFNC fallback
 }
 
 // Opens the configured camera (by MAC/IP from CameraConfig) directly and
@@ -1780,10 +1792,10 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
         }
 
         if (!preserveStartupUserSet) {
-            setBoolIfWritable("AcquisitionFrameRateEnable", config.enableAcquisitionFps);
-            setBoolIfWritable("AcquisitionFrameRateEnabled", config.enableAcquisitionFps);
-            setFloatIfWritable("AcquisitionFrameRateAbs", config.fps);
-            setFloatIfWritable("AcquisitionFrameRate", config.fps);
+            setBoolIfWritable("AcquisitionFrameRateEnable", true);
+            setBoolIfWritable("AcquisitionFrameRateEnabled", true);
+            setFloatIfWritable("AcquisitionFrameRateAbs", effectiveFrameRate(config.fps, config.enableAcquisitionFps));
+            setFloatIfWritable("AcquisitionFrameRate", effectiveFrameRate(config.fps, config.enableAcquisitionFps));
         } else {
             std::cout << "[CameraManager] Preserving startup user set frame-rate values." << std::endl;
         }
@@ -2813,27 +2825,27 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableF
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
 
+            const double targetFps = effectiveFrameRate(fps, enableFrameRate);
+
             GenApi::CBooleanPtr enableNode(nodemap.GetNode("AcquisitionFrameRateEnable"));
             if (!enableNode || !GenApi::IsWritable(enableNode)) {
                 enableNode = GenApi::CBooleanPtr(nodemap.GetNode("AcquisitionFrameRateEnabled"));
             }
             if (enableNode && GenApi::IsWritable(enableNode)) {
-                enableNode->SetValue(enableFrameRate);
+                enableNode->SetValue(true);
             }
 
-            if (enableFrameRate) {
-                GenApi::CFloatPtr fpsNode(nodemap.GetNode("AcquisitionFrameRateAbs")); // Basler scout / older SFNC
-                if (!fpsNode || !GenApi::IsWritable(fpsNode)) {
-                    fpsNode = GenApi::CFloatPtr(nodemap.GetNode("AcquisitionFrameRate")); // newer SFNC
-                }
+            GenApi::CFloatPtr fpsNode(nodemap.GetNode("AcquisitionFrameRateAbs")); // Basler scout / older SFNC
+            if (!fpsNode || !GenApi::IsWritable(fpsNode)) {
+                fpsNode = GenApi::CFloatPtr(nodemap.GetNode("AcquisitionFrameRate")); // newer SFNC
+            }
 
-                if (fpsNode && GenApi::IsWritable(fpsNode)) {
-                    const double clamped = std::max(fpsNode->GetMin(), std::min(fps, fpsNode->GetMax()));
-                    fpsNode->SetValue(clamped);
-                } else {
-                    std::cerr << "[CameraManager] Could not set AcquisitionFrameRateAbs/AcquisitionFrameRate on camera "
-                              << cameraIndex << std::endl;
-                }
+            if (fpsNode && GenApi::IsWritable(fpsNode)) {
+                const double clamped = std::max(fpsNode->GetMin(), std::min(targetFps, fpsNode->GetMax()));
+                fpsNode->SetValue(clamped);
+            } else {
+                std::cerr << "[CameraManager] Could not set AcquisitionFrameRateAbs/AcquisitionFrameRate on camera "
+                          << cameraIndex << std::endl;
             }
         }
     } catch (const Pylon::GenericException& e) {

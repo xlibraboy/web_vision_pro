@@ -298,8 +298,10 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
             currentInfo_.fps = liveSettings_.resultingFrameRate;
             originalInfo_.fps = liveSettings_.resultingFrameRate;
         }
-        currentInfo_.enableAcquisitionFps = liveSettings_.acquisitionFrameRateEnable;
-        originalInfo_.enableAcquisitionFps = liveSettings_.acquisitionFrameRateEnable;
+        // Card toggle stays as configured: the runtime keeps the pylon
+        // AcquisitionFrameRateEnable node ON for every camera (the toggle
+        // selects card fps vs fallback fps, see CameraManager), so the live
+        // node value no longer mirrors this checkbox.
         currentInfo_.chunkModeActive = liveSettings_.chunkModeActive;
         originalInfo_.chunkModeActive = liveSettings_.chunkModeActive;
         if (!liveSettings_.enabledChunks.isEmpty()) {
@@ -358,8 +360,7 @@ CameraDeviceSettingsDialog::CameraDeviceSettingsDialog(int cameraIndex, const Ca
                     currentInfo_.fps = full.resultingFrameRate;
                     originalInfo_.fps = full.resultingFrameRate;
                 }
-                currentInfo_.enableAcquisitionFps = full.acquisitionFrameRateEnable;
-                originalInfo_.enableAcquisitionFps = full.acquisitionFrameRateEnable;
+                // Same as the fast path: the card toggle comes from config.
                 currentInfo_.chunkModeActive = full.chunkModeActive;
                 originalInfo_.chunkModeActive = full.chunkModeActive;
                 if (!full.enabledChunks.isEmpty()) {
