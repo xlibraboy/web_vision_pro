@@ -347,6 +347,13 @@ private:
         QString displayTime; // Pre-formatted time string
     };
     std::vector<FrameMetadata> frameMetadata_;
+    // Trigger frame index inside the reader that provided frameMetadata_ (its
+    // own raw-header trigger flag). -1 = unknown: fall back to the primary
+    // camera's triggerFrameIndex_. The metadata source may be a different
+    // camera than the event's primary when its recording is longer
+    // (per-camera acquisition fps), so the relative-time zero must be that
+    // reader's own trigger instant.
+    int metadataTriggerIndex_ = -1;
     
     // Helper to load raw binary
     void loadRawSequence(const QString& binPath);

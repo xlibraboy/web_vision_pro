@@ -594,10 +594,17 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     isStreamingMode_ = true;
     recordedSequence_.clear();  // Clear in-memory sequence as we're loading from disk
     
-    // Get video properties from first available reader
+    // The review timeline spans the LONGEST recording: with per-camera
+    // acquisition fps enabled, a 125 fps camera saves ~2.5x the frames of a
+    // 50 fps camera for the same wall-clock event window. Bounding the
+    // playhead to the first reader's frame count made such events impossible
+    // to play or scrub to the end (the all-camera and single-camera views
+    // share this one timeline). Shorter cameras hold their last frame once
+    // their file runs out (VideoStreamReader::getFrame returns empty).
     totalFrames_ = 0;
-    if (!videoReaders_.empty()) {
-        totalFrames_ = videoReaders_.begin()->second->getTotalFrames() - 1;
+    for (auto& pair : videoReaders_) {
+        totalFrames_ = std::max(totalFrames_,
+            static_cast<double>(pair.second->getTotalFrames() - 1));
     }
 
     const QMap<QString, int> parsedOffsets = loadEventAnnotations(videoPath);
@@ -626,17 +633,33 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         }
     }
 
-    // Load per-frame timestamp/frame counter metadata from the first available RAW reader.
-    // New RAW layout stores pixels first and FrameMetadata second for each frame.
+    // Load per-frame timestamp/frame counter metadata from the LONGEST
+    // available RAW reader. New RAW layout stores pixels first and
+    // FrameMetadata second for each frame. The time axis must span the whole
+    // event: with per-camera acquisition fps the first reader's metadata
+    // would end the relative-time scrubber before the longest recording does.
     frameMetadata_.clear();
-    if (!videoReaders_.empty()) {
-        auto& primaryReader = videoReaders_.begin()->second;
-        const int frameCount = primaryReader->getTotalFrames();
+    metadataTriggerIndex_ = -1;
+    VideoStreamReader* timelineReader = nullptr;
+    for (auto& pair : videoReaders_) {
+        if (!timelineReader || pair.second->getTotalFrames() > timelineReader->getTotalFrames()) {
+            timelineReader = pair.second.get();
+        }
+    }
+    if (timelineReader) {
+        const int frameCount = timelineReader->getTotalFrames();
         frameMetadata_.reserve(frameCount);
         for (int i = 0; i < frameCount; ++i) {
             ::FrameMetadata rawMeta = {};
-            if (!primaryReader->getFrameMetadata(i, rawMeta)) {
+            if (!timelineReader->getFrameMetadata(i, rawMeta)) {
                 break;
+            }
+            // The raw header flags exactly one frame per camera file as the
+            // trigger frame; keep this reader's own so the relative-time axis
+            // starts at the true trigger instant even when this reader is not
+            // the event's primary camera.
+            if (metadataTriggerIndex_ < 0 && (rawMeta.flags & 1u) != 0u) {
+                metadataTriggerIndex_ = i;
             }
             FrameMetadata meta;
             meta.timestamp = static_cast<int64_t>(rawMeta.timestamp);
@@ -3289,7 +3312,14 @@ double AnalysisView::relativeSecondsForFrameIndex(int frameIndex) const {
         return static_cast<double>(clampedFrameIndex - triggerFrameIndex_);
     }
 
-    const int64_t triggerTimestamp = frameMetadata_[triggerFrameIndex_].timestamp;
+    // Zero reference = the trigger frame of the reader that provided the
+    // metadata (its own flagged trigger frame), not necessarily the event's
+    // primary camera.
+    int zeroIndex = metadataTriggerIndex_;
+    if (zeroIndex < 0 || zeroIndex >= static_cast<int>(frameMetadata_.size())) {
+        zeroIndex = qBound(0, triggerFrameIndex_, static_cast<int>(frameMetadata_.size()) - 1);
+    }
+    const int64_t triggerTimestamp = frameMetadata_[zeroIndex].timestamp;
     const int64_t frameTimestamp = frameMetadata_[clampedFrameIndex].timestamp;
     return static_cast<double>(frameTimestamp - triggerTimestamp) / 1000000000.0;
 }
