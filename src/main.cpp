@@ -11,6 +11,9 @@
 #include <pylon/PylonIncludes.h>
 #include "gui/MainWindow.h"
 
+#include <execinfo.h>
+#include <csignal>
+#include <unistd.h>
 #include <iostream>
 
 namespace {
@@ -35,9 +38,26 @@ protected:
         return QObject::eventFilter(obj, event);
     }
 };
+
+// Fatal-signal backtrace: a SIGSEGV in the field (e.g. inside fragile GenApi
+// register access on scA780-class cameras) must leave a stack in the logs,
+// otherwise the crash is undiagnosable after the fact.
+void fatalSignalHandler(int sig) {
+    void* frames[32];
+    const int n = backtrace(frames, 32);
+    static const char msg[] = "\n*** FATAL SIGNAL received ***\n";
+    (void)!write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    // Restore default action so a core still drops if enabled.
+    std::signal(sig, SIG_DFL);
+    std::raise(sig);
+}
 }
 
 int main(int argc, char *argv[]) {
+    std::signal(SIGSEGV, fatalSignalHandler);
+    std::signal(SIGBUS, fatalSignalHandler);
+    std::signal(SIGFPE, fatalSignalHandler);
     try {
         Pylon::PylonAutoInitTerm autoInitTerm;
         QApplication app(argc, argv);

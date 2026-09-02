@@ -5,6 +5,7 @@
 #include <thread>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cctype>
 #include <cstring>
 #include <cstdlib>
@@ -496,11 +497,18 @@ double effectiveFrameRate(double cardFps, bool useCardFps) {
 // These nodes accept changes while the camera is grabbing (Basler scout
 // behavior — no acquisition stop required).
 void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
+    // scA780-class cameras are known to fault (SIGBUS/SIGSEGV) inside GenApi
+    // on redundant register writes; read the current value and write only on
+    // change. Read failures fall back to writing.
     const auto setBool = [&](const char* name, bool value) {
         try {
             GenApi::CBooleanPtr n(nodemap.GetNode(name));
             if (n && GenApi::IsWritable(n)) {
-                n->SetValue(value);
+                bool current = !value;
+                try { if (GenApi::IsReadable(n)) current = n->GetValue(); } catch (...) {}
+                if (current != value) {
+                    n->SetValue(value);
+                }
             }
         } catch (...) {}
     };
@@ -508,7 +516,11 @@ void writeExposureRateNodes(GenApi::INodeMap& nodemap, const CameraInfo& info) {
         try {
             GenApi::CFloatPtr n(nodemap.GetNode(name));
             if (n && GenApi::IsWritable(n)) {
-                n->SetValue(value);
+                double current = std::numeric_limits<double>::quiet_NaN();
+                try { if (GenApi::IsReadable(n)) current = n->GetValue(); } catch (...) {}
+                if (!(current == value)) {
+                    n->SetValue(value);
+                }
             }
         } catch (...) {}
     };
@@ -1502,6 +1514,8 @@ void CameraManager::applyLiveExposureRate(int configArrayIndex, const CameraInfo
     if (Pylon::CInstantCamera* camera = getCameraByConfigIndex(configArrayIndex)) {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             try {
+                // Serialize against getCameraFps (EventController threads).
+                std::lock_guard<std::mutex> lock(paramMutex_);
                 writeExposureRateNodes(camera->GetNodeMap(), info);
                 return;
             } catch (const Pylon::GenericException& e) {
@@ -1658,13 +1672,19 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
             }
         };
 
+        // scA780-class cameras can fault inside GenApi on redundant register
+        // writes: read the current value, write only on change.
         const auto setBoolIfWritable = [&nodemap](const char* nodeName, bool value) {
             try {
                 std::cout << "[CameraManager][cfg] bool " << nodeName << " <- " << value << std::endl;
                 GenApi::CBooleanPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
-                    node->SetValue(value);
-                    std::cout << "[CameraManager][cfg] bool " << nodeName << " OK" << std::endl;
+                    bool current = !value;
+                    try { if (IsReadable(node)) current = node->GetValue(); } catch (...) {}
+                    if (current != value) {
+                        node->SetValue(value);
+                        std::cout << "[CameraManager][cfg] bool " << nodeName << " OK" << std::endl;
+                    }
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -1677,7 +1697,11 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
                 std::cout << "[CameraManager][cfg] float " << nodeName << " <- " << value << std::endl;
                 GenApi::CFloatPtr node(nodemap.GetNode(nodeName));
                 if (node && IsWritable(node)) {
-                    node->SetValue(value);
+                    double current = std::numeric_limits<double>::quiet_NaN();
+                    try { if (IsReadable(node)) current = node->GetValue(); } catch (...) {}
+                    if (!(current == value)) {
+                        node->SetValue(value);
+                    }
                 }
             } catch (const GenericException& e) {
                 std::cout << "[CameraManager] Config warning: failed to set " << nodeName
@@ -2320,6 +2344,11 @@ double CameraManager::getCameraFps(int configArrayIndex) {
         return 0.0;
     }
 
+    // Called from the EventController save/watchdog threads as well as the UI
+    // thread; GenApi node access must not interleave with the UI thread's
+    // node writes (setCameraFrameRate etc.) on fragile cameras.
+    std::lock_guard<std::mutex> lock(paramMutex_);
+
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
@@ -2821,18 +2850,28 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableF
         return;
     }
 
+    // Serialize node access against getCameraFps (EventController threads)
+    // and the other param setters.
+    std::lock_guard<std::mutex> lock(paramMutex_);
+
     try {
         if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
 
             const double targetFps = effectiveFrameRate(fps, enableFrameRate);
 
+            // scA780-class cameras can fault inside GenApi on redundant
+            // register writes: read first, write only on change.
             GenApi::CBooleanPtr enableNode(nodemap.GetNode("AcquisitionFrameRateEnable"));
             if (!enableNode || !GenApi::IsWritable(enableNode)) {
                 enableNode = GenApi::CBooleanPtr(nodemap.GetNode("AcquisitionFrameRateEnabled"));
             }
             if (enableNode && GenApi::IsWritable(enableNode)) {
-                enableNode->SetValue(true);
+                bool current = false;
+                try { if (GenApi::IsReadable(enableNode)) current = enableNode->GetValue(); } catch (...) {}
+                if (!current) {
+                    enableNode->SetValue(true);
+                }
             }
 
             GenApi::CFloatPtr fpsNode(nodemap.GetNode("AcquisitionFrameRateAbs")); // Basler scout / older SFNC
@@ -2842,7 +2881,11 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableF
 
             if (fpsNode && GenApi::IsWritable(fpsNode)) {
                 const double clamped = std::max(fpsNode->GetMin(), std::min(targetFps, fpsNode->GetMax()));
-                fpsNode->SetValue(clamped);
+                double current = std::numeric_limits<double>::quiet_NaN();
+                try { if (GenApi::IsReadable(fpsNode)) current = fpsNode->GetValue(); } catch (...) {}
+                if (!(current == clamped)) {
+                    fpsNode->SetValue(clamped);
+                }
             } else {
                 std::cerr << "[CameraManager] Could not set AcquisitionFrameRateAbs/AcquisitionFrameRate on camera "
                           << cameraIndex << std::endl;
