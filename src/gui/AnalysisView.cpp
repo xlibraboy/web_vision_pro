@@ -1,5 +1,6 @@
 #include "AnalysisView.h"
 #include <cmath>
+#include <cstdlib>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include "widgets/AnalysisVideoWidget.h"
@@ -521,6 +522,8 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     videoReaders_.clear();
     videoReaderPaths_.clear();
     pendingScanPaths_.clear();
+    cameraTimestamps_.clear();
+    timelineCameraIdx_ = -1;
     
     bool anyOpened = false;
     int highestOpenedCameraIndex = -1;
@@ -640,10 +643,33 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     // would end the relative-time scrubber before the longest recording does.
     frameMetadata_.clear();
     metadataTriggerIndex_ = -1;
+    cameraTimestamps_.clear();
+    timelineCameraIdx_ = -1;
     VideoStreamReader* timelineReader = nullptr;
     for (auto& pair : videoReaders_) {
         if (!timelineReader || pair.second->getTotalFrames() > timelineReader->getTotalFrames()) {
             timelineReader = pair.second.get();
+            timelineCameraIdx_ = pair.first;
+        }
+    }
+    // Cache every camera's per-frame hardware timestamps once (random-access
+    // seeks, done a single time per event load): the mixed-fps scrub mapping
+    // converts a timeline frame's timestamp to each camera's nearest own
+    // frame, see displayedFrameIndexForCamera. Non-RAW readers return false
+    // immediately and stay absent from the map (legacy fallback).
+    for (auto& pair : videoReaders_) {
+        const int count = pair.second->getTotalFrames();
+        std::vector<int64_t> ts;
+        ts.reserve(count);
+        for (int i = 0; i < count; ++i) {
+            ::FrameMetadata rawMeta = {};
+            if (!pair.second->getFrameMetadata(i, rawMeta)) {
+                break;
+            }
+            ts.push_back(static_cast<int64_t>(rawMeta.timestamp));
+        }
+        if (static_cast<int>(ts.size()) == count) {
+            cameraTimestamps_[pair.first] = std::move(ts);
         }
     }
     if (timelineReader) {
@@ -751,11 +777,19 @@ void AnalysisView::setupEventDashboards() {
 
     int total = 0;
     double fps = 0.0;
-    if (!videoReaders_.empty() && videoReaders_.begin()->second) {
-        total = videoReaders_.begin()->second->getTotalFrames();
-        fps = videoReaders_.begin()->second->getFps();
+    // Timeline truth: the longest recording defines the scrub/playback frame
+    // domain (see loadEventFromDisk), so its fps makes 1.0x real-time. Using
+    // the first reader instead ran mixed-fps events at the wrong speed (e.g.
+    // a 25 fps cam1 driving a 35 fps cam2 timeline = ~40% slow).
+    auto timelineIt = videoReaders_.find(timelineCameraIdx_);
+    if (timelineIt == videoReaders_.end() || !timelineIt->second) {
+        timelineIt = videoReaders_.begin();
     }
-    // Playback truth: 1.0x = this event's real capture rate (primary camera).
+    if (timelineIt != videoReaders_.end() && timelineIt->second) {
+        total = timelineIt->second->getTotalFrames();
+        fps = timelineIt->second->getFps();
+    }
+    // Playback truth: 1.0x = this event's real capture rate (timeline camera).
     reviewFps_ = fps;
 
     // Show the camera the user already selected; otherwise the first opened.
@@ -2525,7 +2559,37 @@ int AnalysisView::displayedFrameIndexForCamera(int camIdx, int masterFrameIndex)
     if (camIdx < 0 || camIdx >= static_cast<int>(cameraFrameOffsets_.size())) {
         return qBound(0, masterFrameIndex, maxIdx);
     }
-    return qBound(0, masterFrameIndex + cameraFrameOffsets_[camIdx], maxIdx);
+    const int requested = qBound(0, masterFrameIndex + cameraFrameOffsets_[camIdx], maxIdx);
+
+    // Mixed-fps events: the timeline index counts the LONGEST camera's
+    // frames, so sharing it raw shows different wall-clock moments per tile
+    // and runs shorter cameras out of frames before the scrub bar ends (the
+    // last stretch froze on their final frame). Map the timeline frame's
+    // hardware timestamp to this camera's nearest own frame instead. Readers
+    // without timestamps (legacy video events) keep the shared-index
+    // behavior; a >60s clock disagreement means the timestamps are not
+    // cross-comparable (camera-local ticks), same fallback.
+    if (camIdx != timelineCameraIdx_) {
+        const auto tlIt = cameraTimestamps_.find(timelineCameraIdx_);
+        const auto camIt = cameraTimestamps_.find(camIdx);
+        if (tlIt != cameraTimestamps_.end() && !tlIt->second.empty()
+                && camIt != cameraTimestamps_.end() && !camIt->second.empty()) {
+            const std::vector<int64_t>& ts = camIt->second;
+            const int64_t t = tlIt->second[qBound(0, requested,
+                static_cast<int>(tlIt->second.size()) - 1)];
+            if (std::llabs(ts.front() - t) < 60000000000LL) {
+                int best = static_cast<int>(
+                    std::lower_bound(ts.begin(), ts.end(), t) - ts.begin());
+                if (best >= static_cast<int>(ts.size())) {
+                    best = static_cast<int>(ts.size()) - 1;
+                } else if (best > 0 && ts[best] - t > t - ts[best - 1]) {
+                    --best;
+                }
+                return best;
+            }
+        }
+    }
+    return requested;
 }
 
 void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
@@ -3761,6 +3825,8 @@ void AnalysisView::loadRawSequence(const QString& binPath) {
     // Pre-allocate
     recordedSequence_.clear();
     frameMetadata_.clear();
+    cameraTimestamps_.clear();
+    timelineCameraIdx_ = -1;
     recordedSequence_.reserve(frameCount);
     frameMetadata_.reserve(frameCount);
     
@@ -3982,6 +4048,8 @@ void AnalysisView::clearData() {
 
     recordedSequence_.clear();
     frameMetadata_.clear();
+    cameraTimestamps_.clear();
+    timelineCameraIdx_ = -1;
     videoReaders_.clear();
     videoReaderPaths_.clear();
     signalByCam_.clear();

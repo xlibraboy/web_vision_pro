@@ -354,6 +354,15 @@ private:
     // (per-camera acquisition fps), so the relative-time zero must be that
     // reader's own trigger instant.
     int metadataTriggerIndex_ = -1;
+    // Camera (videoReaders_ key) whose reader provided frameMetadata_ — the
+    // LONGEST recording, which defines the scrub timeline length.
+    int timelineCameraIdx_ = -1;
+    // Per-camera per-frame hardware timestamps (ns, epoch) captured at event
+    // load. Used to map a timeline frame to each camera's nearest own frame so
+    // mixed-fps recordings stay wall-clock aligned while scrubbing. Cameras
+    // without RAW metadata (legacy video events) are absent and fall back to
+    // the shared raw index.
+    std::map<int, std::vector<int64_t>> cameraTimestamps_;
     
     // Helper to load raw binary
     void loadRawSequence(const QString& binPath);
