@@ -404,9 +404,12 @@ private:
     void saveEventAnnotations();
     void applyAnnotationToSelectedFrame();
     void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
-    void addEventRow(const QString& timestamp, const QString& reason, bool permanent,
-                     bool selectRow, int group = CameraGroup::kUnassigned,
-                     int defectFrame = -1);
+    // Returns the final row index of the added row (after the table's
+    // timestamp sort), so callers can locate it without assuming where the
+    // sort left it.
+    int addEventRow(const QString& timestamp, const QString& reason, bool permanent,
+                    bool selectRow, int group = CameraGroup::kUnassigned,
+                    int defectFrame = -1);
     void reloadEventTables();
     // Re-append the pending placeholder row after a table rebuild (and retire
     // it once stale or once the real event is in the database).

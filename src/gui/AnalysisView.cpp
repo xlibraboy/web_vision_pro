@@ -2342,9 +2342,18 @@ void AnalysisView::onDeleteClicked() {
         return;
     }
 
+    int pendingSkipped = 0;
     for (int row : uniqueRows) {
         QTableWidgetItem* item = activeTable->item(row, 0); 
         if (item) {
+            // Pending placeholder ("Recording…"): the .bin is still being
+            // written and nothing is registered in the database yet, so
+            // deleting it would race the in-progress save (and it would
+            // reappear once the real event lands anyway). Skip it.
+            if (item->data(Qt::UserRole + 4).toBool()) {
+                ++pendingSkipped;
+                continue;
+            }
             QString ts = item->data(Qt::UserRole).toString();
             if (!ts.isEmpty()) {
                 rowsToDelete.append(row);
@@ -2355,6 +2364,11 @@ void AnalysisView::onDeleteClicked() {
     }
     
     if (timestampsToDelete.isEmpty()) {
+        if (pendingSkipped > 0) {
+            QMessageBox::information(this, "Delete",
+                "The selected event is still recording (\"Recording…\") and cannot be "
+                "deleted yet.\nWait for the recording to finish saving, then delete it.");
+        }
         return;
     }
     
@@ -3873,8 +3887,8 @@ void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerI
     
 }
 
-void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent,
-                               bool selectRow, int group, int defectFrame) {
+int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent,
+                              bool selectRow, int group, int defectFrame) {
     QTableWidget* targetTable = permanent ? permanentPaperBreakTable_ : paperBreakTable_;
     const int row = targetTable->rowCount();
     targetTable->insertRow(row);
@@ -3926,6 +3940,9 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     targetTable->setItem(row, 2, groupItem);
     targetTable->setItem(row, 3, frameItem);
     sortLogTable(targetTable);
+    // The sort moves rows around, so re-resolve the added row's index from
+    // its item rather than reusing the pre-sort append position.
+    const int sortedRow = targetTable->row(timeItem);
 
     if (isNewRecentEvent) {
         // Pulse the highlight: a brief bright flash that decays onto the
@@ -3935,9 +3952,10 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     }
 
     if (selectRow) {
-        targetTable->selectRow(row);
+        targetTable->selectRow(sortedRow);
         targetTable->scrollToItem(timeItem);
     }
+    return sortedRow;
 }
 
 void AnalysisView::addPendingEventRow(const QString& timestamp, const QString& reason) {
@@ -3956,11 +3974,22 @@ void AnalysisView::insertPendingEventRow() {
         pendingEventTimestamp_.clear();
         return;
     }
-    // Only one trigger can be armed at a time (triggering_ gate), so the row
-    // is the last one; safe to append and style in place.
-    addEventRow(pendingEventTimestamp_, QStringLiteral("Recording…"), false, false);
+    // Idempotence guard: never stack a second "Recording…" row while one is
+    // already visible. Callers normally clear the table first (reloadEventTables
+    // starts with setRowCount(0)), but a direct double call would otherwise
+    // append a duplicate placeholder.
     QTableWidget* table = paperBreakTable_;
-    const int row = table->rowCount() - 1;
+    for (int r = 0; r < table->rowCount(); ++r) {
+        if (QTableWidgetItem* it = table->item(r, 0)) {
+            if (it->data(Qt::UserRole + 4).toBool()) {
+                return;
+            }
+        }
+    }
+    // addEventRow re-sorts the table (newest first), so the just-added row is
+    // not necessarily the last one anymore; style it at the index returned.
+    const int row = addEventRow(pendingEventTimestamp_, QStringLiteral("Recording…"),
+                                false, false);
     for (int col = 0; col < table->columnCount() && col < 4; ++col) {
         if (QTableWidgetItem* it = table->item(row, col)) {
             it->setData(Qt::UserRole + 4, true); // pending marker
