@@ -954,19 +954,23 @@ void AnalysisView::startNextSignalScan() {
 void AnalysisView::maybeScanDetailWindow(int frameIndex) {
     if (!isStreamingMode_ || !detailDashboard_ || !signalScanner_) return;
     if (!detailDashboard_->isDetailRegionVisible()) return;               // hidden via TRACKS or >= 1x
-    if (totalFrames_ <= EventSignalScanner::kMaxScannedFrames) return;    // full series is stride-1
     if (currentDashCam_ < 0) return;
     const auto pathIt = videoReaderPaths_.find(currentDashCam_);
     if (pathIt == videoReaderPaths_.end()) return;
+    // frameIndex and this scan run in the dash camera's OWN frame domain.
+    auto readerIt = videoReaders_.find(currentDashCam_);
+    const int camTotal = (readerIt != videoReaders_.end() && readerIt->second)
+                             ? readerIt->second->getTotalFrames() : 0;
+    if (camTotal <= EventSignalScanner::kMaxScannedFrames) return;        // full series is stride-1
 
     // Snap the window to a 15-frame grid so slow playback doesn't fire one
     // scan per frame; a new scan only when the snapped window changes.
     constexpr int kSnapGrid = 15;
     const int radius = EventDashboard::kDetailRadius;
-    const int maxStart = std::max(0, static_cast<int>(totalFrames_) - 1 - 2 * radius);
+    const int maxStart = std::max(0, camTotal - 1 - 2 * radius);
     int start = ((frameIndex - radius) / kSnapGrid) * kSnapGrid;
     start = std::max(0, std::min(start, (maxStart / kSnapGrid) * kSnapGrid));
-    const int end = std::min(static_cast<int>(totalFrames_) - 1, start + 2 * radius);
+    const int end = std::min(camTotal - 1, start + 2 * radius);
 
     const QString key = EventSignalScanner::windowCacheKey(pathIt->second, start, end);
     if (key == detailWindowKey_) return; // in flight or already pushed
@@ -1067,9 +1071,14 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
     const QString label = currentEventCameraLabel(camIdx);
     EventDashboard* dash = detailDashboard_;
     if (dash) {
-        dash->setEventData(label, total, triggerFrameIndex_, fps, samples, brightness,
-                           stddev, spotPct, defects, localDefects, contrastDefects);
-        dash->setCurrentFrame(currentReviewFrameIndex());
+        // The series/axis are in THIS camera's own frame domain; the trigger
+        // line and playhead arrive in master (timeline) domain - convert so
+        // mixed-fps events line up (identity when camIdx is the timeline cam).
+        dash->setEventData(label, total,
+                           displayedFrameIndexForCamera(camIdx, triggerFrameIndex_), fps,
+                           samples, brightness, stddev, spotPct, defects,
+                           localDefects, contrastDefects);
+        dash->setCurrentFrame(displayedFrameIndexForCamera(camIdx, currentReviewFrameIndex()));
     }
     generateThumbnails(camIdx);
 }
@@ -1129,7 +1138,9 @@ void AnalysisView::refreshDashboardThumbnails() {
 }
 
 void AnalysisView::onDashboardSeekRequested(int frame) {
-    seekToFrameIndex(frame, true);
+    // The dashboard plots the selected camera's own-frame series, so it seeks
+    // in that domain - map back to the master/timeline frame before seeking.
+    seekToFrameIndex(masterFrameForCameraFrame(currentDashCam_, frame), true);
 }
 
 void AnalysisView::setupLeftSidebar() {
@@ -1508,7 +1519,10 @@ void AnalysisView::setupMainArea() {
         ann["points"] = pts;
         eventAnnotations_[annotationKey(cameraId, frameIndex)] = ann;
         saveEventAnnotations();
-        seekToRelativeFrame(frameIndex - triggerFrameIndex_);
+        // Snap the playhead to the marked master frame. frameIndex is the
+        // camera's OWN frame index — feeding it to the timeline-domain seek
+        // made non-timeline cameras drift the scrubber on every mark.
+        seekToRelativeFrame(currentReviewFrameIndex() - triggerFrameIndex_);
         applyAnnotationToSelectedFrame();
         updateAnnotationSliderMarkers();
     });
@@ -2596,7 +2610,10 @@ void AnalysisView::updateDynamicTab(int cameraId) {
         ann["points"] = pts;
         eventAnnotations_[annotationKey(cameraId, frameIndex)] = ann;
         saveEventAnnotations();
-        seekToRelativeFrame(frameIndex - triggerFrameIndex_);
+        // Snap the playhead to the marked master frame. frameIndex is the
+        // camera's OWN frame index — feeding it to the timeline-domain seek
+        // made non-timeline cameras drift the scrubber on every mark.
+        seekToRelativeFrame(currentReviewFrameIndex() - triggerFrameIndex_);
         applyAnnotationToSelectedFrame();
         updateAnnotationSliderMarkers();
     });
@@ -2686,6 +2703,55 @@ int AnalysisView::currentReviewFrameIndex() const {
     return qBound(0, static_cast<int>(std::floor(currentFrame_ + 0.0001)), maxFrame);
 }
 
+int AnalysisView::tlIndexOfOwnFrame(int camIdx, int ownFrame) const {
+    if (camIdx == timelineCameraIdx_) {
+        return ownFrame;
+    }
+    const auto tlIt = cameraTimestamps_.find(timelineCameraIdx_);
+    const auto camIt = cameraTimestamps_.find(camIdx);
+    if (tlIt == cameraTimestamps_.end() || tlIt->second.empty()
+            || camIt == cameraTimestamps_.end() || camIt->second.empty()) {
+        return -1;
+    }
+    const std::vector<int64_t>& ts = camIt->second;
+    const int64_t t = ts[qBound(0, ownFrame, static_cast<int>(ts.size()) - 1)];
+    // Same clock-comparability guard as the display mapping below: camera-local
+    // ticks are not cross-comparable with the timeline camera's epoch stamps.
+    if (std::llabs(ts.front() - tlIt->second.front()) >= 60000000000LL) {
+        return -1;
+    }
+    int best = static_cast<int>(
+        std::lower_bound(tlIt->second.begin(), tlIt->second.end(), t) - tlIt->second.begin());
+    if (best >= static_cast<int>(tlIt->second.size())) {
+        best = static_cast<int>(tlIt->second.size()) - 1;
+    } else if (best > 0 && tlIt->second[best] - t > t - tlIt->second[best - 1]) {
+        --best;
+    }
+    return best;
+}
+
+double AnalysisView::timelineFps() const {
+    auto it = videoReaders_.find(timelineCameraIdx_);
+    if (it == videoReaders_.end() || !it->second) {
+        it = videoReaders_.begin();
+    }
+    if (it != videoReaders_.end() && it->second) {
+        const double fps = it->second->getFps();
+        if (fps > 0.0) {
+            return fps;
+        }
+    }
+    const double fallback = CameraConfig::getFps();
+    return fallback > 0.0 ? fallback : 10.0;
+}
+
+int AnalysisView::masterFrameForCameraFrame(int camIdx, int ownFrame) const {
+    const int offset = (camIdx >= 0 && camIdx < static_cast<int>(cameraFrameOffsets_.size()))
+        ? cameraFrameOffsets_[camIdx] : 0;
+    const int tl = tlIndexOfOwnFrame(camIdx, ownFrame);
+    return (tl >= 0 ? tl : ownFrame) - offset;
+}
+
 int AnalysisView::displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const {
     const int maxIdx = std::max(0, static_cast<int>(std::floor(totalFrames_)));
     if (camIdx < 0 || camIdx >= static_cast<int>(cameraFrameOffsets_.size())) {
@@ -2709,7 +2775,7 @@ int AnalysisView::displayedFrameIndexForCamera(int camIdx, int masterFrameIndex)
             const std::vector<int64_t>& ts = camIt->second;
             const int64_t t = tlIt->second[qBound(0, requested,
                 static_cast<int>(tlIt->second.size()) - 1)];
-            if (std::llabs(ts.front() - t) < 60000000000LL) {
+            if (std::llabs(ts.front() - tlIt->second.front()) < 60000000000LL) {
                 int best = static_cast<int>(
                     std::lower_bound(ts.begin(), ts.end(), t) - ts.begin());
                 if (best >= static_cast<int>(ts.size())) {
@@ -2734,11 +2800,14 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
         playbackSlider_->setValue(sliderValueForFrameIndex(idx));
         playbackSlider_->blockSignals(sliderBlocked);
     }
-    // Keep the dashboard on the playhead.
+    // Keep the dashboard on the playhead. The dashboard plots the selected
+    // camera's own-frame series, so feed it the playhead in that camera's
+    // frame domain (identity when it shows the timeline camera).
     if (detailDashboard_) {
-        detailDashboard_->setCurrentFrame(idx);
+        const int dashFrame = displayedFrameIndexForCamera(currentDashCam_, idx);
+        detailDashboard_->setCurrentFrame(dashFrame);
         // Lazy detail sub-scan for >600-frame events (cheap no-op otherwise).
-        maybeScanDetailWindow(idx);
+        maybeScanDetailWindow(dashFrame);
     }
 
     frameInput_->setText(hasRelativeTimeAxis()
@@ -3648,9 +3717,14 @@ void AnalysisView::updateAnnotationSliderMarkers() {
         bool ok = false;
         const int frameIndex = key.mid(framePos + 6).toInt(&ok);
         if (ok) {
-            framesWithMarkers.insert(frameIndex);
+            // Annotation frames live in the placing camera's own frame domain;
+            // the scrub bar runs on the shared timeline, so convert to the
+            // master frame where that camera displays the marked frame.
+            const int camIndex = key.left(framePos).mid(3).toInt() - 1;
+            const int masterIndex = masterFrameForCameraFrame(camIndex, frameIndex);
+            framesWithMarkers.insert(masterIndex);
             const QString cameraLabel = key.left(framePos);
-            frameCameraLabels[frameIndex].append(cameraLabel);
+            frameCameraLabels[masterIndex].append(cameraLabel);
         }
     }
 
@@ -3711,7 +3785,9 @@ void AnalysisView::updateAnnotationSliderMarkers() {
         }
         const bool multi = frames.size() > 1;
         for (int mi = 0; mi < frames.size(); ++mi) {
-            const int frameIndex = frames.at(mi);
+            // Mark frames are the camera's own frames — convert to the master
+            // domain shared by the scrub bar (same as the annotation pass).
+            const int frameIndex = masterFrameForCameraFrame(camIndex, frames.at(mi));
             const int sliderValue = sliderValueForFrameIndex(frameIndex);
             if (sliderValue < sliderMin || sliderValue > sliderMax) {
                 continue;
@@ -4719,9 +4795,9 @@ bool AnalysisView::tryAlignToMarks() {
     const int refCam = marksByCam.firstKey();
     const QVector<int>& refMarks = marksByCam[refCam];
 
-    double fps = videoReaders_.begin()->second->getFps();
-    if (fps <= 0.0) fps = CameraConfig::getFps();
-    if (fps <= 0.0) fps = 10.0;
+    // Offsets live in the timeline camera's frame domain (see
+    // displayedFrameIndexForCamera), so seconds/speed conversions use its fps.
+    const double fps = timelineFps();
     const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
     const bool speedOk = (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
             || (std::isfinite(currentEventInfo_.speedValue) && currentEventInfo_.speedValue > 0.0))
@@ -4744,9 +4820,17 @@ bool AnalysisView::tryAlignToMarks() {
             // Offset = mean over the k-th mark pairs of (this cam's mark minus
             // the reference cam's mark): master = mark - offset must equal the
             // reference master, so offset[cam] = marks[cam] - marks[ref].
+            // Marks live in each camera's own frame domain; the offset is
+            // applied in timeline frames — convert both sides via the
+            // timestamp mapping (legacy events without comparable timestamps
+            // keep the raw shared-index difference).
             double sum = 0.0;
             for (int k = 0; k < n; ++k) {
-                sum += static_cast<double>(marks[k] - refMarks[k]);
+                const int camTl = tlIndexOfOwnFrame(cam, marks[k]);
+                const int refTl = tlIndexOfOwnFrame(refCam, refMarks[k]);
+                sum += (camTl >= 0 && refTl >= 0)
+                    ? static_cast<double>(camTl - refTl)
+                    : static_cast<double>(marks[k] - refMarks[k]);
             }
             const int offset = static_cast<int>(std::lround(sum / n));
             cameraFrameOffsets_[cam] = offset;
@@ -4838,9 +4922,10 @@ void AnalysisView::applyCameraAlignment() {
     const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
         ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
 
-    double fps = videoReaders_.begin()->second->getFps();
-    if (fps <= 0.0) fps = CameraConfig::getFps();
-    if (fps <= 0.0) fps = 10.0;
+    // Offsets live in the timeline camera's frame domain, so framesPerMm
+    // must use its fps (identical to the first reader's for uniform-fps
+    // legacy events, correct for mixed-fps ones).
+    const double fps = timelineFps();
 
     const int sign = currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1;
 
@@ -4941,7 +5026,11 @@ void AnalysisView::updateAlignmentStatus() {
         const int offset = (camIndex >= 0 && camIndex < static_cast<int>(cameraFrameOffsets_.size()))
             ? cameraFrameOffsets_[camIndex] : 0;
         for (int f : frames) {
-            masters.append(f - offset);
+            // Master = where this camera shows the mark, in the same frame
+            // domain as the scrub bar: timeline index for mixed-fps events
+            // (same mapping as the display path), raw shared index for legacy.
+            const int tl = tlIndexOfOwnFrame(camIndex, f);
+            masters.append(tl >= 0 ? tl - offset : f - offset);
         }
         markMasterFrames[camIndex] = masters;
     }

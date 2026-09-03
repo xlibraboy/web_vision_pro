@@ -188,6 +188,16 @@ private:
 
     // Per-camera playback alignment (review-time defect sync)
     int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;
+    // Maps a camera's own frame index to the equivalent timeline (longest
+    // recording) frame index via hardware timestamps; -1 when the event has
+    // no cross-comparable timestamps (legacy shared-index behavior).
+    int tlIndexOfOwnFrame(int camIdx, int ownFrame) const;
+    // Inverse of displayedFrameIndexForCamera: the master (timeline) frame at
+    // which camIdx displays ownFrame. Legacy events fall back to the raw index.
+    int masterFrameForCameraFrame(int camIdx, int ownFrame) const;
+    // fps of the timeline camera (offsets/seconds live in its frame domain);
+    // falls back to the first reader, then CameraConfig, then 10.
+    double timelineFps() const;
     void markDefectForSelectedCamera();
     void applyCameraAlignment();
     // Align cameras using placed defect marks as ground truth (needs >= 2 marked
