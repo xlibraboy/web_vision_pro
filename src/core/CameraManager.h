@@ -283,7 +283,7 @@ private:
     bool attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
                                 const Pylon::DeviceInfoList_t& devices,
                                 std::set<int>& claimedDeviceIndices,
-                                bool suppressBlank);
+                                bool suppressBlank, bool warnOnMiss = true);
     bool tryReconnectCamera(int configArrayIndex);
     void stopCameraRuntime(int configArrayIndex);
     void clearCameraTile(int configArrayIndex);

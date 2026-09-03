@@ -947,7 +947,7 @@ void CameraManager::requestCameraReconnect(int configArrayIndex) {
 bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
                                            const Pylon::DeviceInfoList_t& devices,
                                            std::set<int>& claimedDeviceIndices,
-                                           bool suppressBlank) {
+                                           bool suppressBlank, bool warnOnMiss) {
     if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cameraRuntimes_.size())) {
         return false;
     }
@@ -1003,17 +1003,19 @@ bool CameraManager::attachConfiguredCamera(int configArrayIndex, const CameraInf
     }
 
     if (matchedDeviceIndex < 0) {
-        const bool emulationActive = CameraConfig::isEmulationActive();
-        if (camInfo.source == 1 && emulationActive) {
-            // Emulation is on but this card is Real - there is no real hardware
-            // to attach to. State the cause instead of a generic device warning.
-            std::cerr << "[CameraManager] Camera ID " << camInfo.id
-                      << " is set to Real but Camera Mode is Emulated: no real hardware "
-                         "is present. Card stays OFFLINE (no hardware). Set its Source "
-                         "to Emulated to run it on an emulated device." << std::endl;
-        } else {
-            std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID "
-                      << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+        if (warnOnMiss) {
+            const bool emulationActive = CameraConfig::isEmulationActive();
+            if (camInfo.source == 1 && emulationActive) {
+                // Emulation is on but this card is Real - there is no real hardware
+                // to attach to. State the cause instead of a generic device warning.
+                std::cerr << "[CameraManager] Camera ID " << camInfo.id
+                          << " is set to Real but Camera Mode is Emulated: no real hardware "
+                             "is present. Card stays OFFLINE (no hardware). Set its Source "
+                             "to Emulated to run it on an emulated device." << std::endl;
+            } else {
+                std::cerr << "[CameraManager] WARNING: Could not find matching physical device for Camera ID "
+                          << camInfo.id << " (Source: " << (camInfo.source == 0 ? "Emulated" : "Real") << ")" << std::endl;
+            }
         }
         if (!suppressBlank) {
             clearCameraTile(configArrayIndex);
@@ -1351,9 +1353,23 @@ bool CameraManager::initialize(const std::set<int>& suppressBlankFor) {
         pylonIndexToConfigArrayIndex_.assign(newCount, -1);
 
         std::set<int> claimedDeviceIndices;
+        {
+            // Rebuild the recovery set from scratch: this pass defines which
+            // cameras are attached. Never-attached Real cameras (device still
+            // re-enumerating after an unclean restart, NIC race, ...) used to
+            // stay dead for the whole run because the recovery loop only
+            // handles cameras that attached and THEN disconnected.
+            std::lock_guard<std::mutex> lock(disconnectedMutex_);
+            disconnectedCameras_.clear();
+        }
         for (int cfgArrayIdx = 0; cfgArrayIdx < static_cast<int>(configuredCams.size()); ++cfgArrayIdx) {
             const bool suppressBlank = suppressBlankFor.find(cfgArrayIdx) != suppressBlankFor.end();
-            attachConfiguredCamera(cfgArrayIdx, configuredCams[cfgArrayIdx], devices, claimedDeviceIndices, suppressBlank);
+            if (!attachConfiguredCamera(cfgArrayIdx, configuredCams[cfgArrayIdx], devices, claimedDeviceIndices, suppressBlank)
+                    && configuredCams[cfgArrayIdx].source == 1) {
+                // Keep retrying in the background; tryReconnectCamera also
+                // re-applies this camera's per-camera fps once it attaches.
+                requestCameraReconnect(cfgArrayIdx);
+            }
         }
 
         return true;
@@ -2158,7 +2174,7 @@ bool CameraManager::tryReconnectCamera(int configArrayIndex) {
         }
     }
 
-    if (!attachConfiguredCamera(configArrayIndex, configuredCams[configArrayIndex], devices, claimed, true)) {
+    if (!attachConfiguredCamera(configArrayIndex, configuredCams[configArrayIndex], devices, claimed, true, false)) {
         return false;
     }
 
