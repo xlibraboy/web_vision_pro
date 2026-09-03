@@ -70,13 +70,13 @@ OpcUaSettings defaultOpcUaSettings() {
 // --- Configuration Implementation ---
 
 CameraConfig::CameraSource CameraConfig::getCameraSource() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     int val = settings.value("CameraSource", 1).toInt(); // Default 1 (RealCamera)
     return static_cast<CameraSource>(val);
 }
 
 void CameraConfig::setCameraSource(CameraSource source) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("CameraSource", static_cast<int>(source));
 }
 
@@ -86,57 +86,57 @@ bool CameraConfig::isEmulationActive() {
 }
 
 int CameraConfig::getFps() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("Fps", 10).toInt();
 }
 
 void CameraConfig::setFps(int fps) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("Fps", fps);
 }
 
 int CameraConfig::getPostTriggerSeconds() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("PostTriggerSeconds", 5).toInt(); // Default 5s
 }
 
 void CameraConfig::setPostTriggerSeconds(int seconds) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("PostTriggerSeconds", seconds);
 }
 
 int CameraConfig::getEventRetentionCount() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("EventRetentionCount", 200).toInt();
 }
 
 void CameraConfig::setEventRetentionCount(int count) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("EventRetentionCount", count);
 }
 
 int CameraConfig::getInstantClearKeepCount() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("InstantClearKeepCount", 0).toInt();
 }
 
 void CameraConfig::setInstantClearKeepCount(int count) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("InstantClearKeepCount", count);
 }
 
 int CameraConfig::getLowDiskWarningPct() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return qBound(1, settings.value("LowDiskWarningPct", 10).toInt(), 99);
 }
 
 void CameraConfig::setLowDiskWarningPct(int pct) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("LowDiskWarningPct", qBound(1, pct, 99));
 }
 
 QString CameraConfig::getEventStoragePath() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return QDir::cleanPath(settings.value("EventStoragePath", defaultEventStoragePath()).toString());
 }
 
@@ -145,37 +145,37 @@ QString CameraConfig::getDefaultEventStoragePath() {
 }
 
 void CameraConfig::setEventStoragePath(const QString& path) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("EventStoragePath", QDir::cleanPath(path));
 }
 
 int CameraConfig::getPreTriggerSeconds() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("PreTriggerSeconds", 10).toInt(); // Default 10s
 }
 
 void CameraConfig::setPreTriggerSeconds(int seconds) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("PreTriggerSeconds", seconds);
 }
 
 bool CameraConfig::isDefectDetectionEnabled() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("DefectDetection", false).toBool();
 }
 
 void CameraConfig::setDefectDetectionEnabled(bool enabled) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("DefectDetection", enabled);
 }
 
 int CameraConfig::getThemePreset() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("ThemePreset", 0).toInt(); // Default 0
 }
 
 void CameraConfig::setThemePreset(int themeIndex) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("ThemePreset", themeIndex);
 }
 
@@ -224,7 +224,7 @@ ThemeColors CameraConfig::getThemeColors(int themePreset) {
 }
 
 LiveViewCardStyle CameraConfig::getLiveViewCardStyle() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     LiveViewCardStyle style = getDefaultLiveViewCardStyle();
     const QString legacyFontFamily = settings.value("LiveViewCard/FontFamily", style.gridTitleFontFamily).toString();
     const int legacyFontSize = settings.value("LiveViewCard/FontSize", style.gridTitleFontSize).toInt();
@@ -251,7 +251,7 @@ LiveViewCardStyle CameraConfig::getDefaultLiveViewCardStyle() {
 }
 
 void CameraConfig::setLiveViewCardStyle(const LiveViewCardStyle& style) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("LiveViewCard/GridTitleFontFamily", style.gridTitleFontFamily);
     settings.setValue("LiveViewCard/GridTitleFontSize", style.gridTitleFontSize);
     settings.setValue("LiveViewCard/DetailTitleFontFamily", style.detailTitleFontFamily);
@@ -262,7 +262,7 @@ void CameraConfig::setLiveViewCardStyle(const LiveViewCardStyle& style) {
 }
 
 AnalysisViewStyle CameraConfig::getAnalysisViewStyle() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     AnalysisViewStyle style = getDefaultAnalysisViewStyle();
     style.videoTitleFontFamily = settings.value("AnalysisView/VideoTitleFontFamily", style.videoTitleFontFamily).toString();
     style.videoTitleFontSize = settings.value("AnalysisView/VideoTitleFontSize", style.videoTitleFontSize).toInt();
@@ -293,7 +293,7 @@ AnalysisViewStyle CameraConfig::getDefaultAnalysisViewStyle() {
 }
 
 void CameraConfig::setAnalysisViewStyle(const AnalysisViewStyle& style) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("AnalysisView/VideoTitleFontFamily", style.videoTitleFontFamily);
     settings.setValue("AnalysisView/VideoTitleFontSize", style.videoTitleFontSize);
     settings.setValue("AnalysisView/TimestampFontFamily", style.timestampFontFamily);
@@ -314,7 +314,7 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
     const OpcUaSettings defaults = getDefaultOpcUaSettings();
     OpcUaSettings result = defaults;
 
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     result.enabled = settings.value("OpcUa/Enabled", defaults.enabled).toBool();
     result.endpointUrl = settings.value("OpcUa/EndpointUrl", defaults.endpointUrl).toString().trimmed();
     result.useUsernamePassword = settings.value("OpcUa/UseUsernamePassword", defaults.useUsernamePassword).toBool();
@@ -409,7 +409,7 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
 
 void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
     const OpcUaSettings defaults = getDefaultOpcUaSettings();
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.setValue("OpcUa/Enabled", opcUaSettings.enabled);
     settings.setValue("OpcUa/EndpointUrl", opcUaSettings.endpointUrl.trimmed());
     settings.setValue("OpcUa/UseUsernamePassword", opcUaSettings.useUsernamePassword);
@@ -471,7 +471,7 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
 }
 
 std::vector<CameraInfo> CameraConfig::getCameras() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     int count = settings.beginReadArray("Cameras");
     std::vector<CameraInfo> cameras;
     
@@ -520,7 +520,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
 }
 
 void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     settings.beginWriteArray("Cameras", cameras.size());
     for (int i = 0; i < cameras.size(); ++i) {
         settings.setArrayIndex(i);
@@ -555,7 +555,7 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
 }
 
 void CameraConfig::ensureDefaultCameras() {
-    QSettings settings("PaperVision", "SystemConfig");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     int count = settings.beginReadArray("Cameras");
     settings.endArray();
     
