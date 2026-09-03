@@ -122,7 +122,9 @@ private:
     void saveWorker();
 
     // Save a queue of frames as Raw Binary File (.bin)
-    void saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId);
+    // Returns false when the camera's captured frames contain no usable pixels
+    // (caller skips it and the event falls back to another camera).
+    bool saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId);
 
     // Configuration
     int bufferSize_;

@@ -478,7 +478,15 @@ void EventController::updateCameraFps(int cameraId) {
     std::vector<FrameData> fresh;
     fresh.reserve(newCapacity);
     const size_t oldSize = it->second.circularBuffer.size();
-    const size_t keepCount = std::min(newCapacity, oldSize);
+    // Never claim slots that were never written: keepCount must not exceed the
+    // actual number of delivered frames (currentFillSize). A camera that just
+    // started (few frames in a ring sized for its free-run rate) would
+    // otherwise have its "newest keepCount" window wrap into never-written
+    // default slots; currentFillSize was then over-declared and a trigger
+    // during the refill captured those empty slots, saving a header-only
+    // 0-width .bin (observed: "Recording…" events where cam1 shows nothing).
+    const size_t keepCount =
+        std::min({newCapacity, oldSize, it->second.currentFillSize});
     for (size_t i = 0; i < keepCount; ++i) {
         const size_t idx = (it->second.writeIndex + oldSize - keepCount + i) % oldSize;
         fresh.push_back(it->second.circularBuffer[idx]);
@@ -573,8 +581,15 @@ void EventController::saveWorker() {
                 int framesCount = static_cast<int>(frames.size());
                 std::cout << "[EventController] Saving " << framesCount << " frames for Camera " << cameraId << "..." << std::endl;
                 
-                // Save as Raw Binary with camera suffix
-                saveAsRaw(frames, baseName, triggerIndex, cameraId);
+                // Save as Raw Binary with camera suffix. A camera that captured
+                // no usable pixels (mid-startup ring with unwritten slots) is
+                // skipped so the event is not corrupted by a 0-width file; the
+                // primary camera then falls back to the first healthy one.
+                if (!saveAsRaw(frames, baseName, triggerIndex, cameraId)) {
+                    std::cout << "[EventController] Skipping Camera " << cameraId
+                              << ": no usable frames captured." << std::endl;
+                    continue;
+                }
 
                 if (cameraId == 1 || !primarySaved) {
                     primaryFramesCount = framesCount;
@@ -660,8 +675,15 @@ void EventController::saveWorker() {
     }
 }
 
-void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId) {
-    if (frames.empty()) return;
+bool EventController::saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId) {
+    // Defense in depth: never write a file with no pixels. A header-only
+    // 0-width recording (frames captured from never-written ring slots) would
+    // show as a dead camera in review and its bogus frame count could wreck
+    // the timeline, so refuse to produce one here.
+    if (frames.empty() || frames.front().image.empty()
+            || frames.front().image.cols <= 0 || frames.front().image.rows <= 0) {
+        return false;
+    }
 
     QString filename = QDir(CameraConfig::getEventStoragePath()).filePath(
         QString("event_%1_cam%2.bin").arg(baseName).arg(cameraId));
@@ -669,7 +691,7 @@ void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
     
     if (!outFile) {
         std::cerr << "[EventController] Failed to open raw file for writing: " << filename.toStdString() << std::endl;
-        return;
+        return false;
     }
 
     // 1. Write Global Header using RawFormat.h logic
@@ -717,4 +739,5 @@ void EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
     
     outFile.close();
     std::cout << "[EventController] Raw save complete for camera " << cameraId << std::endl;
+    return true;
 }
