@@ -1011,6 +1011,9 @@ void MainWindow::setupCore() {
         }
         const std::vector<CameraInfo> cams = CameraConfig::getCameras();
         for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
+            // Repair free-running cameras first, then reconcile the ring
+            // buffer capacity with the (possibly corrected) rate.
+            cameraManager_->ensureConfiguredFrameRate(i);
             EventController::instance().updateCameraFps(i + 1);
         }
     });

@@ -764,6 +764,62 @@ void CameraManager::resetAppStartFallbackFps() {
     g_appStartFallbackFps = -1.0;
 }
 
+void CameraManager::ensureConfiguredFrameRate(int configArrayIndex) {
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
+        return;
+    }
+    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+    if (configArrayIndex < 0 || configArrayIndex >= static_cast<int>(cams.size())) {
+        return;
+    }
+    const CameraInfo& cfg = cams[configArrayIndex];
+    const double expected = effectiveFrameRate(cfg.fps, cfg.enableAcquisitionFps);
+
+    try {
+        std::lock_guard<std::mutex> lock(paramMutex_);
+        GenApi::INodeMap& nodemap = camera->GetNodeMap();
+        GenApi::CFloatPtr res(nodemap.GetNode("ResultingFrameRateAbs"));
+        if (!res || !GenApi::IsReadable(res)) {
+            res = GenApi::CFloatPtr(nodemap.GetNode("ResultingFrameRate"));
+        }
+        if (!res || !GenApi::IsReadable(res)) {
+            return;
+        }
+        const double actual = res->GetValue();
+        // The delivered rate can legitimately fall BELOW the target (exposure
+        // or readout limited) but must never exceed it. When it does, the rate
+        // control is off: after a user set reload the sensor free-runs, and a
+        // read-compare write can read stale GenApi values and skip the
+        // re-enable (observed: 63.2 fps free-run while the code believed
+        // Abs=25 was set). Write unconditionally — deliberately bypassing the
+        // read-compare guard that got defeated.
+        if (actual <= expected * 1.05) {
+            return;
+        }
+        std::cerr << "[CameraManager] Camera " << configArrayIndex << " free-running at "
+                  << actual << " Hz (target " << expected
+                  << " Hz) - re-applying rate control" << std::endl;
+        GenApi::CBooleanPtr en(nodemap.GetNode("AcquisitionFrameRateEnable"));
+        if (!en || !GenApi::IsWritable(en)) {
+            en = GenApi::CBooleanPtr(nodemap.GetNode("AcquisitionFrameRateEnabled"));
+        }
+        if (en && GenApi::IsWritable(en)) {
+            en->SetValue(true);
+        }
+        GenApi::CFloatPtr fpsNode(nodemap.GetNode("AcquisitionFrameRateAbs"));
+        if (!fpsNode || !GenApi::IsWritable(fpsNode)) {
+            fpsNode = GenApi::CFloatPtr(nodemap.GetNode("AcquisitionFrameRate"));
+        }
+        if (fpsNode && GenApi::IsWritable(fpsNode)) {
+            fpsNode->SetValue(std::max(fpsNode->GetMin(), std::min(expected, fpsNode->GetMax())));
+        }
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] Rate-control repair failed for camera "
+                  << configArrayIndex << ": " << e.GetDescription() << std::endl;
+    } catch (...) {}
+}
+
 CameraManager::CameraManager(int numCameras)
     : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
       defectDetectionEnabled_(false) {

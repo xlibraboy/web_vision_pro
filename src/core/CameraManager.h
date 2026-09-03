@@ -69,6 +69,11 @@ public:
     // System Configuration value (see MainWindow's serverToggled handler).
     static void resetAppStartFallbackFps();
 
+    // Self-heal: if the camera is delivering MORE than its configured rate it
+    // is free-running (rate control got lost, e.g. after a user set reload);
+    // force the rate registers back on. Called periodically from MainWindow.
+    void ensureConfiguredFrameRate(int configArrayIndex);
+
 public:
     // Temperature status aliases — types defined in TemperatureStatus.h
     using TemperatureStatus = TempStatus::Status;
