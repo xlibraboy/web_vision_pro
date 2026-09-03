@@ -458,17 +458,19 @@ void EventController::updateCameraFps(int cameraId) {
         return;
     }
 
-    // Extract the newest min(oldSize, newSize) frames in arrival order.
-    std::vector<FrameData> kept;
+    // Rebuild the ring preserving the newest keepCount frames. Copy (refcount)
+    // instead of moving out of the live buffer: the acquisition thread feeds
+    // these slots every frame, so keep this path simple and obviously safe.
+    std::vector<FrameData> fresh;
+    fresh.reserve(newCapacity);
     const size_t oldSize = it->second.circularBuffer.size();
     const size_t keepCount = std::min(newCapacity, oldSize);
-    kept.reserve(keepCount);
     for (size_t i = 0; i < keepCount; ++i) {
         const size_t idx = (it->second.writeIndex + oldSize - keepCount + i) % oldSize;
-        kept.push_back(std::move(it->second.circularBuffer[idx]));
+        fresh.push_back(it->second.circularBuffer[idx]);
     }
-
-    it->second.circularBuffer.assign(kept.begin(), kept.end());
+    fresh.resize(newCapacity);
+    it->second.circularBuffer.swap(fresh);
     it->second.writeIndex = keepCount % newCapacity;
     it->second.currentFillSize = keepCount;
     it->second.postFramesRecorded = 0;

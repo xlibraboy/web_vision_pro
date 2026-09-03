@@ -2587,6 +2587,14 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     bool chunkValid = false;
                     
                     if (PayloadType_ChunkData == ptrGrabResult->GetPayloadType()) {
+                        // Serialize against every other GenApi access to this
+                        // device (UI-thread register writes from the Device
+                        // Settings dialog, fps reconcile, etc.). This camera
+                        // model corrupts its GenApi heap state under concurrent
+                        // node access (same family as the #SS SIGBUS crashes);
+                        // the corruption surfaces later as an unrelated heap
+                        // free crash (observed: cv::fastFree inside addFrame).
+                        std::lock_guard<std::mutex> chunkLock(paramMutex_);
                         if (ptrGrabResult->HasCRC() && !ptrGrabResult->CheckCRC()) {
                              std::cerr << "[CameraManager] Error: Image CRC failed!" << std::endl;
                         } else {
@@ -2676,7 +2684,12 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                                     cv::LUT(wrapper, lut, softFrame);
                                 }
                             } else {
-                                softFrame = wrapper; // no-op reference copy, zero overhead
+                                // Deep copy: wrapper wraps the PYLON GRAB BUFFER,
+                                // which the driver recycles as soon as the next
+                                // frame arrives. Everything downstream (softFrame,
+                                // displayFrame, UI callback) must not hold driver
+                                // memory past this loop iteration.
+                                softFrame = wrapper.clone();
                             }
                         }
 
