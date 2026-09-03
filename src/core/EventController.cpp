@@ -79,6 +79,19 @@ bool EventController::isCameraLive(const CameraBufferState& state, int64_t now) 
 }
 
 void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter) {
+    // A camera mid-(re)configuration can emit empty grabs (observed: a
+    // starting camera delivered empty Mats that filled the ring and were
+    // saved as a totalFrames=N, width=0 file — corrupting the event and the
+    // analysis timeline). Drop them at the single intake point.
+    static std::atomic<int> emptyFrameDrops{0};
+    if (frame.empty()) {
+        if (emptyFrameDrops.fetch_add(1) < 10) {
+            std::cerr << "[EventController] Dropped empty frame for camera " << cameraId
+                      << " (camera starting/reconfiguring?)" << std::endl;
+        }
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(bufferMutex_);
     
     // Initialize state if camera not seen before

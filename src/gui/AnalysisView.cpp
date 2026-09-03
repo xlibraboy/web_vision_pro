@@ -645,8 +645,16 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     metadataTriggerIndex_ = -1;
     cameraTimestamps_.clear();
     timelineCameraIdx_ = -1;
+    // Only recordings with real pixels may define the timeline: a camera
+    // saved while starting can produce a header-valid but 0-width file whose
+    // "metadata" is garbage and whose frame count outranks healthy cameras
+    // (it would wreck the relative-time slider). Fall back to the widest
+    // usable reader.
     VideoStreamReader* timelineReader = nullptr;
     for (auto& pair : videoReaders_) {
+        if (pair.second->getWidth() <= 0 || pair.second->getTotalFrames() <= 0) {
+            continue;
+        }
         if (!timelineReader || pair.second->getTotalFrames() > timelineReader->getTotalFrames()) {
             timelineReader = pair.second.get();
             timelineCameraIdx_ = pair.first;
@@ -659,6 +667,9 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     // immediately and stay absent from the map (legacy fallback).
     for (auto& pair : videoReaders_) {
         const int count = pair.second->getTotalFrames();
+        if (count <= 0 || pair.second->getWidth() <= 0) {
+            continue;  // header-only/empty recording: no usable timestamps
+        }
         std::vector<int64_t> ts;
         ts.reserve(count);
         for (int i = 0; i < count; ++i) {
