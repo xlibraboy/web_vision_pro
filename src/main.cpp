@@ -61,6 +61,28 @@ int main(int argc, char *argv[]) {
     try {
         Pylon::PylonAutoInitTerm autoInitTerm;
         QApplication app(argc, argv);
+
+        // Persist QSettings inside the mounted data volume: the container's
+        // home directory is wiped whenever the container is recreated, which
+        // silently reset System Configuration to defaults. /app/data survives
+        // recreation (same volume the event files live on).
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, "/app/data/config");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        {
+            // One-time migration from the old container-home location.
+            QDir oldSettingsDir(QDir::homePath() + "/.config/PaperVision");
+            QDir newSettingsDir("/app/data/config/PaperVision");
+            if (oldSettingsDir.exists() && !newSettingsDir.exists()) {
+                newSettingsDir.mkpath(".");
+                const QFileInfoList legacy = oldSettingsDir.entryInfoList(
+                    QStringList() << "*.conf", QDir::Files);
+                for (const QFileInfo& fi : legacy) {
+                    QFile::copy(fi.absoluteFilePath(),
+                                newSettingsDir.filePath(fi.completeBaseName() + ".ini"));
+                }
+            }
+        }
+
         WheelInputGuard wheelInputGuard;
         app.installEventFilter(&wheelInputGuard);
         const QString serverName = "papervision_instance_server";

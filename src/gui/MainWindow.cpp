@@ -1316,6 +1316,8 @@ void MainWindow::ensureConfigTab() {
                 startCameraLifecycleAsync(true, "Restarting cameras with updated configuration...");
             } else {
                 qInfo() << "[MainWindow] Save did not require camera restart";
+                // NOTE: the fallback fps is intentionally an init-time setting —
+                // it is applied when cameras (re)start, not hot-applied on save.
                 statusBar()->showMessage("Settings saved", 3000);
             }
 

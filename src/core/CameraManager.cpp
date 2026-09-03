@@ -477,18 +477,27 @@ void fillLiveSettingsFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::LiveD
     readString("DeviceID", out.deviceId);
 }
 
+double g_appStartFallbackFps = -1.0;  // captured once, on first rate mapping
+
 // Frame-rate source mapping: the per-card acquisition toggle selects WHERE
 // the rate comes from, not whether the rate is controlled at all. Enabled
 // card -> the card's own fps; disabled card -> the System Configuration
 // fallback fps (Recording group). AcquisitionFrameRateEnable must stay ON in
 // both cases — with it OFF the sensor free-runs at its max rate and the
 // fallback config never reaches the hardware (nor paces emulated cameras).
+//
+// The fallback is an APP-START setting: the value is captured once on first
+// use (the app-start camera init) and frozen for the whole run. Camera
+// restarts and config saves never re-read it — only an app restart applies a
+// newly saved fallback.
 double effectiveFrameRate(double cardFps, bool useCardFps) {
     if (useCardFps) {
         return cardFps;
     }
-    const double fallback = CameraConfig::getFps();
-    return fallback > 0.0 ? fallback : cardFps;
+    if (g_appStartFallbackFps < 0.0) {
+        g_appStartFallbackFps = CameraConfig::getFps();
+    }
+    return g_appStartFallbackFps > 0.0 ? g_appStartFallbackFps : cardFps;
 }
 
 // Writes the live (non-stop-required) exposure/rate nodes. Mirrors the
@@ -743,6 +752,12 @@ void CameraManager::DeviceRemovalHandler::OnCameraDeviceRemoved(Pylon::CInstantC
 std::recursive_mutex& CameraManager::pylonApiMutex() {
     static std::recursive_mutex m;
     return m;
+}
+
+double CameraManager::appStartFallbackFps() {
+    // Not yet frozen (no camera started this run): report the saved value so
+    // the save-hint comparison stays sensible before first camera init.
+    return g_appStartFallbackFps < 0.0 ? CameraConfig::getFps() : g_appStartFallbackFps;
 }
 
 CameraManager::CameraManager(int numCameras)
@@ -2859,6 +2874,8 @@ void CameraManager::setCameraFrameRate(int cameraIndex, double fps, bool enableF
             GenApi::INodeMap& nodemap = camera->GetNodeMap();
 
             const double targetFps = effectiveFrameRate(fps, enableFrameRate);
+            std::cout << "[CameraManager] Effective target rate for Camera " << cameraIndex
+                      << ": " << targetFps << " Hz" << std::endl;
 
             // scA780-class cameras can fault inside GenApi on redundant
             // register writes: read first, write only on change.

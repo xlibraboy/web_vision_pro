@@ -59,6 +59,11 @@ public:
     // corrupts GenApi state and crashes with SIGBUS (#SS).
     static std::recursive_mutex& pylonApiMutex();
 
+    // The fallback fps the RUNNING system was started with (frozen at app
+    // start; see effectiveFrameRate). ConfigDialog uses it to tell the user
+    // when a newly saved fallback needs an app restart to take effect.
+    static double appStartFallbackFps();
+
 public:
     // Temperature status aliases — types defined in TemperatureStatus.h
     using TemperatureStatus = TempStatus::Status;

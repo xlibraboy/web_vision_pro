@@ -3327,10 +3327,19 @@ void ConfigDialog::saveRecordingSettings() {
         CameraConfig::setCameraSource(newSource);
     }
 
+    // The fallback fps is an app-start setting: the running cameras keep the
+    // rate they were initialized with. Tell the user when a restart is needed.
+    QString fallbackHint;
+    if (!cameraModeChanged && globalFpsSpin_->value() != CameraManager::appStartFallbackFps()) {
+        fallbackHint = QStringLiteral(
+            "\n\nFallback FPS takes effect after the application is restarted "
+            "(the running cameras keep their current rate).");
+    }
+
     QMessageBox::information(this, "Recording Settings Saved",
         cameraModeChanged
             ? QStringLiteral("Recording settings saved.\n\nCamera mode change applied - acquisition is restarting with the new camera mode.")
-            : QStringLiteral("Recording settings saved."));
+            : QStringLiteral("Recording settings saved.%1").arg(fallbackHint));
     originalRecordingValues_ = captureRecordingSettings();
     clearRecordingSettingsModified();
     refreshStorageStats();
