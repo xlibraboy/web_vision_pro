@@ -32,28 +32,51 @@ EventDashboard::EventDashboard(QWidget* parent)
 }
 
 void EventDashboard::updateMinimumHeight() {
-    setMinimumHeight(kMargin * 2 + kChartH + kStripH
-                     + kLaneCount * (kLaneH + kGap)
-                     + (detailEnabled_ ? kDetailH + kGap : 0));
+    int h = kMargin + chartHeight();
+    if (detailHeight()) h += kGap + kDetailH;
+    h += visibleLaneCount() * (kLaneH + kGap);
+    if (stripHeight()) h += kGap + kStripH;
+    setMinimumHeight(h + kMargin + 16); // trailing: time-axis text
+}
+
+void EventDashboard::setBrightnessVisible(bool on) {
+    brightnessVisible_ = on;
+    updateMinimumHeight();
+    update();
+}
+
+void EventDashboard::setRegionsVisible(bool detail, bool spots, bool contrast, bool thumbs) {
+    detailVisible_ = detail;
+    lanesVisible_[0] = spots;
+    lanesVisible_[1] = contrast;
+    thumbsVisible_ = thumbs;
+    updateMinimumHeight();
+    update();
 }
 
 int EventDashboard::chartTop() const { return kMargin; }
-int EventDashboard::chartHeight() const { return kChartH; }
+int EventDashboard::chartHeight() const { return brightnessVisible_ ? kChartH : 0; }
 int EventDashboard::detailTop() const {
-    return kMargin + kChartH + kGap;
+    return kMargin + chartHeight() + (chartHeight() ? kGap : 0);
 }
 int EventDashboard::detailHeight() const {
-    return detailEnabled_ ? kDetailH : 0;
+    return (detailEnabled_ && detailVisible_) ? kDetailH : 0;
+}
+int EventDashboard::visibleLaneCount() const {
+    int n = 0;
+    for (int k = 0; k < kLaneCount; ++k) if (lanesVisible_[k]) ++n;
+    return n;
 }
 int EventDashboard::laneTop(int i) const {
-    return detailTop() + detailHeight()
-           + i * (kLaneH + kGap)
-           + (detailEnabled_ ? kGap : 0);
+    // i = index among VISIBLE lanes; base is below detail, +gap when shown.
+    return detailTop() + detailHeight() + (detailHeight() ? kGap : 0)
+           + i * (kLaneH + kGap);
 }
 int EventDashboard::stripTop() const {
-    return laneTop(kLaneCount);
+    return detailTop() + detailHeight() + (detailHeight() ? kGap : 0)
+           + visibleLaneCount() * (kLaneH + kGap);
 }
-int EventDashboard::stripHeight() const { return kStripH; }
+int EventDashboard::stripHeight() const { return thumbsVisible_ ? kStripH : 0; }
 
 void EventDashboard::setDetailZoomEnabled(bool on) {
     if (detailEnabled_ == on) return;
@@ -264,10 +287,13 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         return;
     }
 
+    QPen pen(kDefectColor, 1); // shared by chart, detail strip, lanes, lines
+
     // ---------- Chart region ----------
     QRectF plot(kMargin, chartTop(), width() - 2 * kMargin, chartHeight());
     p.fillRect(plot, kPlotAreaColor);
 
+    if (brightnessVisible_) {
     if (brightness_.isEmpty() && loadingSignals_) {
         // Fresh event: scanner still working — show indeterminate state.
         const QString msg = (signalProgress_ >= 0)
@@ -300,7 +326,6 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     };
 
     // Brightness-jump defect spikes as vertical ticks behind the curve.
-    QPen pen(kDefectColor, 1);
     p.setPen(pen);
     for (int d : defectBrightness_) {
         const double dx = frameToX(d);
@@ -336,9 +361,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // Lane name (top-left), styled like the SPOTS % / CONTRAST lane labels.
     p.drawText(QRectF(plot.left() + 4, plot.top() + 1, 110, 12),
                Qt::AlignLeft | Qt::AlignTop, QStringLiteral("BRIGHTNESS"));
+    } // end brightnessVisible_
 
     // ---------- Detail strip: magnified window around the playhead ----------
-    const bool detailActive = detailEnabled_ && totalFrames_ > 1;
+    const bool detailActive = detailEnabled_ && detailVisible_ && totalFrames_ > 1;
     QRectF det;
     int winStart = 0;
     int winEnd = 0;
@@ -583,9 +609,11 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         {"SPOTS %", &spotPct_, &defectLocal_, kLocalColor, 0.0},
         {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 0.0},
     };
+    int visLane = 0;
     for (int li = 0; li < kLaneCount; ++li) {
+        if (!lanesVisible_[li]) continue;
         const LaneDef& ld = lanes[li];
-        QRectF lane(kMargin, laneTop(li), width() - 2 * kMargin, kLaneH);
+        QRectF lane(kMargin, laneTop(visLane++), width() - 2 * kMargin, kLaneH);
         p.fillRect(lane, kPlotAreaColor);
 
         double lo = 0.0;
@@ -651,6 +679,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // ---------- Thumbnail strip ----------
     const double stripW = width() - 2 * kMargin;
     const double slotW = stripW / kThumbCount;
+    if (stripHeight() > 0) {
 
     if (thumbs_.isEmpty() && loadingThumbs_) {
         QFont f = font();
@@ -688,6 +717,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     p.setPen(pen);
     p.setBrush(Qt::NoBrush);
     p.drawRect(QRectF(kMargin + curSlot * slotW, stripTop(), slotW - 1.0, stripHeight()));
+    } // end thumbnailsVisible
 
     // Playhead across both regions (same segment split as the trigger line).
     const double playX = frameToX(currentFrame_);

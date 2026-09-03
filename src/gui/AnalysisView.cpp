@@ -30,6 +30,8 @@
 #include <QJsonObject>
 #include <QShortcut>
 #include <QMenu>
+#include <QPointer>
+#include <QProgressBar>
 #include <QKeySequence>
 #include <QFrame>
 #include <QPainter>
@@ -471,6 +473,14 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
             addPaperBreakEvent(timestamp, triggerIndex, totalFrames, primaryCameraId);
         }, Qt::QueuedConnection);
     });
+
+    // Placeholder row the moment a trigger is accepted (recording still in
+    // progress); replaced by the real row when the save callback arrives.
+    EventController::instance().setEventTriggeredCallback([this](const std::string& timestamp, const QString& reason) {
+        QMetaObject::invokeMethod(this, [this, timestamp, reason]() {
+            addPendingEventRow(QString::fromStdString(timestamp), reason);
+        }, Qt::QueuedConnection);
+    });
 }
 
 AnalysisView::~AnalysisView() {}
@@ -820,6 +830,7 @@ void AnalysisView::setupEventDashboards() {
         dash->setCurrentFrame(triggerFrameIndex_);
         dash->setThumbnails({});
     }
+    dashProgressPercent_ = -1;
 
     // Queue a signal scan for every opened camera file that has no result
     // yet (cache hits return instantly via finished()).
@@ -840,8 +851,13 @@ void AnalysisView::setupEventDashboards() {
             if (it == videoReaderPaths_.end()) return;
             if (signalScanner_->currentBinPath() != it->second) return;
             detailDashboard_->setLoadingSignals(true);
-            detailDashboard_->setSignalProgress(totalSteps > 0
-                ? static_cast<int>(100LL * scanned / totalSteps) : -1);
+            const int pct = totalSteps > 0
+                ? static_cast<int>(100LL * scanned / totalSteps) : -1;
+            dashProgressPercent_ = pct;
+            detailDashboard_->setSignalProgress(pct);
+            if (dashProgressBar_ && dashProgressBar_->isVisible() && pct >= 0) {
+                dashProgressBar_->setValue(pct);
+            }
         });
     }
     if (!thumbWatcher_) {
@@ -883,6 +899,41 @@ void AnalysisView::updateDashboardLoadingState() {
     const bool thumbsLoading = thumbWatcher_ && thumbWatcher_->isRunning()
         && thumbCamPending_ == currentDashCam_;
     detailDashboard_->setLoadingThumbnails(thumbsLoading);
+
+    if (dashProgressBar_) {
+        if (scanPending) {
+            dashProgressBar_->setRange(0, 100);
+            dashProgressBar_->setValue(std::max(0, dashProgressPercent_));
+        } else if (thumbsLoading) {
+            dashProgressBar_->setRange(0, 0); // busy indicator
+        }
+    }
+    updateDashboardVisibility(scanPending || thumbsLoading);
+}
+
+void AnalysisView::updateDashboardVisibility(bool loading) {
+    if (!detailDashboard_) {
+        return;
+    }
+    const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
+    detailDashboard_->setVisible(!loading && toggleOn);
+    if (dashProgressBar_) {
+        dashProgressBar_->setVisible(loading && toggleOn);
+    }
+    updateTracksEdgeTabVisibility();
+}
+
+void AnalysisView::updateTracksEdgeTabVisibility() {
+    if (!tracksEdgeTab_) {
+        return;
+    }
+    const bool show = tabWidget_ && tabWidget_->currentIndex() == 1
+        && detailDashboard_ && detailDashboard_->isVisible();
+    tracksEdgeTab_->setVisible(show);
+    if (!show && tracksPanel_) {
+        tracksPanel_->hide();
+        tracksTabHovered_ = false;
+    }
 }
 
 void AnalysisView::startNextSignalScan() {
@@ -902,7 +953,7 @@ void AnalysisView::startNextSignalScan() {
 
 void AnalysisView::maybeScanDetailWindow(int frameIndex) {
     if (!isStreamingMode_ || !detailDashboard_ || !signalScanner_) return;
-    if (!detailDashboard_->isDetailZoomEnabled()) return;                 // hidden at >= 1x
+    if (!detailDashboard_->isDetailRegionVisible()) return;               // hidden via TRACKS or >= 1x
     if (totalFrames_ <= EventSignalScanner::kMaxScannedFrames) return;    // full series is stride-1
     if (currentDashCam_ < 0) return;
     const auto pathIt = videoReaderPaths_.find(currentDashCam_);
@@ -1431,6 +1482,15 @@ void AnalysisView::setupMainArea() {
             this, &AnalysisView::onDashboardSeekRequested);
     singleLayout->addWidget(detailDashboard_);
 
+    // Load gate: occupies the dashboard's slot while the event's signals +
+    // thumbnails are still being scanned after a trigger.
+    dashProgressBar_ = new QProgressBar(singleCameraTab_);
+    dashProgressBar_->setRange(0, 100);
+    dashProgressBar_->setTextVisible(true);
+    dashProgressBar_->setFormat(QStringLiteral("Analyzing event… %p%"));
+    dashProgressBar_->hide();
+    singleLayout->addWidget(dashProgressBar_);
+
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
         const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
@@ -1625,10 +1685,9 @@ void AnalysisView::setupMainArea() {
     dashboardToggleCheck_->setChecked(true);
     dashboardToggleCheck_->setToolTip(
         "Show or hide the per-camera time-series dashboard (Camera tab).");
-    connect(dashboardToggleCheck_, &QCheckBox::toggled, this, [this](bool on) {
-        if (detailDashboard_) {
-            detailDashboard_->setVisible(on);
-        }
+    connect(dashboardToggleCheck_, &QCheckBox::toggled, this, [this](bool) {
+        // Single choke point: respects both the toggle and the load gate.
+        updateDashboardLoadingState();
     });
     dashboardToggleCheck_->setStyleSheet(
         QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
@@ -1710,6 +1769,56 @@ void AnalysisView::setupMainArea() {
 
     // Float over the video frame area, clear of the playback panel.
     positionToolsPanel();
+
+    // ── TRACKS hover tab + panel (dashboard per-region show/hide) ──
+    // Separate from TOOLS for clarity: one vertical edge tab per panel.
+    tracksEdgeTab_ = new QLabel(mainArea_);
+    tracksEdgeTab_->setObjectName("tracksEdgeTab");
+    tracksEdgeTab_->setFixedSize(22, 84);
+    tracksEdgeTab_->setAlignment(Qt::AlignCenter);
+    tracksEdgeTab_->setToolTip("Hover to choose which signal tracks to show.");
+    restyleTracksEdgeTab();
+    tracksEdgeTab_->hide();
+
+    tracksPanel_ = new QWidget(mainArea_);
+    tracksPanel_->setObjectName("tracksPanel");
+    tracksPanel_->setFixedWidth(150);
+    auto tracksLayout = new QVBoxLayout(tracksPanel_);
+    tracksLayout->setContentsMargins(10, 8, 10, 8);
+    tracksLayout->setSpacing(4);
+    auto tracksTitle = new QLabel(QStringLiteral("TRACKS"), tracksPanel_);
+    tracksLayout->addWidget(tracksTitle);
+    const char* trackNames[5] = {
+        "Brightness", "Detail", "Spots %", "Contrast", "Thumbnails"
+    };
+    for (int i = 0; i < 5; ++i) {
+        trackChecks_[i] = new QCheckBox(QString::fromUtf8(trackNames[i]), tracksPanel_);
+        trackChecks_[i]->setChecked(i == 0); // only BRIGHTNESS by default
+        tracksLayout->addWidget(trackChecks_[i]);
+        connect(trackChecks_[i], &QCheckBox::toggled, this, [this]() {
+            if (!detailDashboard_) return;
+            detailDashboard_->setBrightnessVisible(trackChecks_[0]->isChecked());
+            detailDashboard_->setRegionsVisible(
+                trackChecks_[1]->isChecked(), trackChecks_[2]->isChecked(),
+                trackChecks_[3]->isChecked(), trackChecks_[4]->isChecked());
+            if (trackChecks_[1]->isChecked()) {
+                maybeScanDetailWindow(currentReviewFrameIndex());
+            }
+        });
+    }
+    tracksPanel_->setStyleSheet(QString(
+        "QWidget#tracksPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QLabel { color: %3; font-size: 11px; font-weight: bold; }"
+        "QCheckBox { color: %3; font-size: 11px; }")
+        .arg(tc.bg, tc.border, tc.text));
+    tracksPanel_->adjustSize(); // child widgets don't auto-size on show() — do it now
+    tracksPanel_->hide();
+    tracksEdgeTab_->installEventFilter(this);
+    tracksPanel_->installEventFilter(this);
+
+    // Initial position + visibility (Single Camera tab only).
+    positionToolsPanel();
+    updateTracksEdgeTabVisibility();
 }
 
 void AnalysisView::applyAnalysisViewStyle() {
@@ -2375,6 +2484,9 @@ void AnalysisView::onLogSelected(int row, int col) {
     QTableWidgetItem* item = sourceTable->item(row, 0);
     if (!item) return;
 
+    // Placeholder row: recording still in progress, no .bin on disk yet.
+    if (item->data(Qt::UserRole + 4).toBool()) return;
+
     if (!suppressNewEventIndicatorClear_ && item->data(Qt::UserRole + 3).toBool()) {
         // Acknowledge the new-event highlight: clear the row tint and the bold.
         item->setBackground(QBrush());
@@ -2533,6 +2645,15 @@ void AnalysisView::onTabChanged(int index) {
     // detail view (index 1).
     if (toolsEdgeTab_) {
         toolsEdgeTab_->setVisible(index == 1);
+    }
+    if (tracksEdgeTab_) {
+        tracksEdgeTab_->setVisible(index == 1 && detailDashboard_
+                                   && detailDashboard_->isVisible());
+    }
+    if (tracksPanel_ && index != 1) {
+        tracksPanel_->hide();
+        tracksTabHovered_ = false;
+        restyleTracksEdgeTab();
     }
     if (rightToolsPanel_ && index != 1) {
         rightToolsPanel_->hide();
@@ -3743,6 +3864,38 @@ void AnalysisView::addEventRow(const QString& timestamp, const QString& reason, 
     }
 }
 
+void AnalysisView::addPendingEventRow(const QString& timestamp, const QString& reason) {
+    pendingEventTimestamp_ = timestamp;
+    pendingEventStartMs_ = QDateTime::currentMSecsSinceEpoch();
+    insertPendingEventRow();
+    updateRecordCountLabel();
+}
+
+void AnalysisView::insertPendingEventRow() {
+    if (pendingEventTimestamp_.isEmpty()) return;
+    // Stale guard: an event that was armed but never saved (all cameras died,
+    // save aborted) would otherwise show "Recording…" forever. 2 min is far
+    // beyond the normal capture+save window; drop it after that.
+    if (QDateTime::currentMSecsSinceEpoch() - pendingEventStartMs_ > 120000) {
+        pendingEventTimestamp_.clear();
+        return;
+    }
+    // Only one trigger can be armed at a time (triggering_ gate), so the row
+    // is the last one; safe to append and style in place.
+    addEventRow(pendingEventTimestamp_, QStringLiteral("Recording…"), false, false);
+    QTableWidget* table = paperBreakTable_;
+    const int row = table->rowCount() - 1;
+    for (int col = 0; col < table->columnCount() && col < 4; ++col) {
+        if (QTableWidgetItem* it = table->item(row, col)) {
+            it->setData(Qt::UserRole + 4, true); // pending marker
+            QFont f = it->font();
+            f.setItalic(true);
+            it->setFont(f);
+            it->setForeground(QColor(128, 128, 128));
+        }
+    }
+}
+
 void AnalysisView::reloadEventTables() {
     const auto events = EventDatabase::instance().getAllEvents();
 
@@ -3757,7 +3910,11 @@ void AnalysisView::reloadEventTables() {
             : event.triggerReason.trimmed();
         addEventRow(event.timestamp, triggerReason, event.permanent, false,
                     event.triggerGroup, event.triggerIndex);
+        if (event.timestamp == pendingEventTimestamp_) {
+            pendingEventTimestamp_.clear(); // real event landed — retire placeholder
+        }
     }
+    insertPendingEventRow();
 
     sortLogTable(paperBreakTable_);
     sortLogTable(permanentPaperBreakTable_);
@@ -4191,6 +4348,24 @@ void AnalysisView::restyleToolsEdgeTab() {
                                                    toolsEdgeTab_->height()));
 }
 
+void AnalysisView::restyleTracksEdgeTab() {
+    if (!tracksEdgeTab_) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const QString bg = tracksTabHovered_ ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString border = tracksTabHovered_ ? tc.primary : tc.border;
+    tracksEdgeTab_->setStyleSheet(QString(
+        "QWidget#tracksEdgeTab { background-color: %1; border: 1px solid %2;"
+        " border-radius: 4px; }")
+        .arg(bg, border));
+    const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(140)
+                                        : QColor(tc.text).lighter(125);
+    tracksEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("TRACKS"), fg,
+                                                    tracksEdgeTab_->width(),
+                                                    tracksEdgeTab_->height()));
+}
+
 void AnalysisView::applyToolsPanelTheme() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     if (rightToolsPanel_) {
@@ -4203,6 +4378,23 @@ void AnalysisView::applyToolsPanelTheme() {
     }
     if (dashboardToggleCheck_) {
         dashboardToggleCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+    }
+    if (tracksEdgeTab_) {
+        restyleTracksEdgeTab();
+    }
+    if (tracksPanel_) {
+        tracksPanel_->setStyleSheet(QString(
+            "QWidget#tracksPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+            "QLabel { color: %3; font-size: 11px; font-weight: bold; }"
+            "QCheckBox { color: %3; font-size: 11px; }")
+            .arg(tc.bg, tc.border, tc.text));
+    }
+    if (dashProgressBar_) {
+        dashProgressBar_->setStyleSheet(QString(
+            "QProgressBar { background: %1; color: %2; border: 1px solid %3; border-radius: 4px;"
+            " text-align: center; font-size: 11px; min-height: 18px; }"
+            "QProgressBar::chunk { background-color: %4; border-radius: 3px; }")
+            .arg(tc.btnBg, tc.text, tc.border, tc.primary));
     }
     if (markerShapeCombo_) {
         markerShapeCombo_->setStyleSheet(QString(
@@ -4422,6 +4614,22 @@ void AnalysisView::positionToolsPanel() {
                                    top + (panelH - tabH) / 2,
                                    tabW, tabH);
     }
+    // TRACKS tab: right edge, bottom-aligned with the tab page (the event
+    // dashboard lives at the bottom of the Single Camera page).
+    if (tracksEdgeTab_) {
+        tracksEdgeTab_->setGeometry(rightEdge - tracksEdgeTab_->width(),
+                                    bottom - tracksEdgeTab_->height(),
+                                    tracksEdgeTab_->width(),
+                                    tracksEdgeTab_->height());
+    }
+    // TRACKS panel: left of its tab, bottom-aligned.
+    if (tracksPanel_) {
+        const int tx = rightEdge - tracksEdgeTab_->width() - 2 - tracksPanel_->width();
+        const int ty = bottom - tracksPanel_->height();
+        tracksPanel_->setGeometry(tx, ty, tracksPanel_->width(), tracksPanel_->height());
+        tracksPanel_->raise();
+    }
+    if (tracksEdgeTab_) tracksEdgeTab_->raise();
     // Panel body immediately left of the tab handle (2px breathing room).
     const QRect panelRect(rightEdge - tabW - 2 - rightToolsPanel_->width(),
                           top,
@@ -4879,6 +5087,34 @@ QString AnalysisView::formatTimestamp(const QString& rawTs) {
 }
 
 bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
+    // TRACKS hover tab/panel: enter reveals the panel, leaving both (with a
+    // short grace period for the gap crossing) hides it again.
+    if (watched == tracksEdgeTab_ || watched == tracksPanel_) {
+        if (event->type() == QEvent::Enter) {
+            tracksPanel_->show();
+            tracksPanel_->raise();
+            tracksEdgeTab_->raise();
+            if (!tracksTabHovered_) {
+                tracksTabHovered_ = true;
+                restyleTracksEdgeTab();
+            }
+            return false;
+        }
+        if (event->type() == QEvent::Leave) {
+            QPointer<QWidget> panel = tracksPanel_;
+            QPointer<QWidget> tab = tracksEdgeTab_;
+            QTimer::singleShot(250, this, [this, panel, tab]() {
+                if (!panel || panel->underMouse()
+                    || (tab && tab->underMouse())) {
+                    return;
+                }
+                panel->hide();
+                tracksTabHovered_ = false;
+                restyleTracksEdgeTab();
+            });
+            return false;
+        }
+    }
     if (event->type() == QEvent::MouseButtonPress) {
         QWidget* widget = qobject_cast<QWidget*>(watched);
         if (widget && widget->property("annotationFrame").isValid()) {

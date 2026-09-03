@@ -81,6 +81,12 @@ public:
     using EventSavedCallback = std::function<void(const std::string&, int, int, int)>;
     void setEventSavedCallback(EventSavedCallback callback);
 
+    // Fired the instant a trigger is ACCEPTED (before post-trigger capture
+    // finishes) so the UI can show a placeholder row while the event records.
+    // (timestamp, reason)
+    using EventTriggeredCallback = std::function<void(const std::string&, const QString&)>;
+    void setEventTriggeredCallback(EventTriggeredCallback callback);
+
     // Live RAM buffer diagnostics (cameraId is 1-based config ID)
     void updateCameraFps(int cameraId);
 
@@ -189,6 +195,7 @@ private:
     bool saveRequested_; 
 
     EventSavedCallback callback_;
+    EventTriggeredCallback triggeredCallback_;
     SpeedProvider speedProvider_;
     CameraFpsProvider cameraFpsProvider_;
     // Effective fps for one camera: provider value when valid, else the

@@ -10,6 +10,7 @@ struct EventSignalData;
 #include <QTabWidget>
 #include <QSlider>
 #include <QToolBar>
+#include <QProgressBar>
 #include <QLabel>
 #include <QCheckBox>
 #include "widgets/ToggleSwitch.h"
@@ -72,6 +73,8 @@ signals:
 public slots:
     void addPaperBreakEvent(const std::string& timestamp, int triggerIndex, int totalFrames,
                             int primaryCameraId = 1);
+    // Placeholder "Recording…" row shown the instant a trigger is accepted.
+    void addPendingEventRow(const QString& timestamp, const QString& reason);
     void setPlaybackPosition(double frame);
     void updateCameraFrame(int cameraId, const QImage& frame);
     
@@ -129,6 +132,11 @@ private slots:
     void generateThumbnails(int camIdx);
     void refreshDashboardThumbnails();
     void updateDashboardLoadingState();
+    // Show the dashboard only when its data (signals + thumbnails) is fully
+    // loaded and the TOOLS toggle allows it; progress bar otherwise.
+    void updateDashboardVisibility(bool loading);
+    void updateTracksEdgeTabVisibility();
+    void restyleTracksEdgeTab();
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
@@ -390,6 +398,9 @@ private:
                      bool selectRow, int group = CameraGroup::kUnassigned,
                      int defectFrame = -1);
     void reloadEventTables();
+    // Re-append the pending placeholder row after a table rebuild (and retire
+    // it once stale or once the real event is in the database).
+    void insertPendingEventRow();
     void updateRecordCountLabel();
     void updatePermanentButtonLabel();
     QTableWidget* createLogTable(QWidget* parent, bool deleteMode);
@@ -414,6 +425,10 @@ private:
     int locateNewEventRow(QTableWidget* table) const;
     static int newEventPulseAlphaForStep(int step);
     QString latestAddedEventTimestamp_;
+    // Pending trigger placeholder: timestamp + wall-clock start (ms) for the
+    // stale guard (an event that never saves would otherwise linger forever).
+    QString pendingEventTimestamp_;
+    qint64 pendingEventStartMs_ = 0;
     bool suppressNewEventIndicatorClear_ = false;
     // New-event row pulse animation state.
     QTimer* newEventPulseTimer_ = nullptr;
@@ -479,6 +494,16 @@ private:
     QString detailWindowKey_;
     // Event dashboard (prototype): single-camera time-series + thumbnails.
     class EventDashboard* detailDashboard_ = nullptr;   // Camera tab, below video
+    // Load gate: while the signal scan / thumbnails run after a trigger, the
+    // dashboard is hidden and a progress bar occupies its layout slot.
+    QProgressBar* dashProgressBar_ = nullptr;
+    int dashProgressPercent_ = -1;
+    // TRACKS hover edge tab + panel: per-region show/hide for the dashboard's
+    // five stacked tracks (same interaction pattern as the TOOLS tab).
+    QLabel* tracksEdgeTab_ = nullptr;
+    QWidget* tracksPanel_ = nullptr;
+    QCheckBox* trackChecks_[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    bool tracksTabHovered_ = false;
     class EventSignalScanner* signalScanner_ = nullptr;
     QStringList pendingScanPaths_;
     QFutureWatcher<QVector<QImage>>* thumbWatcher_ = nullptr;

@@ -399,6 +399,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
     }
 
     triggering_ = true;
+    if (triggeredCallback_) triggeredCallback_(currentTimestamp_, reason);
     return true;
 }
 
@@ -491,6 +492,10 @@ void EventController::updateCameraFps(int cameraId) {
 
 void EventController::setEventSavedCallback(EventSavedCallback callback) {
     callback_ = callback;
+}
+
+void EventController::setEventTriggeredCallback(EventTriggeredCallback callback) {
+    triggeredCallback_ = std::move(callback);
 }
 
 void EventController::saveWorker() {

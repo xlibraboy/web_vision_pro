@@ -37,6 +37,13 @@ public:
                       const QVector<int>& defectBrightness,
                       const QVector<int>& defectLocal,
                       const QVector<int>& defectContrast);
+    // Per-region visibility. Five stacked regions: brightness chart, detail
+    // strip, spots% lane, contrast lane, thumbnail strip. Default: only the
+    // brightness chart is shown.
+    void setBrightnessVisible(bool on);
+    void setRegionsVisible(bool detail, bool spots, bool contrast, bool thumbs);
+    // Detail strip actually drawn (zoom-enabled AND user-visible).
+    bool isDetailRegionVisible() const { return detailEnabled_ && detailVisible_; }
     // Evenly sampled thumbnails; slot i corresponds to frame
     // round(i * (total-1) / (count-1)).
     void setThumbnails(const QVector<QImage>& thumbs);
@@ -86,6 +93,7 @@ private:
     int laneTop(int i) const;
     int stripTop() const;
     int stripHeight() const;
+    int visibleLaneCount() const;
     double frameToX(double frame) const;
     int xToFrameFloor(int x) const;
     void emitSeekAt(int x);
@@ -123,6 +131,12 @@ private:
     QVector<int> detailDefectLocal_;
     QVector<int> detailDefectContrast_;
     bool detailLoading_ = false;
+    // Region visibility (user toggles via the TRACKS hover panel). Default:
+    // brightness chart only.
+    bool brightnessVisible_ = true;
+    bool detailVisible_ = false;
+    bool lanesVisible_[2] = {false, false}; // spots%, contrast
+    bool thumbsVisible_ = false;
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;
