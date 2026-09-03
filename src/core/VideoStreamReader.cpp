@@ -11,7 +11,7 @@
 using namespace Pylon;
 
 VideoStreamReader::VideoStreamReader() 
-    : totalFrames_(0), fps_(0), width_(0), height_(0), pixelFormat_(0), fileHandle_(nullptr), isRawMode_(false) {
+    : totalFrames_(0), fps_(0), triggerIndex_(0), width_(0), height_(0), pixelFormat_(0), fileHandle_(nullptr), isRawMode_(false) {
 }
 
 VideoStreamReader::~VideoStreamReader() {
@@ -53,6 +53,7 @@ bool VideoStreamReader::open(const QString& filepath) {
         height_ = header.height;
         fps_ = header.fps;
         totalFrames_ = header.totalFrames;
+        triggerIndex_ = static_cast<int>(header.triggerIndex);
         pixelFormat_ = header.pixelFormat;  // Store pixel format from header
         
         std::cout << "[VideoStreamReader] Opened RAW: " << filepath.toStdString() 

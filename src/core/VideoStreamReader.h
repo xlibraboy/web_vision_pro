@@ -27,6 +27,8 @@ public:
     // Get video properties
     int getTotalFrames() const { return totalFrames_; }
     double getFps() const { return fps_; }
+    // Trigger frame index in this file's own numbering (RAW header; 0 for video).
+    int getTriggerIndex() const { return triggerIndex_; }
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
     bool getFrameMetadata(int frameIndex, FrameMetadata& metadata);
@@ -47,6 +49,7 @@ private:
     // Video properties
     int totalFrames_;
     double fps_;
+    int triggerIndex_;  // Trigger frame index from the RAW header
     int width_;
 
     int height_;
