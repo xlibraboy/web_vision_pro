@@ -1964,9 +1964,9 @@ void AnalysisView::setCameraCount(int count) {
 void AnalysisView::setupPlaybackControls() {
     playbackPanel_ = new QWidget(this);
     playbackPanel_->setObjectName("playbackPanel"); // For CSS specificity
-    // No fixed height — let the panel fit tightly around its content (buttons +
-    // value) after the align-row widgets are reparented to the tools panel.
-    playbackPanel_->setMinimumHeight(78);
+    // No fixed/min height — the panel hugs its content (buttons + flag-strip
+    // margin) so no dead space sits above/below the controls; the freed space
+    // goes to the video + dashboard above (tabWidget_ has stretch 1).
     playbackPanel_->setAutoFillBackground(true); // Force paint
     // Use background-color and ensure contrast. 
     ThemeColors tc = CameraConfig::getThemeColors();
