@@ -443,6 +443,11 @@ size_t EventController::getBufferCapacity(int cameraId) {
 // recent frames when shrinking.
 void EventController::updateCameraFps(int cameraId) {
     std::lock_guard<std::mutex> lock(bufferMutex_);
+    // Never yank buffers mid-capture: the resize resets postFramesRecorded and
+    // would corrupt an event that is currently being collected.
+    if (triggering_ || saveRequested_) {
+        return;
+    }
     auto it = cameraStates_.find(cameraId);
     if (it == cameraStates_.end()) {
         return;

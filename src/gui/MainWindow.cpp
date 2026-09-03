@@ -996,6 +996,26 @@ void MainWindow::setupCore() {
 
     initializeEventController();
 
+    // Self-heal per-camera ring-buffer capacities: the capacity is sized from
+    // a one-shot ResultingFrameRate read when a camera's first frame arrives,
+    // and during camera (re)starts that read can catch pylon mid-configuration
+    // and report a transient rate (observed: 13.8 instead of 35 -> buffer
+    // locked at 207 frames / 5.9s instead of 525 / 15s, so that camera's
+    // events came out shorter). Reconcile against the settled rate every few
+    // seconds; updateCameraFps is a no-op when the rate is unchanged and
+    // skips active captures.
+    auto* fpsReconcileTimer = new QTimer(this);
+    connect(fpsReconcileTimer, &QTimer::timeout, this, [this]() {
+        if (!cameraManager_) {
+            return;
+        }
+        const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+        for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
+            EventController::instance().updateCameraFps(i + 1);
+        }
+    });
+    fpsReconcileTimer->start(3000);
+
     // 4. Start Camera
     cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
     startCameraLifecycleAsync(false, "Starting camera acquisition...");
