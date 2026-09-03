@@ -780,6 +780,11 @@ void MainWindow::setupUi() {
             return;
         }
         if (running) {
+            // Server Offline->Online == system restart for the timing config:
+            // re-read the saved fallback fps and rebuild the recorder buffers
+            // exactly like an app start, then bring the cameras back with it.
+            CameraManager::resetAppStartFallbackFps();
+            initializeEventController();
             startCameraLifecycleAsync(false, "Starting camera acquisition...");
         } else {
             cameraManager_->stopAcquisition();

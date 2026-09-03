@@ -760,6 +760,10 @@ double CameraManager::appStartFallbackFps() {
     return g_appStartFallbackFps < 0.0 ? CameraConfig::getFps() : g_appStartFallbackFps;
 }
 
+void CameraManager::resetAppStartFallbackFps() {
+    g_appStartFallbackFps = -1.0;
+}
+
 CameraManager::CameraManager(int numCameras)
     : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
       defectDetectionEnabled_(false) {

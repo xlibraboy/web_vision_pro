@@ -64,6 +64,11 @@ public:
     // when a newly saved fallback needs an app restart to take effect.
     static double appStartFallbackFps();
 
+    // Server Offline->Online is a "system restart" for the timing settings:
+    // clear the frozen fallback so the next rate write re-reads the saved
+    // System Configuration value (see MainWindow's serverToggled handler).
+    static void resetAppStartFallbackFps();
+
 public:
     // Temperature status aliases — types defined in TemperatureStatus.h
     using TemperatureStatus = TempStatus::Status;
