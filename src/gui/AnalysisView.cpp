@@ -902,10 +902,14 @@ void AnalysisView::updateDashboardLoadingState() {
 
     if (dashProgressBar_) {
         if (scanPending) {
+            dashProgressBar_->setFormat(QStringLiteral("Analyzing event… %p%"));
             dashProgressBar_->setRange(0, 100);
             dashProgressBar_->setValue(std::max(0, dashProgressPercent_));
         } else if (thumbsLoading) {
-            dashProgressBar_->setRange(0, 0); // busy indicator
+            // Indeterminate busy phase (range 0-0): show a stable label instead
+            // of a meaningless percentage.
+            dashProgressBar_->setFormat(QStringLiteral("Preparing preview…"));
+            dashProgressBar_->setRange(0, 0);
         }
     }
     updateDashboardVisibility(scanPending || thumbsLoading);
@@ -4495,11 +4499,19 @@ void AnalysisView::applyToolsPanelTheme() {
             .arg(tc.bg, tc.border, tc.text));
     }
     if (dashProgressBar_) {
+        // Polished "well" look that sits with the event dashboard: a recessed
+        // dark track (plot-area shade) and the primary fill as a soft vertical
+        // gradient pill with rounded ends, inset from the rim so the fill
+        // never bleeds to the bar's border.
+        const QColor track = QColor(tc.btnBg).darker(120);
+        const QColor hi = QColor(tc.primary).lighter(130);
         dashProgressBar_->setStyleSheet(QString(
-            "QProgressBar { background: %1; color: %2; border: 1px solid %3; border-radius: 4px;"
-            " text-align: center; font-size: 11px; min-height: 18px; }"
-            "QProgressBar::chunk { background-color: %4; border-radius: 3px; }")
-            .arg(tc.btnBg, tc.text, tc.border, tc.primary));
+            "QProgressBar { background: %1; color: %2; border: none;"
+            " border-radius: 8px; text-align: center; font-size: 10px;"
+            " font-weight: 700; min-height: 16px; max-height: 16px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            " stop:0 %3, stop:1 %4); border-radius: 6px; margin: 2px; }")
+            .arg(track.name(), tc.text, hi.name(), tc.primary));
     }
     if (markerShapeCombo_) {
         markerShapeCombo_->setStyleSheet(QString(
