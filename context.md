@@ -106,6 +106,14 @@ src/
 - A fixed-point detector only observes its own spot: a break **upstream** of the beam is detected only when the tail (trailing edge of the still-running downstream sheet) clears the beam — delayed by (sensor position − break point) / machine speed. The pre-trigger RAM buffer (~10 s) bounds how far upstream a break can still be captured completely.
 - Coverage rule: at least one sensor per machine section, mounted near where that section actually breaks. The Wire group has **0** sensors today — a wire break is a blind zone, caught only when the tail reaches the Press-Part sensor, by which time upstream cameras may have rolled past it in their pre-trigger buffers.
 
+### Camera Time Base (PTP & Frame Timestamps)
+- Every saved event frame carries a per-frame **timestamp (ns) + frame counter** (`FrameMetadata` in `RawFormat.h`). Two sources feed it:
+  - **Hardware chunk timestamp** (CameraManager grab path): `ChunkTimestamp` ticks converted to ns via `GevTimestampTickFrequency` (125 MHz / 8 ns fallback for scout-class). Requires per-camera chunk mode on (`chunkModeActive` + `enabledChunks` containing `Timestamp`/`Framecounter`).
+  - **Software fallback** (emulation, or chunk mode off/invalid): host `system_clock` at frame arrival — one shared host clock across cameras, but quantized by OS/scheduling jitter instead of true sensor time.
+- **PTP (IEEE 1588-2008)**: `CameraManager` force-enables `GevIEEE1588` on every real (non-emulated) camera at config apply. PTP slaves each camera's clock — and therefore its chunk timestamps — to the best master clock on the network, making hardware timestamps comparable across cameras at the same real instant. Precision depends on the network (PTP-aware switches; a GPS master only for absolute UTC/TAI time, otherwise the domain runs in arbitrary-timescale mode and one camera becomes grandmaster). The app never reads PTP lock state (master/slave, `GevIEEE1588OffsetFromMaster`, `PtpServoStatus`), so an unsynced camera is silent.
+- **Consumers**: `AnalysisView` caches every camera's per-frame timestamps on event load and maps the timeline camera's frame time to each other camera's *nearest own frame* for mixed-fps playback (`displayedFrameIndexForCamera`, `tlIndexOfOwnFrame`). The mapping is only used when the cameras' clocks agreed at event start (< 60 s guard `cameraTimestamps_`); otherwise it falls back to shared-index mapping. Software host stamps always pass that guard (same clock).
+- Current saved config has chunk mode **off**, so events carry software timestamps today — cross-camera comparable regardless of PTP, but arrival-time-based rather than sensor-accurate.
+
 ### OPC UA Integration
 - `OpcUaClientService` connects to an OPC UA server via QtOpcUa 5.15.2 (open62541 backend)
 - ConfigDialog auto-detects discoverable endpoints when opened; manual "Detect Server" scan; falls back to manual endpoint entry
