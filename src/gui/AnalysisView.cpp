@@ -4537,9 +4537,18 @@ void AnalysisView::restyleTracksEdgeTab() {
         return;
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    // Glyph only, no chip background — just the wave floating on the corner.
-    // Hover feedback is the color brightening to the primary hue.
-    tracksEdgeTab_->setStyleSheet(QStringLiteral("QWidget#tracksEdgeTab { background: transparent; }"));
+    if (tracksTabHovered_) {
+        // Soft rounded tint behind the wave while hovered, so the transparent
+        // control reads as a target; idle state stays glyph only.
+        QColor tint = QColor(tc.primary);
+        tint.setAlpha(40);
+        tracksEdgeTab_->setStyleSheet(QString(
+            "QWidget#tracksEdgeTab { background-color: rgba(%1, %2, %3, %4);"
+            " border-radius: 15px; }")
+            .arg(tint.red()).arg(tint.green()).arg(tint.blue()).arg(tint.alpha()));
+    } else {
+        tracksEdgeTab_->setStyleSheet(QStringLiteral("QWidget#tracksEdgeTab { background: transparent; }"));
+    }
     const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(150)
                                         : QColor(tc.text);
     tracksEdgeTab_->setPixmap(makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
