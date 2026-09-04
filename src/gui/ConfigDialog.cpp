@@ -2654,9 +2654,14 @@ void ConfigDialog::loadSettings() {
     }
 
     for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
+        // Saved rows win; anything beyond the saved list falls back to the
+        // defaults template (and beyond that to a blank row). The defaults hold
+        // only the 9 planned detectors, so guard the fallback index.
         const OpcUaTriggerTagSettings tag = (i < static_cast<int>(opcUaSettings.triggerTags.size()))
             ? opcUaSettings.triggerTags[static_cast<size_t>(i)]
-            : defaultOpcUaSettings.triggerTags[static_cast<size_t>(i)];
+            : (i < static_cast<int>(defaultOpcUaSettings.triggerTags.size())
+                ? defaultOpcUaSettings.triggerTags[static_cast<size_t>(i)]
+                : OpcUaTriggerTagSettings{});
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
         if (row.enabledCheck) {
             row.enabledCheck->setChecked(tag.enabled);

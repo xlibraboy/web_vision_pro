@@ -23,15 +23,29 @@ QString defaultEventStoragePath() {
     return QDir::cleanPath(baseDir.filePath("data"));
 }
 std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
-    std::vector<OpcUaTriggerTagSettings> tags(12);
-    for (int i = 0; i < static_cast<int>(tags.size()); ++i) {
-        tags[i].name = QString("Trigger %1").arg(i + 1);
-        tags[i].nodeId = "";
-        tags[i].enabled = false;
-        tags[i].minimumIntervalMs = 1500;
-        tags[i].simulated = false;
-        tags[i].group = CameraGroup::kUnassigned;
-        tags[i].positionMm = 0;
+    // Planned sheet-break sensors from docs/machine-reference.md: names and the
+    // camera group each one guards. Node IDs and mm positions are still to be
+    // measured, so every row starts disabled with position 0. Finish each row
+    // in System Configuration -> OPC UA -> Triggers once the values are known
+    // (a position > 0 centers every camera's capture window on the break).
+    const struct { const char* name; int group; } kPlannedSensors[] = {
+        { "PRESS-PART SB-01",    CameraGroup::kPressPart },
+        { "PRE-DRYER SB-01",     CameraGroup::kPreDryer },
+        { "PRE-DRYER SB-02",     CameraGroup::kPreDryer },
+        { "PRE-DRYER SB-03",     CameraGroup::kPreDryer },
+        { "AFTER-DRYER SB-01",   CameraGroup::kAfterDryer },
+        { "AFTER-DRYER SB-02",   CameraGroup::kAfterDryer },
+        { "AFTER-DRYER SB-03",   CameraGroup::kAfterDryer },
+        { "CALENDER-REEL SB-01", CameraGroup::kCalenderReel },
+        { "CALENDER-REEL SB-02", CameraGroup::kCalenderReel },
+    };
+    std::vector<OpcUaTriggerTagSettings> tags;
+    tags.reserve(sizeof(kPlannedSensors) / sizeof(kPlannedSensors[0]));
+    for (const auto& sensor : kPlannedSensors) {
+        OpcUaTriggerTagSettings tag;
+        tag.name = QString::fromLatin1(sensor.name);
+        tag.group = sensor.group;
+        tags.push_back(tag);
     }
     return tags;
 }
