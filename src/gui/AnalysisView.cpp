@@ -121,6 +121,32 @@ static QPixmap makeVerticalTabPixmap(const QString& text, const QColor& color,
     return pm;
 }
 
+// Icon for the TRACKS edge control: the classic two-sheet "layers" glyph
+// (a small sheet over a wider one) — reads as the stacked signal tracks.
+static QPixmap makeLayersIconPixmap(const QColor& color, int w, int h) {
+    QPixmap pm(w, h);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    const qreal s = static_cast<qreal>(qMin(w, h));
+    const qreal cx = s / 2.0;
+    // Upper (front) sheet: flat diamond, narrower.
+    QPolygonF top;
+    const qreal topCy = s * 0.36, wTop = s * 0.60, hTop = s * 0.26;
+    top << QPointF(cx, topCy - hTop / 2) << QPointF(cx + wTop / 2, topCy)
+        << QPointF(cx, topCy + hTop / 2) << QPointF(cx - wTop / 2, topCy);
+    // Lower (back) sheet: wider flat diamond below it.
+    QPolygonF bot;
+    const qreal botCy = s * 0.72, wBot = s * 0.84, hBot = s * 0.36;
+    bot << QPointF(cx, botCy - hBot / 2) << QPointF(cx + wBot / 2, botCy)
+        << QPointF(cx, botCy + hBot / 2) << QPointF(cx - wBot / 2, botCy);
+    p.drawPolygon(bot);
+    p.drawPolygon(top);
+    return pm;
+}
+
 // Right tools panel animation constant: drawer slide distance on show/hide.
 // (No drop-shadow margin is needed — the panel uses no graphics effect while
 // idle, so nesting artifacts on X11 are avoided entirely.)
@@ -1523,6 +1549,9 @@ void AnalysisView::setupMainArea() {
     detailDashboard_ = new EventDashboard(singleCameraTab_);
     connect(detailDashboard_, &EventDashboard::seekRequested,
             this, &AnalysisView::onDashboardSeekRequested);
+    // Keep the TRACKS edge tab glued to the stacks' top-right as the dashboard
+    // grows/shrinks (toggling tracks regions changes its height).
+    detailDashboard_->installEventFilter(this);
     singleLayout->addWidget(detailDashboard_);
 
     // Load gate: occupies the dashboard's slot while the event's signals +
@@ -1791,7 +1820,9 @@ void AnalysisView::setupMainArea() {
     toolsEdgeTab_->setObjectName("toolsEdgeTab");
     toolsEdgeTab_->setFixedSize(22, 84);
     toolsEdgeTab_->setAlignment(Qt::AlignCenter);
-    toolsEdgeTab_->setToolTip("Hover to show the Tools panel.");
+    // No tooltip: the panel opens on hover already, so a tooltip would just
+    // flicker over the tab.
+    toolsEdgeTab_->setToolTip(QString());
     restyleToolsEdgeTab();
     // Initial tab is All Camera (index 0) — the TOOLS tab only belongs to the
     // Single Camera detail view. onTabChanged() re-evaluates on every switch.
@@ -1824,9 +1855,11 @@ void AnalysisView::setupMainArea() {
     // Separate from TOOLS for clarity: one vertical edge tab per panel.
     tracksEdgeTab_ = new QLabel(mainArea_);
     tracksEdgeTab_->setObjectName("tracksEdgeTab");
-    tracksEdgeTab_->setFixedSize(22, 84);
+    tracksEdgeTab_->setFixedSize(26, 26);
     tracksEdgeTab_->setAlignment(Qt::AlignCenter);
-    tracksEdgeTab_->setToolTip("Hover to choose which signal tracks to show.");
+    // No tooltip: the popup opens on hover already, so a tooltip would just
+    // flicker over the chip.
+    tracksEdgeTab_->setToolTip(QString());
     restyleTracksEdgeTab();
     tracksEdgeTab_->hide();
 
@@ -2741,6 +2774,9 @@ void AnalysisView::onTabChanged(int index) {
         tracksEdgeTab_->setVisible(index == 1 && detailDashboard_
                                    && detailDashboard_->isVisible());
     }
+    if (index == 1) {
+        positionToolsPanel();  // Camera page laid out now — anchor TRACKS tab to the dashboard.
+    }
     if (tracksPanel_ && index != 1) {
         tracksPanel_->hide();
         tracksTabHovered_ = false;
@@ -3599,48 +3635,8 @@ void AnalysisView::updatePlaybackInfoLabel() {
     const QString speedSummary = currentSpeedSummary(seconds);
     playbackInfoText_ = speedSummary.isEmpty() ? baseText : QString("%1 | %2").arg(baseText, speedSummary);
 
-    // Full, descriptive tooltip: explain every value the label shows.
-    QStringList tooltipLines;
-    tooltipLines << QString("Relative frame: %1 (0 = the trigger frame; negative = before the trigger, positive = after)")
-        .arg(relFrames, 0, 'f', 1);
-    tooltipLines << QString("Time from trigger: %1%2 s")
-        .arg(seconds >= 0.0 ? "+" : "")
-        .arg(seconds, 0, 'f', 3);
-    if (SpeedProfile::hasValidAnchors(currentEventInfo_.speedAnchors)
-            || std::isfinite(currentEventInfo_.speedValue)) {
-        const bool detailTabActive = tabWidget_ && tabWidget_->currentIndex() == 1 && selectedCameraId_ >= 0;
-        const int cameraId = selectedCameraId_;
-        const int basePositionMm = currentEventCameraPositionMm(cameraId);
-        // Local speed at this camera (interpolated between the recorded speed
-        // anchors), so draw between drive groups is reflected in the distance.
-        const double localSpeed = SpeedProfile::speedAt(
-            basePositionMm, currentEventInfo_.speedAnchors, currentEventInfo_.speedValue);
-        if (std::isfinite(localSpeed)) {
-            const QString speedUnit = currentEventInfo_.speedUnit.isEmpty()
-                ? QStringLiteral("m/min") : currentEventInfo_.speedUnit;
-            tooltipLines << QString("Machine speed: %1 %2")
-                .arg(localSpeed, 0, 'f', 2)
-                .arg(speedUnit);
-            if (detailTabActive) {
-                const double deltaMm = localSpeed * 1000.0 / 60.0 * seconds
-                    * static_cast<double>(currentEventInfo_.positionDirectionSign >= 0 ? 1 : -1);
-                tooltipLines << QString("Distance traveled from trigger: %1 mm").arg(deltaMm, 0, 'f', 1);
-                tooltipLines << QString("Camera position: %1 mm").arg(basePositionMm + deltaMm, 0, 'f', 1);
-            }
-        }
-        if (currentEventInfo_.speedStale) {
-            tooltipLines << QStringLiteral("Note: machine speed was stale at capture — distance/alignment may be inaccurate");
-        }
-    }
-    const QString fullTooltip = tooltipLines.join("\n");
-    for (AnalysisVideoWidget* widget : cameraWidgets_) {
-        if (widget) {
-            widget->setToolTip(fullTooltip);
-        }
-    }
-    if (selectedCameraWidget_) {
-        selectedCameraWidget_->setToolTip(fullTooltip);
-    }
+    // Hover tooltips on the video frames are intentionally disabled — they
+    // pop up over the frames and disturb review.
 }
 
 bool AnalysisView::hasRelativeTimeAxis() const {
@@ -4525,15 +4521,16 @@ void AnalysisView::restyleTracksEdgeTab() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     const QString bg = tracksTabHovered_ ? QColor(tc.primary).darker(175).name() : tc.bg;
     const QString border = tracksTabHovered_ ? tc.primary : tc.border;
+    // Round chip (radius = half the fixed 26 px size) so it reads as a tidy
+    // round control button on the stacks' corner.
     tracksEdgeTab_->setStyleSheet(QString(
         "QWidget#tracksEdgeTab { background-color: %1; border: 1px solid %2;"
-        " border-radius: 4px; }")
+        " border-radius: 13px; }")
         .arg(bg, border));
     const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(140)
                                         : QColor(tc.text).lighter(125);
-    tracksEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("TRACKS"), fg,
-                                                    tracksEdgeTab_->width(),
-                                                    tracksEdgeTab_->height()));
+    tracksEdgeTab_->setPixmap(makeLayersIconPixmap(fg, tracksEdgeTab_->width(),
+                                                   tracksEdgeTab_->height()));
 }
 
 void AnalysisView::applyToolsPanelTheme() {
@@ -4783,20 +4780,27 @@ void AnalysisView::positionToolsPanel() {
                                    top + (panelH - tabH) / 2,
                                    tabW, tabH);
     }
-    // TRACKS tab: right edge, bottom-aligned with the tab page (the event
-    // dashboard lives at the bottom of the Single Camera page).
+    // TRACKS chip: a small round button sitting on the stacks' top-right
+    // corner — vertically centered on the dashboard's top edge, slightly
+    // inside its right edge (half over the top signal row).
     if (tracksEdgeTab_) {
-        tracksEdgeTab_->setGeometry(rightEdge - tracksEdgeTab_->width(),
-                                    bottom - tracksEdgeTab_->height(),
-                                    tracksEdgeTab_->width(),
-                                    tracksEdgeTab_->height());
-    }
-    // TRACKS panel: left of its tab, bottom-aligned.
-    if (tracksPanel_) {
-        const int tx = rightEdge - tracksEdgeTab_->width() - 2 - tracksPanel_->width();
-        const int ty = bottom - tracksPanel_->height();
-        tracksPanel_->setGeometry(tx, ty, tracksPanel_->width(), tracksPanel_->height());
-        tracksPanel_->raise();
+        const QPoint dashTopLeft = detailDashboard_
+            ? detailDashboard_->mapTo(mainArea_, QPoint(0, 0)) : QPoint(0, 0);
+        const int dashRight = dashTopLeft.x() + (detailDashboard_ ? detailDashboard_->width() : 0);
+        const int dashTop = dashTopLeft.y();
+        const int chip = tracksEdgeTab_->width();
+        const int inset = 5;
+        tracksEdgeTab_->setGeometry(dashRight - inset - chip,
+                                    dashTop - chip / 2,
+                                    chip, chip);
+        // TRACKS panel: drops down below the chip, right-aligned to the
+        // stacks' right edge so it never covers the video above.
+        if (tracksPanel_) {
+            const int tx = dashRight - inset - tracksPanel_->width();
+            const int ty = dashTop + chip / 2 + 6;
+            tracksPanel_->setGeometry(tx, ty, tracksPanel_->width(), tracksPanel_->height());
+            tracksPanel_->raise();
+        }
     }
     if (tracksEdgeTab_) tracksEdgeTab_->raise();
     // Panel body immediately left of the tab handle (2px breathing room).
@@ -5409,6 +5413,12 @@ void AnalysisView::positionCameraKeyBanner() {
 }
 
 bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
+    // Tracks stacks resized (regions toggled, zoom, data pushed): re-anchor
+    // the TRACKS tab to their new top-right corner.
+    if (watched == detailDashboard_ && event->type() == QEvent::Resize) {
+        positionToolsPanel();
+        return false;
+    }
     // TRACKS hover tab/panel: enter reveals the panel, leaving both (with a
     // short grace period for the gap crossing) hides it again.
     if (watched == tracksEdgeTab_ || watched == tracksPanel_) {

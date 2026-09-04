@@ -34,11 +34,11 @@ void AnalysisVideoWidget::setFrame(const QImage& frame) {
     update();
 }
 
-void AnalysisVideoWidget::setTimestamp(const QString& timestamp, const QString& tooltip) {
+void AnalysisVideoWidget::setTimestamp(const QString& timestamp, const QString& /*tooltip*/) {
     timestamp_ = timestamp;
-    if (!tooltip.isEmpty()) {
-        setToolTip(tooltip);
-    }
+    // Hover tooltips on the video frames are intentionally disabled — they pop
+    // up over the frames and disturb review. The parameter is kept for API
+    // compatibility.
     update();
 }
 
