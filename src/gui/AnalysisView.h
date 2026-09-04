@@ -186,6 +186,26 @@ private:
     // assumption otherwise.
     int playbackTickIntervalMs() const;
     void seekToRelativeFrame(double relativeFrame);
+    // Camera-selection shortcuts: digit keys 1..N open that camera by its
+    // visible id (multi-digit: keys are buffered until the delay elapses, with
+    // a live id+name banner so the target is known before the switch), 0
+    // returns to the All Cameras grid, Up/Down step to the previous/next
+    // camera. Returns true when the key was consumed. No-ops while the TOOLS
+    // layer panel is open so digits/arrows can't be hijacked away from its
+    // inputs.
+    bool handlePlayerCameraKey(int key);
+    // Pending multi-digit camera entry: cameraKeyBuffer_ accumulates digits
+    // and the preview banner shows until the timer fires, then the camera
+    // opens. Non-digit media keys and camera clicks cancel a pending entry.
+    QString cameraKeyBuffer_;
+    QTimer*  cameraKeyTimer_ = nullptr;
+    QLabel*  cameraKeyBanner_ = nullptr;
+    static constexpr int kCameraKeyEntryDelayMs = 700;
+    void handleCameraDigit(int digit);
+    void resolveCameraKeyEntry();  // timer fired: open the buffered camera
+    void cancelCameraKeyEntry();   // drop buffer, stop timer, hide banner
+    void refreshCameraKeyPreview(); // banner text follows the buffer digits
+    void positionCameraKeyBanner(); // center over the video area, top zone
 
     // Per-camera playback alignment (review-time defect sync)
     int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;

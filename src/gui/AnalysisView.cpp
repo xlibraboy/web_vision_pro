@@ -462,6 +462,13 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     newEventPulseTimer_ = new QTimer(this);
     newEventPulseTimer_->setInterval(kNewEventPulseTickMs);
     connect(newEventPulseTimer_, &QTimer::timeout, this, &AnalysisView::onNewEventPulseTick);
+
+    // Multi-digit camera entry: typed digits accumulate until this fires, then
+    // the requested camera opens (see handlePlayerCameraKey).
+    cameraKeyTimer_ = new QTimer(this);
+    cameraKeyTimer_->setSingleShot(true);
+    cameraKeyTimer_->setInterval(kCameraKeyEntryDelayMs);
+    connect(cameraKeyTimer_, &QTimer::timeout, this, &AnalysisView::resolveCameraKeyEntry);
     
     setupUI();
     
@@ -770,8 +777,11 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
 
+    // A new review supersedes any half-typed camera number from before.
+    cancelCameraKeyEntry();
     // Hand keyboard control to the media player (Left/Right step, Space
-    // play/pause) right away instead of waiting for the first click.
+    // play/pause, digit keys to jump cameras) right away instead of waiting
+    // for the first click.
     setFocus();
 }
 
@@ -2602,6 +2612,8 @@ void AnalysisView::onLogSelected(int row, int col) {
 
 void AnalysisView::onCameraClicked(int cameraId) {
     std::cout << "[AnalysisView] onCameraClicked: " << cameraId << std::endl;
+    // Any manual camera selection supersedes a pending typed camera number.
+    cancelCameraKeyEntry();
     selectedCameraId_ = cameraId;
     updateDynamicTab(cameraId);
     tabWidget_->setCurrentIndex(1);  // Switch to single camera tab
@@ -2693,6 +2705,13 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     applyAnnotationToSelectedFrame();
     updateAnnotationSliderMarkers();
     updateAlignmentStatus();
+    // The detail widget was just recreated, so push the current review frame
+    // into it. Switching camera while already on the Camera tab does not change
+    // the tab index, so the tab-change re-render never runs and the new widget
+    // would stay blank until playback starts ("no frame until Play").
+    if (isReviewMode_) {
+        renderCurrentReviewFrame(false);
+    }
     // Diagnostic tab is now a standalone all-camera table; no per-camera rebuild needed.
 }
 
@@ -3522,6 +3541,7 @@ void AnalysisView::updatePlaybackControlsState() {
 }
 
 void AnalysisView::setLiveMode() {
+    cancelCameraKeyEntry();  // no pending camera number outlives the mode
     isReviewMode_ = false;
     isRecording_ = false;
     reviewFps_ = 0.0;
@@ -4296,6 +4316,7 @@ void AnalysisView::showEvent(QShowEvent* event) {
 void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Clearing data to free memory..." << std::endl;
 
+    cancelCameraKeyEntry();
     isPlaying_ = false;
     reviewFps_ = 0.0;
     detailWindowKey_.clear();
@@ -5253,6 +5274,146 @@ QString AnalysisView::formatTimestamp(const QString& rawTs) {
     return dt.isValid() ? dt.toString("yyyy/MM/dd HH:mm:ss") : rawTs;
 }
 
+// Digits (main row or numpad) plus Up/Down are the camera-selection keys.
+// Shift/Alt/Ctrl variants are left alone (they are text input elsewhere).
+static bool isCameraNavigationKey(int key) {
+    return (key >= Qt::Key_0 && key <= Qt::Key_9)
+        || key == Qt::Key_Up || key == Qt::Key_Down;
+}
+
+bool AnalysisView::handlePlayerCameraKey(int key) {
+    // Never switch cameras while the TOOLS layer panel is open: the user may
+    // be about to type digits / arrows into its controls, so the keys must
+    // stay available to the panel instead of being grabbed by the view.
+    if (rightToolsPanel_ && rightToolsPanel_->isVisible()) {
+        return false;
+    }
+    // Digits buffer for the entry delay so cameras beyond id 9 can be reached
+    // by typing two digits quickly ("1", "2" → camera 12). While digits are
+    // pending, 0 extends the number; an idle 0 alone returns to the grid.
+    if (key >= Qt::Key_0 && key <= Qt::Key_9) {
+        if (key == Qt::Key_0 && cameraKeyBuffer_.isEmpty()) {
+            tabWidget_->setCurrentIndex(0);  // All Cameras grid
+            return true;
+        }
+        handleCameraDigit(key - Qt::Key_0);
+        return true;
+    }
+    if (key == Qt::Key_Down || key == Qt::Key_Up) {
+        // Immediate navigation cancels any half-typed camera number.
+        cancelCameraKeyEntry();
+        if (numCameras_ <= 0) {
+            return false;
+        }
+        // Next camera (Down): start at camera 1 when nothing is selected yet.
+        // Previous camera (Up): start at the last camera when nothing selected.
+        const int target = (key == Qt::Key_Down)
+            ? qBound(0, (selectedCameraId_ >= 0 ? selectedCameraId_ : -1) + 1, numCameras_ - 1)
+            : qBound(0, (selectedCameraId_ >= 0 ? selectedCameraId_ : numCameras_) - 1,
+                     numCameras_ - 1);
+        onCameraClicked(target);
+        return true;
+    }
+    return false;
+}
+
+void AnalysisView::handleCameraDigit(int digit) {
+    // Two digits are enough for any camera count this system supports.
+    if (cameraKeyBuffer_.length() >= 2) {
+        cameraKeyBuffer_.clear();
+    }
+    cameraKeyBuffer_ += QString::number(digit);
+    // Restart the clock on every digit so "1 2" reads as 12, not 1 then 2.
+    if (cameraKeyTimer_) {
+        cameraKeyTimer_->start();
+    }
+    refreshCameraKeyPreview();
+}
+
+void AnalysisView::resolveCameraKeyEntry() {
+    const int id = cameraKeyBuffer_.toInt();
+    cameraKeyBuffer_.clear();
+    if (cameraKeyTimer_) {
+        cameraKeyTimer_->stop();
+    }
+    if (id >= 1 && id <= numCameras_) {
+        if (cameraKeyBanner_) {
+            cameraKeyBanner_->hide();
+        }
+        onCameraClicked(id - 1);  // visible id is index + 1
+        return;
+    }
+    // Unknown camera: flash a short warning instead of switching.
+    if (cameraKeyBanner_) {
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        const QString accent = QColor("#ff6b6b").name();
+        cameraKeyBanner_->setStyleSheet(QString(
+            "QLabel { background-color: rgba(30, 16, 18, 235); color: %1;"
+            " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
+            " font-size: 14px; font-weight: 700; }").arg(accent, accent));
+        cameraKeyBanner_->setText(QString("No camera %1").arg(id));
+        cameraKeyBanner_->adjustSize();
+        positionCameraKeyBanner();
+        cameraKeyBanner_->show();
+        cameraKeyBanner_->raise();
+        QPointer<QLabel> banner = cameraKeyBanner_;
+        QTimer::singleShot(1000, this, [banner]() {
+            if (banner) {
+                banner->hide();
+            }
+        });
+        Q_UNUSED(tc);
+    }
+}
+
+void AnalysisView::cancelCameraKeyEntry() {
+    cameraKeyBuffer_.clear();
+    if (cameraKeyTimer_) {
+        cameraKeyTimer_->stop();
+    }
+    if (cameraKeyBanner_) {
+        cameraKeyBanner_->hide();
+    }
+}
+
+void AnalysisView::refreshCameraKeyPreview() {
+    if (!cameraKeyBanner_) {
+        cameraKeyBanner_ = new QLabel(this);
+        // Pure overlay: never intercepts mouse events meant for the video.
+        cameraKeyBanner_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        cameraKeyBanner_->hide();
+    }
+    const int id = cameraKeyBuffer_.isEmpty() ? 0 : cameraKeyBuffer_.toInt();
+    const bool valid = id >= 1 && id <= numCameras_;
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const QColor accentColor = valid ? QColor(tc.primary)
+                                     : QColor("#8a8a8a");
+    cameraKeyBanner_->setStyleSheet(QString(
+        "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
+        " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
+        " font-size: 15px; font-weight: 700; }").arg(
+            accentColor.lighter(175).name(), accentColor.name()));
+    // Fast preview of id + name so the user knows the target before it opens.
+    cameraKeyBanner_->setText(valid
+        ? QString("Camera %1 · %2").arg(id).arg(currentEventCameraLabel(id - 1))
+        : QString("Camera %1").arg(id));
+    cameraKeyBanner_->adjustSize();
+    positionCameraKeyBanner();
+    cameraKeyBanner_->show();
+    cameraKeyBanner_->raise();
+}
+
+void AnalysisView::positionCameraKeyBanner() {
+    if (!cameraKeyBanner_ || !mainArea_) {
+        return;
+    }
+    // Top-center over the video area (just below the tab bar), in view coords.
+    const QPoint anchor = mainArea_->mapTo(this, QPoint(mainArea_->width() / 2, 70));
+    int x = anchor.x() - cameraKeyBanner_->width() / 2;
+    x = qBound(8, x, width() - cameraKeyBanner_->width() - 8);
+    cameraKeyBanner_->move(x, qBound(8, anchor.y(), height() - cameraKeyBanner_->height() - 8));
+}
+
 bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     // TRACKS hover tab/panel: enter reveals the panel, leaving both (with a
     // short grace period for the gap crossing) hides it again.
@@ -5299,19 +5460,33 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     if (watched == playbackSlider_ && event->type() == QEvent::KeyPress) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
         if (keyEvent->key() == Qt::Key_Left) {
+            cancelCameraKeyEntry();  // a half-typed camera number is aborted
             if (prevButton_) prevButton_->setDown(true);
             onPreviousPressed();
             onPreviousReleased();
             return true;
         }
         if (keyEvent->key() == Qt::Key_Right) {
+            cancelCameraKeyEntry();
             if (nextButton_) nextButton_->setDown(true);
             onNextPressed();
             onNextReleased();
             return true;
         }
         if (keyEvent->key() == Qt::Key_Space) {
+            cancelCameraKeyEntry();
             onPlayPauseClicked();
+            return true;
+        }
+        // Camera-selection keys: QSlider would swallow Up/Down for its own
+        // 1-unit nudges (digits already bubble to the view), so route them
+        // through the same handler as keyPressEvent(). Repeats are consumed
+        // without re-selecting so holding a key can't rebuild the camera tab.
+        if (isCameraNavigationKey(keyEvent->key())
+            && (keyEvent->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            if (!keyEvent->isAutoRepeat()) {
+                handlePlayerCameraKey(keyEvent->key());
+            }
             return true;
         }
     }
@@ -5337,6 +5512,7 @@ void AnalysisView::keyPressEvent(QKeyEvent* event) {
     // this widget; children that consume keys themselves (e.g. the scrub
     // slider) are handled in eventFilter().
     if (event->key() == Qt::Key_Left) {
+        cancelCameraKeyEntry();  // a half-typed camera number is aborted
         // Mirror the pressed look of the Step Back button while the key is
         // held (repeated KeyPress events keep it down; keyReleaseEvent clears
         // it), so keyboard stepping gives the same feedback as Space on Play.
@@ -5345,12 +5521,26 @@ void AnalysisView::keyPressEvent(QKeyEvent* event) {
         onPreviousReleased(); // Simulate single step
         event->accept();
     } else if (event->key() == Qt::Key_Right) {
+        cancelCameraKeyEntry();
         if (nextButton_) nextButton_->setDown(true);
         onNextPressed();
         onNextReleased(); // Simulate single step
         event->accept();
     } else if (event->key() == Qt::Key_Space) {
+        cancelCameraKeyEntry();
         onPlayPauseClicked();
+        event->accept();
+    } else if (isCameraNavigationKey(event->key())
+               && (event->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+        // Camera selection: 1..N opens that camera by its visible id, 0 goes
+        // back to the All Cameras grid, Up/Down move to the previous/next
+        // camera (numpad keys allowed). Ignored (but still consumed) on key
+        // auto-repeat so holding a key doesn't rebuild the camera tab
+        // repeatedly, and disabled while the TOOLS panel is open (see
+        // handlePlayerCameraKey). Shift/Alt/Ctrl combos are left alone.
+        if (!event->isAutoRepeat()) {
+            handlePlayerCameraKey(event->key());
+        }
         event->accept();
     } else {
         QWidget::keyPressEvent(event);
