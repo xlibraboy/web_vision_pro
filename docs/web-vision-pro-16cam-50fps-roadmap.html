@@ -168,6 +168,8 @@ details.note summary{cursor:pointer;font-weight:600;color:#134e4a;font-size:14px
 .bom-table tr.total td.grand{font-size:17px}
 .bom-table td.r, .bom-table th.r{text-align:end;font-variant-numeric:tabular-nums}
 .bom-table td.sub{font-weight:600;font-variant-numeric:tabular-nums;text-align:end}
+.bom-warn{display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--warn-bg);border:1px solid #fde68a;color:#92400e;font-size:13px}
+.bom-warn.on{display:block}
 button.ghost{font:inherit;font-size:13px;padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;color:#134e4a}
 button.ghost:hover{border-color:var(--accent);color:var(--accent)}
 b.js-err{color:#b91c1c}
@@ -680,6 +682,13 @@ b.js-err{color:#b91c1c}
 <option value="none">None (existing / later)</option>
 </select>
 <div class="sel-note">flash-out triggered (§2g); incl. 24 V PSU share</div></div>
+<div class="sel"><label for="s-power">Camera power</label>
+<select id="s-power">
+<option value="poe-switch" selected>PoE from switch ports (Planet 802.3bt)</option>
+<option value="poe-injector">PoE midspan injector, per camera</option>
+<option value="dc24">24 VDC via camera I/O (own bus)</option>
+</select>
+<div class="sel-note">a2A1920 = IEEE 802.3af PoE · strobes stay on their own 24 V bus (§2g)</div></div>
 <div class="sel"><label for="s-sw">PTP-capable switch</label>
 <select id="s-sw">
 <option value="planet" selected>Planet IGS-6325-24UP4X · $1 670 ✔</option>
@@ -706,6 +715,7 @@ b.js-err{color:#b91c1c}
 </select>
 <div class="sel-note">then move to NAS</div></div>
 </div>
+<div class="bom-warn" id="pwr-warn"></div>
 
 <div class="derived" id="derived">
 <div class="tile info"><div class="t-label">Aggregate link load</div><div class="t-val"><span id="d-bw">—</span></div><div class="t-sub">16 streams → dual-10G bond = 20 Gbps</div></div>
@@ -713,6 +723,7 @@ b.js-err{color:#b91c1c}
 <div class="tile good"><div class="t-label">Disk per event</div><div class="t-val"><span id="d-disk">—</span></div><div class="t-sub">NVMe Gen4 write burst</div></div>
 <div class="tile purp"><div class="t-label">Retention on NVMe</div><div class="t-val"><span id="d-ret">—</span></div><div class="t-sub">4 TB Gen4 drives @ 20 events/day · 30 days</div></div>
 <div class="tile gold"><div class="t-label">PTP chain</div><div class="t-val"><span id="d-ptp">—</span></div><div class="t-sub">all 16 cameras IEEE 1588 slave</div></div>
+<div class="tile teal"><div class="t-label">Station power</div><div class="t-val"><span id="d-pwr">—</span></div><div class="t-sub">camera feed + strobe bus, per station</div></div>
 <div class="tile warn"><div class="t-label">BoM estimate</div><div class="t-val"><span id="d-total">—</span></div><div class="t-sub">indicative only — confirm quotes</div></div>
 </div>
 
@@ -824,6 +835,9 @@ b.js-err{color:#b91c1c}
   var PSU=320;              // est, 24 VDC strobe PSU
   var CABLE_RJ45=35;        // est, Cat6a shielded drop
   var CABLE_M12=145;        // est, M12 X-coded set (IP67 cams)
+  var SYNC_CABLE=55;        // est, GPIO cable camera flash-out -> LED driver trigger
+  var INJECTOR=35;          // est, 802.3af PoE midspan injector
+  var DC_DROP=15;           // est, 24 VDC camera power drop
   var NIC=420;              // est, Intel X710-DA2 (2x10G SFP+)
   var DAC=45;               // est, 10G SFP+ DAC cable
   var SW={
@@ -851,6 +865,7 @@ b.js-err{color:#b91c1c}
       lens: $('s-lens').value,
       housing: $('s-housing').value,
       light: $('s-light').value,
+      power: $('s-power').value,
       sw:   $('s-sw').value,
       gm:   $('s-gm').value,
       eday: parseInt($('s-eday').value,10),
@@ -897,21 +912,40 @@ b.js-err{color:#b91c1c}
       total += n*HOUSING_KIT;
     }
 
-    grp='cabling (per station)';
+    grp='cabling & station wiring';
     if(S.tier==='ip67'){
-      push(grp, 'M12 X-coded GigE + M8 I/O cable set', n, CABLE_M12, 'IP67 locking connectors', 'e');
+      var ioNote=(S.light==='strobe') ? 'IP67 locking connectors; M8 I/O carries flash-out to LED driver trigger' : 'IP67 locking connectors';
+      push(grp, 'M12 X-coded GigE + M8 I/O cable set', n, CABLE_M12, ioNote, 'e');
       total += n*CABLE_M12;
     } else {
-      push(grp, 'Cat6a shielded RJ45 drop (~10 m)', n, CABLE_RJ45, 'MTU 9000 capable', 'e');
+      var dropNote=(S.power==='poe-switch') ? 'carries GigE + PTP + PoE · MTU 9000' : 'carries GigE + PTP · MTU 9000';
+      push(grp, 'Cat6a shielded RJ45 drop (~10 m)', n, CABLE_RJ45, dropNote, 'e');
       total += n*CABLE_RJ45;
+      if(S.light==='strobe'){
+        push(grp, 'GPIO sync cable — camera flash-out → LED driver trigger', n, SYNC_CABLE, 'pylon LineSource / FlashWindow out (§2g)', 'e');
+        total += n*SYNC_CABLE;
+      }
     }
+    var poeFromSwitch=(S.power==='poe-switch' && S.sw==='planet');
+    var useInjector=(S.power==='poe-injector') || (S.power==='poe-switch' && S.sw!=='planet');
+    if(useInjector){
+      push(grp, 'PoE midspan injector (802.3af), per camera', n, INJECTOR, 'adds PoE to any non-PoE switch port', 'e');
+      total += n*INJECTOR;
+    }
+    if(S.power==='dc24'){
+      push(grp, '24 VDC camera power drop (per station)', n, DC_DROP, 'camera I/O connector, 12–24 VDC', 'e');
+      total += n*DC_DROP;
+      push(grp, '24 VDC camera-bus PSU (isolated from strobe bus)', 1, PSU, 'avoids strobe pulse dips on camera supply', 'e');
+      total += PSU;
+    }
+    var poeW=(poeFromSwitch||useInjector) ? n*8 : 0;
 
     grp='lighting';
     if(S.light==='strobe'){
-      push(grp, 'Strobed LED bar + driver (per station)', n, LIGHT, '≥10× overdrive @ ≤50 µs, flash-out trigger', 'e');
+      push(grp, 'Strobed LED bar + driver (per station)', n, LIGHT, '≥10× overdrive @ ≤50 µs pulses (§2g)', 'e');
       total += n*LIGHT;
       var psus=Math.ceil(n/4)+1;
-      push(grp, '24 VDC strobe PSU (shared)', psus, PSU, 'sized on peak pulse current', 'e');
+      push(grp, '24 VDC strobe PSU (shared, peak-current sized)', psus, PSU, 'kept separate from any camera bus', 'e');
       total += psus*PSU;
     }
 
@@ -972,13 +1006,27 @@ b.js-err{color:#b91c1c}
                 : '<span class="chip ok">GNSS GM active</span>';
     var swState = S.sw==='none' ? '<span class="chip warn">switch: no PTP</span>' : '<span class="chip ok">PTP switch</span>';
     $('d-ptp').innerHTML = gmState+'<br>'+swState+'<br><small>'+n+' cams IEEE 1588 slave</small>';
+    var warnEl=$('pwr-warn');
+    if(S.power==='poe-switch' && S.sw!=='planet'){
+      warnEl.innerHTML='⚠️ “PoE from switch” needs the Planet IGS-6325-24UP4X 802.3bt ports — the selected switch has none, so PoE midspan injectors are added instead.';
+      warnEl.classList.add('on');
+    } else {
+      warnEl.innerHTML='';
+      warnEl.classList.remove('on');
+    }
+    var pwrVal, pwrSub;
+    if(poeW>0){ pwrVal='≈ '+num(poeW)+' W PoE'; pwrSub=n+' cams × 8 W (802.3af incl. margin)'; }
+    else if(S.power==='dc24'){ pwrVal='24 VDC bus'; pwrSub='camera bus isolated from strobe PSUs'; }
+    else { pwrVal='PoE via switch'; pwrSub='802.3bt PoE++ ports power the drops'; }
+    if(S.light==='none'){ pwrSub+=' · no strobes'; }
+    $('d-pwr').innerHTML = pwrVal+'<br><small>'+pwrSub+'</small>';
     $('d-total').innerHTML = money(total);
     return {rows:rows,total:total,S:S};
   }
 
   var lastResult=null;
   function recalc(){ lastResult=calc(); }
-  ['s-cams','s-tier','s-mix','s-lens','s-housing','s-light','s-sw','s-gm','s-eday','s-ret'].forEach(function(id){
+  ['s-cams','s-tier','s-mix','s-lens','s-housing','s-light','s-power','s-sw','s-gm','s-eday','s-ret'].forEach(function(id){
     $(id).addEventListener('change',recalc);
   });
 
