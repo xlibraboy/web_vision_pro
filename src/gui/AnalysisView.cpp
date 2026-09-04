@@ -2214,6 +2214,13 @@ void AnalysisView::setupPlaybackControls() {
     
     layout->addLayout(toolbarLayout);
 
+    // Room below the slider for the annotation/defect dot rows
+    // (updateAnnotationSliderMarkers positions them just under the groove).
+    // The per-camera alignment row that used to sit here moved into the TOOLS
+    // panel, so without this reserve the dots would land past the panel's
+    // bottom edge and get clipped (invisible).
+    layout->addSpacing(26);
+
     // Second row: per-camera alignment (Align / Reset / speed / status).
     auto alignRow = new QHBoxLayout();
     alignRow->setSpacing(4);
