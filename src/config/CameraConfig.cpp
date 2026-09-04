@@ -23,7 +23,7 @@ QString defaultEventStoragePath() {
     return QDir::cleanPath(baseDir.filePath("data"));
 }
 std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
-    std::vector<OpcUaTriggerTagSettings> tags(4);
+    std::vector<OpcUaTriggerTagSettings> tags(12);
     for (int i = 0; i < static_cast<int>(tags.size()); ++i) {
         tags[i].name = QString("Trigger %1").arg(i + 1);
         tags[i].nodeId = "";

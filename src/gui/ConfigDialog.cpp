@@ -1147,8 +1147,32 @@ void ConfigDialog::setupUI() {
     sidebar->addItem(globalGroupItem);
     stackedWidget->addWidget(bufferGroup);
 
-    // OPC UA Tab
-    QWidget* opcUaGroup = new QWidget(this);
+    // OPC UA Tab. Wrapped in a scroll area so the trigger grid (now sized for
+    // every sheet-break sensor, kOpcUaTriggerSlots = 12) and the live status
+    // table stay reachable on shorter screens.
+    QScrollArea* opcUaScrollArea = new QScrollArea(this);
+    opcUaScrollArea->setWidgetResizable(true);
+    opcUaScrollArea->setFrameShape(QFrame::NoFrame);
+    opcUaScrollArea->setStyleSheet(QString(
+        "QScrollArea { border: none; background: transparent; } "
+        "QScrollBar:vertical { "
+        "  background-color: %1; "
+        "  width: 12px; "
+        "  border-radius: 6px; "
+        "} "
+        "QScrollBar::handle:vertical { "
+        "  background-color: %2; "
+        "  border-radius: 6px; "
+        "  min-height: 30px; "
+        "} "
+        "QScrollBar::handle:vertical:hover { "
+        "  background-color: %3; "
+        "} "
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
+        "  height: 0px; "
+        "}"
+    ).arg(tc.bg, tc.btnBg, tc.primary));
+    QWidget* opcUaGroup = new QWidget(opcUaScrollArea);
     QVBoxLayout* opcUaLayout = new QVBoxLayout(opcUaGroup);
     opcUaLayout->setSpacing(kSectionSpacing);
     opcUaLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
@@ -1624,9 +1648,11 @@ void ConfigDialog::setupUI() {
     opcUaActionsLayout->addWidget(opcUaSaveBtn_);
     opcUaLayout->addLayout(opcUaActionsLayout);
 
+    opcUaScrollArea->setWidget(opcUaGroup);
+
     QListWidgetItem* opcUaItem = new QListWidgetItem(IconManager::instance().settings(20), "OPC UA");
     sidebar->addItem(opcUaItem);
-    stackedWidget->addWidget(opcUaGroup);
+    stackedWidget->addWidget(opcUaScrollArea);
 
 
     // UI Preferences Tab

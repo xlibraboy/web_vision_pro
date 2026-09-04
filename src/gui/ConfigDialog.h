@@ -274,7 +274,9 @@ private:
     RecordingSettingsSnapshot originalRecordingValues_;
     QLabel* recordingUnsavedIndicator_ = nullptr;
     QLabel* storageStatsLabel_ = nullptr;
-    static constexpr int kOpcUaTriggerSlots = 4;
+    // One row per wired sheet-break/trigger sensor. Raised 4 -> 12 so every
+    // detector on the machine reference (9 planned) fits with headroom.
+    static constexpr int kOpcUaTriggerSlots = 12;
 
     struct OpcUaTriggerRowWidgets {
         QCheckBox* enabledCheck = nullptr;
