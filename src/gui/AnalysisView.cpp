@@ -718,8 +718,19 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         }
     }
     
-    // Set trigger index
-    if (triggerIndex < 0 || triggerIndex > totalFrames_) {
+    // Set trigger index. The scrub timeline is the LONGEST recording's frame
+    // domain (per-camera acquisition fps), but the index passed in / stored in
+    // the database is the PRIMARY camera's own frame index. Using it directly
+    // would land the playhead before/after the true trigger instant whenever
+    // those cameras differ (mixed-fps events) — which is why "Jump to Trigger"
+    // did not match the zero/trigger flag above the slider (that flag marks
+    // slider value 0, anchored at the timeline reader's own trigger instant).
+    // The timeline reader's own flagged trigger frame is the authoritative
+    // trigger in the timeline domain; keep the passed index only for legacy
+    // events without RAW metadata (shared-index behavior).
+    if (metadataTriggerIndex_ >= 0) {
+        triggerFrameIndex_ = metadataTriggerIndex_;
+    } else if (triggerIndex < 0 || triggerIndex > totalFrames_) {
         triggerFrameIndex_ = totalFrames_;
     } else {
         triggerFrameIndex_ = triggerIndex;
