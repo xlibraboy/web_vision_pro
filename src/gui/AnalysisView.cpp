@@ -121,29 +121,35 @@ static QPixmap makeVerticalTabPixmap(const QString& text, const QColor& color,
     return pm;
 }
 
-// Icon for the TRACKS edge control: the classic two-sheet "layers" glyph
-// (a small sheet over a wider one) — reads as the stacked signal tracks.
-static QPixmap makeLayersIconPixmap(const QColor& color, int w, int h) {
+// Icon for the TRACKS edge control: a smooth signal wave (two full cycles)
+// traced like the monitor readouts of the dashboard tracks below.
+static QPixmap makeWaveformIconPixmap(const QColor& color, int w, int h) {
+    constexpr double kPi = 3.14159265358979323846;
     QPixmap pm(w, h);
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(Qt::NoPen);
-    p.setBrush(color);
-    const qreal s = static_cast<qreal>(qMin(w, h));
-    const qreal cx = s / 2.0;
-    // Upper (front) sheet: flat diamond, narrower.
-    QPolygonF top;
-    const qreal topCy = s * 0.36, wTop = s * 0.60, hTop = s * 0.26;
-    top << QPointF(cx, topCy - hTop / 2) << QPointF(cx + wTop / 2, topCy)
-        << QPointF(cx, topCy + hTop / 2) << QPointF(cx - wTop / 2, topCy);
-    // Lower (back) sheet: wider flat diamond below it.
-    QPolygonF bot;
-    const qreal botCy = s * 0.72, wBot = s * 0.84, hBot = s * 0.36;
-    bot << QPointF(cx, botCy - hBot / 2) << QPointF(cx + wBot / 2, botCy)
-        << QPointF(cx, botCy + hBot / 2) << QPointF(cx - wBot / 2, botCy);
-    p.drawPolygon(bot);
-    p.drawPolygon(top);
+    QPen pen(color);
+    pen.setWidthF(qMax(1.4, h * 0.055));
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+    // Small, compact wave: it sits centered on the dashboard's top edge, so
+    // keep it modest (about 55% of the width, gentle amplitude).
+    const qreal padX = w * 0.225;
+    const qreal midY = h * 0.55;
+    const qreal amp = h * 0.16;
+    constexpr int kSteps = 72;
+    QPainterPath path;
+    for (int i = 0; i <= kSteps; ++i) {
+        const qreal t = 2.0 * 2.0 * kPi * i / kSteps;  // two full cycles
+        const qreal x = padX + (w - 2 * padX) * i / kSteps;
+        const qreal y = midY - amp * std::sin(t);
+        if (i == 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
+    }
+    p.drawPath(path);
     return pm;
 }
 
@@ -1864,10 +1870,10 @@ void AnalysisView::setupMainArea() {
     // Separate from TOOLS for clarity: one vertical edge tab per panel.
     tracksEdgeTab_ = new QLabel(mainArea_);
     tracksEdgeTab_->setObjectName("tracksEdgeTab");
-    tracksEdgeTab_->setFixedSize(26, 26);
+    tracksEdgeTab_->setFixedSize(34, 30);
     tracksEdgeTab_->setAlignment(Qt::AlignCenter);
     // No tooltip: the popup opens on hover already, so a tooltip would just
-    // flicker over the chip.
+    // flicker over the control.
     tracksEdgeTab_->setToolTip(QString());
     restyleTracksEdgeTab();
     tracksEdgeTab_->hide();
@@ -4531,18 +4537,13 @@ void AnalysisView::restyleTracksEdgeTab() {
         return;
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    const QString bg = tracksTabHovered_ ? QColor(tc.primary).darker(175).name() : tc.bg;
-    const QString border = tracksTabHovered_ ? tc.primary : tc.border;
-    // Round chip (radius = half the fixed 26 px size) so it reads as a tidy
-    // round control button on the stacks' corner.
-    tracksEdgeTab_->setStyleSheet(QString(
-        "QWidget#tracksEdgeTab { background-color: %1; border: 1px solid %2;"
-        " border-radius: 13px; }")
-        .arg(bg, border));
-    const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(140)
-                                        : QColor(tc.text).lighter(125);
-    tracksEdgeTab_->setPixmap(makeLayersIconPixmap(fg, tracksEdgeTab_->width(),
-                                                   tracksEdgeTab_->height()));
+    // Glyph only, no chip background — just the wave floating on the corner.
+    // Hover feedback is the color brightening to the primary hue.
+    tracksEdgeTab_->setStyleSheet(QStringLiteral("QWidget#tracksEdgeTab { background: transparent; }"));
+    const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(150)
+                                        : QColor(tc.text);
+    tracksEdgeTab_->setPixmap(makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
+                                                     tracksEdgeTab_->height()));
 }
 
 void AnalysisView::applyToolsPanelTheme() {
@@ -4792,25 +4793,33 @@ void AnalysisView::positionToolsPanel() {
                                    top + (panelH - tabH) / 2,
                                    tabW, tabH);
     }
-    // TRACKS chip: a small round button sitting on the stacks' top-right
-    // corner — vertically centered on the dashboard's top edge, slightly
-    // inside its right edge (half over the top signal row).
+    // TRACKS glyph control: floats at the stacks' top-right corner — vertically
+    // centered on the dashboard's top edge, slightly inside its right edge.
     if (tracksEdgeTab_) {
         const QPoint dashTopLeft = detailDashboard_
             ? detailDashboard_->mapTo(mainArea_, QPoint(0, 0)) : QPoint(0, 0);
         const int dashRight = dashTopLeft.x() + (detailDashboard_ ? detailDashboard_->width() : 0);
         const int dashTop = dashTopLeft.y();
-        const int chip = tracksEdgeTab_->width();
+        const int cw = tracksEdgeTab_->width();
+        const int ch = tracksEdgeTab_->height();
         const int inset = 5;
-        tracksEdgeTab_->setGeometry(dashRight - inset - chip,
-                                    dashTop - chip / 2,
-                                    chip, chip);
-        // TRACKS panel: drops down below the chip, right-aligned to the
-        // stacks' right edge so it never covers the video above.
+        tracksEdgeTab_->setGeometry(dashRight - inset - cw,
+                                    dashTop - ch / 2,
+                                    cw, ch);
+        // TRACKS panel: right-aligned to the stacks' right edge. Prefer below
+        // the control; when the stacks are collapsed (all tracks off) there is
+        // no room below, so flip it above instead. Always stays fully inside
+        // the page area [top, bottom].
         if (tracksPanel_) {
-            const int tx = dashRight - inset - tracksPanel_->width();
-            const int ty = dashTop + chip / 2 + 6;
-            tracksPanel_->setGeometry(tx, ty, tracksPanel_->width(), tracksPanel_->height());
+            const int panelW = tracksPanel_->width();
+            const int panelH = tracksPanel_->height();
+            const int tx = dashRight - inset - panelW;
+            int ty = dashTop + ch / 2 + 6;   // below the control
+            if (ty + panelH > bottom) {      // would overflow the page bottom
+                const int aboveTy = dashTop - ch / 2 - 6 - panelH;
+                ty = (aboveTy >= top) ? aboveTy : qMax(top, bottom - panelH);
+            }
+            tracksPanel_->setGeometry(tx, ty, panelW, panelH);
             tracksPanel_->raise();
         }
     }
