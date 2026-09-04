@@ -767,6 +767,9 @@ void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
     if (totalFrames_ > 0) {
         const int fIdx = frameIndexAtPos(event->pos());
         emit frameHovered(fIdx);
+        if (!hoverTooltipEnabled_) {
+            return;
+        }
         const double relSec = (fIdx - triggerIndex_) / fps_;
         QString tip = QStringLiteral("%1  frame %2  (%3%4s)")
                           .arg(cameraLabel_, QString::number(fIdx),
@@ -790,6 +793,13 @@ void EventDashboard::mouseMoveEvent(QMouseEvent* event) {
             }
         }
         QToolTip::showText(event->globalPos(), tip, this);
+    }
+}
+
+void EventDashboard::setHoverTooltipEnabled(bool on) {
+    hoverTooltipEnabled_ = on;
+    if (!on) {
+        QToolTip::hideText();
     }
 }
 

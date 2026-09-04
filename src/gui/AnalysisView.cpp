@@ -997,6 +997,9 @@ void AnalysisView::updateTracksEdgeTabVisibility() {
     if (!show && tracksPanel_) {
         tracksPanel_->hide();
         tracksTabHovered_ = false;
+        if (detailDashboard_) {
+            detailDashboard_->setHoverTooltipEnabled(true);
+        }
     }
 }
 
@@ -2787,6 +2790,9 @@ void AnalysisView::onTabChanged(int index) {
         tracksPanel_->hide();
         tracksTabHovered_ = false;
         restyleTracksEdgeTab();
+        if (detailDashboard_) {
+            detailDashboard_->setHoverTooltipEnabled(true);
+        }
     }
     if (rightToolsPanel_ && index != 1) {
         rightToolsPanel_->hide();
@@ -5433,6 +5439,11 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
             tracksPanel_->show();
             tracksPanel_->raise();
             tracksEdgeTab_->raise();
+            if (detailDashboard_) {
+                // Panel is up: silence the stacks' hover tooltip so it can't
+                // flicker around the open panel.
+                detailDashboard_->setHoverTooltipEnabled(false);
+            }
             if (!tracksTabHovered_) {
                 tracksTabHovered_ = true;
                 restyleTracksEdgeTab();
@@ -5449,6 +5460,9 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
                 }
                 panel->hide();
                 tracksTabHovered_ = false;
+                if (detailDashboard_) {
+                    detailDashboard_->setHoverTooltipEnabled(true);
+                }
                 restyleTracksEdgeTab();
             });
             return false;

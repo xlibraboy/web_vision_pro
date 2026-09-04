@@ -67,6 +67,10 @@ public:
     void setLoadingSignals(bool on);
     void setSignalProgress(int percent); // -1 = indeterminate
     void setLoadingThumbnails(bool on);
+    // When disabled, hovering the tracks no longer pops the frame/values
+    // tooltip (used while the TRACKS hover panel is open so its tooltip never
+    // fights the panel). Hover seeking is unaffected.
+    void setHoverTooltipEnabled(bool on);
     void clear();
     void applyTheme(const QColor& background, const QColor& curve,
                     const QColor& text);
@@ -140,6 +144,7 @@ private:
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;
+    bool hoverTooltipEnabled_ = true;
 
     QColor bgColor_ = QColor(QStringLiteral("#1B1B1F"));
     QColor curveColor_ = QColor(QStringLiteral("#4FC3F7"));
