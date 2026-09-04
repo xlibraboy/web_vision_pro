@@ -1052,6 +1052,45 @@ void MainWindow::setupCore() {
         }
     );
 
+    // Register PTP status callback (sampled with the temperature monitor) so
+    // the Live View tiles show each camera's IEEE 1588 clock state.
+    cameraManager_->registerPtpStatusCallback(
+        [this](int camId, const CameraManager::PtpStatus& ptp) {
+            QMetaObject::invokeMethod(this, [this, camId, ptp]() {
+                if (liveDashboard_) {
+                    liveDashboard_->updateCameraPtpStatus(camId, ptp);
+                }
+
+                // Offset threshold alert: warn on the status bar when a slave
+                // camera's offset from the PTP master exceeds 1 ms (the value
+                // Basler suggests as a "sufficiently synchronized" check). Fire
+                // on the rising edge only, and quietly clear once it recovers.
+                static constexpr int64_t kMaxPtpOffsetFromMasterNs = 1000000; // 1 ms
+                const bool overThreshold =
+                    ptp.available && ptp.enabled
+                    && ptp.state == QLatin1String("Slave")
+                    && ptp.offsetFromMasterNs > kMaxPtpOffsetFromMasterNs;
+                if (overThreshold) {
+                    if (!ptpOffsetAlertCameras_.contains(camId)) {
+                        ptpOffsetAlertCameras_.insert(camId);
+                        const double ms = static_cast<double>(ptp.offsetFromMasterNs) / 1e6;
+                        statusBar()->showMessage(
+                            QString("🟡 PTP OFFSET HIGH: Camera %1 is %2 ms from the master clock "
+                                    "(limit 1 ms) — check the PTP network/switch.")
+                                .arg(camId + 1).arg(ms, 0, 'f', 2),
+                            10000);
+                    }
+                } else {
+                    if (ptpOffsetAlertCameras_.remove(camId)) {
+                        statusBar()->showMessage(
+                            QString("PTP offset for Camera %1 is back to normal.").arg(camId + 1),
+                            5000);
+                    }
+                }
+            }, Qt::QueuedConnection);
+        }
+    );
+
     // Wire CameraManager into AnalysisView so the Diagnostic tab can poll live data
     if (analysisView_)
         analysisView_->setCameraManager(cameraManager_.get());

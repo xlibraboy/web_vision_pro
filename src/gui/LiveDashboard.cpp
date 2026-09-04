@@ -203,6 +203,13 @@ void LiveDashboard::updateCameraTemperature(int cameraId, double temp, TempStatu
     }
 }
 
+void LiveDashboard::updateCameraPtpStatus(int cameraId, const CameraManager::PtpStatus& status) {
+    if (cameraId >= 0 && cameraId < numCameras_ && cameraWidgets_[cameraId]) {
+        cameraWidgets_[cameraId]->setPtpStatus(status.available, status.enabled, status.state,
+                                               status.locked, status.offsetFromMasterNs);
+    }
+}
+
 void LiveDashboard::updateStatus(double fps, bool recording) {
     QString status = QString("Status: %1 | FPS: %2").arg(
         recording ? "<font color='red'>RECORDING</font>" : "Monitoring").arg(fps, 0, 'f', 1);

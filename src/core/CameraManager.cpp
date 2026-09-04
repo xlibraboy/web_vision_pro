@@ -364,6 +364,100 @@ bool tryWriteGainValue(GenApi::INodeMap& nodemap, double gain) {
 // Reads the full set of scout/SFNC device nodes into LiveDeviceSettings.
 // Safe against missing/read-protected nodes; each read is independently
 // guarded. Also resolves chunk enablement via ChunkSelector/ChunkEnable.
+// Reads the PTP (IEEE 1588) clock state from a camera nodemap. Basler models
+// expose either GevIEEE1588* nodes (scout/acA GigE class) or Ptp* nodes
+// (ace 2 / dart M). A GevIEEE1588DataSetLatch/PtpDataSetLatch command is fired
+// first so the read state values form one consistent snapshot. Every access is
+// isolated so an unsupported node never fails the whole read.
+void fillPtpStatusFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::PtpStatus& out) {
+    try {
+        // 1) Enabled flag: model-family dependent node name.
+        bool hasEnableNode = false;
+        {
+            GenApi::CBooleanPtr gev(nodemap.GetNode("GevIEEE1588"));
+            if (gev && GenApi::IsReadable(gev)) {
+                out.enabled = gev->GetValue();
+                hasEnableNode = true;
+            } else {
+                GenApi::CBooleanPtr ptp(nodemap.GetNode("PtpEnable"));
+                if (ptp && GenApi::IsReadable(ptp)) {
+                    out.enabled = ptp->GetValue();
+                    hasEnableNode = true;
+                }
+            }
+        }
+        if (!hasEnableNode) {
+            return;  // no IEEE 1588 support on this device (e.g. emulation)
+        }
+        out.available = true;
+
+        // 2) Latch a consistent snapshot before reading the dataset.
+        try {
+            GenApi::CCommandPtr latch(nodemap.GetNode("GevIEEE1588DataSetLatch"));
+            if (latch && GenApi::IsWritable(latch)) {
+                latch->Execute();
+            } else {
+                GenApi::CCommandPtr ptpLatch(nodemap.GetNode("PtpDataSetLatch"));
+                if (ptpLatch && GenApi::IsWritable(ptpLatch)) {
+                    ptpLatch->Execute();
+                }
+            }
+        } catch (...) {}
+
+        // 3) Port state (Slave / Master / Initializing / ...).
+        try {
+            GenApi::CEnumerationPtr st(nodemap.GetNode("GevIEEE1588Status"));
+            if (st && GenApi::IsReadable(st)) {
+                GenApi::IEnumEntry* entry = st->GetCurrentEntry();
+                if (entry) {
+                    out.state = QString::fromLatin1(entry->GetSymbolic().c_str());
+                }
+            }
+        } catch (...) {}
+
+        // 4) Servo lock indication (ace 2 / dart M).
+        try {
+            GenApi::CEnumerationPtr servo(nodemap.GetNode("PtpServoStatus"));
+            if (servo && GenApi::IsReadable(servo)) {
+                GenApi::IEnumEntry* e = servo->GetCurrentEntry();
+                if (e && QString::fromLatin1(e->GetSymbolic().c_str()) == QLatin1String("Locked")) {
+                    out.locked = true;
+                }
+            }
+        } catch (...) {}
+
+        // 5) Offset from master. Ticks convert to ns via the timestamp tick
+        // frequency (1 GHz = 1 ns per tick once PTP is enabled; scout GigE
+        // falls back to 125 MHz / 8 ns when the node is unreadable).
+        try {
+            GenApi::CIntegerPtr off(nodemap.GetNode("GevIEEE1588OffsetFromMaster"));
+            if (off && GenApi::IsReadable(off)) {
+                const int64_t ticks = off->GetValue();
+                double freqHz = 0.0;
+                GenApi::CIntegerPtr tf(nodemap.GetNode("GevTimestampTickFrequency"));
+                if (tf && GenApi::IsReadable(tf) && tf->GetValue() > 0) {
+                    freqHz = static_cast<double>(tf->GetValue());
+                }
+                out.offsetFromMasterNs = (freqHz > 0.0)
+                    ? static_cast<int64_t>(static_cast<double>(ticks) * 1000000000.0 / freqHz)
+                    : ticks;
+            }
+        } catch (...) {}
+
+        // 6) Clock identities (hex), for diagnostics/tooltips.
+        const auto readClockId = [&](const char* name, QString& target) {
+            try {
+                GenApi::CIntegerPtr n(nodemap.GetNode(name));
+                if (n && GenApi::IsReadable(n)) {
+                    target = QString("%1").arg(static_cast<qulonglong>(n->GetValue()), 16, 16, QChar('0'));
+                }
+            } catch (...) {}
+        };
+        readClockId("GevIEEE1588ClockId", out.clockId);
+        readClockId("GevIEEE1588ParentClockId", out.parentClockId);
+    } catch (...) {}
+}
+
 void fillLiveSettingsFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::LiveDeviceSettings& out) {
     const auto readEnum = [&](const char* name, QString& target) {
         try {
@@ -475,6 +569,8 @@ void fillLiveSettingsFromNodeMap(GenApi::INodeMap& nodemap, CameraManager::LiveD
     readString("DeviceVersion", out.deviceVersion);
     readString("DeviceFirmwareVersion", out.firmwareVersion);
     readString("DeviceID", out.deviceId);
+
+    fillPtpStatusFromNodeMap(nodemap, out.ptp);
 }
 
 double g_appStartFallbackFps = -1.0;  // captured once, on first rate mapping
@@ -1600,6 +1696,25 @@ CameraManager::LiveDeviceSettings CameraManager::readLiveDeviceSettings(int conf
     return out;
 }
 
+CameraManager::PtpStatus CameraManager::readPtpStatus(int configArrayIndex) {
+    PtpStatus out;
+    Pylon::CInstantCamera* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !camera->IsPylonDeviceAttached() || !camera->IsOpen()) {
+        return out;
+    }
+    try {
+        // Serialize with grab-thread chunk extraction (which holds paramMutex_
+        // during GenApi access): this camera family corrupts its GenApi heap
+        // under concurrent node-map access.
+        std::lock_guard<std::mutex> lock(paramMutex_);
+        fillPtpStatusFromNodeMap(camera->GetNodeMap(), out);
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] readPtpStatus failed for index "
+                  << configArrayIndex << ": " << e.GetDescription() << std::endl;
+    }
+    return out;
+}
+
 void CameraManager::applyLiveExposureRate(int configArrayIndex, const CameraInfo& info) {
     // Runtime path: camera attached to the acquisition runtime.
     if (Pylon::CInstantCamera* camera = getCameraByConfigIndex(configArrayIndex)) {
@@ -2287,6 +2402,14 @@ void CameraManager::temperatureMonitorLoop() {
 
             double temp = getTemperature(cfgIdx);
             TemperatureStatus status = classifyTemperature(temp);
+
+            // PTP clock state: fire on every cycle so the UI badge stays fresh
+            // (state changes rarely, but the master offset drifts continuously
+            // and a camera going offline must clear its badge).
+            if (ptpStatusCallback_) {
+                const PtpStatus ptp = readPtpStatus(cfgIdx);
+                ptpStatusCallback_(cfgIdx, ptp);
+            }
 
             // Resize tracking vector if needed
             if (cfgIdx >= (int)prevTempStatus_.size()) {

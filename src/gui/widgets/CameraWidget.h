@@ -49,11 +49,19 @@ private:
     // Temperature badge
     double tempValue_ = -1.0;
     TempStatus::Status tempStatus_ = TempStatus::Unknown;
+    // PTP (IEEE 1588) state badge
+    bool ptpAvailable_ = false;
+    bool ptpEnabled_ = false;
+    bool ptpLocked_ = false;
+    QString ptpState_;
+    int64_t ptpOffsetFromMasterNs_ = -1;
 
 public:
     void setOverlayText(const QString& text);
     void setOverlayFont(const QFont& font);
     void setTemperatureStatus(double temp, TempStatus::Status status);
+    void setPtpStatus(bool available, bool enabled, const QString& state,
+                      bool locked, int64_t offsetFromMasterNs);
     void setPreviewThemeColors(const ThemeColors& themeColors);
     void clearPreviewThemeColors();
     void setPreviewBackgroundStyle(const QString& backgroundStyle);

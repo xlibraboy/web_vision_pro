@@ -343,6 +343,50 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         painter.setPen(Qt::white);
         painter.drawText(badgeRect, Qt::AlignCenter, tempStr);
     }
+
+    // === PTP State Badge (bottom-left corner) ===
+    // Compact readout of the camera's IEEE 1588 clock state. Shown whenever the
+    // camera exposes PTP nodes: the role (SLAVE/MASTER), a dim OFF state, or an
+    // amber SYNC while the clock is still settling. Hidden on emulation/no-PTP.
+    if (ptpAvailable_) {
+        QString ptpText;
+        QColor ptpColor;
+        if (!ptpEnabled_ || ptpState_.isEmpty()) {
+            ptpText = "PTP OFF";
+            ptpColor = QColor(140, 140, 140);
+        } else if (ptpState_ == QLatin1String("Slave")) {
+            ptpText = "PTP SLAVE";
+            ptpColor = QColor("#2EA043");
+        } else if (ptpState_ == QLatin1String("Master")) {
+            ptpText = "PTP MASTER";
+            ptpColor = QColor("#58A6FF");
+        } else if (ptpState_ == QLatin1String("Faulty")
+                   || ptpState_ == QLatin1String("Disabled")) {
+            ptpText = (ptpState_ == QLatin1String("Faulty")) ? "PTP FAULT" : "PTP OFF";
+            ptpColor = (ptpState_ == QLatin1String("Faulty")) ? QColor("#ff4444") : QColor(140, 140, 140);
+        } else {
+            ptpText = "PTP SYNC";  // Initializing / Listening / Passive / ...
+            ptpColor = QColor("#ff9900");
+        }
+
+        QFont ptpFont = painter.font();
+        ptpFont.setPixelSize(10);
+        ptpFont.setBold(true);
+        painter.setFont(ptpFont);
+
+        QFontMetrics ptpFm(ptpFont);
+        int ptpW = ptpFm.horizontalAdvance(ptpText) + 8;
+        int ptpH = ptpFm.height() + 4;
+        QRect ptpBadgeRect(contentRect.left() + 5,
+                           contentRect.bottom() - ptpH - 5,
+                           ptpW, ptpH);
+
+        painter.setBrush(ptpColor);
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(ptpBadgeRect, 3, 3);
+        painter.setPen(Qt::white);
+        painter.drawText(ptpBadgeRect, Qt::AlignCenter, ptpText);
+    }
 }
 
 void CameraWidget::setOverlayText(const QString& text) {
@@ -358,6 +402,16 @@ void CameraWidget::setOverlayFont(const QFont& font) {
 void CameraWidget::setTemperatureStatus(double temp, TempStatus::Status status) {
     tempValue_  = temp;
     tempStatus_ = status;
+    update();  // Repaint to show updated badge
+}
+
+void CameraWidget::setPtpStatus(bool available, bool enabled, const QString& state,
+                                bool locked, int64_t offsetFromMasterNs) {
+    ptpAvailable_ = available;
+    ptpEnabled_ = enabled;
+    ptpState_ = state;
+    ptpLocked_ = locked;
+    ptpOffsetFromMasterNs_ = offsetFromMasterNs;
     update();  // Repaint to show updated badge
 }
 

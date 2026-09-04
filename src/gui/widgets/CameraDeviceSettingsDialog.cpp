@@ -531,6 +531,8 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
     statusIpLabel_->setStyleSheet(QString("font-size: 11px; color: %1; font-family: 'SF Mono', Monaco, monospace; ").arg(pal.muted) + rowPill);
     statusTempLabel_ = new QLabel(statusCard_);
     statusTempLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
+    statusPtpLabel_ = new QLabel(statusCard_);
+    statusPtpLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
 
     QFrame* cardSep = new QFrame(statusCard_);
     cardSep->setFrameShape(QFrame::HLine);
@@ -547,6 +549,7 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
     cardLayout->addWidget(statusModelLabel_);
     cardLayout->addWidget(statusIpLabel_);
     cardLayout->addWidget(statusTempLabel_);
+    cardLayout->addWidget(statusPtpLabel_);
     cardLayout->addWidget(runStateBtn_);
     sideLayout->addWidget(statusCard_);
 
@@ -1187,6 +1190,57 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
             QString("<span style='color:%1;'>Temp</span>  "
                     "<span style='color:%2;'>—</span>")
                 .arg(pal.muted, pal.disabled));
+    }
+
+    // PTP row — IEEE 1588 clock state from the live device read. Slave shows
+    // the current offset from the master; transitional states (Initializing /
+    // Listening / Passive / ...) read "Syncing".
+    const auto ptpOffsetText = [](int64_t ns) -> QString {
+        if (ns < 0) return QString();
+        if (ns >= 1000000) return QString("%1 ms").arg(static_cast<double>(ns) / 1e6, 0, 'f', 2);
+        if (ns >= 1000) return QString("%1 µs").arg(static_cast<double>(ns) / 1e3, 0, 'f', 1);
+        return QString("%1 ns").arg(ns);
+    };
+    {
+        const CameraManager::PtpStatus& ptp = liveSettings_.ptp;
+        QString ptpText;
+        QString ptpColor;
+        if (!ptp.available) {
+            ptpText = "—";
+            ptpColor = pal.disabled;
+        } else if (!ptp.enabled || ptp.state.isEmpty()) {
+            ptpText = "Off";
+            ptpColor = pal.disabled;
+        } else if (ptp.state == QLatin1String("Slave")) {
+            const QString off = ptp.offsetFromMasterNs >= 0
+                ? QString(" · %1").arg(ptpOffsetText(ptp.offsetFromMasterNs)) : QString();
+            ptpText = QString("Slave%1").arg(off);
+            ptpColor = "#2EA043";
+        } else if (ptp.state == QLatin1String("Master")) {
+            ptpText = "Master";
+            ptpColor = "#58A6FF";
+        } else if (ptp.state == QLatin1String("Faulty")) {
+            ptpText = "Fault";
+            ptpColor = "#FF5A5A";
+        } else {
+            ptpText = "Syncing…";  // Initializing / Listening / Pre_Master / Passive / Uncalibrated
+            ptpColor = "#E0A800";
+        }
+        statusPtpLabel_->setText(
+            QString("<span style='color:%1;'>PTP</span>  "
+                    "<span style='color:%2;'>%3</span>")
+                .arg(pal.muted, ptpColor, ptpText));
+        QString tip;
+        if (!ptp.clockId.isEmpty()) {
+            tip = QString("PTP clock: %1").arg(ptp.clockId);
+        }
+        if (!ptp.parentClockId.isEmpty()) {
+            if (!tip.isEmpty()) tip += QStringLiteral("  ·  ");
+            tip += QString("Master clock: %1").arg(ptp.parentClockId);
+        }
+        if (!tip.isEmpty()) {
+            statusPtpLabel_->setToolTip(tip);
+        }
     }
 
     // Run-state button

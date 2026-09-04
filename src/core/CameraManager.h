@@ -208,6 +208,22 @@ public:
     bool loadParameters(int configArrayIndex);
     void saveParametersForAll(const std::vector<CameraInfo>& cameras);
 
+    // PTP (IEEE 1588) clock state read from a camera. available=false when the
+    // camera exposes no IEEE 1588 nodes (e.g. emulation); enabled=false when
+    // GevIEEE1588/PtpEnable reads false. state holds the latched port-state
+    // symbolic (Slave, Master, Initializing, Listening, ...).
+    struct PtpStatus {
+        bool available = false;          // camera exposes IEEE 1588 nodes
+        bool enabled = false;            // PTP clock synchronization switched on
+        bool locked = false;             // servo locked (PtpServoStatus=Locked)
+        QString state;                   // GevIEEE1588Status symbolic (e.g. "Slave")
+        int64_t offsetFromMasterNs = -1; // |offset| from the master (ns), -1 = n/a
+        QString clockId;                 // this camera's PTP clock id (hex)
+        QString parentClockId;           // grandmaster clock id (hex), empty when master
+    };
+    using PtpStatusCallback = std::function<void(int camId, const PtpStatus& status)>;
+    void registerPtpStatusCallback(PtpStatusCallback cb) { ptpStatusCallback_ = cb; }
+
     // Live device settings read from the camera itself (Basler scout nodes).
     // Prefers the attached runtime camera; falls back to a direct GigE open
     // by the configured MAC/IP when the camera is on the network but not
@@ -236,8 +252,14 @@ public:
         QString firmwareVersion;
         QString deviceId;
         QString ipAddress;
+        PtpStatus ptp;                 // PTP clock state (latched read)
     };
     LiveDeviceSettings readLiveDeviceSettings(int configArrayIndex, bool allowDirectOpen = true);
+
+    // Runtime-attached PTP clock state for a camera (IEEE 1588). Never opens
+    // the device directly: used by the low-frequency background sampler so a
+    // polling cycle cannot block on a network open.
+    PtpStatus readPtpStatus(int configArrayIndex);
 
     // Live exposure/rate writes (no acquisition stop required). Uses the
     // attached runtime camera, or opens the configured device directly when
@@ -316,6 +338,7 @@ private:
     TempAlertCallback tempAlertCallback_;
     // Tracks previous status per camera to avoid redundant alerts
     std::vector<TemperatureStatus> prevTempStatus_;
+    PtpStatusCallback ptpStatusCallback_;
 
     FrameCallback callback_;
     std::mutex callbackMutex_;

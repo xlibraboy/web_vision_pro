@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QMutex>
 #include <QFutureWatcher>
+#include <QSet>
 #include <atomic>
 
 #include "LiveDashboard.h"
@@ -95,6 +96,9 @@ private:
     bool isAdmin_ = false;
     bool cameraLifecycleInProgress_ = false;
     QFutureWatcher<bool>* cameraLifecycleWatcher_ = nullptr;
+    // Cameras currently flagged with an excessive PTP offset (alert active), so
+    // the status-bar warning fires on the rising edge, not every poll.
+    QSet<int> ptpOffsetAlertCameras_;
     
     // Core
     std::unique_ptr<CameraManager> cameraManager_;

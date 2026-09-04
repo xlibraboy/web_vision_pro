@@ -116,6 +116,7 @@ private:
     QLabel* statusModelLabel_;
     QLabel* statusIpLabel_;
     QLabel* statusTempLabel_;
+    QLabel* statusPtpLabel_;
     QPushButton* runStateBtn_;
     QPushButton* applyBtn_;
     QPushButton* applyStagedBtn_;

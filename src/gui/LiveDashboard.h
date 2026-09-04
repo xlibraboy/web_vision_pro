@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include "../core/TemperatureStatus.h"
+#include "../core/CameraManager.h"
 
 class LiveDashboard : public QWidget {
     Q_OBJECT
@@ -30,6 +31,9 @@ public:
     
     // Update temperature badge on a specific camera tile
     void updateCameraTemperature(int cameraId, double temp, TempStatus::Status status);
+
+    // Update the PTP (IEEE 1588) clock-state badge on a specific camera tile
+    void updateCameraPtpStatus(int cameraId, const CameraManager::PtpStatus& status);
     
     // Update status labels
     void updateStatus(double fps, bool recording);
