@@ -100,6 +100,12 @@ src/
 - Saves as custom `.bin` raw format (speed) + `.json` metadata
 - `EventDatabase` indexes events, manages retention (permanent/non-permanent)
 
+### Sheet-Break (Trigger) Sensor Semantics
+- Sheet-break sensors are **through-beam IR pairs** (transmitter on one side, receiver across the web). The running sheet blocks the beam, so normal running reads **False** ("sheet on"); when no sheet is at the beam the receiver sees the transmitter and the tag reads **True** — TRUE means *sheet absent at this beam location*, not "the web tore".
+- The system starts recording on the **first True while idle**: `EventController::triggerEvent` refuses to start while an event is already recording (the `triggering_` guard) and each tag debounces with its own `minimumIntervalMs`, so one break produces one event from the sensor that saw it first. The fired sensor's `positionMm` becomes the event's `triggerPositionMm` (used to center capture windows).
+- A fixed-point detector only observes its own spot: a break **upstream** of the beam is detected only when the tail (trailing edge of the still-running downstream sheet) clears the beam — delayed by (sensor position − break point) / machine speed. The pre-trigger RAM buffer (~10 s) bounds how far upstream a break can still be captured completely.
+- Coverage rule: at least one sensor per machine section, mounted near where that section actually breaks. The Wire group has **0** sensors today — a wire break is a blind zone, caught only when the tail reaches the Press-Part sensor, by which time upstream cameras may have rolled past it in their pre-trigger buffers.
+
 ### OPC UA Integration
 - `OpcUaClientService` connects to an OPC UA server via QtOpcUa 5.15.2 (open62541 backend)
 - ConfigDialog auto-detects discoverable endpoints when opened; manual "Detect Server" scan; falls back to manual endpoint entry
@@ -114,7 +120,7 @@ src/
 - **Mark-based sync (primary, ground truth)**: in review mode, scrub to the defect on a camera and press **Mark Defect** (TOOLS panel → DEFECT ALIGN). Mark the same defect on ≥2 cameras, then press **Align** — per-camera offsets are computed purely from the marks (mean of k-th mark-pair differences, timestamp-mapped to the shared timeline). No machine context (speeds, positions) is required for this path.
 - **Speed/position fallback** (used for unmarked cameras, or when <2 cameras carry marks): offset = (Δmm between camera and reference camera) × frames-per-mm, using the local speed interpolated from the event's speed anchors. Requires camera positions (mm) and at least one valid speed snapshot per event.
 - **Speed anchors**: each fresh OPC UA speed tag with a position becomes an anchor `{positionMm, speed}` at trigger time; `SpeedProfile::speedAt` interpolates linearly between anchors, so drive draw is compensated. 0 anchors → single global speed (draw ignored); ~1 anchor per drive section (2–5 total) gives good fallback accuracy — the full 36-drive reference list is not required.
-- **Trigger sensor positions** are used only at capture time (`EventController::triggerPositionMm`): when set (>0) with a valid speed, each camera's recording window is centered on when the defect passes it. They do not feed review-time alignment.
+- **Trigger sensor positions** are used only at capture time (`EventController::triggerPositionMm` — the position of the sensor whose first-True started the event): when set (>0) with a valid speed, each camera's recording window is centered on when the defect passes it. They do not feed review-time alignment (see Sheet-Break (Trigger) Sensor Semantics above).
 - **Mark Defect feedback**: every click shows a transient banner (marked / already marked / not available); the button is visibly disabled outside review mode or without a selected camera, and its enabled state refreshes on camera changes.
 
 ### Configuration
