@@ -441,6 +441,10 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
       currentFrame_(0), totalFrames_(1000), playbackSpeed_(1.0), triggerFrameIndex_(0),
       isStreamingMode_(false), baseWidth_(782), baseHeight_(582) {
     
+    // Accept keyboard focus so media-player keys (Left/Right step, Space
+    // play/pause) work even when the user clicks an empty area of the view.
+    setFocusPolicy(Qt::StrongFocus);
+    
     // Readers initialized per camera dynamically
     
     // Setup playback timer
@@ -765,6 +769,10 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
 
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
+
+    // Hand keyboard control to the media player (Left/Right step, Space
+    // play/pause) right away instead of waiting for the first click.
+    setFocus();
 }
 
 namespace {
@@ -2050,6 +2058,18 @@ void AnalysisView::setupPlaybackControls() {
     speedMenu_->addAction("Fast (2.0x)")->setData(2.0);
     speedButton_->setMenu(speedMenu_);
     connect(speedMenu_, &QMenu::triggered, this, &AnalysisView::onSpeedChanged);
+    // After the speed menu closes (selection or Esc), keyboard focus lands back
+    // on the menu button, which would swallow the media-player keys (Space
+    // re-opens the menu, arrows do nothing visible). Hand focus back to the
+    // view once the popup is gone — unless the user clicked another widget,
+    // whose focus Qt has already set.
+    connect(speedMenu_, &QMenu::aboutToHide, this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
+            if (QApplication::focusWidget() == speedButton_) {
+                setFocus();
+            }
+        });
+    });
     // Compact dropdown: small font, tight rows, readable accent highlight.
     speedMenu_->setStyleSheet(QString(
         "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: 11px; }"
@@ -2115,6 +2135,9 @@ void AnalysisView::setupPlaybackControls() {
     connect(playbackSlider_, &QSlider::valueChanged, this, &AnalysisView::onSliderValueChanged);
     playbackSlider_->setStyleSheet(makePlaybackSliderStyle(tc));
     toolbarLayout->addWidget(playbackSlider_, 1); // Stretch factor 1
+    // Route media-player keys (Left/Right step, Space play/pause) through the
+    // view even when the slider holds focus after scrubbing.
+    playbackSlider_->installEventFilter(this);
 
     // Zero/trigger marker: a small flag sitting in the flag strip ABOVE the
     // slider — never on the scrubbing line itself, so it can't be mistaken for
@@ -3312,6 +3335,9 @@ void AnalysisView::startReview(const QString& path, int triggerIndex) {
         onSliderMoved(0); 
         
         updatePlaybackControlsState();
+        // Media-player keys (Left/Right step, Space play/pause) work
+        // immediately once the review is shown.
+        setFocus();
         return;
     }
 
@@ -5264,20 +5290,85 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
             return true;
         }
     }
+    // Media-player keys on the scrub slider: after scrubbing, the slider keeps
+    // keyboard focus and would swallow Left/Right (nudging its own value by a
+    // single unit) and let Space fall through unused. Route them to the same
+    // handlers as AnalysisView::keyPressEvent so stepping and play/pause work
+    // no matter which control the user last clicked. setStepButtonDown() mirrors
+    // the toolbar button's visual state for keyboard-driven stepping.
+    if (watched == playbackSlider_ && event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Left) {
+            if (prevButton_) prevButton_->setDown(true);
+            onPreviousPressed();
+            onPreviousReleased();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Right) {
+            if (nextButton_) nextButton_->setDown(true);
+            onNextPressed();
+            onNextReleased();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Space) {
+            onPlayPauseClicked();
+            return true;
+        }
+    }
+    // Clear the keyboard-pressed visuals when the key is released over the
+    // slider (its KeyRelease would otherwise vanish inside the slider).
+    if (watched == playbackSlider_ && event->type() == QEvent::KeyRelease) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Left && prevButton_) {
+            prevButton_->setDown(false);
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Right && nextButton_) {
+            nextButton_->setDown(false);
+            return true;
+        }
+    }
     return QWidget::eventFilter(watched, event);
 }
 
 void AnalysisView::keyPressEvent(QKeyEvent* event) {
+    // Media-player keyboard control: Left/Right step one frame (or more at
+    // higher speeds), Space toggles play/pause. Works whenever focus reaches
+    // this widget; children that consume keys themselves (e.g. the scrub
+    // slider) are handled in eventFilter().
     if (event->key() == Qt::Key_Left) {
+        // Mirror the pressed look of the Step Back button while the key is
+        // held (repeated KeyPress events keep it down; keyReleaseEvent clears
+        // it), so keyboard stepping gives the same feedback as Space on Play.
+        if (prevButton_) prevButton_->setDown(true);
         onPreviousPressed();
         onPreviousReleased(); // Simulate single step
         event->accept();
     } else if (event->key() == Qt::Key_Right) {
+        if (nextButton_) nextButton_->setDown(true);
         onNextPressed();
         onNextReleased(); // Simulate single step
         event->accept();
+    } else if (event->key() == Qt::Key_Space) {
+        onPlayPauseClicked();
+        event->accept();
     } else {
         QWidget::keyPressEvent(event);
+    }
+}
+
+void AnalysisView::keyReleaseEvent(QKeyEvent* event) {
+    // Release the keyboard-driven pressed visuals when the user lets go of the
+    // step key (arrives here when focus is on this view or via parent-chain
+    // propagation from child widgets that don't consume the arrow keys).
+    if (event->key() == Qt::Key_Left) {
+        if (prevButton_) prevButton_->setDown(false);
+        event->accept();
+    } else if (event->key() == Qt::Key_Right) {
+        if (nextButton_) nextButton_->setDown(false);
+        event->accept();
+    } else {
+        QWidget::keyReleaseEvent(event);
     }
 }
 

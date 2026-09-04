@@ -15,6 +15,10 @@ AnalysisVideoWidget::AnalysisVideoWidget(int cameraId, const QString& title, QWi
     
     setMinimumSize(160, 120);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // Take focus on click so unhandled keys (e.g. Left/Right step, Space
+    // play/pause) bubble up the parent chain to AnalysisView, making the
+    // media-player shortcuts work right after clicking a video.
+    setFocusPolicy(Qt::ClickFocus);
     // Background is handled by QPainter in paintEvent; let the global theme set
     // the widget background via QSS inheritance.
 }
