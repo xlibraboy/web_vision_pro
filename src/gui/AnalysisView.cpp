@@ -884,8 +884,8 @@ void AnalysisView::setupEventDashboards() {
                 ? static_cast<int>(100LL * scanned / totalSteps) : -1;
             dashProgressPercent_ = pct;
             detailDashboard_->setSignalProgress(pct);
-            if (dashProgressBar_ && dashProgressBar_->isVisible() && pct >= 0) {
-                dashProgressBar_->setValue(pct);
+            if (dashLoadingLabel_ && dashLoadingLabel_->isVisible() && pct >= 0) {
+                dashLoadingLabel_->setText(QStringLiteral("Analyzing event… %1%").arg(pct));
             }
         });
     }
@@ -929,16 +929,15 @@ void AnalysisView::updateDashboardLoadingState() {
         && thumbCamPending_ == currentDashCam_;
     detailDashboard_->setLoadingThumbnails(thumbsLoading);
 
-    if (dashProgressBar_) {
+    if (dashLoadingLabel_) {
+        // Text-only status — the phase (and running percentage when known)
+        // without a bar graphic.
         if (scanPending) {
-            dashProgressBar_->setFormat(QStringLiteral("Analyzing event… %p%"));
-            dashProgressBar_->setRange(0, 100);
-            dashProgressBar_->setValue(std::max(0, dashProgressPercent_));
+            dashLoadingLabel_->setText(dashProgressPercent_ >= 0
+                ? QStringLiteral("Analyzing event… %1%").arg(dashProgressPercent_)
+                : QStringLiteral("Analyzing event…"));
         } else if (thumbsLoading) {
-            // Indeterminate busy phase (range 0-0): show a stable label instead
-            // of a meaningless percentage.
-            dashProgressBar_->setFormat(QStringLiteral("Preparing preview…"));
-            dashProgressBar_->setRange(0, 0);
+            dashLoadingLabel_->setText(QStringLiteral("Preparing preview…"));
         }
     }
     updateDashboardVisibility(scanPending || thumbsLoading);
@@ -950,8 +949,8 @@ void AnalysisView::updateDashboardVisibility(bool loading) {
     }
     const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
     detailDashboard_->setVisible(!loading && toggleOn);
-    if (dashProgressBar_) {
-        dashProgressBar_->setVisible(loading && toggleOn);
+    if (dashLoadingLabel_) {
+        dashLoadingLabel_->setVisible(loading && toggleOn);
     }
     updateTracksEdgeTabVisibility();
 }
@@ -1527,13 +1526,17 @@ void AnalysisView::setupMainArea() {
     singleLayout->addWidget(detailDashboard_);
 
     // Load gate: occupies the dashboard's slot while the event's signals +
-    // thumbnails are still being scanned after a trigger.
-    dashProgressBar_ = new QProgressBar(singleCameraTab_);
-    dashProgressBar_->setRange(0, 100);
-    dashProgressBar_->setTextVisible(true);
-    dashProgressBar_->setFormat(QStringLiteral("Analyzing event… %p%"));
-    dashProgressBar_->hide();
-    singleLayout->addWidget(dashProgressBar_);
+    // thumbnails are still being scanned after a trigger. Text only — no
+    // progress bar, just the running status ("Analyzing event… 42%").
+    dashLoadingLabel_ = new QLabel(QStringLiteral("Analyzing event…"), singleCameraTab_);
+    dashLoadingLabel_->setAlignment(Qt::AlignCenter);
+    QFont dashLoadFont = dashLoadingLabel_->font();
+    dashLoadFont.setPixelSize(13);
+    dashLoadingLabel_->setFont(dashLoadFont);
+    dashLoadingLabel_->setStyleSheet(QStringLiteral("background: transparent; color: %1;")
+        .arg(QColor(CameraConfig::getThemeColors().text).name()));
+    dashLoadingLabel_->hide();
+    singleLayout->addWidget(dashLoadingLabel_);
 
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
@@ -4556,20 +4559,11 @@ void AnalysisView::applyToolsPanelTheme() {
             "QCheckBox { color: %3; font-size: 11px; }")
             .arg(tc.bg, tc.border, tc.text));
     }
-    if (dashProgressBar_) {
-        // Polished "well" look that sits with the event dashboard: a recessed
-        // dark track (plot-area shade) and the primary fill as a soft vertical
-        // gradient pill with rounded ends, inset from the rim so the fill
-        // never bleeds to the bar's border.
-        const QColor track = QColor(tc.btnBg).darker(120);
-        const QColor hi = QColor(tc.primary).lighter(130);
-        dashProgressBar_->setStyleSheet(QString(
-            "QProgressBar { background: %1; color: %2; border: none;"
-            " border-radius: 8px; text-align: center; font-size: 10px;"
-            " font-weight: 700; min-height: 16px; max-height: 16px; }"
-            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            " stop:0 %3, stop:1 %4); border-radius: 6px; margin: 2px; }")
-            .arg(track.name(), tc.text, hi.name(), tc.primary));
+    if (dashLoadingLabel_) {
+        // Text-only load status (no bar) — keep the label readable in both
+        // light/dark themes.
+        dashLoadingLabel_->setStyleSheet(QStringLiteral("background: transparent; color: %1;")
+            .arg(QColor(tc.text).name()));
     }
     if (markerShapeCombo_) {
         markerShapeCombo_->setStyleSheet(QString(

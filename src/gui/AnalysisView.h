@@ -529,8 +529,9 @@ private:
     // Event dashboard (prototype): single-camera time-series + thumbnails.
     class EventDashboard* detailDashboard_ = nullptr;   // Camera tab, below video
     // Load gate: while the signal scan / thumbnails run after a trigger, the
-    // dashboard is hidden and a progress bar occupies its layout slot.
-    QProgressBar* dashProgressBar_ = nullptr;
+    // dashboard is hidden and a text-only status label occupies its layout
+    // slot (e.g. "Analyzing event… 42%" — no bar).
+    QLabel* dashLoadingLabel_ = nullptr;
     int dashProgressPercent_ = -1;
     // TRACKS hover edge tab + panel: per-region show/hide for the dashboard's
     // five stacked tracks (same interaction pattern as the TOOLS tab).
