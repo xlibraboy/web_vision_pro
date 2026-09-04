@@ -296,7 +296,8 @@ static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
         "}"
         "QPushButton:hover { background-color: %3; border-color: %3; }"
         "QPushButton:pressed { background-color: %4; color: %5; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border, tc.text);
+        "QPushButton:disabled { background-color: %6; color: %7; border-color: %7; }"
+    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border, tc.text, tc.btnBg, tc.border);
 }
 
 static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checkedHighlight = false) {
@@ -2763,6 +2764,9 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     if (isReviewMode_) {
         renderCurrentReviewFrame(false);
     }
+    // Camera selection changed: refresh the Mark Defect enable state so it can
+    // never lag behind (e.g. after a programmatic camera switch).
+    updatePlaybackControlsState();
     // Diagnostic tab is now a standalone all-camera table; no per-camera rebuild needed.
 }
 
@@ -4883,11 +4887,20 @@ QVector<int> AnalysisView::defectMarksForCamera(int camIndex) const {
 }
 
 void AnalysisView::markDefectForSelectedCamera() {
-    if (!isReviewMode_ || selectedCameraId_ < 0) {
+    // The button is disabled outside review mode / without a selected camera
+    // (updatePlaybackControlsState), but keep the guards for safety and tell
+    // the user why instead of silently doing nothing.
+    if (!isReviewMode_) {
+        showMarkFeedback("Mark Defect is only available while reviewing an event", false);
+        return;
+    }
+    if (selectedCameraId_ < 0) {
+        showMarkFeedback("Select a camera first, then Mark Defect", false);
         return;
     }
     const int frame = displayedFrameIndexForCamera(selectedCameraId_, currentReviewFrameIndex());
     QVector<int> frames = defectMarksForCamera(selectedCameraId_);
+    bool added = false;
     if (!frames.contains(frame)) {
         frames.append(frame);
         QJsonArray arr;
@@ -4896,9 +4909,55 @@ void AnalysisView::markDefectForSelectedCamera() {
         }
         defectMarks_[QString("cam%1").arg(selectedCameraId_ + 1)] = arr;
         saveEventAnnotations();
+        added = true;
     }
     updateAnnotationSliderMarkers();
     updateAlignmentStatus();
+    const int relativeFrame = frame - triggerFrameIndex_;
+    const double relativeSeconds = relativeSecondsForFrameIndex(frame);
+    const QString at = QString("%1%2 s")
+        .arg(relativeSeconds >= 0.0 ? "+" : "")
+        .arg(relativeSeconds, 0, 'f', 3);
+    if (added) {
+        showMarkFeedback(QString("Marked Camera %1 @ frame %2 (%3)")
+            .arg(selectedCameraId_ + 1).arg(relativeFrame).arg(at), true);
+    } else {
+        showMarkFeedback(QString("Camera %1 already marked @ frame %2 (%3)")
+            .arg(selectedCameraId_ + 1).arg(relativeFrame).arg(at), true);
+    }
+}
+
+void AnalysisView::showMarkFeedback(const QString& text, bool success) {
+    if (!markFeedbackBanner_) {
+        markFeedbackBanner_ = new QLabel(this);
+        // Pure overlay: never intercepts mouse events meant for the video.
+        markFeedbackBanner_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        markFeedbackBanner_->hide();
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const QColor accent = success ? QColor(tc.primary) : QColor("#ff6b6b");
+    markFeedbackBanner_->setStyleSheet(QString(
+        "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
+        " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
+        " font-size: 13px; font-weight: 700; }").arg(
+            accent.lighter(175).name(), accent.name()));
+    markFeedbackBanner_->setText(text);
+    markFeedbackBanner_->adjustSize();
+    // Top-center over the video area (same anchor as the camera-key banner).
+    const QPoint anchor = mainArea_
+        ? mainArea_->mapTo(this, QPoint(mainArea_->width() / 2, 70))
+        : QPoint(width() / 2, 70);
+    int x = anchor.x() - markFeedbackBanner_->width() / 2;
+    x = qBound(8, x, width() - markFeedbackBanner_->width() - 8);
+    markFeedbackBanner_->move(x, qBound(8, anchor.y(), height() - markFeedbackBanner_->height() - 8));
+    markFeedbackBanner_->show();
+    markFeedbackBanner_->raise();
+    QPointer<QLabel> banner = markFeedbackBanner_;
+    QTimer::singleShot(2000, this, [banner]() {
+        if (banner) {
+            banner->hide();
+        }
+    });
 }
 
 bool AnalysisView::tryAlignToMarks() {

@@ -220,6 +220,10 @@ private:
     // falls back to the first reader, then CameraConfig, then 10.
     double timelineFps() const;
     void markDefectForSelectedCamera();
+    // Transient overlay banner so every Mark Defect click gets a visible
+    // response (success / already marked / action not available).
+    QLabel* markFeedbackBanner_ = nullptr;
+    void showMarkFeedback(const QString& text, bool success);
     void applyCameraAlignment();
     // Align cameras using placed defect marks as ground truth (needs >= 2 marked
     // cameras in this event). Returns false to let applyCameraAlignment fall back

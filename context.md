@@ -53,6 +53,7 @@ src/
 │   ├── EventController.h/cpp         # Circular buffer per camera, event recording to .bin
 │   ├── EventDatabase.h/cpp           # Event metadata registry, JSON persistence, retention
 │   ├── VideoStreamReader.h/cpp       # Reads .bin raw frames for playback
+│   ├── SpeedProfile.h/cpp            # Local machine-speed interpolation between anchors
 │   ├── BufferPool.h                  # Pre-allocated cv::Mat pool
 │   ├── RawFormat.h                   # Custom .bin frame format
 │   └── TemperatureStatus.h           # Basler GigE temp thresholds (Ok/Critical/Error)
@@ -63,7 +64,7 @@ src/
 ├── gui/
 │   ├── MainWindow.h/cpp              # Top-level window, view switching, frame routing
 │   ├── LiveDashboard.h/cpp           # Camera grid (configurable rows/cols)
-│   ├── AnalysisView.h/cpp            # Event playback with annotations
+│   ├── AnalysisView.h/cpp            # Event playback, TOOLS panel (marker/zoom/defect align)
 │   ├── DetailView.h/cpp              # Single-camera detail view
 │   ├── ConfigDialog.h/cpp            # Camera config, OPC UA, UI theme settings
 │   ├── CameraInfo.h                  # Camera metadata struct
@@ -104,9 +105,17 @@ src/
 - ConfigDialog auto-detects discoverable endpoints when opened; manual "Detect Server" scan; falls back to manual endpoint entry
 - Optional username/password authentication
 - **Trigger tags**: multiple boolean tags with per-tag edge detection (rising/falling/both), active state, and minimum-interval debounce (default 1500 ms)
-- **Speed tag**: numeric value with scale/offset, unit, and stale timeout (default 2000 ms); position direction sign
-- Trigger events carry speed snapshot for event metadata
+- **Speed tags**: numeric values with scale/offset, unit, machine position (mm), and stale timeout (default 2000 ms); position direction sign. Every fresh positioned tag is snapshotted onto each event as a *speed anchor*; a tag with position 0 acts as a single global speed.
+- Trigger events carry the speed snapshot + full anchor list for event metadata
 - Configurable publish interval (default 250 ms) and auto-reconnect interval (default 3000 ms)
+
+### Defect Sync & Camera Alignment (Analysis View)
+- All machine positions share one common ruler in millimetres (camera positions, trigger sensor positions, drive speed-tag positions) — reference: `docs/machine-reference.md`. Position 0 means "unknown" and disables spatial alignment for that element.
+- **Mark-based sync (primary, ground truth)**: in review mode, scrub to the defect on a camera and press **Mark Defect** (TOOLS panel → DEFECT ALIGN). Mark the same defect on ≥2 cameras, then press **Align** — per-camera offsets are computed purely from the marks (mean of k-th mark-pair differences, timestamp-mapped to the shared timeline). No machine context (speeds, positions) is required for this path.
+- **Speed/position fallback** (used for unmarked cameras, or when <2 cameras carry marks): offset = (Δmm between camera and reference camera) × frames-per-mm, using the local speed interpolated from the event's speed anchors. Requires camera positions (mm) and at least one valid speed snapshot per event.
+- **Speed anchors**: each fresh OPC UA speed tag with a position becomes an anchor `{positionMm, speed}` at trigger time; `SpeedProfile::speedAt` interpolates linearly between anchors, so drive draw is compensated. 0 anchors → single global speed (draw ignored); ~1 anchor per drive section (2–5 total) gives good fallback accuracy — the full 36-drive reference list is not required.
+- **Trigger sensor positions** are used only at capture time (`EventController::triggerPositionMm`): when set (>0) with a valid speed, each camera's recording window is centered on when the defect passes it. They do not feed review-time alignment.
+- **Mark Defect feedback**: every click shows a transient banner (marked / already marked / not available); the button is visibly disabled outside review mode or without a selected camera, and its enabled state refreshes on camera changes.
 
 ### Configuration
 - `CameraConfig` is the single source of truth for all settings
