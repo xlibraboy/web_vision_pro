@@ -987,6 +987,12 @@ void AnalysisView::updateTracksEdgeTabVisibility() {
     }
     const bool show = tabWidget_ && tabWidget_->currentIndex() == 1
         && detailDashboard_ && detailDashboard_->isVisible();
+    if (show) {
+        // The dashboard may have moved/resized while hidden (loading-state
+        // swaps) without the chip noticing — re-anchor before showing it so
+        // it never reappears at a stale corner.
+        positionToolsPanel();
+    }
     tracksEdgeTab_->setVisible(show);
     if (!show && tracksPanel_) {
         tracksPanel_->hide();
@@ -5413,9 +5419,10 @@ void AnalysisView::positionCameraKeyBanner() {
 }
 
 bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
-    // Tracks stacks resized (regions toggled, zoom, data pushed): re-anchor
-    // the TRACKS tab to their new top-right corner.
-    if (watched == detailDashboard_ && event->type() == QEvent::Resize) {
+    // Tracks stacks moved or resized (regions toggled, zoom, data pushed,
+    // loading swaps): keep the TRACKS chip anchored to their top-right corner.
+    if (watched == detailDashboard_
+            && (event->type() == QEvent::Resize || event->type() == QEvent::Move)) {
         positionToolsPanel();
         return false;
     }
