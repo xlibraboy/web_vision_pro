@@ -366,8 +366,18 @@ void DetailView::repositionAoiOverlay() {
 }
 
 bool DetailView::eventFilter(QObject* obj, QEvent* event) {
-    if (obj == cameraWidget_ && event->type() == QEvent::Resize) {
-        repositionAoiOverlay();
+    if (obj == cameraWidget_) {
+        if (event->type() == QEvent::Resize) {
+            repositionAoiOverlay();
+        } else if (event->type() == QEvent::MouseButtonDblClick) {
+            // While the AOI panel is open, swallow double-clicks on the frame
+            // so adjusting AOI values can't accidentally bounce back to the
+            // grid (the frame's double-click navigation still works when the
+            // panel is closed).
+            if (aoiChip_ && aoiChip_->isChecked()) {
+                return true;
+            }
+        }
     }
     return QWidget::eventFilter(obj, event);
 }
