@@ -8,7 +8,6 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QFrame>
-#include <QTimer>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QPainter>
@@ -64,6 +63,7 @@ private slots:
     void onAnalysisClicked();
     void onSnapshotClicked(); // New slot
     void onAoiChipToggled(bool checked);
+    void onAoiApplyClicked();
     void emitAoiValues();
 
 private:
@@ -121,10 +121,15 @@ private:
     QSpinBox* aoiHeightSpin_ = nullptr;
     QSpinBox* aoiOffsetXSpin_ = nullptr;
     QSpinBox* aoiOffsetYSpin_ = nullptr;
-    QTimer* aoiDebounceTimer_ = nullptr;
+    QPushButton* aoiApplyBtn_ = nullptr;
     int aoiMaxW_ = 1;
     int aoiMaxH_ = 1;
     bool populatingAoi_ = false;
+    bool aoiPending_ = false;          // values differ from what the camera has
+    int appliedAoiW_ = 0;              // last values applied to the camera
+    int appliedAoiH_ = 0;
+    int appliedAoiOX_ = 0;
+    int appliedAoiOY_ = 0;
     void buildAoiOverlay();
     void repositionAoiOverlay();
     // Keep Offset X/Y within "SensorMax - current size" so Offset + Size never
@@ -132,6 +137,8 @@ private:
     void updateAoiOffsetLimits();
     // Push the current AOI values into the sensor-context overlay and repaint.
     void refreshAoiOverlay();
+    // Enable/disable + restyle the Apply button based on pending changes.
+    void updateAoiApplyState();
     QString aoiOverlayStyle(const QString& bgColor) const;
 
     // FPS mismatch highlight: configured vs camera-reported rate.

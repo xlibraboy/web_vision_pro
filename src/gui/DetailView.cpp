@@ -351,6 +351,14 @@ void DetailView::buildAoiOverlay() {
     addAoiRow("Offset X", aoiOffsetXSpin_);
     addAoiRow("Offset Y", aoiOffsetYSpin_);
 
+    // Manual apply: editing only previews (overlay + limits); the camera is
+    // stopped/restarted once when the operator presses this button.
+    aoiApplyBtn_ = new QPushButton("Apply AOI", aoiPanel_);
+    aoiApplyBtn_->setCursor(Qt::PointingHandCursor);
+    aoiApplyBtn_->setFocusPolicy(Qt::NoFocus);
+    connect(aoiApplyBtn_, &QPushButton::clicked, this, &DetailView::onAoiApplyClicked);
+    aoiLayout->addWidget(aoiApplyBtn_);
+
     for (QSpinBox* spin : {aoiWidthSpin_, aoiHeightSpin_, aoiOffsetXSpin_, aoiOffsetYSpin_}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
             if (populatingAoi_) {
@@ -360,15 +368,11 @@ void DetailView::buildAoiOverlay() {
             // requested region can never exceed the sensor.
             updateAoiOffsetLimits();
             refreshAoiOverlay();
-            aoiDebounceTimer_->start();
+            updateAoiApplyState();
         });
     }
 
-    aoiDebounceTimer_ = new QTimer(this);
-    aoiDebounceTimer_->setSingleShot(true);
-    aoiDebounceTimer_->setInterval(350);
-    connect(aoiDebounceTimer_, &QTimer::timeout, this, &DetailView::emitAoiValues);
-
+    updateAoiApplyState();
     aoiPanel_->hide();
     aoiChip_->raise();
     aoiPanel_->raise();
@@ -382,11 +386,19 @@ void DetailView::onAoiChipToggled(bool checked) {
         aoiOverlay_->setVisible(checked);
         if (checked) {
             refreshAoiOverlay();
+            updateAoiApplyState();
         }
     }
     if (checked) {
         repositionAoiOverlay();
     }
+}
+
+void DetailView::onAoiApplyClicked() {
+    if (currentCameraId_ < 0) {
+        return;
+    }
+    emitAoiValues();
 }
 
 void DetailView::emitAoiValues() {
@@ -395,6 +407,40 @@ void DetailView::emitAoiValues() {
     }
     emit aoiValuesChanged(currentCameraId_, aoiWidthSpin_->value(), aoiHeightSpin_->value(),
                           aoiOffsetXSpin_->value(), aoiOffsetYSpin_->value());
+    // Remember what the camera now has so the button can show pending state.
+    appliedAoiW_ = aoiWidthSpin_->value();
+    appliedAoiH_ = aoiHeightSpin_->value();
+    appliedAoiOX_ = aoiOffsetXSpin_->value();
+    appliedAoiOY_ = aoiOffsetYSpin_->value();
+    updateAoiApplyState();
+}
+
+void DetailView::updateAoiApplyState() {
+    if (!aoiApplyBtn_) {
+        return;
+    }
+    aoiPending_ = (aoiWidthSpin_->value() != appliedAoiW_
+                   || aoiHeightSpin_->value() != appliedAoiH_
+                   || aoiOffsetXSpin_->value() != appliedAoiOX_
+                   || aoiOffsetYSpin_->value() != appliedAoiOY_);
+
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    if (aoiPending_) {
+        aoiApplyBtn_->setText("Apply AOI (Stop & Start)");
+        aoiApplyBtn_->setEnabled(true);
+        aoiApplyBtn_->setStyleSheet(
+            QString("QPushButton { background-color: %1; color: %2; border: 1px solid %1;"
+                    " border-radius: 6px; padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+                    "QPushButton:hover { background-color: %3; }")
+                .arg(tc.primary, toRgba(tc.bg, 230), toRgba(tc.primary, 200)));
+    } else {
+        aoiApplyBtn_->setText("AOI Applied");
+        aoiApplyBtn_->setEnabled(false);
+        aoiApplyBtn_->setStyleSheet(
+            QString("QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
+                    " border-radius: 6px; padding: 6px 10px; font-size: 11px; }")
+                .arg(tc.border, tc.border));
+    }
 }
 
 void DetailView::setAoiInfo(int maxW, int maxH, int width, int height, int offsetX, int offsetY) {
@@ -412,6 +458,13 @@ void DetailView::setAoiInfo(int maxW, int maxH, int width, int height, int offse
     aoiOffsetXSpin_->setValue(qBound(0, offsetX, aoiOffsetXSpin_->maximum()));
     aoiOffsetYSpin_->setValue(qBound(0, offsetY, aoiOffsetYSpin_->maximum()));
     populatingAoi_ = false;
+    // The camera currently runs the values we just seeded - nothing pending.
+    appliedAoiW_ = aoiWidthSpin_->value();
+    appliedAoiH_ = aoiHeightSpin_->value();
+    appliedAoiOX_ = aoiOffsetXSpin_->value();
+    appliedAoiOY_ = aoiOffsetYSpin_->value();
+    aoiPending_ = false;
+    updateAoiApplyState();
     refreshAoiOverlay();
     repositionAoiOverlay();
 }
@@ -601,6 +654,11 @@ void DetailView::clearCamera() {
     }
     if (aoiOverlay_) {
         aoiOverlay_->hide();
+    }
+    aoiPending_ = false;
+    appliedAoiW_ = appliedAoiH_ = appliedAoiOX_ = appliedAoiOY_ = 0;
+    if (aoiApplyBtn_) {
+        updateAoiApplyState();
     }
 }
 
@@ -812,6 +870,9 @@ void DetailView::updateTheme() {
         const ThemeColors tc = CameraConfig::getThemeColors();
         if (aoiOverlay_) {
             aoiOverlay_->update();
+        }
+        if (aoiApplyBtn_) {
+            updateAoiApplyState();
         }
         aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
         aoiPanel_->setStyleSheet(QString(
