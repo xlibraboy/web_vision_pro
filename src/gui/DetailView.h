@@ -6,6 +6,9 @@
 #include <QDoubleSpinBox>
 #include <QSlider>
 #include <QPushButton>
+#include <QToolButton>
+#include <QFrame>
+#include <QTimer>
 #include <QFormLayout>
 #include <QGroupBox>
 #include "widgets/CameraWidget.h"
@@ -36,6 +39,9 @@ public:
     // attaches/detaches (Model / IP / Image Size). Temperature has its own
     // updateTemperature().
     void setDeviceInfo(const QString& model, const QString& ip, const QString& imageSize);
+    // Seed the AOI overlay panel with the camera's geometry limits and current
+    // AOI (width/height/offsetX/offsetY). maxW/maxH clamp the spin ranges.
+    void setAoiInfo(int maxW, int maxH, int width, int height, int offsetX, int offsetY);
     void updateTheme();
 
 signals:    void backRequested();
@@ -44,6 +50,8 @@ signals:    void backRequested();
     void snapshotRequested(int cameraId); // Signal for CameraManager
     void saveParametersRequested(int cameraId);
     void loadParametersRequested(int cameraId);
+    // AOI overlay: user changed the region of interest in the live view.
+    void aoiValuesChanged(int cameraId, int width, int height, int offsetX, int offsetY);
 
 public:
     CameraWidget* videoWidget();
@@ -54,6 +62,8 @@ private slots:
     void onBackClicked();
     void onAnalysisClicked();
     void onSnapshotClicked(); // New slot
+    void onAoiChipToggled(bool checked);
+    void emitAoiValues();
 
 private:
     void setupUi();
@@ -101,8 +111,29 @@ private:
     bool gainIsRaw_ = false;
     int currentCameraId_ = -1;
 
+    // AOI overlay (chip + floating panel on the video frame)
+    QToolButton* aoiChip_ = nullptr;
+    QFrame* aoiPanel_ = nullptr;
+    QSpinBox* aoiWidthSpin_ = nullptr;
+    QSpinBox* aoiHeightSpin_ = nullptr;
+    QSpinBox* aoiOffsetXSpin_ = nullptr;
+    QSpinBox* aoiOffsetYSpin_ = nullptr;
+    QTimer* aoiDebounceTimer_ = nullptr;
+    int aoiMaxW_ = 1;
+    int aoiMaxH_ = 1;
+    bool populatingAoi_ = false;
+    void buildAoiOverlay();
+    void repositionAoiOverlay();
+    // Keep Offset X/Y within "SensorMax - current size" so Offset + Size never
+    // exceeds the sensor (the camera would silently clamp the offset to 0).
+    void updateAoiOffsetLimits();
+    QString aoiOverlayStyle(const QString& bgColor) const;
+
     // FPS mismatch highlight: configured vs camera-reported rate.
     double acquisitionFps_ = -1.0;
     double displayFps_ = -1.0;
     QString fpsMismatchStyle(double fps);
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
 };

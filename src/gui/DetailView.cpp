@@ -8,6 +8,19 @@
 #include <QGroupBox>
 #include <QDebug>
 #include <QFont>
+#include <QEvent>
+
+// Convert a hex color like "#RRGGBB" into an rgba() string with the given
+// alpha (0-255). Local helper mirroring CameraDeviceSettingsDialog's toRgba.
+static QString toRgba(const QString& hex, int alpha) {
+    QColor c(hex);
+    if (!c.isValid()) {
+        return hex;
+    }
+    return QString("rgba(%1, %2, %3, %4)")
+        .arg(c.red()).arg(c.green()).arg(c.blue())
+        .arg(static_cast<double>(alpha) / 255.0, 0, 'f', 2);
+}
 
 DetailView::DetailView(QWidget *parent) : QWidget(parent), isAdmin_(false) {
     setupUi();
@@ -199,8 +212,175 @@ void DetailView::setupUi() {
     mainLayout->addWidget(leftPanel, 0);
     mainLayout->addLayout(centerLayout, 3); 
 
+    buildAoiOverlay();
+
     applyLiveViewTypography();
     setAdminMode(false); // Default state
+}
+
+void DetailView::buildAoiOverlay() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    // Chip on the video frame: checkable show/hide toggle for the AOI panel.
+    aoiChip_ = new QToolButton(cameraWidget_);
+    aoiChip_->setCheckable(true);
+    aoiChip_->setText("AOI");
+    aoiChip_->setCursor(Qt::PointingHandCursor);
+    aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
+    connect(aoiChip_, &QToolButton::toggled, this, &DetailView::onAoiChipToggled);
+
+    // Floating panel with the four AOI fields.
+    aoiPanel_ = new QFrame(cameraWidget_);
+    aoiPanel_->setObjectName("aoiPanel");
+    aoiPanel_->setStyleSheet(QString(
+        "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QLabel { color: %3; font-size: 11px; }"
+        "QSpinBox { background-color: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
+        " padding: 2px 4px; font-size: 11px; }")
+        .arg(toRgba(tc.btnBg, 245), tc.border, tc.text, toRgba(tc.bg, 120)));
+    QVBoxLayout* aoiLayout = new QVBoxLayout(aoiPanel_);
+    aoiLayout->setContentsMargins(10, 8, 10, 8);
+    aoiLayout->setSpacing(5);
+
+    aoiWidthSpin_ = new QSpinBox(aoiPanel_);
+    aoiHeightSpin_ = new QSpinBox(aoiPanel_);
+    aoiOffsetXSpin_ = new QSpinBox(aoiPanel_);
+    aoiOffsetYSpin_ = new QSpinBox(aoiPanel_);
+    for (QSpinBox* spin : {aoiWidthSpin_, aoiHeightSpin_, aoiOffsetXSpin_, aoiOffsetYSpin_}) {
+        spin->setRange(1, 100000);
+        spin->setSuffix(" px");
+    }
+    aoiOffsetXSpin_->setRange(0, 100000);
+    aoiOffsetYSpin_->setRange(0, 100000);
+
+    auto addAoiRow = [&](const QString& label, QSpinBox* spin) {
+        QHBoxLayout* row = new QHBoxLayout();
+        QLabel* lbl = new QLabel(label, aoiPanel_);
+        lbl->setMinimumWidth(64);
+        row->addWidget(lbl);
+        row->addWidget(spin, 1);
+        aoiLayout->addLayout(row);
+    };
+    addAoiRow("Width", aoiWidthSpin_);
+    addAoiRow("Height", aoiHeightSpin_);
+    addAoiRow("Offset X", aoiOffsetXSpin_);
+    addAoiRow("Offset Y", aoiOffsetYSpin_);
+
+    for (QSpinBox* spin : {aoiWidthSpin_, aoiHeightSpin_, aoiOffsetXSpin_, aoiOffsetYSpin_}) {
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
+            if (populatingAoi_) {
+                return;
+            }
+            // Size edits shrink the valid offset range: re-clamp it so the
+            // requested region can never exceed the sensor.
+            updateAoiOffsetLimits();
+            aoiDebounceTimer_->start();
+        });
+    }
+
+    aoiDebounceTimer_ = new QTimer(this);
+    aoiDebounceTimer_->setSingleShot(true);
+    aoiDebounceTimer_->setInterval(350);
+    connect(aoiDebounceTimer_, &QTimer::timeout, this, &DetailView::emitAoiValues);
+
+    aoiPanel_->hide();
+    aoiChip_->raise();
+    aoiPanel_->raise();
+    cameraWidget_->installEventFilter(this);
+    repositionAoiOverlay();
+}
+
+void DetailView::onAoiChipToggled(bool checked) {
+    aoiPanel_->setVisible(checked);
+    if (checked) {
+        repositionAoiOverlay();
+    }
+}
+
+void DetailView::emitAoiValues() {
+    if (currentCameraId_ < 0) {
+        return;
+    }
+    emit aoiValuesChanged(currentCameraId_, aoiWidthSpin_->value(), aoiHeightSpin_->value(),
+                          aoiOffsetXSpin_->value(), aoiOffsetYSpin_->value());
+}
+
+void DetailView::setAoiInfo(int maxW, int maxH, int width, int height, int offsetX, int offsetY) {
+    if (!aoiPanel_) {
+        return;
+    }
+    populatingAoi_ = true;
+    aoiMaxW_ = maxW > 0 ? maxW : 1;
+    aoiMaxH_ = maxH > 0 ? maxH : 1;
+    aoiWidthSpin_->setRange(1, aoiMaxW_);
+    aoiHeightSpin_->setRange(1, aoiMaxH_);
+    aoiWidthSpin_->setValue(qBound(1, width, aoiMaxW_));
+    aoiHeightSpin_->setValue(qBound(1, height, aoiMaxH_));
+    updateAoiOffsetLimits();
+    aoiOffsetXSpin_->setValue(qBound(0, offsetX, aoiOffsetXSpin_->maximum()));
+    aoiOffsetYSpin_->setValue(qBound(0, offsetY, aoiOffsetYSpin_->maximum()));
+    populatingAoi_ = false;
+    repositionAoiOverlay();
+}
+
+void DetailView::updateAoiOffsetLimits() {
+    if (!aoiPanel_ || aoiMaxW_ <= 0 || aoiMaxH_ <= 0) {
+        return;
+    }
+    // Offset X + Width <= sensor width (same for Y): when the region grows,
+    // the remaining offset room shrinks with it. Clamp the current offset too
+    // so the camera is never asked for an out-of-sensor position.
+    const int maxOX = std::max(0, aoiMaxW_ - aoiWidthSpin_->value());
+    const int maxOY = std::max(0, aoiMaxH_ - aoiHeightSpin_->value());
+
+    const bool xb = aoiOffsetXSpin_->blockSignals(true);
+    const bool yb = aoiOffsetYSpin_->blockSignals(true);
+    aoiOffsetXSpin_->setRange(0, maxOX);
+    aoiOffsetYSpin_->setRange(0, maxOY);
+    aoiOffsetXSpin_->setValue(qBound(0, aoiOffsetXSpin_->value(), maxOX));
+    aoiOffsetYSpin_->setValue(qBound(0, aoiOffsetYSpin_->value(), maxOY));
+    aoiOffsetXSpin_->blockSignals(xb);
+    aoiOffsetYSpin_->blockSignals(yb);
+}
+
+void DetailView::repositionAoiOverlay() {
+    if (!cameraWidget_ || !aoiChip_) {
+        return;
+    }
+    const QRect vg = cameraWidget_->rect();
+    const int margin = 8;
+    const int chipW = 56;
+    const int chipH = 26;
+    aoiChip_->setGeometry(vg.right() - chipW - margin, vg.top() + margin, chipW, chipH);
+
+    if (aoiPanel_ && aoiPanel_->isVisible()) {
+        const int pw = 228;
+        const int ph = aoiPanel_->sizeHint().height();
+        int x = vg.right() - pw - margin;
+        int y = aoiChip_->geometry().bottom() + 6;
+        if (y + ph > vg.bottom() - margin) {
+            y = vg.bottom() - ph - margin;  // keep the panel inside the frame
+        }
+        aoiPanel_->setGeometry(x, y, pw, ph);
+    }
+}
+
+bool DetailView::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == cameraWidget_ && event->type() == QEvent::Resize) {
+        repositionAoiOverlay();
+    }
+    return QWidget::eventFilter(obj, event);
+}
+
+QString DetailView::aoiOverlayStyle(const QString& bgColor) const {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    return QString(
+        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 13px;"
+        " font-size: 11px; font-weight: 600; padding: 2px 10px; }"
+        "QToolButton:hover { background-color: %4; }"
+        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
+        .arg(bgColor, tc.text, tc.border, toRgba(tc.btnHover, 255), toRgba(tc.primary, 40),
+             tc.primary);
 }
 
 void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* videoSource) {
@@ -234,6 +414,13 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     sliderExposure_->blockSignals(false);
     
     setGainPresentation("Gain", false);
+
+    // Show the AOI chip on the video frame for this camera.
+    if (aoiChip_) {
+        aoiChip_->setChecked(false);
+        aoiChip_->setVisible(true);
+        repositionAoiOverlay();
+    }
 
     // Load current parameter values from info (config-backed defaults)
     // Block ALL slider AND spinbox signals to prevent parameterChanged from firing
@@ -288,6 +475,14 @@ void DetailView::clearCamera() {
     lblActualFramePeriod_->setText("-");
     lblTemp_->setText("-");
     lblTemp_->setStyleSheet("");
+
+    if (aoiChip_) {
+        aoiChip_->setChecked(false);
+        aoiChip_->setVisible(false);
+    }
+    if (aoiPanel_) {
+        aoiPanel_->hide();
+    }
 }
 
 void DetailView::updateTemperature(double temp) {
@@ -346,6 +541,13 @@ void DetailView::setAdminMode(bool isAdmin) {
     
     btnSave_->setEnabled(isAdmin);
     btnLoad_->setEnabled(isAdmin);
+
+    if (aoiChip_) {
+        aoiChip_->setEnabled(isAdmin);
+        if (!isAdmin && aoiChip_->isChecked()) {
+            aoiChip_->setChecked(false);
+        }
+    }
 }
 
 void DetailView::setGainPresentation(const QString& title, bool isRaw) {
@@ -486,6 +688,18 @@ void DetailView::setDisplayFps(double fps) {
 
 void DetailView::updateTheme() {
     applyLiveViewTypography();
+
+    if (aoiChip_) {
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
+        aoiPanel_->setStyleSheet(QString(
+            "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+            "QLabel { color: %3; font-size: 11px; }"
+            "QSpinBox { background-color: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
+            " padding: 2px 4px; font-size: 11px; }")
+            .arg(toRgba(tc.btnBg, 245), tc.border, tc.text, toRgba(tc.bg, 120)));
+        repositionAoiOverlay();
+    }
 
     if (cameraWidget_) {
         cameraWidget_->update();

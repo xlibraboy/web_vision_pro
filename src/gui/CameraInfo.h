@@ -85,4 +85,5 @@ struct CameraInfo {
     QString imageSize;       // Populated at runtime
     int group = CameraGroup::kUnassigned; // Paper-machine section (CameraGroup::k*)
     int floor = CameraFloor::kFirst;      // Machine floor (CameraFloor::k*)
+    bool aoiEnabled = true;   // Master AOI switch; false = full sensor frame
 };

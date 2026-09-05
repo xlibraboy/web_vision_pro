@@ -734,6 +734,23 @@ void MainWindow::setupUi() {
             cameraManager_->setCameraContrast(cameraId, value);
         }
     });
+    // AOI adjustments from the Live View overlay. Basler requires the camera
+    // to be idle while the ROI is changed, so applyCameraAOI stops, writes the
+    // nodes, and restarts the camera automatically. Persist to config and keep
+    // the ring-buffer fps estimate in sync (AOI changes the resulting rate).
+    connect(detailView_, &DetailView::aoiValuesChanged, [this](int cameraId, int width, int height, int offsetX, int offsetY) {
+        if (!cameraManager_) return;
+        cameraManager_->applyCameraAOI(cameraId, width, height, offsetX, offsetY);
+        std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+        if (cameraId >= 0 && cameraId < static_cast<int>(cameras.size())) {
+            cameras[cameraId].width = width;
+            cameras[cameraId].height = height;
+            cameras[cameraId].offsetX = offsetX;
+            cameras[cameraId].offsetY = offsetY;
+            CameraConfig::saveCameras(cameras);
+        }
+        EventController::instance().updateCameraFps(cameraId + 1);
+    });
     connect(detailView_, &DetailView::saveParametersRequested, [this](int cameraId) {
         if (!cameraManager_) return;
         bool ok = cameraManager_->saveParameters(cameraId);
@@ -1182,6 +1199,16 @@ void MainWindow::showDetail(int cameraId) {
         detailView_->setGainRange(liveParams.gainMin, liveParams.gainMax);
         detailView_->setExposureRange(static_cast<int>(liveParams.exposureMinUs), static_cast<int>(liveParams.exposureMaxUs));
         detailView_->setParameterValues(liveParams.gain, liveParams.exposureUs, liveParams.gamma, liveParams.contrast);
+
+        // Seed the AOI overlay with the camera's real geometry so the user can
+        // tune the region of interest and see the frame crop live.
+        const CameraManager::AOILimits aoiLim = cameraManager_->getCameraAOILimits(cameraId);
+        const CameraManager::LiveDeviceSettings liveS = cameraManager_->readLiveDeviceSettings(cameraId, /*allowDirectOpen=*/false);
+        detailView_->setAoiInfo(aoiLim.maxWidth, aoiLim.maxHeight,
+                                liveS.ok && liveS.width > 0 ? liveS.width : info.width,
+                                liveS.ok && liveS.height > 0 ? liveS.height : info.height,
+                                liveS.ok ? liveS.offsetX : info.offsetX,
+                                liveS.ok ? liveS.offsetY : info.offsetY);
     } else {
         detailView_->setCamera(cameraId, info, nullptr);
     }

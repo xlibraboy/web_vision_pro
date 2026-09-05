@@ -183,6 +183,25 @@ public:
     void setCameraGamma(int cameraIndex, double gamma);
     void setCameraContrast(int cameraIndex, double contrast);
 
+    // Raw AOI (region of interest) node write on an open camera. Per Basler
+    // docs the camera must be idle for the change to take effect reliably, so
+    // prefer applyCameraAOI() from UI paths. Returns true on success.
+    bool setCameraAOI(int cameraIndex, int width, int height, int offsetX, int offsetY);
+
+    // Apply a new AOI the way Basler documents it: stop acquisition, write
+    // Width/Height/OffsetX/OffsetY, then restart the camera if it was running.
+    // Config is updated so the AOI also survives the next start. Returns true
+    // when the nodes were written successfully.
+    bool applyCameraAOI(int cameraIndex, int width, int height, int offsetX, int offsetY);
+
+    // Maximum AOI geometry the camera sensor supports (WidthMax/HeightMax,
+    // falling back to SensorWidth/SensorHeight, then current Width/Height).
+    struct AOILimits {
+        int maxWidth = 0;
+        int maxHeight = 0;
+    };
+    AOILimits getCameraAOILimits(int configArrayIndex);
+
     // Pylon Feature Persistence (Save/Load .pfs per camera)
     struct CameraParams {
         double gain        = 0.0;

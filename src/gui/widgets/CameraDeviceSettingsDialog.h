@@ -73,11 +73,14 @@ private:
     bool editable_;
     bool populating_ = false;
     CameraManager::LiveDeviceSettings liveSettings_;  // actual camera state
+    int aoiMaxW_ = 0;   // true sensor max (WidthMax/HeightMax), 0 = unreadable
+    int aoiMaxH_ = 0;
 
     QLabel* modelValueLabel_;
     QLabel* ipValueLabel_;
 
     QComboBox* pixelFormatCombo_;
+    QCheckBox* aoiEnableCheck_ = nullptr;
     QSpinBox* widthSpin_;
     QSpinBox* heightSpin_;
     QSpinBox* offsetXSpin_;

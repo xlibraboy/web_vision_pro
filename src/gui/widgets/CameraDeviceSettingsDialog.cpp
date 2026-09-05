@@ -164,6 +164,7 @@ void persistSharedCameraSettings(int cameraIndex, const CameraInfo& info) {
     }
 
     cameras[cameraIndex].pixelFormat = info.pixelFormat;
+    cameras[cameraIndex].aoiEnabled = info.aoiEnabled;
     cameras[cameraIndex].width = info.width;
     cameras[cameraIndex].height = info.height;
     cameras[cameraIndex].offsetX = info.offsetX;
@@ -471,6 +472,7 @@ void CameraDeviceSettingsDialog::setupUi() {
     registerChangeSignal(pixelFormatCombo_, SIGNAL(currentIndexChanged(int)));
     registerChangeSignal(widthSpin_, SIGNAL(valueChanged(int)));
     registerChangeSignal(heightSpin_, SIGNAL(valueChanged(int)));
+    registerChangeSignal(aoiEnableCheck_, SIGNAL(toggled(bool)));
     registerChangeSignal(offsetXSpin_, SIGNAL(valueChanged(int)));
     registerChangeSignal(offsetYSpin_, SIGNAL(valueChanged(int)));
     registerChangeSignal(exposureTimeAbsSpin_, SIGNAL(valueChanged(double)));
@@ -616,6 +618,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     roiLayout->setContentsMargins(14, 16, 14, 14);
     roiLayout->setHorizontalSpacing(14);
     roiLayout->setVerticalSpacing(10);
+    aoiEnableCheck_ = new QCheckBox(roiGroup);
+    aoiEnableCheck_->setText("Crop the image to the region below (AOI active)");
+    aoiEnableCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; } QCheckBox::indicator { width: 14px; height: 14px; }").arg(palDetail.text));
+    addFormRow(roiLayout, "Enable AOI:", aoiEnableCheck_);
     widthSpin_ = new QSpinBox(roiGroup);
     widthSpin_->setRange(1, 100000);
     widthSpin_->setSuffix(" px");
@@ -843,7 +849,7 @@ QSet<QString> CameraDeviceSettingsDialog::stagedFieldsInGroup(int groupId) const
     QSet<QString> fields;
     switch (groupId) {
     case 0: if (stagedFields_.contains("pixelFormat")) fields.insert("pixelFormat"); break;
-    case 1: for (const char* f : {"width", "height", "offsetX", "offsetY"}) if (stagedFields_.contains(f)) fields.insert(f); break;
+    case 1: for (const char* f : {"aoiEnabled", "width", "height", "offsetX", "offsetY"}) if (stagedFields_.contains(f)) fields.insert(f); break;
     case 2: break;  // Exposure & Rate is fully live — never staged
     case 3: for (const char* f : {"chunkMode", "chunks"}) if (stagedFields_.contains(f)) fields.insert(f); break;
     default: break;
@@ -1025,6 +1031,7 @@ void CameraDeviceSettingsDialog::populateUi() {
     }
     pixelFormatCombo_->setCurrentText(currentInfo_.pixelFormat.trimmed().isEmpty() ? QString("Mono8") : currentInfo_.pixelFormat);
 
+    aoiEnableCheck_->setChecked(currentInfo_.aoiEnabled);
     widthSpin_->setValue(currentInfo_.width);
     heightSpin_->setValue(currentInfo_.height);
     offsetXSpin_->setValue(currentInfo_.offsetX);
@@ -1067,16 +1074,28 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
             ? QString::number(originalInfo_.id) : liveSettings_.deviceId));
     }
 
-    // Sensor geometry: prefer the live read, then the runtime params, then config.
+    // Sensor geometry limits: prefer the camera's real sensor maximum
+    // (WidthMax/HeightMax nodes read live from the device). Only a true
+    // sensor read is allowed to bound the AOI spinboxes - the fallbacks
+    // (live current frame size, runtime params, config) are current values
+    // that may themselves be cropped, so they feed the labels only.
     int sensorW = 0;
     int sensorH = 0;
-    if (liveSettings_.ok) {
+    if (cameraManager_) {
+        const CameraManager::AOILimits lim = cameraManager_->getCameraAOILimits(cameraIndex_);
+        aoiMaxW_ = lim.maxWidth;
+        aoiMaxH_ = lim.maxHeight;
+        sensorW = aoiMaxW_;
+        sensorH = aoiMaxH_;
+    }
+    if (sensorW <= 0 && liveSettings_.ok) {
         sensorW = liveSettings_.width;
         sensorH = liveSettings_.height;
-    } else if (cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
+    }
+    if (sensorW <= 0 && cameraManager_ && isCameraReachable(cameraManager_, cameraIndex_, currentInfo_)) {
         const CameraManager::CameraParams params = cameraManager_->getCameraParams(cameraIndex_);
-        sensorW = params.width;
-        sensorH = params.height;
+        if (sensorW <= 0) sensorW = params.width;
+        if (sensorH <= 0) sensorH = params.height;
     }
     if (sensorW <= 0) {
         sensorW = originalInfo_.width;
@@ -1088,6 +1107,37 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
     sensorHeightValueLabel_->setText(QString::number(std::max(0, sensorH)));
     maxWidthValueLabel_->setText(QString::number(std::max(0, sensorW)));
     maxHeightValueLabel_->setText(QString::number(std::max(0, sensorH)));
+
+    // Bound the AOI spinboxes to the true sensor geometry (when readable) so
+    // the operator cannot enter a region the camera cannot deliver. Signals are
+    // blocked so re-bounding never fires a staged/live write; values the range
+    // forces back in-bounds are synced into currentInfo_ below. While the user
+    // is editing a field the bounds wait for the next refresh so the spinbox
+    // does not yank a value out from under the cursor.
+    const bool editingAoi = widthSpin_->hasFocus() || heightSpin_->hasFocus()
+        || offsetXSpin_->hasFocus() || offsetYSpin_->hasFocus();
+    if (!editingAoi && (aoiMaxW_ > 0 || aoiMaxH_ > 0)) {
+        const bool wb = widthSpin_->blockSignals(true);
+        const bool hb = heightSpin_->blockSignals(true);
+        const bool xb = offsetXSpin_->blockSignals(true);
+        const bool yb = offsetYSpin_->blockSignals(true);
+        if (aoiMaxW_ > 0) {
+            widthSpin_->setRange(1, aoiMaxW_);
+            offsetXSpin_->setRange(0, std::max(0, aoiMaxW_ - 1));
+        }
+        if (aoiMaxH_ > 0) {
+            heightSpin_->setRange(1, aoiMaxH_);
+            offsetYSpin_->setRange(0, std::max(0, aoiMaxH_ - 1));
+        }
+        widthSpin_->blockSignals(wb);
+        heightSpin_->blockSignals(hb);
+        offsetXSpin_->blockSignals(xb);
+        offsetYSpin_->blockSignals(yb);
+        currentInfo_.width = widthSpin_->value();
+        currentInfo_.height = heightSpin_->value();
+        currentInfo_.offsetX = offsetXSpin_->value();
+        currentInfo_.offsetY = offsetYSpin_->value();
+    }
 
     if (liveSettings_.ok) {
         modelValueLabel_->setText(formatReadOnlyValue(liveSettings_.modelName));
@@ -1280,6 +1330,28 @@ bool CameraDeviceSettingsDialog::validateInputs(QStringList* errors) const {
     if (currentInfo_.height <= 0) {
         localErrors << "Height must be greater than 0.";
     }
+    // Reject regions beyond the true sensor geometry read from the camera
+    // (only enforced when the live WidthMax/HeightMax read was successful).
+    if (aoiMaxW_ > 0) {
+        if (currentInfo_.width > aoiMaxW_) {
+            localErrors << QString("Width (%1) exceeds the sensor maximum (%2).")
+                               .arg(currentInfo_.width).arg(aoiMaxW_);
+        }
+        if (currentInfo_.offsetX + currentInfo_.width > aoiMaxW_) {
+            localErrors << QString("Offset X (%1) + Width (%2) exceeds the sensor width (%3).")
+                               .arg(currentInfo_.offsetX).arg(currentInfo_.width).arg(aoiMaxW_);
+        }
+    }
+    if (aoiMaxH_ > 0) {
+        if (currentInfo_.height > aoiMaxH_) {
+            localErrors << QString("Height (%1) exceeds the sensor maximum (%2).")
+                               .arg(currentInfo_.height).arg(aoiMaxH_);
+        }
+        if (currentInfo_.offsetY + currentInfo_.height > aoiMaxH_) {
+            localErrors << QString("Offset Y (%1) + Height (%2) exceeds the sensor height (%3).")
+                               .arg(currentInfo_.offsetY).arg(currentInfo_.height).arg(aoiMaxH_);
+        }
+    }
     if (currentInfo_.fps < 0.0) {
         localErrors << "Acquisition framerate cannot be negative.";
     }
@@ -1300,6 +1372,7 @@ bool CameraDeviceSettingsDialog::validateInputs(QStringList* errors) const {
 
 bool CameraDeviceSettingsDialog::hasStopRequiredChanges() const {
     return currentInfo_.pixelFormat != originalInfo_.pixelFormat
+        || currentInfo_.aoiEnabled != originalInfo_.aoiEnabled
         || currentInfo_.width != originalInfo_.width
         || currentInfo_.height != originalInfo_.height
         || currentInfo_.offsetX != originalInfo_.offsetX
@@ -1339,8 +1412,21 @@ void CameraDeviceSettingsDialog::onValueChanged() {
         return;
     }
 
+    // Keep Offset X/Y within "sensor max - current size" so Offset + Size can
+    // never exceed the sensor - otherwise the camera silently clamps the
+    // offset back to 0 and the value looks like it "does nothing".
+    if (aoiMaxW_ > 0 || aoiMaxH_ > 0) {
+        if (aoiMaxW_ > 0) {
+            offsetXSpin_->setRange(0, std::max(0, aoiMaxW_ - widthSpin_->value()));
+        }
+        if (aoiMaxH_ > 0) {
+            offsetYSpin_->setRange(0, std::max(0, aoiMaxH_ - heightSpin_->value()));
+        }
+    }
+
     const CameraInfo previousInfo = currentInfo_;
     currentInfo_.pixelFormat = pixelFormatCombo_->currentText();
+    currentInfo_.aoiEnabled = aoiEnableCheck_->isChecked();
     currentInfo_.width = widthSpin_->value();
     currentInfo_.height = heightSpin_->value();
     currentInfo_.offsetX = offsetXSpin_->value();
@@ -1359,6 +1445,7 @@ void CameraDeviceSettingsDialog::onValueChanged() {
     // nodes (abs, base, raw, framerate) are LIVE: scA780 accepts them
     // while grabbing, no restart needed.
     if (currentInfo_.pixelFormat != previousInfo.pixelFormat) stageField("pixelFormat");
+    if (currentInfo_.aoiEnabled != previousInfo.aoiEnabled) stageField("aoiEnabled");
     if (currentInfo_.width != previousInfo.width) stageField("width");
     if (currentInfo_.height != previousInfo.height) stageField("height");
     if (currentInfo_.offsetX != previousInfo.offsetX) stageField("offsetX");
@@ -1473,10 +1560,11 @@ void CameraDeviceSettingsDialog::updateControlAvailability() {
 
     // Staged fields: editable whenever the camera is editable (even while running)
     pixelFormatCombo_->setEnabled(baseEnabled);
-    widthSpin_->setEnabled(baseEnabled);
-    heightSpin_->setEnabled(baseEnabled);
-    offsetXSpin_->setEnabled(baseEnabled);
-    offsetYSpin_->setEnabled(baseEnabled);
+    aoiEnableCheck_->setEnabled(baseEnabled);
+    widthSpin_->setEnabled(baseEnabled && currentInfo_.aoiEnabled);
+    heightSpin_->setEnabled(baseEnabled && currentInfo_.aoiEnabled);
+    offsetXSpin_->setEnabled(baseEnabled && currentInfo_.aoiEnabled);
+    offsetYSpin_->setEnabled(baseEnabled && currentInfo_.aoiEnabled);
     enableExposureTimeBaseCheck_->setEnabled(baseEnabled);
     exposureTimeBaseSpin_->setEnabled(baseEnabled && currentInfo_.enableExposureTimeBase);
     exposureTimeRawSpin_->setEnabled(baseEnabled);

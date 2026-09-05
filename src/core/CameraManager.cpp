@@ -1567,6 +1567,93 @@ void CameraManager::setCameraGamma(int cameraIndex, double gamma) {
     }
 }
 
+bool CameraManager::setCameraAOI(int cameraIndex, int width, int height, int offsetX, int offsetY) {
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    auto* camera = getCameraByConfigIndex(cameraIndex);
+    if (!camera) {
+        std::cerr << "[CameraManager] setCameraAOI: invalid cameraIndex " << cameraIndex << std::endl;
+        return false;
+    }
+
+    try {
+        if (camera->IsPylonDeviceAttached() && camera->IsOpen()) {
+            GenApi::INodeMap& nodemap = camera->GetNodeMap();
+            // Basler documented write order: size first (Width, Height), then
+            // position (OffsetX, OffsetY) so OffsetX + Width <= WidthMax holds.
+            const int w = clampNodeValue(GenApi::CIntegerPtr(nodemap.GetNode("Width")), width, "Width");
+            const int h = clampNodeValue(GenApi::CIntegerPtr(nodemap.GetNode("Height")), height, "Height");
+            clampNodeValue(GenApi::CIntegerPtr(nodemap.GetNode("OffsetX")), offsetX, "OffsetX");
+            clampNodeValue(GenApi::CIntegerPtr(nodemap.GetNode("OffsetY")), offsetY, "OffsetY");
+            width_ = w;
+            height_ = h;
+            std::cout << "[CameraManager] setCameraAOI: cam=" << cameraIndex
+                      << " w=" << w << " h=" << h << " ox=" << offsetX << " oy=" << offsetY << " OK" << std::endl;
+            return true;
+        }
+        std::cerr << "[CameraManager] setCameraAOI: cam " << cameraIndex << " camera not open" << std::endl;
+    } catch (const Pylon::GenericException& e) {
+        std::cerr << "[CameraManager] setCameraAOI: cam " << cameraIndex << " ERROR: " << e.GetDescription() << std::endl;
+    }
+    return false;
+}
+
+bool CameraManager::applyCameraAOI(int cameraIndex, int width, int height, int offsetX, int offsetY) {
+    const bool wasRunning = isCameraRunning(cameraIndex);
+    bool ok = false;
+
+    if (wasRunning) {
+        // Basler: "Make sure the camera is idle, i.e., not capturing images"
+        // before changing the image ROI. Stop, apply, restart automatically so
+        // the Live View user still sees the result immediately.
+        if (!stopCamera(cameraIndex)) {
+            std::cerr << "[CameraManager] applyCameraAOI: failed to stop cam " << cameraIndex << std::endl;
+            return false;
+        }
+    }
+
+    ok = setCameraAOI(cameraIndex, width, height, offsetX, offsetY);
+
+    if (wasRunning) {
+        std::vector<CameraInfo> cams = CameraConfig::getCameras();
+        if (cameraIndex >= 0 && cameraIndex < static_cast<int>(cams.size())) {
+            cams[cameraIndex].width = width;
+            cams[cameraIndex].height = height;
+            cams[cameraIndex].offsetX = offsetX;
+            cams[cameraIndex].offsetY = offsetY;
+            if (!startCamera(cameraIndex, cams[cameraIndex])) {
+                std::cerr << "[CameraManager] applyCameraAOI: restart failed for cam " << cameraIndex << std::endl;
+            }
+        } else {
+            std::cerr << "[CameraManager] applyCameraAOI: no config for cam " << cameraIndex << ", not restarted" << std::endl;
+        }
+    }
+    return ok;
+}
+
+CameraManager::AOILimits CameraManager::getCameraAOILimits(int configArrayIndex) {
+    AOILimits lim;
+    auto* camera = getCameraByConfigIndex(configArrayIndex);
+    if (!camera || !(camera->IsPylonDeviceAttached() && camera->IsOpen())) {
+        return lim;
+    }
+    try {
+        GenApi::INodeMap& nm = camera->GetNodeMap();
+        const auto readMax = [&](const char* name, int& target) {
+            try {
+                GenApi::CIntegerPtr n(nm.GetNode(name));
+                if (n && GenApi::IsReadable(n)) {
+                    target = static_cast<int>(n->GetValue());
+                }
+            } catch (...) {}
+        };
+        readMax("WidthMax", lim.maxWidth);
+        readMax("HeightMax", lim.maxHeight);
+        if (lim.maxWidth <= 0) readMax("SensorWidth", lim.maxWidth);
+        if (lim.maxHeight <= 0) readMax("SensorHeight", lim.maxHeight);
+    } catch (...) {}
+    return lim;
+}
+
 CameraManager::CameraParams CameraManager::getCameraParams(int configArrayIndex) {
     CameraParams p;
     auto* camera = getCameraByConfigIndex(configArrayIndex);
@@ -1982,13 +2069,37 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
 
         GenApi::CIntegerPtr offsetXNode(nodemap.GetNode("OffsetX"));
         GenApi::CIntegerPtr offsetYNode(nodemap.GetNode("OffsetY"));
-        clampNodeValue(offsetXNode, config.offsetX, "OffsetX");
-        clampNodeValue(offsetYNode, config.offsetY, "OffsetY");
-
         GenApi::CIntegerPtr widthNode(nodemap.GetNode("Width"));
         GenApi::CIntegerPtr heightNode(nodemap.GetNode("Height"));
-        width_ = clampNodeValue(widthNode, config.width, "Width");
-        height_ = clampNodeValue(heightNode, config.height, "Height");
+        if (config.aoiEnabled) {
+            // Basler documented order: size first, then position.
+            width_ = clampNodeValue(widthNode, config.width, "Width");
+            height_ = clampNodeValue(heightNode, config.height, "Height");
+            clampNodeValue(offsetXNode, config.offsetX, "OffsetX");
+            clampNodeValue(offsetYNode, config.offsetY, "OffsetY");
+        } else {
+            // AOI disabled -> full sensor frame (offsets 0, full width/height).
+            int maxW = 0;
+            int maxH = 0;
+            const auto readSensorMax = [&](const char* name, int& target) {
+                try {
+                    GenApi::CIntegerPtr n(nodemap.GetNode(name));
+                    if (n && GenApi::IsReadable(n)) {
+                        target = static_cast<int>(n->GetValue());
+                    }
+                } catch (...) {}
+            };
+            readSensorMax("WidthMax", maxW);
+            if (maxW <= 0) readSensorMax("SensorWidth", maxW);
+            readSensorMax("HeightMax", maxH);
+            if (maxH <= 0) readSensorMax("SensorHeight", maxH);
+            if (maxW <= 0 && widthNode) maxW = static_cast<int>(widthNode->GetMax());
+            if (maxH <= 0 && heightNode) maxH = static_cast<int>(heightNode->GetMax());
+            width_ = clampNodeValue(widthNode, maxW, "Width");
+            height_ = clampNodeValue(heightNode, maxH, "Height");
+            clampNodeValue(offsetXNode, 0, "OffsetX");
+            clampNodeValue(offsetYNode, 0, "OffsetY");
+        }
 
         // scA780 workaround: see note in applyLiveDeviceSettings — writing a
         // disable into these legacy nodes crashes GenApi; skip when disabled.

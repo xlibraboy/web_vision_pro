@@ -527,6 +527,7 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.temperature = 0.0; // Runtime value
         cam.group = settings.value("group", cam.group).toInt();
         cam.floor = settings.value("floor", cam.floor).toInt();
+        cam.aoiEnabled = settings.value("aoiEnabled", true).toBool();
         cameras.push_back(cam);
     }
     settings.endArray();
@@ -564,6 +565,7 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("enabledChunks", cam.enabledChunks);
         settings.setValue("group", cam.group);
         settings.setValue("floor", cam.floor);
+        settings.setValue("aoiEnabled", cam.aoiEnabled);
     }
     settings.endArray();
 }
