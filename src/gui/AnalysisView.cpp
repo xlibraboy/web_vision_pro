@@ -1016,11 +1016,32 @@ void AnalysisView::startNextSignalScan() {
     }
     while (!pendingScanPaths_.isEmpty()) {
         const QString path = pendingScanPaths_.takeFirst();
-        if (QFile::exists(path)) {
-            signalScanner_->scanAsync(path);
-            updateDashboardLoadingState();
-            return;
+        if (!QFile::exists(path)) {
+            continue;
         }
+        // Resolve the owning camera so its inspection region gates the scan.
+        int camId = -1;
+        for (auto it = videoReaderPaths_.begin(); it != videoReaderPaths_.end(); ++it) {
+            if (it->second == path) {
+                camId = it->first;
+                break;
+            }
+        }
+        QVector<QPointF> roi;
+        bool roiCurves = true;
+        bool roiHits = true;
+        if (camId >= 0) {
+            const CameraInfo info = CameraConfig::getCameraInfo(camId);
+            roi = info.detectionRoi;
+            roiCurves = info.roiMaskCurves;
+            roiHits = info.roiMaskHits;
+        }
+        if (roi.size() < 3) {
+            continue; // Analysis paused until an inspection region is drawn.
+        }
+        signalScanner_->scanAsync(path, roi, roiCurves, roiHits);
+        updateDashboardLoadingState();
+        return;
     }
     updateDashboardLoadingState();
 }
@@ -1037,6 +1058,13 @@ void AnalysisView::maybeScanDetailWindow(int frameIndex) {
                              ? readerIt->second->getTotalFrames() : 0;
     if (camTotal <= EventSignalScanner::kMaxScannedFrames) return;        // full series is stride-1
 
+    // Paused camera: no inspection region, no detail-window analysis.
+    const CameraInfo camInfo = CameraConfig::getCameraInfo(currentDashCam_);
+    if (camInfo.detectionRoi.size() < 3) {
+        detailWindowKey_.clear();
+        return;
+    }
+
     // Snap the window to a 15-frame grid so slow playback doesn't fire one
     // scan per frame; a new scan only when the snapped window changes.
     constexpr int kSnapGrid = 15;
@@ -1046,11 +1074,17 @@ void AnalysisView::maybeScanDetailWindow(int frameIndex) {
     start = std::max(0, std::min(start, (maxStart / kSnapGrid) * kSnapGrid));
     const int end = std::min(camTotal - 1, start + 2 * radius);
 
-    const QString key = EventSignalScanner::windowCacheKey(pathIt->second, start, end);
+    const QString roiSig = EventSignalScanner::roiSignature(
+        camInfo.detectionRoi, camInfo.roiMaskCurves, camInfo.roiMaskHits);
+    const QString key = EventSignalScanner::windowCacheKey(
+        pathIt->second, start, end, roiSig);
     if (key == detailWindowKey_) return; // in flight or already pushed
     detailWindowKey_ = key;
     detailDashboard_->setDetailLoading(true);
-    signalScanner_->scanWindowAsync(pathIt->second, start, end);
+    signalScanner_->scanWindowAsync(pathIt->second, start, end,
+                                    camInfo.detectionRoi,
+                                    camInfo.roiMaskCurves,
+                                    camInfo.roiMaskHits);
 }
 
 void AnalysisView::onDetailWindowFinished(const QString& binPath, int startFrame, int endFrame,

@@ -9,7 +9,12 @@
 #include <QDebug>
 #include <QFont>
 #include <QEvent>
+#include <QMouseEvent>
 #include <QPainterPath>
+#include <QPolygon>
+#include <QCheckBox>
+#include <QLineF>
+#include <functional>
 
 // Convert a hex color like "#RRGGBB" into an rgba() string with the given
 // alpha (0-255). Local helper mirroring CameraDeviceSettingsDialog's toRgba.
@@ -33,7 +38,11 @@ public:
     explicit AoiRegionOverlay(QWidget* parent = nullptr) : QWidget(parent) {
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setAttribute(Qt::WA_NoSystemBackground);
+        setMouseTracking(true);
     }
+
+    // Fired when the operator finishes drag-drawing a region (sensor coords).
+    std::function<void(int width, int height, int offsetX, int offsetY)> onRegionDrawn;
 
     void setValues(int sensorW, int sensorH, int regionW, int regionH,
                    int offsetX, int offsetY) {
@@ -43,6 +52,17 @@ public:
         regionH_ = regionH;
         offsetX_ = offsetX;
         offsetY_ = offsetY;
+        update();
+    }
+
+    // Draw mode: the overlay becomes the interactive surface for drag-drawing
+    // the AOI rectangle on the frame.
+    void setDrawEnabled(bool enabled) {
+        drawEnabled_ = enabled;
+        setAttribute(Qt::WA_TransparentForMouseEvents, !enabled);
+        setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
+        dragging_ = false;
+        dragRect_ = QRect();
         update();
     }
 
@@ -90,15 +110,355 @@ protected:
         p.drawRect(sensorRect);
         p.setPen(QPen(QColor(tc.primary), 1));
         p.drawRect(imgRect);
+
+        // In-progress drag selection while drawing.
+        if (dragging_ && !dragRect_.isEmpty()) {
+            QColor fill(tc.primary);
+            fill.setAlpha(48);
+            p.fillRect(dragRect_, fill);
+            p.setPen(QPen(QColor(tc.primary), 1));
+            p.drawRect(dragRect_);
+        }
+    }
+
+    void mousePressEvent(QMouseEvent* e) override {
+        if (drawEnabled_ && e->button() == Qt::LeftButton) {
+            dragging_ = true;
+            dragStart_ = e->pos();
+            dragRect_ = QRect(dragStart_, QSize(0, 0));
+            update();
+            e->accept();
+            return;
+        }
+        QWidget::mousePressEvent(e);
+    }
+
+    void mouseMoveEvent(QMouseEvent* e) override {
+        if (dragging_) {
+            dragRect_ = QRect(dragStart_, e->pos()).normalized();
+            update();
+            e->accept();
+            return;
+        }
+        QWidget::mouseMoveEvent(e);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* e) override {
+        if (dragging_ && e->button() == Qt::LeftButton) {
+            dragRect_ = QRect(dragStart_, e->pos()).normalized();
+            dragging_ = false;
+            emitDrawnRegion();
+            update();
+            e->accept();
+            return;
+        }
+        QWidget::mouseReleaseEvent(e);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* e) override {
+        // Never navigate back (frame double-click) while draw mode is active.
+        if (drawEnabled_) {
+            e->accept();
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(e);
     }
 
 private:
+    // Map the drag rectangle (widget px) into sensor coordinates. The displayed
+    // image is the current region scaled to fit, so the drawn rect is expressed
+    // relative to the current crop and the current offsets are added back.
+    void emitDrawnRegion() {
+        if (sensorW_ <= 0 || sensorH_ <= 0 || regionW_ <= 0 || regionH_ <= 0) {
+            return;
+        }
+        const QRect content = rect().adjusted(1, 1, -1, -1);
+        const double aspect = static_cast<double>(regionW_) / regionH_;
+        QSize scaled = content.size();
+        if (static_cast<double>(scaled.width()) / scaled.height() > aspect) {
+            scaled.setWidth(qMax(1, static_cast<int>(scaled.height() * aspect)));
+        } else {
+            scaled.setHeight(qMax(1, static_cast<int>(scaled.width() / aspect)));
+        }
+        const QRect imgRect(content.center().x() - scaled.width() / 2,
+                            content.center().y() - scaled.height() / 2,
+                            scaled.width(), scaled.height());
+
+        const QRect sel = dragRect_.intersected(imgRect);
+        if (sel.width() < 5 || sel.height() < 5) {
+            return;  // ignore accidental tiny drags
+        }
+
+        const double sx = static_cast<double>(imgRect.width()) / regionW_;
+        const double sy = static_cast<double>(imgRect.height()) / regionH_;
+
+        int newW = qMax(1, static_cast<int>(sel.width() / sx));
+        int newH = qMax(1, static_cast<int>(sel.height() / sy));
+        int newOX = offsetX_ + qRound((sel.left() - imgRect.left()) / sx);
+        int newOY = offsetY_ + qRound((sel.top() - imgRect.top()) / sy);
+
+        // Clamp into the sensor: Offset + Size <= SensorMax.
+        newOX = qBound(0, newOX, qMax(0, sensorW_ - newW));
+        newOY = qBound(0, newOY, qMax(0, sensorH_ - newH));
+
+        if (onRegionDrawn) {
+            onRegionDrawn(newW, newH, newOX, newOY);
+        }
+    }
+
     int sensorW_ = 0;
     int sensorH_ = 0;
     int regionW_ = 0;
     int regionH_ = 0;
     int offsetX_ = 0;
     int offsetY_ = 0;
+    bool drawEnabled_ = false;
+    bool dragging_ = false;
+    QPoint dragStart_;
+    QRect dragRect_;
+};
+
+// Software detection ROI (analysis region) widget. Overlays the live video
+// frame with the polygon that limits defect analysis; while drawing, clicks
+// add vertices (normalized delivered-frame 0..1) and clicking back on the
+// first vertex closes the region. Empty polygon = no region / analysis paused.
+class DetailView::RoiRegionOverlay : public QWidget {
+public:
+    explicit RoiRegionOverlay(QWidget* parent = nullptr) : QWidget(parent) {
+        setMouseTracking(true);
+        setAttribute(Qt::WA_NoSystemBackground);
+        updateMousePassthrough();
+    }
+
+    std::function<void(const QVector<QPointF>&)> onRegionClosed;
+
+    // Delivered-frame geometry the polygon is normalized against.
+    void setFrameSize(int w, int h) {
+        frameW_ = w;
+        frameH_ = h;
+        update();
+    }
+
+    void setPolygon(const QVector<QPointF>& poly) {
+        polygon_ = poly;
+        update();
+    }
+
+    void setDrawing(bool enabled) {
+        drawing_ = enabled;
+        if (!drawing_) {
+            scratch_.clear();
+            cursor_ = QPointF();
+        }
+        updateMousePassthrough();
+        setCursor(drawing_ ? Qt::CrossCursor : Qt::ArrowCursor);
+        update();
+    }
+
+    bool isDrawing() const { return drawing_; }
+    bool hasPolygon() const { return polygon_.size() >= 3; }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        if (frameW_ <= 0 || frameH_ <= 0) {
+            return;
+        }
+        const QRect content = rect().adjusted(1, 1, -1, -1);
+        if (content.isEmpty()) {
+            return;
+        }
+        const QRect imgRect = imageRect(content);
+
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        QColor stroke(tc.primary);
+        QColor fill(tc.primary);
+        fill.setAlpha(46);
+        QColor vertex(tc.primary);
+        QColor vertexFill(tc.text);
+
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        auto toWidget = [&](const QPointF& n) {
+            return QPointF(imgRect.left() + n.x() * imgRect.width(),
+                           imgRect.top() + n.y() * imgRect.height());
+        };
+        auto drawChain = [&](const QVector<QPointF>& pts, bool closed) {
+            if (pts.isEmpty()) {
+                return;
+            }
+            QPolygonF poly;
+            poly.reserve(pts.size());
+            for (const QPointF& n : pts) {
+                poly << toWidget(n);
+            }
+            QPainterPath path;
+            path.addPolygon(poly);
+            if (closed && poly.size() >= 3) {
+                p.fillPath(path, fill);
+            }
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(QColor(tc.primary), 1.5));
+            p.drawPath(path);
+            // Stroke the closing edge explicitly so the end-draw point always
+            // links back to the first point (independent of how the path
+            // handles its implicit closed subpath).
+            if (closed && poly.size() >= 3) {
+                p.drawLine(poly.last(), poly.first());
+            }
+            // Vertex markers.
+            p.setPen(QPen(vertex, 1));
+            p.setBrush(vertexFill);
+            const qreal r = closed ? 2.6 : 3.2;
+            for (const QPointF& n : pts) {
+                const QPointF w = toWidget(n);
+                p.drawEllipse(w, r, r);
+            }
+        };
+
+        // Existing region under the scratch chain (kept visible while drawing
+        // a replacement so the operator sees what they are about to change).
+        if (polygon_.size() >= 3) {
+            const qreal oldAlpha = p.opacity();
+            p.setOpacity(drawing_ ? 0.45 : 1.0);
+            drawChain(polygon_, true);
+            p.setOpacity(oldAlpha);
+        }
+
+        if (drawing_) {
+            // Scratch: committed clicks + rubber band to the cursor. When the
+            // cursor approaches the first vertex the preview snaps onto it and
+            // a closing-target ring appears, signalling that the next click
+            // links the end-draw point back to the first point.
+            QVector<QPointF> chain = scratch_;
+            if (!chain.isEmpty() && !cursor_.isNull()) {
+                QPointF endW = toWidget(cursor_);
+                bool nearStart = false;
+                QPointF firstW;
+                if (chain.size() >= 3) {
+                    firstW = toWidget(chain.first());
+                    nearStart = QLineF(endW, firstW).length() <= CLOSE_SNAP_PX;
+                    if (nearStart) {
+                        endW = firstW;
+                    }
+                }
+                p.setPen(QPen(QColor(tc.primary).lighter(nearStart ? 155 : 130),
+                              1, Qt::DashLine));
+                p.drawLine(toWidget(chain.last()), endW);
+                if (nearStart) {
+                    p.setPen(QPen(QColor(tc.primary).lighter(155), 1.2, Qt::DotLine));
+                    p.setBrush(Qt::NoBrush);
+                    p.drawEllipse(firstW, 6.5, 6.5);
+                }
+            }
+            drawChain(chain, false);
+        }
+    }
+
+    void mousePressEvent(QMouseEvent* e) override {
+        if (!drawing_ || frameW_ <= 0 || frameH_ <= 0) {
+            QWidget::mousePressEvent(e);
+            return;
+        }
+        e->accept();
+        if (e->button() == Qt::RightButton) {
+            // Undo the last vertex.
+            if (!scratch_.isEmpty()) {
+                scratch_.removeLast();
+            }
+            update();
+            return;
+        }
+        if (e->button() != Qt::LeftButton) {
+            return;
+        }
+
+        const QRect imgRect = imageRect(rect().adjusted(1, 1, -1, -1));
+        if (!imgRect.contains(e->pos())) {
+            return; // outside the image area - ignore
+        }
+        const QPointF n = normalized(e->pos(), imgRect);
+
+        // Clicking near the first vertex closes the region.
+        if (scratch_.size() >= 3 && nearFirst(e->pos(), imgRect)) {
+            const QVector<QPointF> done = scratch_;
+            scratch_.clear();
+            cursor_ = QPointF();
+            setDrawing(false);
+            if (onRegionClosed) {
+                onRegionClosed(done);
+            }
+            update();
+            return;
+        }
+
+        scratch_.append(n);
+        cursor_ = n;
+        update();
+    }
+
+    void mouseMoveEvent(QMouseEvent* e) override {
+        if (drawing_ && frameW_ > 0 && frameH_ > 0) {
+            // Keep the rubber-band target in the same normalized space as the
+            // committed vertices so the preview lands exactly on the cursor.
+            cursor_ = normalized(e->pos(), imageRect(rect().adjusted(1, 1, -1, -1)));
+            update();
+            e->accept();
+            return;
+        }
+        QWidget::mouseMoveEvent(e);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* e) override {
+        // While drawing, never let a double-click fall through to frame nav.
+        if (drawing_) {
+            e->accept();
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(e);
+    }
+
+private:
+    QRect imageRect(const QRect& content) const {
+        const double aspect = static_cast<double>(frameW_) / frameH_;
+        QSize scaled = content.size();
+        if (static_cast<double>(scaled.width()) / scaled.height() > aspect) {
+            scaled.setWidth(qMax(1, static_cast<int>(scaled.height() * aspect)));
+        } else {
+            scaled.setHeight(qMax(1, static_cast<int>(scaled.width() / aspect)));
+        }
+        return QRect(content.center().x() - scaled.width() / 2,
+                     content.center().y() - scaled.height() / 2,
+                     scaled.width(), scaled.height());
+    }
+
+    QPointF normalized(const QPoint& pos, const QRect& imgRect) const {
+        const double x = (pos.x() - imgRect.left()) / static_cast<double>(imgRect.width());
+        const double y = (pos.y() - imgRect.top()) / static_cast<double>(imgRect.height());
+        return QPointF(qBound(0.0, x, 1.0), qBound(0.0, y, 1.0));
+    }
+
+    bool nearFirst(const QPoint& pos, const QRect& imgRect) const {
+        if (scratch_.isEmpty()) {
+            return false;
+        }
+        const QPointF first = QPointF(imgRect.left() + scratch_.first().x() * imgRect.width(),
+                                      imgRect.top() + scratch_.first().y() * imgRect.height());
+        return QLineF(pos, first).length() <= CLOSE_SNAP_PX;
+    }
+
+    void updateMousePassthrough() {
+        setAttribute(Qt::WA_TransparentForMouseEvents, !drawing_);
+    }
+
+    static constexpr qreal CLOSE_SNAP_PX = 14.0;
+
+    int frameW_ = 0;
+    int frameH_ = 0;
+    QVector<QPointF> polygon_;   // normalized committed region
+    QVector<QPointF> scratch_;   // vertices being entered while drawing
+    QPointF cursor_;
+    bool drawing_ = false;
 };
 
 DetailView::DetailView(QWidget *parent) : QWidget(parent), isAdmin_(false) {
@@ -292,6 +652,7 @@ void DetailView::setupUi() {
     mainLayout->addLayout(centerLayout, 3); 
 
     buildAoiOverlay();
+    buildRoiControls();
 
     applyLiveViewTypography();
     setAdminMode(false); // Default state
@@ -351,6 +712,23 @@ void DetailView::buildAoiOverlay() {
     addAoiRow("Offset X", aoiOffsetXSpin_);
     addAoiRow("Offset Y", aoiOffsetYSpin_);
 
+    // Draw mode: drag a rectangle on the frame to define the region freely.
+    aoiDrawBtn_ = new QToolButton(aoiPanel_);
+    aoiDrawBtn_->setText("Draw on Frame");
+    aoiDrawBtn_->setCheckable(true);
+    aoiDrawBtn_->setCursor(Qt::PointingHandCursor);
+    aoiDrawBtn_->setFocusPolicy(Qt::NoFocus);
+    aoiDrawBtn_->setToolTip("Drag on the frame to define the AOI region, then Apply.");
+    aoiDrawBtn_->setStyleSheet(QString(
+        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+        " padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+        "QToolButton:hover { background-color: %4; }"
+        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
+        .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
+             toRgba(tc.primary, 45), tc.primary));
+    connect(aoiDrawBtn_, &QToolButton::toggled, this, &DetailView::onAoiDrawToggled);
+    aoiLayout->addWidget(aoiDrawBtn_);
+
     // Manual apply: editing only previews (overlay + limits); the camera is
     // stopped/restarted once when the operator presses this button.
     aoiApplyBtn_ = new QPushButton("Apply AOI", aoiPanel_);
@@ -358,6 +736,11 @@ void DetailView::buildAoiOverlay() {
     aoiApplyBtn_->setFocusPolicy(Qt::NoFocus);
     connect(aoiApplyBtn_, &QPushButton::clicked, this, &DetailView::onAoiApplyClicked);
     aoiLayout->addWidget(aoiApplyBtn_);
+
+    // Route finished drags from the overlay into the spin boxes.
+    aoiOverlay_->onRegionDrawn = [this](int w, int h, int ox, int oy) {
+        onAoiRegionDrawn(w, h, ox, oy);
+    };
 
     for (QSpinBox* spin : {aoiWidthSpin_, aoiHeightSpin_, aoiOffsetXSpin_, aoiOffsetYSpin_}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) {
@@ -380,8 +763,249 @@ void DetailView::buildAoiOverlay() {
     repositionAoiOverlay();
 }
 
+void DetailView::buildRoiControls() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    // ROI overlay above the AOI sensor-context overlay; draws the analysis
+    // region and (in draw mode) collects point-to-point vertices.
+    roiOverlay_ = new RoiRegionOverlay(cameraWidget_);
+    roiOverlay_->setGeometry(cameraWidget_->rect());
+    roiOverlay_->hide();
+
+    // ROI chip under the AOI chip (top-right stack).
+    roiChip_ = new QToolButton(cameraWidget_);
+    roiChip_->setCheckable(true);
+    roiChip_->setText("ROI");
+    roiChip_->setCursor(Qt::PointingHandCursor);
+    roiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
+    connect(roiChip_, &QToolButton::toggled, this, [this](bool checked) {
+        if (!checked && roiDrawBtn_ && roiDrawBtn_->isChecked()) {
+            roiDrawBtn_->setChecked(false);
+        }
+        roiPanel_->setVisible(checked);
+        if (checked) {
+            repositionRoiPanel();
+        }
+        refreshRoiOverlay();
+    });
+
+    // Floating ROI panel.
+    roiPanel_ = new QFrame(cameraWidget_);
+    roiPanel_->setObjectName("roiPanel");
+    roiPanel_->setStyleSheet(QString(
+        "QFrame#roiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QLabel { color: %3; font-size: 11px; }"
+        "QCheckBox { color: %3; font-size: 11px; spacing: 4px; }")
+        .arg(toRgba(tc.btnBg, 245), tc.border, tc.text));
+    QVBoxLayout* roiLayout = new QVBoxLayout(roiPanel_);
+    roiLayout->setContentsMargins(10, 8, 10, 8);
+    roiLayout->setSpacing(5);
+
+    roiStatusLabel_ = new QLabel(roiPanel_);
+    roiStatusLabel_->setWordWrap(true);
+    roiLayout->addWidget(roiStatusLabel_);
+
+    // Draw / Whole frame / Clear row.
+    roiDrawBtn_ = new QToolButton(roiPanel_);
+    roiDrawBtn_->setText("Draw Region");
+    roiDrawBtn_->setCheckable(true);
+    roiDrawBtn_->setCursor(Qt::PointingHandCursor);
+    roiDrawBtn_->setFocusPolicy(Qt::NoFocus);
+    roiDrawBtn_->setToolTip("Click point-to-point on the frame; click the first"
+                            " point again to close the region.");
+    const QString toolStyle = QString(
+        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+        " padding: 4px 8px; font-size: 11px; font-weight: 600; }"
+        "QToolButton:hover { background-color: %4; }"
+        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
+        .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
+             toRgba(tc.primary, 45), tc.primary);
+    roiDrawBtn_->setStyleSheet(toolStyle);
+    connect(roiDrawBtn_, &QToolButton::toggled, this, &DetailView::onRoiDrawToggled);
+
+    roiWholeBtn_ = new QPushButton("Whole Frame", roiPanel_);
+    roiWholeBtn_->setCursor(Qt::PointingHandCursor);
+    roiWholeBtn_->setFocusPolicy(Qt::NoFocus);
+    roiWholeBtn_->setStyleSheet(QString(
+        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
+        " border-radius: 6px; padding: 4px 8px; font-size: 11px; }"
+        "QPushButton:hover { background-color: %3; }")
+        .arg(tc.primary, tc.border, toRgba(tc.btnHover, 255)));
+    connect(roiWholeBtn_, &QPushButton::clicked, this, &DetailView::onRoiWholeFrameClicked);
+
+    roiClearBtn_ = new QPushButton("Clear", roiPanel_);
+    roiClearBtn_->setCursor(Qt::PointingHandCursor);
+    roiClearBtn_->setFocusPolicy(Qt::NoFocus);
+    roiClearBtn_->setStyleSheet(roiWholeBtn_->styleSheet());
+    connect(roiClearBtn_, &QPushButton::clicked, this, &DetailView::onRoiClearClicked);
+
+    QHBoxLayout* roiBtnRow = new QHBoxLayout();
+    roiBtnRow->setSpacing(4);
+    roiBtnRow->addWidget(roiDrawBtn_);
+    roiBtnRow->addWidget(roiWholeBtn_, 1);
+    roiBtnRow->addWidget(roiClearBtn_);
+    roiLayout->addLayout(roiBtnRow);
+
+    // Recorded-review scope toggles.
+    roiCurvesCheck_ = new QCheckBox("Restrict review curves to region", roiPanel_);
+    roiCurvesCheck_->setChecked(roiMaskCurves_);
+    roiHitsCheck_ = new QCheckBox("Restrict defect hits to region", roiPanel_);
+    roiHitsCheck_->setChecked(roiMaskHits_);
+    roiLayout->addWidget(roiCurvesCheck_);
+    roiLayout->addWidget(roiHitsCheck_);
+    connect(roiCurvesCheck_, &QCheckBox::toggled, this, &DetailView::onRoiScopeChanged);
+    connect(roiHitsCheck_, &QCheckBox::toggled, this, &DetailView::onRoiScopeChanged);
+
+    // Route finished polygon edits into the stored region + status + signal.
+    roiOverlay_->onRegionClosed = [this](const QVector<QPointF>& roi) {
+        onRoiMaskDrawn(roi);
+    };
+
+    roiPanel_->hide();
+    roiChip_->raise();
+    roiPanel_->raise();
+    roiOverlay_->raise();
+    refreshRoiOverlay();
+    updateRoiStatus();
+}
+
+void DetailView::onRoiDrawToggled(bool checked) {
+    if (checked) {
+        beginRoiDraw();
+    } else {
+        endRoiDraw();
+    }
+}
+
+void DetailView::beginRoiDraw() {
+    if (!roiOverlay_ || !roiChip_) {
+        return;
+    }
+    roiChip_->setChecked(true);  // ensure the panel (and overlay) is up
+    if (!roiHasContent_) {
+        roiDrawBtn_->setChecked(false);
+        if (roiStatusLabel_) {
+            roiStatusLabel_->setText("No live frame yet — wait for the image to"
+                                     " appear before drawing the region.");
+        }
+        refreshRoiOverlay();
+        return;
+    }
+    roiOverlay_->setFrameSize(roiFrameW_, roiFrameH_);
+    roiOverlay_->setDrawing(true);
+    roiOverlay_->setVisible(true);
+}
+
+void DetailView::endRoiDraw() {
+    if (roiOverlay_) {
+        roiOverlay_->setDrawing(false);
+        refreshRoiOverlay();
+    }
+}
+
+void DetailView::onRoiMaskDrawn(const QVector<QPointF>& roi) {
+    if (roiDrawBtn_) {
+        roiDrawBtn_->setChecked(false);  // uncheck but keep panel open
+    }
+    endRoiDraw();
+    if (roi.size() >= 3) {
+        roiNorm_ = roi;
+        updateRoiStatus();
+        refreshRoiOverlay();
+        emitRoiState();
+    }
+}
+
+void DetailView::onRoiWholeFrameClicked() {
+    // Whole delivered frame: full 0..1 rectangle (equivalent to today's
+    // whole-frame analysis, but now explicit and required).
+    roiNorm_ = {QPointF(0, 0), QPointF(1, 0), QPointF(1, 1), QPointF(0, 1)};
+    updateRoiStatus();
+    refreshRoiOverlay();
+    emitRoiState();
+}
+
+void DetailView::onRoiClearClicked() {
+    endRoiDraw();
+    if (roiDrawBtn_) {
+        roiDrawBtn_->setChecked(false);
+    }
+    roiNorm_.clear();
+    updateRoiStatus();
+    refreshRoiOverlay();
+    emitRoiState();
+}
+
+void DetailView::onRoiScopeChanged() {
+    roiMaskCurves_ = roiCurvesCheck_->isChecked();
+    roiMaskHits_ = roiHitsCheck_->isChecked();
+    emitRoiState();
+}
+
+void DetailView::emitRoiState() {
+    if (currentCameraId_ < 0) {
+        return;
+    }
+    emit detectionRoiChanged(currentCameraId_, roiNorm_, roiMaskCurves_, roiMaskHits_);
+}
+
+void DetailView::refreshRoiOverlay() {
+    if (!roiOverlay_ || !roiChip_) {
+        return;
+    }
+    // The ROI is drawn over the delivered frame: the overlay must map against
+    // what the user actually sees, so prefer the live image size and fall back
+    // to the configured region size before the first frame arrives.
+    const QSize img = cameraWidget_ ? cameraWidget_->currentImageSize() : QSize();
+    if (img.isValid() && !img.isEmpty()) {
+        roiFrameW_ = img.width();
+        roiFrameH_ = img.height();
+    }
+    roiOverlay_->setFrameSize(roiFrameW_, roiFrameH_);
+    roiOverlay_->setPolygon(roiNorm_);
+    // The polygon drawer (region + scratch preview) only appears while the ROI
+    // button is open; closing it hides the overlay from the live frame.
+    const bool show = currentCameraId_ >= 0 && roiHasContent_ && roiChip_->isChecked();
+    roiOverlay_->setVisible(show);
+}
+
+void DetailView::updateRoiStatus() {
+    if (!roiStatusLabel_) {
+        return;
+    }
+    if (roiNorm_.size() < 3) {
+        roiStatusLabel_->setText("No inspection region — analysis is PAUSED. "
+                                 "Draw the area to analyze or use Whole Frame.");
+        roiStatusLabel_->setStyleSheet("QLabel { color: #FFB74D; font-size: 11px; font-weight: 600; }");
+    } else {
+        roiStatusLabel_->setText(QString("Region: %1 points — analysis runs inside it.")
+                                     .arg(roiNorm_.size()));
+        roiStatusLabel_->setStyleSheet("QLabel { color: #81C784; font-size: 11px; font-weight: 600; }");
+    }
+}
+
+void DetailView::repositionRoiPanel() {
+    if (!cameraWidget_ || !roiChip_ || !roiPanel_) {
+        return;
+    }
+    const QRect vg = cameraWidget_->rect();
+    const int margin = 8;
+    const int pw = 240;
+    const int ph = roiPanel_->sizeHint().height();
+    const QRect aoiChipGeom = aoiChip_ ? aoiChip_->geometry() : QRect();
+    int x = vg.right() - pw - margin;
+    int y = (aoiChip_ && aoiChip_->isVisible() ? aoiChipGeom.bottom() : vg.top() + margin) + 6;
+    if (y + ph > vg.bottom() - margin) {
+        y = vg.bottom() - ph - margin;
+    }
+    roiPanel_->setGeometry(x, y, pw, ph);
+}
+
 void DetailView::onAoiChipToggled(bool checked) {
     aoiPanel_->setVisible(checked);
+    if (!checked && aoiDrawBtn_ && aoiDrawBtn_->isChecked()) {
+        aoiDrawBtn_->setChecked(false);  // also disables overlay draw mode
+    }
     if (aoiOverlay_) {
         aoiOverlay_->setVisible(checked);
         if (checked) {
@@ -399,6 +1023,29 @@ void DetailView::onAoiApplyClicked() {
         return;
     }
     emitAoiValues();
+}
+
+void DetailView::onAoiDrawToggled(bool checked) {
+    if (aoiOverlay_) {
+        aoiOverlay_->setDrawEnabled(checked);
+    }
+}
+
+void DetailView::onAoiRegionDrawn(int width, int height, int offsetX, int offsetY) {
+    if (currentCameraId_ < 0) {
+        return;
+    }
+    // Feed the drawn rectangle into the spin boxes (and therefore into the
+    // overlay + Apply button). Size first so offset limits adapt, then offsets.
+    populatingAoi_ = true;
+    aoiWidthSpin_->setValue(qBound(1, width, aoiMaxW_));
+    aoiHeightSpin_->setValue(qBound(1, height, aoiMaxH_));
+    populatingAoi_ = false;
+    updateAoiOffsetLimits();
+    aoiOffsetXSpin_->setValue(qBound(0, offsetX, aoiOffsetXSpin_->maximum()));
+    aoiOffsetYSpin_->setValue(qBound(0, offsetY, aoiOffsetYSpin_->maximum()));
+    refreshAoiOverlay();
+    updateAoiApplyState();
 }
 
 void DetailView::emitAoiValues() {
@@ -476,6 +1123,12 @@ void DetailView::refreshAoiOverlay() {
     aoiOverlay_->setValues(aoiMaxW_, aoiMaxH_,
                            aoiWidthSpin_->value(), aoiHeightSpin_->value(),
                            aoiOffsetXSpin_->value(), aoiOffsetYSpin_->value());
+    // Fallback geometry for the ROI overlay before the first frame arrives;
+    // refreshRoiOverlay() overrides with the actual delivered image size.
+    roiFrameW_ = aoiWidthSpin_->value();
+    roiFrameH_ = aoiHeightSpin_->value();
+    roiHasContent_ = true;
+    refreshRoiOverlay();
 }
 
 void DetailView::updateAoiOffsetLimits() {
@@ -508,6 +1161,15 @@ void DetailView::repositionAoiOverlay() {
     const int chipH = 26;
     aoiChip_->setGeometry(vg.right() - chipW - margin, vg.top() + margin, chipW, chipH);
 
+    // ROI chip sits below the AOI chip (same right-edge stack).
+    if (roiChip_) {
+        roiChip_->setGeometry(vg.right() - chipW - margin,
+                              aoiChip_->geometry().bottom() + 6, chipW, chipH);
+        if (roiPanel_ && roiPanel_->isVisible()) {
+            repositionRoiPanel();
+        }
+    }
+
     if (aoiPanel_ && aoiPanel_->isVisible()) {
         const int pw = 228;
         const int ph = aoiPanel_->sizeHint().height();
@@ -527,13 +1189,21 @@ bool DetailView::eventFilter(QObject* obj, QEvent* event) {
                 aoiOverlay_->setGeometry(cameraWidget_->rect());
                 aoiOverlay_->update();
             }
+            if (roiOverlay_) {
+                roiOverlay_->setGeometry(cameraWidget_->rect());
+                roiOverlay_->update();
+            }
             repositionAoiOverlay();
+            if (roiChip_) {
+                repositionRoiPanel();
+            }
         } else if (event->type() == QEvent::MouseButtonDblClick) {
-            // While the AOI panel is open, swallow double-clicks on the frame
-            // so adjusting AOI values can't accidentally bounce back to the
-            // grid (the frame's double-click navigation still works when the
-            // panel is closed).
-            if (aoiChip_ && aoiChip_->isChecked()) {
+            // While the AOI panel or the ROI panel is open (or ROI drawing is
+            // active), swallow double-clicks on the frame so adjusting values
+            // / drawing can't accidentally bounce back to the grid.
+            if ((aoiChip_ && aoiChip_->isChecked())
+                || (roiOverlay_ && roiOverlay_->isDrawing())
+                || (roiChip_ && roiChip_->isChecked())) {
                 return true;
             }
         }
@@ -584,11 +1254,16 @@ void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* v
     
     setGainPresentation("Gain", false);
 
-    // Show the AOI chip on the video frame for this camera.
+    // Show the AOI + ROI chips on the video frame for this camera.
     if (aoiChip_) {
         aoiChip_->setChecked(false);
         aoiChip_->setVisible(true);
         repositionAoiOverlay();
+    }
+    if (roiChip_) {
+        roiChip_->setChecked(false);
+        roiChip_->setVisible(true);
+        repositionRoiPanel();
     }
 
     // Load current parameter values from info (config-backed defaults)
@@ -654,6 +1329,31 @@ void DetailView::clearCamera() {
     }
     if (aoiOverlay_) {
         aoiOverlay_->hide();
+        aoiOverlay_->setDrawEnabled(false);
+    }
+    if (aoiDrawBtn_) {
+        aoiDrawBtn_->setChecked(false);
+    }
+    // Reset ROI state: no camera -> no region shown/editable.
+    roiHasContent_ = false;
+    roiNorm_.clear();
+    if (roiOverlay_) {
+        roiOverlay_->hide();
+        roiOverlay_->setDrawing(false);
+        roiOverlay_->setPolygon({});
+    }
+    if (roiChip_) {
+        roiChip_->setChecked(false);
+        roiChip_->setVisible(false);
+    }
+    if (roiPanel_) {
+        roiPanel_->hide();
+    }
+    if (roiDrawBtn_) {
+        roiDrawBtn_->setChecked(false);
+    }
+    if (roiStatusLabel_) {
+        updateRoiStatus();
     }
     aoiPending_ = false;
     appliedAoiW_ = appliedAoiH_ = appliedAoiOX_ = appliedAoiOY_ = 0;
@@ -725,6 +1425,29 @@ void DetailView::setAdminMode(bool isAdmin) {
             aoiChip_->setChecked(false);
         }
     }
+    if (roiChip_) {
+        roiChip_->setEnabled(isAdmin);
+        if (!isAdmin && roiChip_->isChecked()) {
+            roiChip_->setChecked(false);
+        }
+        if (!isAdmin && roiOverlay_) {
+            roiOverlay_->setDrawing(false);
+        }
+    }
+}
+
+void DetailView::setDetectionRoi(const QVector<QPointF>& roi, bool maskCurves, bool maskHits) {
+    roiNorm_ = roi;
+    roiMaskCurves_ = maskCurves;
+    roiMaskHits_ = maskHits;
+    if (roiCurvesCheck_) {
+        roiCurvesCheck_->setChecked(maskCurves);
+    }
+    if (roiHitsCheck_) {
+        roiHitsCheck_->setChecked(maskHits);
+    }
+    updateRoiStatus();
+    refreshRoiOverlay();
 }
 
 void DetailView::setGainPresentation(const QString& title, bool isRaw) {
@@ -874,6 +1597,15 @@ void DetailView::updateTheme() {
         if (aoiApplyBtn_) {
             updateAoiApplyState();
         }
+        if (aoiDrawBtn_) {
+            aoiDrawBtn_->setStyleSheet(QString(
+                "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+                " padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+                "QToolButton:hover { background-color: %4; }"
+                "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
+                .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
+                     toRgba(tc.primary, 45), tc.primary));
+        }
         aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
         aoiPanel_->setStyleSheet(QString(
             "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
@@ -882,6 +1614,21 @@ void DetailView::updateTheme() {
             " padding: 2px 4px; font-size: 11px; }")
             .arg(toRgba(tc.btnBg, 245), tc.border, tc.text, toRgba(tc.bg, 120)));
         repositionAoiOverlay();
+    }
+
+    if (roiChip_) {
+        const ThemeColors rt = CameraConfig::getThemeColors();
+        roiChip_->setStyleSheet(aoiOverlayStyle(toRgba(rt.btnBg, 230)));
+        if (roiPanel_) {
+            roiPanel_->setStyleSheet(QString(
+                "QFrame#roiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+                "QLabel { color: %3; font-size: 11px; }"
+                "QCheckBox { color: %3; font-size: 11px; spacing: 4px; }")
+                .arg(toRgba(rt.btnBg, 245), rt.border, rt.text));
+        }
+        if (roiOverlay_) {
+            roiOverlay_->update();
+        }
     }
 
     if (cameraWidget_) {

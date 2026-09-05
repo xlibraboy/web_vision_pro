@@ -11,7 +11,9 @@
 #include <QJsonObject>
 
 namespace {
-constexpr int kCacheVersion = 3;
+// Bump whenever the computed per-frame metrics change meaning (e.g. the
+// ROI-restricted scan introduced in this version) so stale caches recompute.
+constexpr int kCacheVersion = 4;
 constexpr int kSpotKernel = 31;        // local-neighborhood size
 constexpr int kSpotDelta = 50;         // gray levels vs neighborhood
 
@@ -57,7 +59,64 @@ double spotPixelPct(const cv::Mat& gray) {
     return 100.0 * (bright + dark) / total;
 }
 
+// Same spot anomaly metric, but only counting pixels inside the ROI mask
+// (restricted analysis region). Returns 0 when the mask is empty.
+double spotPixelPctMasked(const cv::Mat& gray, const cv::Mat& mask) {
+    if (gray.empty() || mask.empty() || mask.size() != gray.size()) {
+        return 0.0;
+    }
+    const cv::Mat kernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(kSpotKernel, kSpotKernel));
+    cv::Mat tophat, blackhat;
+    cv::morphologyEx(gray, tophat, cv::MORPH_TOPHAT, kernel);
+    cv::morphologyEx(gray, blackhat, cv::MORPH_BLACKHAT, kernel);
+    const int total = cv::countNonZero(mask);
+    if (total <= 0) {
+        return 0.0;
+    }
+    cv::Mat brightMask, darkMask;
+    cv::bitwise_and(tophat > kSpotDelta, mask, brightMask);
+    cv::bitwise_and(blackhat > kSpotDelta, mask, darkMask);
+    const int bright = cv::countNonZero(brightMask);
+    const int dark = cv::countNonZero(darkMask);
+    return 100.0 * (bright + dark) / total;
+}
+
+// Build a CV_8U analysis mask (255 inside) from a normalized (0..1) polygon
+// for a frame of the given size. Returns empty when the polygon is invalid so
+// callers treat it as "no restriction".
+cv::Mat buildRoiMask(const QVector<QPointF>& roi, int cols, int rows) {
+    if (roi.size() < 3 || cols <= 0 || rows <= 0) {
+        return cv::Mat();
+    }
+    std::vector<cv::Point> pts;
+    pts.reserve(roi.size());
+    for (const QPointF& p : roi) {
+        pts.emplace_back(static_cast<int>(p.x() * cols),
+                         static_cast<int>(p.y() * rows));
+    }
+    cv::Mat mask = cv::Mat::zeros(rows, cols, CV_8U);
+    cv::fillConvexPoly(mask, pts, cv::Scalar(255));
+    return mask;
+}
+
 } // namespace
+
+// Canonical signature of an ROI restriction; part of the scan cache key so
+// changing the region (or which metrics it gates) invalidates stale results.
+QString EventSignalScanner::roiSignature(const QVector<QPointF>& roi,
+                                         bool roiCurves, bool roiHits) {
+    if (roi.size() < 3) {
+        return QStringLiteral("none");
+    }
+    QString sig;
+    for (const QPointF& p : roi) {
+        if (!sig.isEmpty()) sig += QLatin1Char(';');
+        sig += QString::number(p.x(), 'f', 4) + QLatin1Char(',') + QString::number(p.y(), 'f', 4);
+    }
+    sig += QStringLiteral("|c%1|h%2").arg(roiCurves ? 1 : 0).arg(roiHits ? 1 : 0);
+    return sig;
+}
 
 EventSignalScanner::EventSignalScanner(QObject* parent)
     : QObject(parent) {
@@ -78,7 +137,7 @@ EventSignalScanner::EventSignalScanner(QObject* parent)
             return;
         }
         EventSignalData data;
-        if (!loadCache(path, &data)) {
+        if (!loadCache(path, &data, lastRoiSig_)) {
             emit failed(path, QStringLiteral("cache write failed"));
             return;
         }
@@ -94,7 +153,7 @@ EventSignalScanner::EventSignalScanner(QObject* parent)
     connect(&windowWatcher_, &QFutureWatcher<WindowScanResult>::finished, this, [this]() {
         const WindowScanResult r = windowWatcher_.result();
         if (r.ok) {
-            rememberWindow(r.binPath, r.startFrame, r.endFrame, r.data);
+            rememberWindow(r.binPath, r.startFrame, r.endFrame, lastWindowRoiSig_, r.data);
             emit windowFinished(r.binPath, r.startFrame, r.endFrame, r.data);
         } else if (!windowCancelled_.load()) {
             emit windowFailed(r.binPath, r.startFrame, r.endFrame,
@@ -103,24 +162,25 @@ EventSignalScanner::EventSignalScanner(QObject* parent)
     });
 }
 
-void EventSignalScanner::scanAsync(const QString& binPath) {
+void EventSignalScanner::scanAsync(const QString& binPath,
+                                   const QVector<QPointF>& roi,
+                                   bool roiCurves, bool roiHits) {
     if (isRunning()) {
         return;
     }
     cancelled_.store(false);
     failureReason_.clear();
     binPath_ = binPath;
+    lastRoiSig_ = roiSignature(roi, roiCurves, roiHits);
 
     EventSignalData cached;
-    if (loadCache(binPath, &cached)) {
+    if (loadCache(binPath, &cached, lastRoiSig_)) {
         emit finished(binPath, cached);
         return;
     }
 
-    watcher_.setFuture(QtConcurrent::run([this, binPath]() {
-        QVector<int> unused;
-        Q_UNUSED(unused);
-        return runScan(binPath);
+    watcher_.setFuture(QtConcurrent::run([this, binPath, roi, roiCurves, roiHits]() {
+        return runScan(binPath, roi, roiCurves, roiHits);
     }));
 }
 
@@ -132,13 +192,14 @@ bool EventSignalScanner::isRunning() const {
     return watcher_.isRunning();
 }
 
-QString EventSignalScanner::windowCacheKey(const QString& binPath, int startFrame, int endFrame) {
-    return QStringLiteral("%1|%2|%3").arg(binPath).arg(startFrame).arg(endFrame);
+QString EventSignalScanner::windowCacheKey(const QString& binPath, int startFrame, int endFrame,
+                                           const QString& roiSig) {
+    return QStringLiteral("%1|%2|%3|%4").arg(binPath).arg(startFrame).arg(endFrame).arg(roiSig);
 }
 
 bool EventSignalScanner::popCachedWindow(const QString& binPath, int startFrame, int endFrame,
-                                         EventSignalData* out) {
-    const QString key = windowCacheKey(binPath, startFrame, endFrame);
+                                         const QString& roiSig, EventSignalData* out) {
+    const QString key = windowCacheKey(binPath, startFrame, endFrame, roiSig);
     auto it = windowCache_.find(key);
     if (it == windowCache_.end()) {
         return false;
@@ -151,8 +212,8 @@ bool EventSignalScanner::popCachedWindow(const QString& binPath, int startFrame,
 }
 
 void EventSignalScanner::rememberWindow(const QString& binPath, int startFrame, int endFrame,
-                                        const EventSignalData& data) {
-    const QString key = windowCacheKey(binPath, startFrame, endFrame);
+                                        const QString& roiSig, const EventSignalData& data) {
+    const QString key = windowCacheKey(binPath, startFrame, endFrame, roiSig);
     windowCache_.insert(key, data);
     windowCacheOrder_.removeAll(key);
     windowCacheOrder_.append(key);
@@ -161,18 +222,23 @@ void EventSignalScanner::rememberWindow(const QString& binPath, int startFrame, 
     }
 }
 
-void EventSignalScanner::scanWindowAsync(const QString& binPath, int startFrame, int endFrame) {
+void EventSignalScanner::scanWindowAsync(const QString& binPath, int startFrame, int endFrame,
+                                         const QVector<QPointF>& roi,
+                                         bool roiCurves, bool roiHits) {
     if (isWindowRunning()) {
         return;
     }
+    const QString roiSig = roiSignature(roi, roiCurves, roiHits);
     EventSignalData cached;
-    if (popCachedWindow(binPath, startFrame, endFrame, &cached)) {
+    if (popCachedWindow(binPath, startFrame, endFrame, roiSig, &cached)) {
         emit windowFinished(binPath, startFrame, endFrame, cached);
         return;
     }
+    lastWindowRoiSig_ = roiSig;
     windowCancelled_.store(false);
-    windowWatcher_.setFuture(QtConcurrent::run([this, binPath, startFrame, endFrame]() {
-        return runWindowScan(binPath, startFrame, endFrame);
+    windowWatcher_.setFuture(QtConcurrent::run(
+        [this, binPath, startFrame, endFrame, roi, roiCurves, roiHits]() {
+        return runWindowScan(binPath, startFrame, endFrame, roi, roiCurves, roiHits);
     }));
 }
 
@@ -185,7 +251,9 @@ bool EventSignalScanner::isWindowRunning() const {
 }
 
 WindowScanResult EventSignalScanner::runWindowScan(const QString& binPath, int startFrame,
-                                                   int endFrame) {
+                                                   int endFrame,
+                                                   const QVector<QPointF>& roi,
+                                                   bool roiCurves, bool roiHits) {
     WindowScanResult result;
     result.binPath = binPath;
     result.startFrame = startFrame;
@@ -224,6 +292,10 @@ WindowScanResult EventSignalScanner::runWindowScan(const QString& binPath, int s
     EventSignalData out;
     out.totalFrames = totalFrames;
     out.fps = reader.getFps();
+    // ROI scopes: restrict the signal curves and/or the defect-hit rules to
+    // the drawn inspection region (empty polygon = whole frame, no gate).
+    const bool maskCurves = roiCurves && roi.size() >= 3;
+    const bool maskHits = roiHits && roi.size() >= 3;
     for (int frameIndex = start; frameIndex <= end; ++frameIndex) {
         if (windowCancelled_.load()) {
             result.reason = QStringLiteral("cancelled");
@@ -239,14 +311,23 @@ WindowScanResult EventSignalScanner::runWindowScan(const QString& binPath, int s
             } else {
                 cv::cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
             }
-            const cv::Scalar m, s;
-            cv::meanStdDev(gray, m, s);
+            cv::Mat mask;
+            if (maskCurves || maskHits) {
+                mask = buildRoiMask(roi, gray.cols, gray.rows);
+            }
+            cv::Scalar m, s;
+            if (maskCurves && !mask.empty()) {
+                cv::meanStdDev(gray, m, s, mask);
+                out.spotPct.push_back(spotPixelPctMasked(gray, mask));
+            } else {
+                cv::meanStdDev(gray, m, s);
+                out.spotPct.push_back(spotPixelPct(gray));
+            }
             out.brightness.push_back(m[0]);
             out.stddev.push_back(s[0]);
             out.sampleFrames.push_back(frameIndex);
-            out.spotPct.push_back(spotPixelPct(gray));
 
-            if (detector.detect(frame)) {
+            if (detector.detect(frame, (maskHits && !mask.empty()) ? mask : cv::Mat())) {
                 out.defectBrightness.push_back(frameIndex);
             }
             if (out.spotPct.back() >= kLocalSpotMinPct) {
@@ -268,7 +349,9 @@ WindowScanResult EventSignalScanner::runWindowScan(const QString& binPath, int s
     return result;
 }
 
-bool EventSignalScanner::runScan(const QString& binPath) {
+bool EventSignalScanner::runScan(const QString& binPath,
+                                 const QVector<QPointF>& roi,
+                                 bool roiCurves, bool roiHits) {
     qint64 size = 0;
     qint64 mtime = 0;
     if (!statBinFile(binPath, &size, &mtime)) {
@@ -296,6 +379,10 @@ bool EventSignalScanner::runScan(const QString& binPath) {
     EventSignalData out;
     out.totalFrames = totalFrames;
     out.fps = fps;
+    // ROI scopes: restrict the signal curves and/or the defect-hit rules to
+    // the drawn inspection region (empty polygon = whole frame, no gate).
+    const bool maskCurves = roiCurves && roi.size() >= 3;
+    const bool maskHits = roiHits && roi.size() >= 3;
 
     int lastPercent = -1;
     for (int step = 0; step < steps; ++step) {
@@ -313,14 +400,23 @@ bool EventSignalScanner::runScan(const QString& binPath) {
             } else {
                 cv::cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
             }
-            const cv::Scalar m, s;
-            cv::meanStdDev(gray, m, s);
+            cv::Mat mask;
+            if (maskCurves || maskHits) {
+                mask = buildRoiMask(roi, gray.cols, gray.rows);
+            }
+            cv::Scalar m, s;
+            if (maskCurves && !mask.empty()) {
+                cv::meanStdDev(gray, m, s, mask);
+                out.spotPct.push_back(spotPixelPctMasked(gray, mask));
+            } else {
+                cv::meanStdDev(gray, m, s);
+                out.spotPct.push_back(spotPixelPct(gray));
+            }
             out.brightness.push_back(m[0]);
             out.stddev.push_back(s[0]);
             out.sampleFrames.push_back(frameIndex);
-            out.spotPct.push_back(spotPixelPct(gray));
 
-            if (detector.detect(frame)) {
+            if (detector.detect(frame, (maskHits && !mask.empty()) ? mask : cv::Mat())) {
                 out.defectBrightness.push_back(frameIndex);
             }
             if (out.spotPct.back() >= kLocalSpotMinPct) {
@@ -343,7 +439,7 @@ bool EventSignalScanner::runScan(const QString& binPath) {
         }
     }
 
-    saveCache(binPath, stride, out);
+    saveCache(binPath, stride, out, roiSignature(roi, roiCurves, roiHits));
     return true;
 }
 
@@ -351,7 +447,8 @@ QString EventSignalScanner::cachePathForBin(const QString& binPath) {
     return binPath + QStringLiteral(".signal.json");
 }
 
-bool EventSignalScanner::loadCache(const QString& binPath, EventSignalData* out) {
+bool EventSignalScanner::loadCache(const QString& binPath, EventSignalData* out,
+                                   const QString& roiSig) {
     *out = EventSignalData();
 
     QFile f(cachePathForBin(binPath));
@@ -365,6 +462,10 @@ bool EventSignalScanner::loadCache(const QString& binPath, EventSignalData* out)
     }
     const QJsonObject obj = doc.object();
     if (obj.value(QStringLiteral("version")).toInt() != kCacheVersion) {
+        return false;
+    }
+    // A different inspection region (or scope) invalidates the cached scan.
+    if (obj.value(QStringLiteral("roi")).toString() != roiSig) {
         return false;
     }
     qint64 size = 0;
@@ -410,7 +511,8 @@ bool EventSignalScanner::loadCache(const QString& binPath, EventSignalData* out)
     return true;
 }
 
-void EventSignalScanner::saveCache(const QString& binPath, int stride, const EventSignalData& data) {
+void EventSignalScanner::saveCache(const QString& binPath, int stride, const EventSignalData& data,
+                                   const QString& roiSig) {
     qint64 size = 0;
     qint64 mtime = 0;
     if (!statBinFile(binPath, &size, &mtime)) {
@@ -420,6 +522,7 @@ void EventSignalScanner::saveCache(const QString& binPath, int stride, const Eve
     obj.insert(QStringLiteral("version"), kCacheVersion);
     obj.insert(QStringLiteral("binSize"), static_cast<double>(size));
     obj.insert(QStringLiteral("binMtime"), static_cast<double>(mtime));
+    obj.insert(QStringLiteral("roi"), roiSig);
     obj.insert(QStringLiteral("stride"), stride);
     obj.insert(QStringLiteral("totalFrames"), data.totalFrames);
     obj.insert(QStringLiteral("fps"), data.fps);

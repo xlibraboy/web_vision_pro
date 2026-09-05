@@ -2778,6 +2778,33 @@ bool CameraManager::isDefectDetectionEnabled() const {
     return defectDetectionEnabled_;
 }
 
+void CameraManager::setCameraDetectionRoi(int configArrayIndex, const QVector<QPointF>& roi) {
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    if (configArrayIndex < 0) {
+        return;
+    }
+    if (static_cast<size_t>(configArrayIndex) >= detectionRoi_.size()) {
+        detectionRoi_.resize(static_cast<size_t>(configArrayIndex) + 1);
+    }
+    detectionRoi_[configArrayIndex].clear();
+    detectionRoi_[configArrayIndex].reserve(static_cast<size_t>(roi.size()));
+    for (const QPointF& p : roi) {
+        detectionRoi_[configArrayIndex].push_back(cv::Point2f(static_cast<float>(p.x()),
+                                                              static_cast<float>(p.y())));
+    }
+    std::cout << "[CameraManager] Camera " << configArrayIndex << " detection ROI: "
+              << (roi.isEmpty() ? "CLEARED (analysis paused)"
+                                : QString("%1 vertices").arg(roi.size()).toStdString())
+              << std::endl;
+}
+
+bool CameraManager::hasCameraDetectionRoi(int configArrayIndex) {
+    std::lock_guard<std::mutex> lock(paramMutex_);
+    return configArrayIndex >= 0
+        && static_cast<size_t>(configArrayIndex) < detectionRoi_.size()
+        && detectionRoi_[configArrayIndex].size() >= 3;
+}
+
 void CameraManager::triggerSnapshot(int cameraIndex) {
     std::lock_guard<std::mutex> lock(snapshotMutex_);
     if (cameraIndex >= 0 && cameraIndex < (int)snapshotRequests_.size()) {
@@ -3100,6 +3127,42 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
     
     // Only run defect detection if enabled
     if (defectDetectionEnabled_) {
+        // Resolve the config-array index for this pylon camera index and take a
+        // snapshot of its detection ROI (normalized delivered-frame polygon).
+        int cfgIdx = cameraIndex;
+        std::vector<cv::Point2f> roiNormalized;
+        {
+            std::lock_guard<std::mutex> lock(paramMutex_);
+            if (cameraIndex < (int)pylonIndexToConfigArrayIndex_.size()) {
+                cfgIdx = pylonIndexToConfigArrayIndex_[cameraIndex];
+            }
+            if (cfgIdx >= 0 && cfgIdx < (int)detectionRoi_.size()) {
+                roiNormalized = detectionRoi_[cfgIdx];
+            }
+        }
+
+        // Software ROI is the master analysis switch: without a defined region
+        // the live defect scan is PAUSED (no contours, no triggers) so a camera
+        // whose inspection region is not drawn never silently analyzes the
+        // whole frame.
+        if (roiNormalized.size() < 3) {
+            info += " | Defect Scan: PAUSED (no ROI)";
+            return;
+        }
+
+        // Scale the normalized polygon into delivered-frame pixels.
+        std::vector<cv::Point> roiPixels;
+        roiPixels.reserve(roiNormalized.size());
+        const int fw = input.cols > 0 ? input.cols : 1;
+        const int fh = input.rows > 0 ? input.rows : 1;
+        for (const cv::Point2f& p : roiNormalized) {
+            roiPixels.push_back(cv::Point(static_cast<int>(p.x * fw),
+                                          static_cast<int>(p.y * fh)));
+        }
+        auto insideRoi = [&roiPixels](double x, double y) {
+            return cv::pointPolygonTest(roiPixels, cv::Point2f((float)x, (float)y), false) >= 0.0;
+        };
+
         // "Best Result": Convert Mono8 to BGR to allow colored (RED) defect visualization
         // converting input (Mono8) to gray for processing
         cv::Mat gray, processed;
@@ -3121,10 +3184,18 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(processed, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
         
-        // Draw significant contours (potential defects)
+        // Draw significant contours (potential defects). Only defects whose
+        // centroid lies INSIDE the detection ROI are analyzed/triggered -
+        // pixels outside the region are ignored.
         for (const auto& contour : contours) {
             double area = cv::contourArea(contour);
             if (area > 100) { // Filter small noise
+                 // Restrict to the defined inspection region.
+                 const cv::Moments mu = cv::moments(contour);
+                 if (mu.m00 <= 0.0
+                     || !insideRoi(mu.m10 / mu.m00, mu.m01 / mu.m00)) {
+                     continue;
+                 }
                  // Draw in WHITE (255) for Mono8 Optimized Result
                  cv::drawContours(output, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), 2);
                  
@@ -3136,9 +3207,9 @@ void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int came
                      // The defect is physically at this camera's machine position:
                      // spatial alignment centers every camera's window on when the
                      // defect passes it (offset = (P_cam - P_detect) / speed).
-                     if (cameraIndex >= 0) {
+                     if (cfgIdx >= 0) {
                          triggerContext.triggerPositionMm =
-                             CameraConfig::getCameraInfo(cameraIndex).machinePosition;
+                             CameraConfig::getCameraInfo(cfgIdx).machinePosition;
                      }
                      EventController::instance().triggerEvent(triggerContext);
                      cv::putText(output, "TRIGGERED!", cv::Point(10, 80), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(255), 2);

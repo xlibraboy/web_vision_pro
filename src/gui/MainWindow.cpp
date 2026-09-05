@@ -747,9 +747,42 @@ void MainWindow::setupUi() {
             cameras[cameraId].height = height;
             cameras[cameraId].offsetX = offsetX;
             cameras[cameraId].offsetY = offsetY;
+            // The drawn detection ROI lives in delivered-frame coordinates; a
+            // changed AOI crop shifts what those pixels show, so the region
+            // must be redrawn for the new geometry.
+            cameras[cameraId].detectionRoi.clear();
             CameraConfig::saveCameras(cameras);
+            if (cameraManager_) {
+                cameraManager_->setCameraDetectionRoi(cameraId, QVector<QPointF>());
+            }
+            // Drop the drawn region from the overlay/panel too (it now refers
+            // to the old crop geometry).
+            detailView_->setDetectionRoi(QVector<QPointF>(), true, true);
         }
         EventController::instance().updateCameraFps(cameraId + 1);
+    });
+    // Software detection ROI (analysis region) edits from the Live View ROI
+    // panel: persist per-camera and push into the live scan. An AOI geometry
+    // change clears the region (the drawn area would no longer match content),
+    // which the aoiValuesChanged handler above performs after each apply.
+    connect(detailView_, &DetailView::detectionRoiChanged,
+            [this](int cameraId, const QVector<QPointF>& roi, bool maskCurves, bool maskHits) {
+        std::vector<CameraInfo> cameras = CameraConfig::getCameras();
+        if (cameraId >= 0 && cameraId < static_cast<int>(cameras.size())) {
+            cameras[cameraId].detectionRoi = roi;
+            cameras[cameraId].roiMaskCurves = maskCurves;
+            cameras[cameraId].roiMaskHits = maskHits;
+            CameraConfig::saveCameras(cameras);
+        }
+        if (cameraManager_) {
+            cameraManager_->setCameraDetectionRoi(cameraId, roi);
+        }
+        statusBar()->showMessage(
+            roi.size() >= 3
+                ? QString("Inspection region set for Camera %1 (%2 pts)").arg(cameraId + 1).arg(roi.size())
+                : QString("Camera %1 inspection region cleared — analysis paused")
+                      .arg(cameraId + 1),
+            3500);
     });
     connect(detailView_, &DetailView::saveParametersRequested, [this](int cameraId) {
         if (!cameraManager_) return;
@@ -907,6 +940,16 @@ void MainWindow::setupUi() {
     statusBar()->showMessage("System Initialized");
 }
 
+void MainWindow::pushDetectionRoisToManager() {
+    if (!cameraManager_) {
+        return;
+    }
+    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+    for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
+        cameraManager_->setCameraDetectionRoi(i, cams[i].detectionRoi);
+    }
+}
+
 void MainWindow::setupCore() {
     // 1. Initialize Components
     cameraManager_ = std::make_unique<CameraManager>();
@@ -1038,6 +1081,9 @@ void MainWindow::setupCore() {
 
     // 4. Start Camera
     cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
+    // Seed the live defect scan with each camera's configured analysis region
+    // (empty = no region -> that camera's analysis is paused until drawn).
+    pushDetectionRoisToManager();
     startCameraLifecycleAsync(false, "Starting camera acquisition...");
     applyOpcUaSettings();
 
@@ -1209,6 +1255,9 @@ void MainWindow::showDetail(int cameraId) {
                                 liveS.ok && liveS.height > 0 ? liveS.height : info.height,
                                 liveS.ok ? liveS.offsetX : info.offsetX,
                                 liveS.ok ? liveS.offsetY : info.offsetY);
+
+        // Seed the software detection ROI (analysis region) for this camera.
+        detailView_->setDetectionRoi(info.detectionRoi, info.roiMaskCurves, info.roiMaskHits);
     } else {
         detailView_->setCamera(cameraId, info, nullptr);
     }

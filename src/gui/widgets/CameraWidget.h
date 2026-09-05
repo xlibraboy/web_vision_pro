@@ -26,6 +26,9 @@ public slots:
     QImage getImage();
     void setImage(const QImage& img);
 
+    // Size of the last delivered frame (empty when none is displayed).
+    QSize currentImageSize();
+
 signals:
     void clicked(int cameraId);
     void doubleClicked(int cameraId);

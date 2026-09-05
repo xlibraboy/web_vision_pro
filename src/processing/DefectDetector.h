@@ -7,8 +7,10 @@ public:
     DefectDetector();
     ~DefectDetector();
 
-    // Returns true if a defect/paper break is detected
-    bool detect(const cv::Mat& frame);
+    // Returns true if a defect/paper break is detected. When a non-empty mask
+    // (CV_8U, same size as frame) is given, the brightness average is computed
+    // only over the masked pixels (ROI-restricted detection).
+    bool detect(const cv::Mat& frame, const cv::Mat& mask = cv::Mat());
 
 private:
     double last_average_brightness_;

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QPointF>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 // Fixed paper-machine camera groups. Cameras are assigned to one of these on
 // their Camera Card; a trigger wired to a group records only that group's
@@ -86,4 +88,16 @@ struct CameraInfo {
     int group = CameraGroup::kUnassigned; // Paper-machine section (CameraGroup::k*)
     int floor = CameraFloor::kFirst;      // Machine floor (CameraFloor::k*)
     bool aoiEnabled = true;   // Master AOI switch; false = full sensor frame
+
+    // Software detection ROI (analysis region). Polygon vertices normalized to
+    // the delivered frame (0..1), i.e. the frame the operator draws on. An
+    // empty polygon means NO region defined -> that camera's analysis is
+    // paused (live defect scan + recorded review) until a region is drawn or
+    // the whole frame is chosen. Cleared automatically when the camera AOI
+    // geometry changes (the drawn region would no longer match the content).
+    QVector<QPointF> detectionRoi;
+    // Recorded-review scope toggles: restrict the signal curves and/or the
+    // defect-hit markers to inside the ROI. (Live scan always gates hits.)
+    bool roiMaskCurves = true;
+    bool roiMaskHits = true;
 };

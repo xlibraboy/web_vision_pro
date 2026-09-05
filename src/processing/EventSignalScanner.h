@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPointF>
 #include <QString>
 #include <QVector>
 #include <QFutureWatcher>
@@ -56,19 +57,33 @@ class EventSignalScanner : public QObject {
 public:
     explicit EventSignalScanner(QObject* parent = nullptr);
 
-    void scanAsync(const QString& binPath);
+    // roi: normalized (0..1) delivered-frame polygon restricting which pixels
+    // are analyzed. Empty = whole frame (no restriction). roiCurves gates the
+    // signal curves, roiHits gates the defect-hit markers (brightness jump /
+    // local spot / low contrast).
+    void scanAsync(const QString& binPath,
+                   const QVector<QPointF>& roi = QVector<QPointF>(),
+                   bool roiCurves = true, bool roiHits = true);
     void cancel();
     bool isRunning() const;
+
+    // Canonical signature of the ROI restriction, used to invalidate the scan
+    // caches when the region or its scope changes.
+    static QString roiSignature(const QVector<QPointF>& roi, bool roiCurves, bool roiHits);
 
     // Lazy detail-window scan: decodes [startFrame-1 .. endFrame] at stride 1
     // (one lookback frame seeds the stateful brightness-jump detector) and
     // computes the same series/defect rules as a full scan, but only for the
     // window. Results are kept in a small in-memory LRU keyed by
-    // (binPath, start, end) — no disk cache, windows are cheap to recompute.
-    void scanWindowAsync(const QString& binPath, int startFrame, int endFrame);
+    // (binPath, start, end, roi) — no disk cache, windows are cheap to
+    // recompute.
+    void scanWindowAsync(const QString& binPath, int startFrame, int endFrame,
+                         const QVector<QPointF>& roi = QVector<QPointF>(),
+                         bool roiCurves = true, bool roiHits = true);
     void cancelWindow();
     bool isWindowRunning() const;
-    static QString windowCacheKey(const QString& binPath, int startFrame, int endFrame);
+    static QString windowCacheKey(const QString& binPath, int startFrame, int endFrame,
+                                  const QString& roiSig = QString());
 
     // File currently assigned to the worker (valid even before it finishes).
     QString currentBinPath() const { return binPath_; }
@@ -83,9 +98,12 @@ public:
 
     static QString cachePathForBin(const QString& binPath);
 
-    // Cache I/O. loadCache returns false when absent or stale.
-    static bool loadCache(const QString& binPath, EventSignalData* out);
-    static void saveCache(const QString& binPath, int stride, const EventSignalData& data);
+    // Cache I/O. loadCache returns false when absent or stale; roiSig must
+    // match the stored restriction or the cache is treated as stale.
+    static bool loadCache(const QString& binPath, EventSignalData* out,
+                          const QString& roiSig = QString());
+    static void saveCache(const QString& binPath, int stride, const EventSignalData& data,
+                          const QString& roiSig = QString());
 
 signals:
     void progress(int scanned, int totalSteps);
@@ -97,15 +115,25 @@ signals:
                       const QString& reason);
 
 private:
-    bool runScan(const QString& binPath);
-    WindowScanResult runWindowScan(const QString& binPath, int startFrame, int endFrame);
-    bool popCachedWindow(const QString& binPath, int startFrame, int endFrame, EventSignalData* out);
-    void rememberWindow(const QString& binPath, int startFrame, int endFrame, const EventSignalData& data);
+    bool runScan(const QString& binPath, const QVector<QPointF>& roi,
+                 bool roiCurves, bool roiHits);
+    WindowScanResult runWindowScan(const QString& binPath, int startFrame, int endFrame,
+                                   const QVector<QPointF>& roi,
+                                   bool roiCurves, bool roiHits);
+    bool popCachedWindow(const QString& binPath, int startFrame, int endFrame,
+                         const QString& roiSig, EventSignalData* out);
+    void rememberWindow(const QString& binPath, int startFrame, int endFrame,
+                        const QString& roiSig, const EventSignalData& data);
 
     QFutureWatcher<bool> watcher_;
     QString binPath_;
     QString failureReason_;
+    // ROI signature of the currently running full scan; the finished handler
+    // reloads the cache with the same signature so the verification matches.
+    QString lastRoiSig_;
     std::atomic<bool> cancelled_{false};
+    // ROI signature of the currently running window scan (same purpose).
+    QString lastWindowRoiSig_;
 
     // Lazy detail-window scan state.
     QFutureWatcher<WindowScanResult> windowWatcher_;

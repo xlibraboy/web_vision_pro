@@ -528,6 +528,22 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.group = settings.value("group", cam.group).toInt();
         cam.floor = settings.value("floor", cam.floor).toInt();
         cam.aoiEnabled = settings.value("aoiEnabled", true).toBool();
+        // Detection ROI polygon (normalized delivered-frame vertices, empty =
+        // no region / analysis paused) + recorded-review scope toggles.
+        const QStringList roiPts = settings.value("detectionRoi").toStringList();
+        for (const QString& pt : roiPts) {
+            const QStringList xy = pt.split(',');
+            if (xy.size() == 2) {
+                bool okX = false, okY = false;
+                const double x = xy[0].trimmed().toDouble(&okX);
+                const double y = xy[1].trimmed().toDouble(&okY);
+                if (okX && okY && x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0) {
+                    cam.detectionRoi.append(QPointF(x, y));
+                }
+            }
+        }
+        cam.roiMaskCurves = settings.value("roiMaskCurves", true).toBool();
+        cam.roiMaskHits = settings.value("roiMaskHits", true).toBool();
         cameras.push_back(cam);
     }
     settings.endArray();
@@ -566,6 +582,14 @@ void CameraConfig::saveCameras(const std::vector<CameraInfo>& cameras) {
         settings.setValue("group", cam.group);
         settings.setValue("floor", cam.floor);
         settings.setValue("aoiEnabled", cam.aoiEnabled);
+        // Detection ROI (normalized 0..1 vertices), empty = no region.
+        QStringList roiPts;
+        for (const QPointF& pt : cam.detectionRoi) {
+            roiPts.append(QString("%1,%2").arg(pt.x(), 0, 'f', 6).arg(pt.y(), 0, 'f', 6));
+        }
+        settings.setValue("detectionRoi", roiPts);
+        settings.setValue("roiMaskCurves", cam.roiMaskCurves);
+        settings.setValue("roiMaskHits", cam.roiMaskHits);
     }
     settings.endArray();
 }

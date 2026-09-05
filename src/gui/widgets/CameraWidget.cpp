@@ -218,6 +218,11 @@ void CameraWidget::clearFrame() {
     update();
 }
 
+QSize CameraWidget::currentImageSize() {
+    QMutexLocker locker(&mutex_);
+    return image_.size();
+}
+
 void CameraWidget::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
     QPainter painter(this);

@@ -4,7 +4,7 @@ DefectDetector::DefectDetector() : last_average_brightness_(0.0), first_frame_(t
 
 DefectDetector::~DefectDetector() {}
 
-bool DefectDetector::detect(const cv::Mat& frame) {
+bool DefectDetector::detect(const cv::Mat& frame, const cv::Mat& mask) {
     if (frame.empty()) return false;
 
     // Convert to grayscale if necessary
@@ -24,9 +24,12 @@ bool DefectDetector::detect(const cv::Mat& frame) {
         }
     }
 
-    // Optimization: Calculate mean directly on frame if 1 channel
+    // Optimization: Calculate mean directly on frame if 1 channel; when a mask
+    // is supplied the average covers only the ROI-restricted pixels.
     cv::Scalar mean_scalar;
-    if (frame.channels() == 1) {
+    if (!mask.empty() && mask.size() == frame.size()) {
+        mean_scalar = cv::mean(frame, mask);
+    } else if (frame.channels() == 1) {
         mean_scalar = cv::mean(frame);
     } else {
         mean_scalar = cv::mean(grayBound_);

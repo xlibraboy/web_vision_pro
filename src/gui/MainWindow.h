@@ -104,6 +104,10 @@ private:
     std::unique_ptr<CameraManager> cameraManager_;
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
+
+    // Seed CameraManager with each configured camera's analysis region
+    // (detectionRoi). Called at startup and after camera config reloads.
+    void pushDetectionRoisToManager();
     std::unique_ptr<VideoEncoder> videoEncoder_;
     std::unique_ptr<OpcUaClientService> opcUaClientService_;
 

@@ -7,6 +7,7 @@
 #include <QSlider>
 #include <QPushButton>
 #include <QToolButton>
+#include <QCheckBox>
 #include <QFrame>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -42,6 +43,10 @@ public:
     // Seed the AOI overlay panel with the camera's geometry limits and current
     // AOI (width/height/offsetX/offsetY). maxW/maxH clamp the spin ranges.
     void setAoiInfo(int maxW, int maxH, int width, int height, int offsetX, int offsetY);
+    // Seed the software detection ROI (analysis region). Normalized delivered-
+    // frame polygon; empty = no region (analysis paused). width/height are the
+    // delivered frame dims the region is drawn against (for the overlay).
+    void setDetectionRoi(const QVector<QPointF>& roi, bool maskCurves, bool maskHits);
     void updateTheme();
 
 signals:    void backRequested();
@@ -52,6 +57,10 @@ signals:    void backRequested();
     void loadParametersRequested(int cameraId);
     // AOI overlay: user changed the region of interest in the live view.
     void aoiValuesChanged(int cameraId, int width, int height, int offsetX, int offsetY);
+    // Software detection ROI changed (drawn / cleared / whole-frame / scope
+    // toggles). roi may be empty (= analysis paused for this camera).
+    void detectionRoiChanged(int cameraId, const QVector<QPointF>& roi,
+                             bool maskCurves, bool maskHits);
 
 public:
     CameraWidget* videoWidget();
@@ -64,7 +73,15 @@ private slots:
     void onSnapshotClicked(); // New slot
     void onAoiChipToggled(bool checked);
     void onAoiApplyClicked();
+    void onAoiDrawToggled(bool checked);
+    void onAoiRegionDrawn(int width, int height, int offsetX, int offsetY);
     void emitAoiValues();
+    void onRoiDrawToggled(bool checked);
+    void onRoiWholeFrameClicked();
+    void onRoiClearClicked();
+    void onRoiScopeChanged();
+    void onRoiMaskDrawn(const QVector<QPointF>& roi);
+    void emitRoiState();
 
 private:
     void setupUi();
@@ -122,6 +139,7 @@ private:
     QSpinBox* aoiOffsetXSpin_ = nullptr;
     QSpinBox* aoiOffsetYSpin_ = nullptr;
     QPushButton* aoiApplyBtn_ = nullptr;
+    QToolButton* aoiDrawBtn_ = nullptr;
     int aoiMaxW_ = 1;
     int aoiMaxH_ = 1;
     bool populatingAoi_ = false;
@@ -130,8 +148,35 @@ private:
     int appliedAoiH_ = 0;
     int appliedAoiOX_ = 0;
     int appliedAoiOY_ = 0;
+
+    // Software detection ROI (analysis region) widget + controls. The polygon
+    // is normalized to the delivered frame (0..1); empty = no region -> the
+    // camera's analysis is paused until one is drawn or whole-frame chosen.
+    class RoiRegionOverlay;
+    RoiRegionOverlay* roiOverlay_ = nullptr;  // draws + edits the ROI on the frame
+    QToolButton* roiChip_ = nullptr;          // "ROI" chip opening the ROI panel
+    QFrame* roiPanel_ = nullptr;
+    QToolButton* roiDrawBtn_ = nullptr;
+    QPushButton* roiWholeBtn_ = nullptr;
+    QPushButton* roiClearBtn_ = nullptr;
+    QCheckBox* roiCurvesCheck_ = nullptr;
+    QCheckBox* roiHitsCheck_ = nullptr;
+    QLabel* roiStatusLabel_ = nullptr;
+    QVector<QPointF> roiNorm_;      // normalized polygon (widget edits land here)
+    bool roiMaskCurves_ = true;
+    bool roiMaskHits_ = true;
+    int roiFrameW_ = 0;             // delivered frame size for the region
+    int roiFrameH_ = 0;
+    bool roiHasContent_ = false;    // a delivered image is currently displayed
+
     void buildAoiOverlay();
+    void buildRoiControls();
     void repositionAoiOverlay();
+    void repositionRoiPanel();
+    void refreshRoiOverlay();
+    void updateRoiStatus();
+    void beginRoiDraw();
+    void endRoiDraw();
     // Keep Offset X/Y within "SensorMax - current size" so Offset + Size never
     // exceeds the sensor (the camera would silently clamp the offset to 0).
     void updateAoiOffsetLimits();

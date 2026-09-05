@@ -169,6 +169,13 @@ public:
     void setDefectDetectionEnabled(bool enabled);
     bool isDefectDetectionEnabled() const;
 
+    // Software detection ROI for one camera (normalized 0..1 vertices relative
+    // to the delivered frame). An empty polygon means NO region defined: the
+    // camera's live defect scan is paused until a region is drawn or the whole
+    // frame is chosen. Config-array-indexed; safe to call from the UI thread.
+    void setCameraDetectionRoi(int configArrayIndex, const QVector<QPointF>& roi);
+    bool hasCameraDetectionRoi(int configArrayIndex);
+
     // Snapshot Control
     void triggerSnapshot(int cameraIndex);
 
@@ -420,6 +427,14 @@ private:
     // Cached LUT per camera — invalidated when swGain/swGamma/swContrast change
     std::vector<cv::Mat> lutCache_;
     std::vector<bool> lutValid_;
+
+    // Per-camera software detection ROI polygon, normalized to the delivered
+    // frame (0..1 vertices). Indexed by config array index (same as UI slot).
+    // An empty polygon = no region defined -> that camera's live defect scan
+    // is PAUSED (no triggers/contours) until a region is drawn or the whole
+    // frame is chosen. Written by the UI thread, read by the grab threads via
+    // setCameraDetectionRoi()/snapshot in processFrame (paramMutex_ guarded).
+    std::vector<std::vector<cv::Point2f>> detectionRoi_;
     
     // Mutex protecting software parameter data (swGain/swGamma/swContrast/lutValid/lutCache)
     // Guards against race between UI thread (writer) and acquisition thread (reader)
