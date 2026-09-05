@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QPainter>
 #include "widgets/CameraWidget.h"
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
@@ -112,6 +113,8 @@ private:
     int currentCameraId_ = -1;
 
     // AOI overlay (chip + floating panel on the video frame)
+    class AoiRegionOverlay;
+    AoiRegionOverlay* aoiOverlay_ = nullptr;   // sensor-context frame indicator
     QToolButton* aoiChip_ = nullptr;
     QFrame* aoiPanel_ = nullptr;
     QSpinBox* aoiWidthSpin_ = nullptr;
@@ -127,6 +130,8 @@ private:
     // Keep Offset X/Y within "SensorMax - current size" so Offset + Size never
     // exceeds the sensor (the camera would silently clamp the offset to 0).
     void updateAoiOffsetLimits();
+    // Push the current AOI values into the sensor-context overlay and repaint.
+    void refreshAoiOverlay();
     QString aoiOverlayStyle(const QString& bgColor) const;
 
     // FPS mismatch highlight: configured vs camera-reported rate.

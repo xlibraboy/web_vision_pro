@@ -9,6 +9,7 @@
 #include <QDebug>
 #include <QFont>
 #include <QEvent>
+#include <QPainterPath>
 
 // Convert a hex color like "#RRGGBB" into an rgba() string with the given
 // alpha (0-255). Local helper mirroring CameraDeviceSettingsDialog's toRgba.
@@ -21,6 +22,84 @@ static QString toRgba(const QString& hex, int alpha) {
         .arg(c.red()).arg(c.green()).arg(c.blue())
         .arg(static_cast<double>(alpha) / 255.0, 0, 'f', 2);
 }
+
+// Sensor-context overlay drawn on the live video frame. The displayed image is
+// the AOI crop scaled to fit, so this widget draws the full-sensor outline
+// around it (positioned by the offsets) and tints the sensor area outside the
+// region. Moving the offsets slides the outline, making the region's position
+// within the sensor visible.
+class DetailView::AoiRegionOverlay : public QWidget {
+public:
+    explicit AoiRegionOverlay(QWidget* parent = nullptr) : QWidget(parent) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+    }
+
+    void setValues(int sensorW, int sensorH, int regionW, int regionH,
+                   int offsetX, int offsetY) {
+        sensorW_ = sensorW;
+        sensorH_ = sensorH;
+        regionW_ = regionW;
+        regionH_ = regionH;
+        offsetX_ = offsetX;
+        offsetY_ = offsetY;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        if (sensorW_ <= 0 || sensorH_ <= 0 || regionW_ <= 0 || regionH_ <= 0) {
+            return;
+        }
+        const QRect content = rect().adjusted(1, 1, -1, -1);
+
+        // Mirror CameraWidget: the region is scaled KeepAspectRatio and centered.
+        const double aspect = static_cast<double>(regionW_) / regionH_;
+        QSize scaled = content.size();
+        if (static_cast<double>(scaled.width()) / scaled.height() > aspect) {
+            scaled.setWidth(qMax(1, static_cast<int>(scaled.height() * aspect)));
+        } else {
+            scaled.setHeight(qMax(1, static_cast<int>(scaled.width() / aspect)));
+        }
+        const QRect imgRect(content.center().x() - scaled.width() / 2,
+                            content.center().y() - scaled.height() / 2,
+                            scaled.width(), scaled.height());
+
+        const double sx = static_cast<double>(imgRect.width()) / regionW_;
+        const double sy = static_cast<double>(imgRect.height()) / regionH_;
+        const QRect sensorRect(imgRect.left() - static_cast<int>(offsetX_ * sx),
+                               imgRect.top() - static_cast<int>(offsetY_ * sy),
+                               static_cast<int>(sensorW_ * sx),
+                               static_cast<int>(sensorH_ * sy));
+
+        const ThemeColors tc = CameraConfig::getThemeColors();
+
+        // Tint the sensor area OUTSIDE the region (the part not captured).
+        QPainterPath sensorPath;
+        sensorPath.addRect(sensorRect);
+        QPainterPath regionPath;
+        regionPath.addRect(imgRect);
+        QColor tint(tc.primary);
+        tint.setAlpha(22);
+        p.fillPath(sensorPath.subtracted(regionPath), tint);
+
+        // Sensor outline (dashed) + region border (solid).
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(QColor(tc.primary), 1, Qt::DashLine));
+        p.drawRect(sensorRect);
+        p.setPen(QPen(QColor(tc.primary), 1));
+        p.drawRect(imgRect);
+    }
+
+private:
+    int sensorW_ = 0;
+    int sensorH_ = 0;
+    int regionW_ = 0;
+    int regionH_ = 0;
+    int offsetX_ = 0;
+    int offsetY_ = 0;
+};
 
 DetailView::DetailView(QWidget *parent) : QWidget(parent), isAdmin_(false) {
     setupUi();
@@ -221,6 +300,12 @@ void DetailView::setupUi() {
 void DetailView::buildAoiOverlay() {
     const ThemeColors tc = CameraConfig::getThemeColors();
 
+    // Sensor-context indicator behind the chip/panel; shown while the AOI
+    // panel is open so offset edits are visible on the frame.
+    aoiOverlay_ = new AoiRegionOverlay(cameraWidget_);
+    aoiOverlay_->setGeometry(cameraWidget_->rect());
+    aoiOverlay_->hide();
+
     // Chip on the video frame: checkable show/hide toggle for the AOI panel.
     aoiChip_ = new QToolButton(cameraWidget_);
     aoiChip_->setCheckable(true);
@@ -274,6 +359,7 @@ void DetailView::buildAoiOverlay() {
             // Size edits shrink the valid offset range: re-clamp it so the
             // requested region can never exceed the sensor.
             updateAoiOffsetLimits();
+            refreshAoiOverlay();
             aoiDebounceTimer_->start();
         });
     }
@@ -292,6 +378,12 @@ void DetailView::buildAoiOverlay() {
 
 void DetailView::onAoiChipToggled(bool checked) {
     aoiPanel_->setVisible(checked);
+    if (aoiOverlay_) {
+        aoiOverlay_->setVisible(checked);
+        if (checked) {
+            refreshAoiOverlay();
+        }
+    }
     if (checked) {
         repositionAoiOverlay();
     }
@@ -320,7 +412,17 @@ void DetailView::setAoiInfo(int maxW, int maxH, int width, int height, int offse
     aoiOffsetXSpin_->setValue(qBound(0, offsetX, aoiOffsetXSpin_->maximum()));
     aoiOffsetYSpin_->setValue(qBound(0, offsetY, aoiOffsetYSpin_->maximum()));
     populatingAoi_ = false;
+    refreshAoiOverlay();
     repositionAoiOverlay();
+}
+
+void DetailView::refreshAoiOverlay() {
+    if (!aoiOverlay_ || !aoiPanel_) {
+        return;
+    }
+    aoiOverlay_->setValues(aoiMaxW_, aoiMaxH_,
+                           aoiWidthSpin_->value(), aoiHeightSpin_->value(),
+                           aoiOffsetXSpin_->value(), aoiOffsetYSpin_->value());
 }
 
 void DetailView::updateAoiOffsetLimits() {
@@ -368,6 +470,10 @@ void DetailView::repositionAoiOverlay() {
 bool DetailView::eventFilter(QObject* obj, QEvent* event) {
     if (obj == cameraWidget_) {
         if (event->type() == QEvent::Resize) {
+            if (aoiOverlay_) {
+                aoiOverlay_->setGeometry(cameraWidget_->rect());
+                aoiOverlay_->update();
+            }
             repositionAoiOverlay();
         } else if (event->type() == QEvent::MouseButtonDblClick) {
             // While the AOI panel is open, swallow double-clicks on the frame
@@ -492,6 +598,9 @@ void DetailView::clearCamera() {
     }
     if (aoiPanel_) {
         aoiPanel_->hide();
+    }
+    if (aoiOverlay_) {
+        aoiOverlay_->hide();
     }
 }
 
@@ -701,6 +810,9 @@ void DetailView::updateTheme() {
 
     if (aoiChip_) {
         const ThemeColors tc = CameraConfig::getThemeColors();
+        if (aoiOverlay_) {
+            aoiOverlay_->update();
+        }
         aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
         aoiPanel_->setStyleSheet(QString(
             "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
