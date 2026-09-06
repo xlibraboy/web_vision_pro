@@ -131,6 +131,12 @@ private slots:
     void updateDashboardVisibility(bool loading);
     void updateTracksEdgeTabVisibility();
     void restyleTracksEdgeTab();
+    // TRACKS popover policy: Thumbnails is the base track shown by default;
+    // other tracks join it one at a time (checking a new friend swaps out the
+    // current one) and stay hidden until Thumbnails is enabled.
+    void onTrackCheckToggled(int index, bool checked);
+    void applyTrackVisibilityToDashboard();
+    void updateTracksPanelEnablement();
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const EventSignalData& data);

@@ -10,11 +10,10 @@
 
 namespace {
 constexpr int kMargin = 8;
-constexpr int kChartH = 96;
-constexpr int kDetailH = 56;
-constexpr int kLaneH = 26;
+// All five stacked regions share the same height (Thumbnails strip included)
+// so any friend + Thumbnails renders as two equal bands.
+constexpr int kRegionH = 72;
 constexpr int kLaneCount = 2; // CHANGE % and CONTRAST
-constexpr int kStripH = 72;
 constexpr int kGap = 5;
 
 const QColor kTriggerColor = QColor(QStringLiteral("#E57373"));
@@ -28,15 +27,23 @@ const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
 EventDashboard::EventDashboard(QWidget* parent)
     : QWidget(parent) {
     setMouseTracking(true);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     updateMinimumHeight();
 }
 
 void EventDashboard::updateMinimumHeight() {
-    int h = kMargin + chartHeight();
-    if (detailHeight()) h += kGap + kDetailH;
-    h += visibleLaneCount() * (kLaneH + kGap);
-    if (stripHeight()) h += kGap + kStripH;
-    setMinimumHeight(h + kMargin + 16); // trailing: time-axis text
+    // All five regions share the same height (kRegionH). Total height is the
+    // sum of every VISIBLE band as (kRegionH + kGap), plus margins and the
+    // time-axis row — independent of which specific tracks are shown, so any
+    // friend + Thumbnails yields the exact same widget height.
+    int bands = 0;
+    if (brightnessVisible_) ++bands;
+    if (detailEnabled_ && detailVisible_) ++bands;
+    bands += visibleLaneCount();
+    if (thumbsVisible_) ++bands;
+    const int h = kMargin + bands * (kRegionH + kGap) + kMargin + 16;
+    setMinimumHeight(h);
+    setMaximumHeight(h);
 }
 
 void EventDashboard::setBrightnessVisible(bool on) {
@@ -55,12 +62,13 @@ void EventDashboard::setRegionsVisible(bool detail, bool spots, bool contrast, b
 }
 
 int EventDashboard::chartTop() const { return kMargin; }
-int EventDashboard::chartHeight() const { return brightnessVisible_ ? kChartH : 0; }
+int EventDashboard::chartHeight() const { return brightnessVisible_ ? kRegionH : 0; }
 int EventDashboard::detailTop() const {
+    // Uniform stacking: every visible band above occupies kRegionH + kGap.
     return kMargin + chartHeight() + (chartHeight() ? kGap : 0);
 }
 int EventDashboard::detailHeight() const {
-    return (detailEnabled_ && detailVisible_) ? kDetailH : 0;
+    return (detailEnabled_ && detailVisible_) ? kRegionH : 0;
 }
 int EventDashboard::visibleLaneCount() const {
     int n = 0;
@@ -70,13 +78,19 @@ int EventDashboard::visibleLaneCount() const {
 int EventDashboard::laneTop(int i) const {
     // i = index among VISIBLE lanes; base is below detail, +gap when shown.
     return detailTop() + detailHeight() + (detailHeight() ? kGap : 0)
-           + i * (kLaneH + kGap);
+           + i * (kRegionH + kGap);
 }
 int EventDashboard::stripTop() const {
-    return detailTop() + detailHeight() + (detailHeight() ? kGap : 0)
-           + visibleLaneCount() * (kLaneH + kGap);
+    // Below the chart, detail strip, and any lanes — each visible band above
+    // takes kRegionH + kGap so the thumbnail strip sits at the same offset no
+    // matter which friend track is on.
+    int above = 0;
+    if (brightnessVisible_) ++above;
+    if (detailEnabled_ && detailVisible_) ++above;
+    above += visibleLaneCount();
+    return kMargin + above * (kRegionH + kGap);
 }
-int EventDashboard::stripHeight() const { return thumbsVisible_ ? kStripH : 0; }
+int EventDashboard::stripHeight() const { return thumbsVisible_ ? kRegionH : 0; }
 
 void EventDashboard::setDetailZoomEnabled(bool on) {
     if (detailEnabled_ == on) return;
@@ -369,7 +383,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     int winStart = 0;
     int winEnd = 0;
     if (detailActive) {
-        det = QRectF(kMargin, detailTop(), width() - 2 * kMargin, kDetailH);
+        det = QRectF(kMargin, detailTop(), width() - 2 * kMargin, kRegionH);
         p.fillRect(det, kPlotAreaColor);
         detailWindow(&winStart, &winEnd);
         const double spanW = std::max(1, winEnd - winStart);
@@ -613,7 +627,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     for (int li = 0; li < kLaneCount; ++li) {
         if (!lanesVisible_[li]) continue;
         const LaneDef& ld = lanes[li];
-        QRectF lane(kMargin, laneTop(visLane++), width() - 2 * kMargin, kLaneH);
+        QRectF lane(kMargin, laneTop(visLane++), width() - 2 * kMargin, kRegionH);
         p.fillRect(lane, kPlotAreaColor);
 
         double lo = 0.0;

@@ -135,12 +135,14 @@ private:
     QVector<int> detailDefectLocal_;
     QVector<int> detailDefectContrast_;
     bool detailLoading_ = false;
-    // Region visibility (user toggles via the TRACKS hover panel). Default:
-    // brightness chart only.
-    bool brightnessVisible_ = true;
+    // Region visibility (user toggles via the TRACKS hover panel). Thumbnails
+    // is the base track shown by default; brightness/detail/spots/contrast are
+    // "friends" that join it one at a time. Nothing renders until Thumbnails
+    // is enabled.
+    bool brightnessVisible_ = false;
     bool detailVisible_ = false;
     bool lanesVisible_[2] = {false, false}; // spots%, contrast
-    bool thumbsVisible_ = false;
+    bool thumbsVisible_ = true;
     bool loadingSignals_ = false;
     int signalProgress_ = -1;
     bool loadingThumbs_ = false;

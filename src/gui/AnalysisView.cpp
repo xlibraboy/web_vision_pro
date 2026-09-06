@@ -2043,51 +2043,140 @@ void AnalysisView::setupMainArea() {
     tracksEdgeTab_->setObjectName("tracksEdgeTab");
     tracksEdgeTab_->setFixedSize(34, 30);
     tracksEdgeTab_->setAlignment(Qt::AlignCenter);
-    // No tooltip: the popup opens on hover already, so a tooltip would just
-    // flicker over the control.
+    // No tooltip on the tab: the popup opens on hover already, so a tooltip
+    // would just flicker over the control.
     tracksEdgeTab_->setToolTip(QString());
     restyleTracksEdgeTab();
     tracksEdgeTab_->hide();
 
     tracksPanel_ = new QWidget(mainArea_);
     tracksPanel_->setObjectName("tracksPanel");
-    tracksPanel_->setFixedWidth(150);
+    tracksPanel_->setFixedWidth(160);
     auto tracksLayout = new QVBoxLayout(tracksPanel_);
     tracksLayout->setContentsMargins(10, 8, 10, 8);
     tracksLayout->setSpacing(4);
     auto tracksTitle = new QLabel(QStringLiteral("TRACKS"), tracksPanel_);
+    tracksTitle->setToolTip(
+        QStringLiteral("Thumbnails is the base track shown by default. The other\n"
+                       "tracks join it one at a time and stay hidden until\n"
+                       "Thumbnails is enabled."));
     tracksLayout->addWidget(tracksTitle);
     const char* trackNames[5] = {
         "Brightness", "Detail", "Spots %", "Contrast", "Thumbnails"
     };
+    // Thumbnails is the base track shown by default; all the others are
+    // "friends" that may join it. At most ONE friend can be active at a time,
+    // and nothing else renders until Thumbnails is enabled.
+    const QColor accentBg(QColor(tc.primary).darker(150));
+    const QColor accentBorder(tc.primary);
     for (int i = 0; i < 5; ++i) {
         trackChecks_[i] = new QCheckBox(QString::fromUtf8(trackNames[i]), tracksPanel_);
-        trackChecks_[i]->setChecked(i == 0); // only BRIGHTNESS by default
+        trackChecks_[i]->setChecked(i == 4); // only THUMBNAILS by default
         tracksLayout->addWidget(trackChecks_[i]);
-        connect(trackChecks_[i], &QCheckBox::toggled, this, [this]() {
-            if (!detailDashboard_) return;
-            detailDashboard_->setBrightnessVisible(trackChecks_[0]->isChecked());
-            detailDashboard_->setRegionsVisible(
-                trackChecks_[1]->isChecked(), trackChecks_[2]->isChecked(),
-                trackChecks_[3]->isChecked(), trackChecks_[4]->isChecked());
-            if (trackChecks_[1]->isChecked()) {
-                maybeScanDetailWindow(currentReviewFrameIndex());
-            }
-        });
+        if (i == 4) {
+            // Base track chip: accent background + border so Thumbnails reads
+            // as distinct from the plain friend rows.
+            trackChecks_[i]->setObjectName("baseTrackCheck");
+            trackChecks_[i]->setToolTip(
+                QStringLiteral("Base track — always available."));
+            trackChecks_[i]->setStyleSheet(QString(
+                "QCheckBox#baseTrackCheck { background-color: %1;"
+                " border: 1px solid %2; border-radius: 5px;"
+                " padding: 2px 4px; color: %3; }"
+                "QCheckBox#baseTrackCheck:hover { background-color: %4; }")
+                .arg(accentBg.name(), accentBorder.name(), tc.text,
+                     QColor(tc.primary).darker(125).name()));
+        }
+        connect(trackChecks_[i], &QCheckBox::toggled, this,
+                [this, i](bool checked) { onTrackCheckToggled(i, checked); });
     }
     tracksPanel_->setStyleSheet(QString(
         "QWidget#tracksPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
         "QLabel { color: %3; font-size: 11px; font-weight: bold; }"
-        "QCheckBox { color: %3; font-size: 11px; }")
-        .arg(tc.bg, tc.border, tc.text));
+        "QCheckBox { color: %3; font-size: 11px; }"
+        "QCheckBox:disabled { color: %4; }")
+        .arg(tc.bg, tc.border, tc.text, QColor(tc.text).darker(135).name()));
     tracksPanel_->adjustSize(); // child widgets don't auto-size on show() — do it now
     tracksPanel_->hide();
     tracksEdgeTab_->installEventFilter(this);
     tracksPanel_->installEventFilter(this);
 
+    // Establish the initial gating state (Thumbnails on by default => friends
+    // start enabled; the setup setChecked() above fired before the signals
+    // were connected, so do it explicitly here).
+    updateTracksPanelEnablement();
+
     // Initial position + visibility (Single Camera tab only).
     positionToolsPanel();
     updateTracksEdgeTabVisibility();
+}
+
+// TRACKS row layout. index 4 is Thumbnails, the base track: it alone is on by
+// default. The other rows are "friends": at most one may be active at a time,
+// and while Thumbnails is off no friend actually renders, so they are shown
+// greyed out (still toggleable) with a hint that Thumbnails gates them.
+void AnalysisView::onTrackCheckToggled(int index, bool checked)
+{
+    if (!detailDashboard_) return;
+
+    if (index == 4) {
+        // Thumbnails (base) toggled. Reflect the new gate in the UI and only
+        // push a region change; the actual friend state is unchanged.
+        updateTracksPanelEnablement();
+        // If a friend was on while Thumbnails was off, it simply becomes
+        // visible again now that the base is enabled.
+        applyTrackVisibilityToDashboard();
+        return;
+    }
+
+    if (!checked) {
+        // Friend unchecked: nothing special — recompute (single-friend)
+        // visibility.
+        applyTrackVisibilityToDashboard();
+        return;
+    }
+
+    // A friend was just checked. At most one friend may be on at a time: if
+    // another friend is currently checked, swap it out for this one. Thumbnails
+    // (index 4) is never treated as a friend.
+    for (int i = 0; i < 4; ++i) {
+        if (i != index && trackChecks_[i]->isChecked()) {
+            trackChecks_[i]->setChecked(false);
+        }
+    }
+    applyTrackVisibilityToDashboard();
+}
+
+// Thumbnails (index 4) is the base track; every other region only renders
+// while it is enabled. Friends are single-select: the helper takes the already
+// de-duplicated checkbox state and pushes the region flags.
+void AnalysisView::applyTrackVisibilityToDashboard()
+{
+    const bool thumbsOn = trackChecks_[4] && trackChecks_[4]->isChecked();
+    const bool friendOn = trackChecks_[0]->isChecked(); // single friend
+    detailDashboard_->setBrightnessVisible(thumbsOn && friendOn);
+    detailDashboard_->setRegionsVisible(
+        thumbsOn && trackChecks_[1]->isChecked(),
+        thumbsOn && trackChecks_[2]->isChecked(),
+        thumbsOn && trackChecks_[3]->isChecked(),
+        thumbsOn);
+    if (thumbsOn && trackChecks_[1]->isChecked()) {
+        maybeScanDetailWindow(currentReviewFrameIndex());
+    }
+}
+
+void AnalysisView::updateTracksPanelEnablement()
+{
+    if (!tracksPanel_) return;
+    const bool thumbsOn = trackChecks_[4] && trackChecks_[4]->isChecked();
+    for (int i = 0; i < 4; ++i) {
+        if (trackChecks_[i]) {
+            trackChecks_[i]->setEnabled(thumbsOn);
+            const QString tip = thumbsOn
+                ? QString() : QStringLiteral("Turn on Thumbnails first");
+            trackChecks_[i]->setToolTip(tip);
+        }
+    }
 }
 
 void AnalysisView::applyAnalysisViewStyle() {
