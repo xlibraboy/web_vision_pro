@@ -745,6 +745,13 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     }
 
     // ---------- Time axis ----------
+    // The labels sit in the reserved row below the last band (the same +16 the
+    // minimum-height math reserves). Center them vertically in that fixed row
+    // so the padding above and below the tick text is even, without letting
+    // them drift down into the playback area (where the zero/trigger flag on
+    // the scrubber lives).
+    const double axisTop = stripTop() + stripHeight();
+    constexpr double kAxisRowH = 16.0;
     p.setPen(textColor_);
     const int tickPx = 90;
     const int tickCount = std::max(2, width() / tickPx);
@@ -756,8 +763,8 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         const QString text = QStringLiteral("%1%2s")
                                  .arg(relSec >= 0 ? QStringLiteral("+") : QString())
                                  .arg(relSec, 0, 'f', 1);
-        p.drawText(QRectF(x - 34, stripTop() + stripHeight() + 4, 68, 14),
-                   Qt::AlignHCenter | Qt::AlignTop, text);
+        p.drawText(QRectF(x - 34, axisTop, 68, kAxisRowH),
+                   Qt::AlignHCenter | Qt::AlignVCenter, text);
     }
 
     // Camera label intentionally not painted: the Camera tab's tab title and
