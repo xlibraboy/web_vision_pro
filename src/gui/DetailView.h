@@ -159,6 +159,7 @@ private:
     QToolButton* roiDrawBtn_ = nullptr;
     QPushButton* roiWholeBtn_ = nullptr;
     QPushButton* roiClearBtn_ = nullptr;
+    QPushButton* roiFinishBtn_ = nullptr;     // commits an in-progress polygon
     QCheckBox* roiCurvesCheck_ = nullptr;
     QCheckBox* roiHitsCheck_ = nullptr;
     QLabel* roiStatusLabel_ = nullptr;
@@ -173,6 +174,7 @@ private:
     void buildRoiControls();
     void repositionAoiOverlay();
     void repositionRoiPanel();
+    void updateRoiFinishState();
     void refreshRoiOverlay();
     void updateRoiStatus();
     void beginRoiDraw();

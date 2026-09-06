@@ -10,6 +10,7 @@
 #include <QFont>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainterPath>
 #include <QPolygon>
 #include <QCheckBox>
@@ -227,10 +228,15 @@ public:
     explicit RoiRegionOverlay(QWidget* parent = nullptr) : QWidget(parent) {
         setMouseTracking(true);
         setAttribute(Qt::WA_NoSystemBackground);
+        setFocusPolicy(Qt::StrongFocus);  // receive Enter/Esc while drawing
         updateMousePassthrough();
     }
 
     std::function<void(const QVector<QPointF>&)> onRegionClosed;
+    // Fired when the operator aborts drawing with Esc (scratch already cleared).
+    std::function<void()> onDrawingCancelled;
+    // Notified after every scratch-point change (count of committed vertices).
+    std::function<void(int)> onScratchChanged;
 
     // Delivered-frame geometry the polygon is normalized against.
     void setFrameSize(int w, int h) {
@@ -249,14 +255,45 @@ public:
         if (!drawing_) {
             scratch_.clear();
             cursor_ = QPointF();
+        } else {
+            setFocus(Qt::OtherFocusReason);  // so Enter/Esc land here
         }
         updateMousePassthrough();
         setCursor(drawing_ ? Qt::CrossCursor : Qt::ArrowCursor);
+        notifyScratch();
         update();
     }
 
     bool isDrawing() const { return drawing_; }
     bool hasPolygon() const { return polygon_.size() >= 3; }
+    int scratchCount() const { return scratch_.size(); }
+
+    // Close and emit the in-progress polygon (>= 3 points). Returns whether a
+    // region was committed; safe to call repeatedly.
+    bool finishDrawing() {
+        if (!drawing_ || scratch_.size() < 3) {
+            return false;
+        }
+        // A double-click lands as a second click on the same spot — drop the
+        // duplicate so the region never gets a zero-length edge.
+        if (scratch_.size() >= 2
+            && QLineF(scratch_.last(), scratch_[scratch_.size() - 2]).length() < 1e-6) {
+            scratch_.removeLast();
+        }
+        if (scratch_.size() < 3) {
+            update();
+            return false;
+        }
+        const QVector<QPointF> done = scratch_;
+        scratch_.clear();
+        cursor_ = QPointF();
+        setDrawing(false);
+        if (onRegionClosed) {
+            onRegionClosed(done);
+        }
+        update();
+        return true;
+    }
 
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -366,6 +403,7 @@ protected:
             if (!scratch_.isEmpty()) {
                 scratch_.removeLast();
             }
+            notifyScratch();
             update();
             return;
         }
@@ -394,6 +432,7 @@ protected:
 
         scratch_.append(n);
         cursor_ = n;
+        notifyScratch();
         update();
     }
 
@@ -410,12 +449,35 @@ protected:
     }
 
     void mouseDoubleClickEvent(QMouseEvent* e) override {
-        // While drawing, never let a double-click fall through to frame nav.
+        // While drawing, a double-click finishes the polygon (standard ROI
+        // editor affordance); either way it never falls through to frame nav.
         if (drawing_) {
             e->accept();
+            finishDrawing();
             return;
         }
         QWidget::mouseDoubleClickEvent(e);
+    }
+
+    void keyPressEvent(QKeyEvent* e) override {
+        if (drawing_) {
+            if (e->key() == Qt::Key_Escape) {
+                e->accept();
+                scratch_.clear();
+                cursor_ = QPointF();
+                setDrawing(false);
+                if (onDrawingCancelled) {
+                    onDrawingCancelled();
+                }
+                return;
+            }
+            if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+                e->accept();
+                finishDrawing();
+                return;
+            }
+        }
+        QWidget::keyPressEvent(e);
     }
 
 private:
@@ -449,6 +511,12 @@ private:
 
     void updateMousePassthrough() {
         setAttribute(Qt::WA_TransparentForMouseEvents, !drawing_);
+    }
+
+    void notifyScratch() {
+        if (onScratchChanged) {
+            onScratchChanged(scratch_.size());
+        }
     }
 
     static constexpr qreal CLOSE_SNAP_PX = 14.0;
@@ -811,8 +879,9 @@ void DetailView::buildRoiControls() {
     roiDrawBtn_->setCheckable(true);
     roiDrawBtn_->setCursor(Qt::PointingHandCursor);
     roiDrawBtn_->setFocusPolicy(Qt::NoFocus);
-    roiDrawBtn_->setToolTip("Click point-to-point on the frame; click the first"
-                            " point again to close the region.");
+    roiDrawBtn_->setToolTip("Click point-to-point on the frame; double-click"
+                            " (or Enter / Finish) closes the region, right-click"
+                            " removes the last point, Esc cancels.");
     const QString toolStyle = QString(
         "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
         " padding: 4px 8px; font-size: 11px; font-weight: 600; }"
@@ -839,12 +908,33 @@ void DetailView::buildRoiControls() {
     roiClearBtn_->setStyleSheet(roiWholeBtn_->styleSheet());
     connect(roiClearBtn_, &QPushButton::clicked, this, &DetailView::onRoiClearClicked);
 
+    // Finish commits an in-progress polygon (same as double-click / Enter);
+    // visible only while drawing so it doubles as an in-panel escape hatch.
+    roiFinishBtn_ = new QPushButton("Finish", roiPanel_);
+    roiFinishBtn_->setCursor(Qt::PointingHandCursor);
+    roiFinishBtn_->setFocusPolicy(Qt::NoFocus);
+    roiFinishBtn_->setStyleSheet(roiWholeBtn_->styleSheet());
+    connect(roiFinishBtn_, &QPushButton::clicked, this, [this]() {
+        if (roiOverlay_) {
+            if (!roiOverlay_->finishDrawing() && roiOverlay_->isDrawing()) {
+                updateRoiStatus();  // still < 3 points — remind the operator
+            }
+        }
+        updateRoiFinishState();
+    });
+
     QHBoxLayout* roiBtnRow = new QHBoxLayout();
     roiBtnRow->setSpacing(4);
     roiBtnRow->addWidget(roiDrawBtn_);
     roiBtnRow->addWidget(roiWholeBtn_, 1);
     roiBtnRow->addWidget(roiClearBtn_);
     roiLayout->addLayout(roiBtnRow);
+
+    QHBoxLayout* finishRow = new QHBoxLayout();
+    finishRow->setSpacing(4);
+    finishRow->addStretch(1);
+    finishRow->addWidget(roiFinishBtn_);
+    roiLayout->addLayout(finishRow);
 
     // Recorded-review scope toggles.
     roiCurvesCheck_ = new QCheckBox("Restrict review curves to region", roiPanel_);
@@ -860,11 +950,41 @@ void DetailView::buildRoiControls() {
     roiOverlay_->onRegionClosed = [this](const QVector<QPointF>& roi) {
         onRoiMaskDrawn(roi);
     };
+    roiOverlay_->onDrawingCancelled = [this]() {
+        if (roiDrawBtn_) {
+            roiDrawBtn_->setChecked(false);
+        }
+        updateRoiStatus();
+        updateRoiFinishState();
+    };
+    roiOverlay_->onScratchChanged = [this](int count) {
+        updateRoiFinishState();
+        if (roiStatusLabel_ && roiOverlay_ && roiOverlay_->isDrawing()) {
+            roiStatusLabel_->setStyleSheet("QLabel { color: #81C784; font-size: 11px;"
+                                           " font-weight: 600; }");
+            if (count < 3) {
+                roiStatusLabel_->setText(QString("Drawing: click to add points"
+                                                  " (%1 so far) — right-click"
+                                                  " removes the last point.")
+                                             .arg(count));
+            } else {
+                roiStatusLabel_->setText("Drawing: double-click, Enter or Finish"
+                                         " to close the region.");
+            }
+        }
+    };
 
     roiPanel_->hide();
-    roiChip_->raise();
-    roiPanel_->raise();
+    roiFinishBtn_->hide();
+    // Z-order: overlays draw on the video; panels sit above them so their
+    // buttons stay clickable while drawing; chips on top so an open panel can
+    // never cover the control that closes it.
+    aoiChip_->raise();
+    aoiPanel_->raise();
     roiOverlay_->raise();
+    roiPanel_->raise();
+    roiChip_->raise();
+    updateRoiFinishState();
     refreshRoiOverlay();
     updateRoiStatus();
 }
@@ -875,6 +995,7 @@ void DetailView::onRoiDrawToggled(bool checked) {
     } else {
         endRoiDraw();
     }
+    updateRoiFinishState();
 }
 
 void DetailView::beginRoiDraw() {
@@ -908,6 +1029,7 @@ void DetailView::onRoiMaskDrawn(const QVector<QPointF>& roi) {
         roiDrawBtn_->setChecked(false);  // uncheck but keep panel open
     }
     endRoiDraw();
+    updateRoiFinishState();
     if (roi.size() >= 3) {
         roiNorm_ = roi;
         updateRoiStatus();
@@ -917,6 +1039,13 @@ void DetailView::onRoiMaskDrawn(const QVector<QPointF>& roi) {
 }
 
 void DetailView::onRoiWholeFrameClicked() {
+    // Leaving draw mode (if active): the explicit selection replaces the
+    // hand-drawn polygon the operator was starting.
+    endRoiDraw();
+    if (roiDrawBtn_) {
+        roiDrawBtn_->setChecked(false);
+    }
+    updateRoiFinishState();
     // Whole delivered frame: full 0..1 rectangle (equivalent to today's
     // whole-frame analysis, but now explicit and required).
     roiNorm_ = {QPointF(0, 0), QPointF(1, 0), QPointF(1, 1), QPointF(0, 1)};
@@ -930,10 +1059,30 @@ void DetailView::onRoiClearClicked() {
     if (roiDrawBtn_) {
         roiDrawBtn_->setChecked(false);
     }
+    updateRoiFinishState();
     roiNorm_.clear();
     updateRoiStatus();
     refreshRoiOverlay();
     emitRoiState();
+}
+
+void DetailView::updateRoiFinishState() {
+    if (!roiFinishBtn_) {
+        return;
+    }
+    const bool drawing = roiOverlay_ && roiOverlay_->isDrawing();
+    const int pts = drawing ? roiOverlay_->scratchCount() : 0;
+    roiFinishBtn_->setVisible(drawing);
+    roiFinishBtn_->setEnabled(pts >= 3);
+    if (drawing) {
+        roiFinishBtn_->setToolTip(pts >= 3
+            ? "Close the region with the points drawn so far."
+            : QString("Need %1 more point(s) before the region can be closed.")
+                  .arg(3 - pts));
+    }
+    if (roiPanel_ && roiPanel_->isVisible()) {
+        repositionRoiPanel();
+    }
 }
 
 void DetailView::onRoiScopeChanged() {
@@ -990,15 +1139,27 @@ void DetailView::repositionRoiPanel() {
     }
     const QRect vg = cameraWidget_->rect();
     const int margin = 8;
-    const int pw = 240;
+    const int pw = 260;
     const int ph = roiPanel_->sizeHint().height();
-    const QRect aoiChipGeom = aoiChip_ ? aoiChip_->geometry() : QRect();
+    // Anchor below the ROI chip (itself below the AOI chip) so the panel never
+    // covers the chip that closes it.
+    const QWidget* anchor = roiChip_->isVisible()
+                                ? static_cast<const QWidget*>(roiChip_)
+                                : static_cast<const QWidget*>(aoiChip_);
     int x = vg.right() - pw - margin;
-    int y = (aoiChip_ && aoiChip_->isVisible() ? aoiChipGeom.bottom() : vg.top() + margin) + 6;
+    int y = (anchor ? anchor->geometry().bottom() : vg.top() + margin) + 6;
     if (y + ph > vg.bottom() - margin) {
-        y = vg.bottom() - ph - margin;
+        y = vg.bottom() - ph - margin;  // keep the panel inside the frame
     }
     roiPanel_->setGeometry(x, y, pw, ph);
+    // Chips must stay above the panels (and the panel above the drawing
+    // overlay) no matter which was created first.
+    roiOverlay_->raise();
+    roiPanel_->raise();
+    roiChip_->raise();
+    if (aoiChip_) {
+        aoiChip_->raise();
+    }
 }
 
 void DetailView::onAoiChipToggled(bool checked) {
