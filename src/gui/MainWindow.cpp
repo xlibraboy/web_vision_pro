@@ -32,6 +32,7 @@
 #include <QLineEdit>
 #include <QScreen>
 #include <QStyle>
+#include <QToolButton>
 #include <QToolTip>
 #include <QVBoxLayout>
 #include <QWindow>
@@ -907,14 +908,27 @@ void MainWindow::setupUi() {
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
 
-    // Administrator Login/Logout anchored to the far right of the menu bar row
-    // (same line as File/View/Settings/Docs/Help), so it is reachable from any
-    // view. Text follows admin state via updateAdminStatusIndicator().
-    adminLoginButton_ = new QPushButton("Login", this);
+    // Administrator Login/Logout anchored to the far right of the main tab
+    // bar row (same line as the "Live View | Analysis View" tabs), so it is
+    // visible and reachable from every view. Text follows admin state via
+    // updateAdminStatusIndicator().
+    // Geometry is computed in code (styleAdminLoginButton), NOT from QSS
+    // padding: corner widgets are sized from the sizeHint at insertion, so
+    // stylesheet-driven metric changes left the widget stale and clipped
+    // the text ("Logout" rendered as ".ogou").
+    // QToolButton + autoRaise: the widget type Qt natively expects in
+    // corner/toolbar slots — correct small-size rendering, no raised-button
+    // chrome, and no stylesheet-driven geometry drift (the earlier QPushButton
+    // attempts clipped inside the corner widget).
+    adminLoginButton_ = new QToolButton(this);
+    adminLoginButton_->setObjectName("adminLoginButton");
+    adminLoginButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    adminLoginButton_->setAutoRaise(true);
     adminLoginButton_->setCursor(Qt::PointingHandCursor);
     adminLoginButton_->setToolTip("Admin Login");
-    connect(adminLoginButton_, &QPushButton::clicked, this, &MainWindow::toggleAdmin);
-    menu->setCornerWidget(adminLoginButton_, Qt::TopRightCorner);
+    connect(adminLoginButton_, &QToolButton::clicked, this, &MainWindow::toggleAdmin);
+    styleAdminLoginButton();
+    mainTabWidget_->setCornerWidget(adminLoginButton_, Qt::TopRightCorner);
 
     // Emulation-mode badge: lives on the bottom status line (shared by Live
     // View, Detail View, and Analysis View). Visible only when the app runs on
@@ -1380,10 +1394,68 @@ bool MainWindow::promptAdminLogin() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// styleAdminLoginButton — size + style the tab-bar admin pill (top-right
+// corner widget of the main tab widget). Geometry comes from the font in
+// code, colors from a direct widget stylesheet (which also overrides the
+// global stylesheet and survives theme swaps untouched). Size covers both
+// labels so the Login<->Logout swap never needs re-layout.
+// ---------------------------------------------------------------------------
+void MainWindow::styleAdminLoginButton() {
+    if (!adminLoginButton_) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    QFont f = adminLoginButton_->font();
+    f.setPointSizeF(8.0);
+    f.setBold(true);
+    adminLoginButton_->setFont(f);
+    const QFontMetrics fm(f);
+    const int textW = qMax(fm.horizontalAdvance(QStringLiteral("Login")),
+                           fm.horizontalAdvance(QStringLiteral("Logout")));
+    // Icon (10) + gap (4) + text + slack — sized for both labels so the
+    // Login<->Logout swap never clips or re-layouts the corner widget.
+    constexpr int kIconSz = 10;
+    adminLoginButton_->setIconSize(QSize(kIconSz, kIconSz));
+    adminLoginButton_->setFixedSize(kIconSz + 4 + textW + 14, 18);
+
+    // Padlock icon (shackle + body) drawn in code like the other programmatic
+    // icons of this app; tinted to the state color so it follows the
+    // logged-in accent swap.
+    const QColor iconColor(isAdmin_ ? QColor(tc.primary) : QColor(tc.text));
+    QPixmap pm(kIconSz, kIconSz);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPen shacklePen(iconColor, 1.4);
+    shacklePen.setCapStyle(Qt::RoundCap);
+    p.setPen(shacklePen);
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(QRectF(2.7, 0.8, 4.6, 5.2), 0, 180 * 16);
+    p.setPen(Qt::NoPen);
+    p.setBrush(iconColor);
+    p.drawRoundedRect(QRectF(1.8, 4.6, 6.4, 4.8), 1.2, 1.2);
+    p.end();
+    adminLoginButton_->setIcon(QIcon(pm));
+
+    adminLoginButton_->setProperty("logged-in", isAdmin_);
+    // Minimal color-only stylesheet: autoRaise keeps the native flat look;
+    // QSS only tints text and adds a soft hover fill.
+    adminLoginButton_->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: none; color: %1; font-weight: bold; }"
+        "QToolButton:hover { background: %2; border-radius: 4px; }"
+        "QToolButton:pressed { background: %3; color: %4; }"
+        "QToolButton[logged-in=\"true\"] { color: %3; }"
+    ).arg(tc.text, tc.btnBg, tc.primary, tc.bg));
+}
+
 void MainWindow::updateAdminStatusIndicator() {
     if (adminLoginButton_) {
         adminLoginButton_->setText(isAdmin_ ? "Logout" : "Login");
         adminLoginButton_->setToolTip(isAdmin_ ? "Logout Administrator" : "Admin Login");
+        // Restyle (also flips the [logged-in] state); safe to call repeatedly.
+        styleAdminLoginButton();
     }
     if (!adminStatusLabel_) {
         return;

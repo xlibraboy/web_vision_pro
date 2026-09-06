@@ -24,6 +24,7 @@
 
 class ConfigDialog;
 class OpcUaClientService;
+class QToolButton;
 
 
 class MainWindow : public QMainWindow {
@@ -78,7 +79,7 @@ private:
     QLabel* adminStatusLabel_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
-    QPushButton* adminLoginButton_ = nullptr;  // top-right, on the menu bar row
+    QToolButton* adminLoginButton_ = nullptr;  // top-right, on the main tab bar row
     QTimer  diskBadgeTimer_;
     QAction* customLayoutAction_;
     QAction* configAction_;
@@ -112,6 +113,10 @@ private:
     // Reflect which cameras are paused (detection on, no inspection region)
     // onto the Live View grid tiles.
     void refreshRoiPausedBadges();
+    // Size + style the tab-bar admin Login/Logout button (QToolButton, the
+    // widget Qt expects in corner slots; geometry in code so it never clips,
+    // colors via a minimal direct stylesheet).
+    void styleAdminLoginButton();
     std::unique_ptr<VideoEncoder> videoEncoder_;
     std::unique_ptr<OpcUaClientService> opcUaClientService_;
 
