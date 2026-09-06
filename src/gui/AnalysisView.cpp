@@ -810,6 +810,22 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     std::cout << "[AnalysisView] Review loaded from file: " << totalFrames_ + 1
               << " frames, trigger at " << triggerFrameIndex_ << std::endl;
 
+    // Remember which event is on screen so showEvent can skip the redundant
+    // reload on the next tab switch (clearData/setLiveMode reset this).
+    shownEventTimestamp_.clear();
+    {
+        const QString baseName = QFileInfo(videoPath).baseName();
+        if (baseName.startsWith("event_")) {
+            QString tsStr = baseName.mid(6);
+            const int camSuffix = tsStr.lastIndexOf("_cam");
+            if (camSuffix >= 0) {
+                tsStr = tsStr.left(camSuffix);
+            }
+            shownEventTimestamp_ = tsStr;
+        }
+    }
+    shownEventLoaded_ = true;
+
     // A new review supersedes any half-typed camera number from before.
     cancelCameraKeyEntry();
     // Hand keyboard control to the media player (Left/Right step, Space
@@ -1281,13 +1297,6 @@ void AnalysisView::setupLeftSidebar() {
     serverButton_->setStyleSheet(makeSidebarStateButtonStyle(tc, false));
     connect(serverButton_, &QPushButton::clicked, this, &AnalysisView::onServerButtonClicked);
     
-    // 2. Admin Login (SECOND - right side)
-    adminButton_ = new QPushButton("Login", controlsGroup);
-    adminButton_->setToolTip("Admin Login");
-    adminButton_->setMinimumHeight(28);
-    adminButton_->setStyleSheet(makeSidebarPrimaryButtonStyle(tc));
-    connect(adminButton_, &QPushButton::clicked, this, &AnalysisView::onAdminButtonClicked);
-    
     // Server Button Context Menu (for settings)
     serverButton_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(serverButton_, &QPushButton::customContextMenuRequested, [this](const QPoint& pos) {
@@ -1297,11 +1306,8 @@ void AnalysisView::setupLeftSidebar() {
         menu.exec(serverButton_->mapToGlobal(pos));
     });
 
-    // Add buttons in order: Server, Login
     controlsLayout->addWidget(serverButton_);
-    controlsLayout->addWidget(adminButton_);
     controlsLayout->setStretch(0, 1);
-    controlsLayout->setStretch(1, 1);
 
     layout->addWidget(controlsGroup);
     
@@ -2625,10 +2631,6 @@ void AnalysisView::onTogglePermanentClicked() {
     }
 }
 
-void AnalysisView::onAdminButtonClicked() {
-    emit adminLoginRequested();
-}
-
 void AnalysisView::onLogSelected(int row, int col) {
     // Determine if we should load the event
     // If clicking checkbox (col 0), just toggle check state (already handled by widget)
@@ -2850,13 +2852,17 @@ void AnalysisView::onTabChanged(int index) {
         toolsPanelShown_ = false;
     }
 
-    // Keep diagnostics live; force an immediate refresh when switching to the tab.
-    if (diagRefreshTimer_ && diagAutoRefreshChk_) {
-        if (diagAutoRefreshChk_->isChecked() && !diagRefreshTimer_->isActive()) {
-            diagRefreshTimer_->start();
-        }
-        if (index == 2) {
+    // Diagnostics poller runs only while its tab is visible: every tick does
+    // synchronous camera-register reads (temperature/params over GigE) on the
+    // GUI thread, which stalled the UI every 3 s even on other tabs.
+    if (diagRefreshTimer_) {
+        if (index == 2 && diagAutoRefreshChk_ && diagAutoRefreshChk_->isChecked()) {
+            if (!diagRefreshTimer_->isActive()) {
+                diagRefreshTimer_->start();
+            }
             refreshDiagTable();
+        } else {
+            diagRefreshTimer_->stop();
         }
     }
     // Force update of the view when switching tabs to ensure the new widget is painted
@@ -3020,15 +3026,11 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
                 QImage frameImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
 
                 QImage finalImage = frameImage.copy();
-                cameraWidgets_[camIdx]->setFrame(finalImage);
-                cameraWidgets_[camIdx]->setTimestamp(overlayText, tooltipText);
-                cameraWidgets_[camIdx]->setPlaybackInfo(playbackText);
+                cameraWidgets_[camIdx]->setReviewFrame(finalImage, overlayText, tooltipText, playbackText);
                 applyAnnotationToWidget(cameraWidgets_[camIdx], camIdx, displayIdx);
 
                 if (selectedCameraWidget_ && selectedCameraWidget_->getCameraId() == camIdx) {
-                    selectedCameraWidget_->setFrame(finalImage);
-                    selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-                    selectedCameraWidget_->setPlaybackInfo(playbackText);
+                    selectedCameraWidget_->setReviewFrame(finalImage, overlayText, tooltipText, playbackText);
                     applyAnnotationToSelectedFrame();
                 }
             }
@@ -3058,9 +3060,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
             QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
 
             if (i < static_cast<int>(cameraWidgets_.size())) {
-                cameraWidgets_[i]->setFrame(slice);
-                cameraWidgets_[i]->setTimestamp(overlayText, tooltipText);
-                cameraWidgets_[i]->setPlaybackInfo(playbackText);
+                cameraWidgets_[i]->setReviewFrame(slice, overlayText, tooltipText, playbackText);
                 applyAnnotationToWidget(cameraWidgets_[i], i, idx);
             }
         }
@@ -3071,9 +3071,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
                 int r = scId / cols;
                 int c = scId % cols;
                 QImage slice = frameImage.copy(c * cellW, r * cellH, cellW, cellH);
-                selectedCameraWidget_->setFrame(slice);
-                selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-                selectedCameraWidget_->setPlaybackInfo(playbackText);
+                selectedCameraWidget_->setReviewFrame(slice, overlayText, tooltipText, playbackText);
                 applyAnnotationToSelectedFrame();
             }
         }
@@ -3081,9 +3079,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     }
 
     if (!cameraWidgets_.empty()) {
-        cameraWidgets_[0]->setFrame(frameImage);
-        cameraWidgets_[0]->setTimestamp(overlayText, tooltipText);
-        cameraWidgets_[0]->setPlaybackInfo(playbackText);
+        cameraWidgets_[0]->setReviewFrame(frameImage, overlayText, tooltipText, playbackText);
         applyAnnotationToWidget(cameraWidgets_[0], 0, idx);
     }
     for (int wi = 1; wi < static_cast<int>(cameraWidgets_.size()); ++wi) {
@@ -3091,9 +3087,7 @@ void AnalysisView::renderCurrentReviewFrame(bool updateSlider) {
     }
 
     if (selectedCameraWidget_) {
-        selectedCameraWidget_->setFrame(frameImage);
-        selectedCameraWidget_->setTimestamp(overlayText, tooltipText);
-        selectedCameraWidget_->setPlaybackInfo(playbackText);
+        selectedCameraWidget_->setReviewFrame(frameImage, overlayText, tooltipText, playbackText);
         applyAnnotationToSelectedFrame();
     }
 }
@@ -3626,9 +3620,25 @@ void AnalysisView::updatePlaybackControlsState() {
         resetOffsetsButton_->setEnabled(isReviewMode_ && !videoReaders_.empty());
     }
 
-    // Gray out appearance when disabled, restore theme colors when enabled
-    ThemeColors tc = CameraConfig::getThemeColors();
-    if (!hasData) {
+    // Gray out appearance when disabled, restore theme colors when enabled.
+    // Stylesheet application is debounced in refreshPlaybackPanelStyle(): this
+    // runs once per playback/scrub tick and setStyleSheet re-polishes the
+    // whole panel subtree every time.
+    refreshPlaybackPanelStyle();
+}
+
+void AnalysisView::refreshPlaybackPanelStyle() {
+    if (!playbackPanel_) {
+        return;
+    }
+    const bool empty = recordedSequence_.empty() && !isStreamingMode_;
+    if (empty == playbackPanelStyledEmpty_) {
+        return; // unchanged state: re-applying would re-polish the subtree
+    }
+    playbackPanelStyledEmpty_ = empty;
+
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    if (empty) {
         playbackPanel_->setStyleSheet(QString(
             "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
             // Scoped to descendants of the panel: a bare QWidget rule would
@@ -3646,6 +3656,8 @@ void AnalysisView::setLiveMode() {
     cancelCameraKeyEntry();  // no pending camera number outlives the mode
     isReviewMode_ = false;
     isRecording_ = false;
+    // Nothing valid on screen anymore: the next showEvent must reload.
+    shownEventLoaded_ = false;
     reviewFps_ = 0.0;
     detailWindowKey_.clear();
     if (detailDashboard_) detailDashboard_->setDetailLoading(false);
@@ -4307,15 +4319,15 @@ void AnalysisView::updateTheme() {
     serverButton_->setStyleSheet(serverConnecting_ ? makeSidebarConnectingButtonStyle(tc)
                                                    : makeSidebarStateButtonStyle(tc, serverRunning_));
     
-    adminButton_->setStyleSheet(adminMode_ ? makeSidebarOutlineButtonStyle(tc, true)
-                                           : makeSidebarPrimaryButtonStyle(tc));
-    
     if (splitActionRow_) {
         splitActionRow_->setStyleSheet(makeSidebarSplitActionStyle(tc));
     }
     
     // 2. Playback and tab surface/typography
-    // First, ensure the current disabled/enabled state uses the new colors
+    // First, ensure the current disabled/enabled state uses the new colors.
+    // applyAnalysisViewStyle() overwrites the panel stylesheet, so flip the
+    // guard to force the next refreshPlaybackPanelStyle() to re-apply it.
+    playbackPanelStyledEmpty_ = !playbackPanelStyledEmpty_;
     updatePlaybackControlsState();
     
     applyAnalysisViewStyle();
@@ -4361,7 +4373,13 @@ void AnalysisView::showEvent(QShowEvent* event) {
     // final size; makes Trigger Time + Reason fill the visible width.
     updateLogTableReasonWidths();
     
-    // Auto-select latest record whenever we return to this view
+    // Auto-select the latest record on first show only. Re-running this on
+    // every show made each tab switch pay a full event reload (file opens +
+    // per-frame metadata scans in startReviewFromFile) even though the same
+    // event was already on screen.
+    if (shownEventLoaded_) {
+        return;
+    }
     if ((paperBreakTable_ && paperBreakTable_->rowCount() > 0) ||
         (permanentPaperBreakTable_ && permanentPaperBreakTable_->rowCount() > 0)) {
         selectLatestEvent();
@@ -4369,6 +4387,17 @@ void AnalysisView::showEvent(QShowEvent* event) {
         // Auto-select Camera 0 and switch to Single View ("Detail View data record")
         // "if trigger record true" -> implied by having rows
         onCameraClicked(0); 
+    }
+}
+
+void AnalysisView::hideEvent(QHideEvent* event) {
+    QWidget::hideEvent(event);
+    // Stop the diagnostics poller while the view is hidden: every tick does
+    // synchronous camera-register reads (temperature/params over GigE) on the
+    // GUI thread. It restarts from onTabChanged when the Diagnostic tab is
+    // shown again.
+    if (diagRefreshTimer_) {
+        diagRefreshTimer_->stop();
     }
 }
 
@@ -4388,6 +4417,8 @@ void AnalysisView::clearData() {
     }
     isReviewMode_ = false;
     isStreamingMode_ = false;
+    // Nothing valid on screen anymore: the next showEvent must reload.
+    shownEventLoaded_ = false;
     currentFrame_ = 0;
     triggerFrameIndex_ = 0;
 
@@ -5707,13 +5738,6 @@ void AnalysisView::keyReleaseEvent(QKeyEvent* event) {
 
 void AnalysisView::setAdminMode(bool isAdmin) {
     adminMode_ = isAdmin;
-    if (adminButton_) {
-        const ThemeColors tc = CameraConfig::getThemeColors();
-        adminButton_->setText(isAdmin ? "Logout" : "Login");
-        adminButton_->setToolTip(isAdmin ? "Logout Administrator" : "Admin Login");
-        adminButton_->setStyleSheet(isAdmin ? makeSidebarOutlineButtonStyle(tc, true)
-                                            : makeSidebarPrimaryButtonStyle(tc));
-    }
     if (enableDeleteCheck_) {
         enableDeleteCheck_->setEnabled(isAdmin);
         if (!isAdmin) {
@@ -6076,10 +6100,8 @@ void AnalysisView::setupDiagnosticTab() {
     connect(diagRefreshBtn_, &QPushButton::clicked, this, &AnalysisView::refreshDiagTable);
     connect(diagAutoRefreshChk_, &QCheckBox::toggled, this, &AnalysisView::onDiagAutoRefreshToggled);
 
-    // Start auto-refresh by default.
-    if (diagAutoRefreshChk_->isChecked()) {
-        diagRefreshTimer_->start();
-    }
+    // Auto-refresh starts when the Diagnostic tab becomes visible
+    // (onTabChanged); polling a hidden table would only stall the GUI thread.
 }
 
 // ---------------------------------------------------------------------------
@@ -6173,7 +6195,20 @@ void AnalysisView::refreshDiagTable() {
         if (cameraManager_ && configIndex >= 0) {
             isConnected  = cameraManager_->isCameraConnected(configIndex) || cameraManager_->isCameraOpen(configIndex);
             if (isConnected) {
-                temperature = cameraManager_->getTemperature(configIndex);
+                // Temperature is a synchronous GenApi register read over GigE
+                // (tens of ms per camera). Reuse the last reading for 15 s so
+                // the 3 s table refresh never stalls the GUI thread.
+                const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                if (configIndex >= static_cast<int>(diagTempCacheMs_.size())) {
+                    diagTempCacheMs_.resize(static_cast<size_t>(configIndex) + 1, 0);
+                    diagTempCache_.resize(static_cast<size_t>(configIndex) + 1,
+                                          std::numeric_limits<double>::quiet_NaN());
+                }
+                if (nowMs - diagTempCacheMs_[configIndex] >= 15000) {
+                    diagTempCache_[configIndex] = cameraManager_->getTemperature(configIndex);
+                    diagTempCacheMs_[configIndex] = nowMs;
+                }
+                temperature = diagTempCache_[configIndex];
                 fps         = cameraManager_->getCameraFps(configIndex);
                 p           = cameraManager_->getCameraParams(configIndex);
                 dropCount   = cameraManager_->getIncompleteGrabCount(configIndex);

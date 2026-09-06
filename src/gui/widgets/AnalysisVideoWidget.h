@@ -26,6 +26,11 @@ public:
     void setPlaybackInfo(const QString& info);
     void setTitle(const QString& title);
     void setFrame(const QImage& frame);
+    // Review hot path: set frame + overlay texts in one call. A single
+    // update() runs at the end (calling the individual setters schedules one
+    // repaint each, tripling per-frame paint work).
+    void setReviewFrame(const QImage& frame, const QString& timestamp,
+                        const QString& timestampTooltip, const QString& playbackInfo);
     void clear(); // Clear frame and reset to "No Signal" state
     void setPreviewThemeColors(const ThemeColors& themeColors);
     void clearPreviewThemeColors();
@@ -71,6 +76,9 @@ private:
     double scaledFrameCacheZoom_ = 0.0;
     QImage markerStrokeOverlay_;
     QPoint lastStrokePoint_;
+    // True while a batched setReviewFrame is assembling an update; suppresses
+    // the intermediate update() calls from setTimestamp/setPlaybackInfo.
+    bool reviewUpdatePending_ = false;
     bool hasPreviewThemeOverride_ = false;
     ThemeColors previewThemeOverride_;
     bool hasPreviewStyleOverride_ = false;

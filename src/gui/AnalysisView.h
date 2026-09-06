@@ -1,11 +1,11 @@
 #pragma once
 
+struct EventSignalData;
+
 #include <QWidget>
 #include <QSplitter>
 #include <QFutureWatcher>
 #include <QPushButton>
-
-struct EventSignalData;
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QSlider>
@@ -17,15 +17,11 @@ struct EventSignalData;
 #include <QLineEdit>
 #include <QGridLayout>
 #include <QGroupBox>
-#include <QGroupBox>
 #include <QMenu>
 #include <QSpinBox>
 #include <QFormLayout>
 #include <QMessageBox>
 #include <QComboBox>
-#include <QGroupBox>
-#include <QMenu>
-#include <QFutureWatcher>
 #include <QProgressDialog>
 #include <QtConcurrent>
 #include <QDateTime>
@@ -65,7 +61,6 @@ public:
 
 signals:
     void serverToggled(bool running);
-    void adminLoginRequested();
     void recordAllToggled(bool recording);
     void manualTriggerRequested(); // Signal to request a manual trigger from MainWindow
     void eventAdded(); // Signal emitted when a new event is added to the log
@@ -103,7 +98,6 @@ public slots:
     
 private slots:
     void onServerButtonClicked();
-    void onAdminButtonClicked();
     void onDeleteClicked();
     void onTogglePermanentClicked();
     void onInstantClearClicked();
@@ -163,6 +157,9 @@ private slots:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    // Leaving the view stops the diagnostics poller (its synchronous camera
+    // register reads must not run while hidden).
+    void hideEvent(QHideEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -177,6 +174,10 @@ private:
     void setupDiagnosticTab();   // Build the all-camera diagnostics table
     void updateDynamicTab(int cameraId);
     void updatePlaybackControlsState(); // Enable/disable controls based on data availability
+    // Applies the playback panel's disabled/enabled stylesheet only when the
+    // state changed (setStyleSheet re-polishes the whole panel subtree, which
+    // is too expensive to run once per playback/scrub tick).
+    void refreshPlaybackPanelStyle();
     void updatePlaybackInfoLabel();
     void updateSliderZeroMarker();  // Position the zero marker on the slider
     void updateAnnotationSliderMarkers();
@@ -264,7 +265,6 @@ private:
     // Left sidebar
     QWidget* leftSidebar_;
     QPushButton* serverButton_;
-    QPushButton* adminButton_;
     ToggleSwitch* enableDeleteCheck_;
     QLabel* recentRecordsLabel_ = nullptr;
     QLabel* permanentRecordsLabel_ = nullptr;
@@ -309,6 +309,11 @@ private:
     std::vector<std::vector<double>> diagDropRateHistory_;
     static const int kDiagDropRateHistoryMax = 60; // ~3 min at 3 s refresh
 
+    // Temperature throttle: one synchronous GenApi register read per camera
+    // at most every 15 s (cached value served in between).
+    std::vector<double> diagTempCache_;
+    std::vector<qint64> diagTempCacheMs_;
+
     // CameraManager pointer (set from MainWindow after construction)
     CameraManager* cameraManager_ = nullptr;
 
@@ -322,6 +327,9 @@ private:
     
     // Playback controls
     QWidget* playbackPanel_;
+    // Last state the panel stylesheet was applied for (true = empty/disabled
+    // look). Guard for refreshPlaybackPanelStyle; also re-armed by updateTheme.
+    bool playbackPanelStyledEmpty_ = false;
     QSlider* playbackSlider_;
     QLabel* sliderZeroMarker_;  // Visual marker at the 0 frame position
     QVector<QLabel*> annotationSliderMarkers_;
@@ -360,7 +368,7 @@ private:
     // Animated-ellipsis timer for the Connecting… button state.
     QTimer* serverConnectingTimer_ = nullptr;
     int serverConnectingDots_ = 0;
-    bool adminMode_ = false; // Tracks admin login state for the Login/Logout button
+    bool adminMode_ = false; // Tracks admin login state
     bool isRecording_;
     
     // Theme State
@@ -481,6 +489,11 @@ private:
     QStringList currentEventCameraLabels_;
     QJsonObject eventAnnotations_;
     EventDatabase::EventInfo currentEventInfo_;
+    // Skip redundant reloads in showEvent: timestamp of the event already
+    // loaded plus whether that load completed (clearData/setLiveMode reset
+    // the flag so the next show falls back to a full reload).
+    QString shownEventTimestamp_;
+    bool shownEventLoaded_ = false;
 
     // Per-camera playback frame offset (slot 0-based) applied on top of the shared
     // review timeline in renderCurrentReviewFrame(). Index = camera slot.

@@ -31,6 +31,24 @@ void AnalysisVideoWidget::setTitle(const QString& title) {
 void AnalysisVideoWidget::setFrame(const QImage& frame) {
     currentFrame_ = frame;
     scaledFrameCache_ = QImage();
+    // Inside the batched review update, setReviewFrame schedules the single
+    // repaint once everything is stored.
+    if (!reviewUpdatePending_) {
+        update();
+    }
+}
+
+void AnalysisVideoWidget::setReviewFrame(const QImage& frame, const QString& timestamp,
+                                         const QString& timestampTooltip, const QString& playbackInfo) {
+    // Batched review-path setter: store everything, schedule exactly one
+    // repaint. Calling the individual setters schedules one update() each
+    // (frame + timestamp + playback info + annotation), which triples the
+    // per-frame paint work during playback/scrubbing.
+    reviewUpdatePending_ = true;
+    setFrame(frame);
+    setTimestamp(timestamp, timestampTooltip);
+    setPlaybackInfo(playbackInfo);
+    reviewUpdatePending_ = false;
     update();
 }
 
@@ -39,12 +57,17 @@ void AnalysisVideoWidget::setTimestamp(const QString& timestamp, const QString& 
     // Hover tooltips on the video frames are intentionally disabled — they pop
     // up over the frames and disturb review. The parameter is kept for API
     // compatibility.
-    update();
+    // Batched review updates repaint once at the end of setReviewFrame.
+    if (!reviewUpdatePending_) {
+        update();
+    }
 }
 
 void AnalysisVideoWidget::setPlaybackInfo(const QString& info) {
     playbackInfo_ = info;
-    update();
+    if (!reviewUpdatePending_) {
+        update();
+    }
 }
 
 void AnalysisVideoWidget::clear() {
