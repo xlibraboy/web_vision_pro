@@ -435,6 +435,13 @@ private:
     QString annotationKey(int cameraId, int frameIndex) const;
     QMap<QString, int> loadEventAnnotations(const QString& videoPath);
     void saveEventAnnotations();
+    // Dashboard thumbnail cache: persisted next to the .bin as
+    // "<bin>.thumbs/NN.png" (validated against the .bin size/mtime), plus an
+    // in-memory copy for instant re-selection of the same event/camera.
+    // Static: also called from the thumbnail worker thread without an instance.
+    static bool loadCachedThumbnails(const QString& binPath, QVector<QImage>& out);
+    static void saveThumbnailsToCache(const QString& binPath, const QVector<QImage>& thumbs,
+                                      int totalFrames);
     void applyAnnotationToSelectedFrame();
     void applyAnnotationToWidget(AnalysisVideoWidget* widget, int cameraId, int frameIndex);
     // Returns the final row index of the added row (after the table's
@@ -573,6 +580,9 @@ private:
         double fps = 0.0;
     };
     std::map<QString, CameraSignal> signalByCam_;
+    // Generated dashboard thumbnails per .bin path (memory cache, see
+    // loadCachedThumbnails/saveThumbnailsToCache).
+    std::map<QString, QVector<QImage>> thumbnailsByPath_;
     bool isStreamingMode_;  // True when loading from file instead of RAM
     
     QTimer* stepTimer_;  // For hold-click stepping

@@ -993,13 +993,18 @@ void AnalysisView::updateDashboardLoadingState() {
 }
 
 void AnalysisView::updateDashboardVisibility(bool loading) {
+    Q_UNUSED(loading);
     if (!detailDashboard_) {
         return;
     }
+    // The dashboard paints its own inline progress ("Analyzing signals… X%",
+    // "Loading thumbnails…"), so it stays visible while data loads instead of
+    // being hidden behind a text-only placeholder. That removes the perceived
+    // reload flash on every event/camera selection.
     const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
-    detailDashboard_->setVisible(!loading && toggleOn);
+    detailDashboard_->setVisible(toggleOn);
     if (dashLoadingLabel_) {
-        dashLoadingLabel_->setVisible(loading && toggleOn);
+        dashLoadingLabel_->hide();
     }
     updateTracksEdgeTabVisibility();
 }
@@ -1152,6 +1157,95 @@ void AnalysisView::onSignalScanFailed(const QString& binPath, const QString& rea
     updateDashboardLoadingState();
 }
 
+// Dashboard thumbnail disk cache: "<bin>.thumbs/NN.png" next to the recording,
+// gated by a meta JSON that stores the .bin size/mtime (stale detection) and
+// source frame indices (format self-check). Uses one reader instance and one
+// pass over the file per event.
+static QString thumbnailCacheMetaPath(const QString& binPath) {
+    return binPath + QStringLiteral(".thumbs/meta.json");
+}
+
+static QString thumbnailCacheDir(const QString& binPath) {
+    return binPath + QStringLiteral(".thumbs");
+}
+
+bool AnalysisView::loadCachedThumbnails(const QString& binPath, QVector<QImage>& out) {
+    out.clear();
+    const QString dirPath = thumbnailCacheDir(binPath);
+    const QString metaPath = thumbnailCacheMetaPath(binPath);
+    QFile metaFile(metaPath);
+    if (!metaFile.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
+
+    // Validate against the .bin (same staleness rule as the signal cache).
+    QFileInfo binInfo(binPath);
+    if (!binInfo.exists()
+        || meta["binSize"].toVariant().toLongLong() != binInfo.size()
+        || meta["binMtime"].toVariant().toLongLong() != binInfo.lastModified().toMSecsSinceEpoch()) {
+        return false;
+    }
+
+    const int count = meta["count"].toInt(0);
+    const int expectedCount = qMin(EventDashboard::kThumbCount, std::max(1,
+        static_cast<int>(meta["totalFrames"].toInt(0))));
+    const int width = meta["width"].toInt(0);
+    const int height = meta["height"].toInt(0);
+    if (count != expectedCount || count <= 0) {
+        return false;
+    }
+
+    out.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        const QString path = QDir(dirPath).filePath(QStringLiteral("%1.png").arg(i, 2, 10, QChar('0')));
+        QImage img(path);
+        if (img.isNull()) {
+            out.clear();
+        	return false;
+        }
+        out.push_back(img);
+    }
+    Q_UNUSED(width);
+    Q_UNUSED(height);
+    return true;
+}
+
+void AnalysisView::saveThumbnailsToCache(const QString& binPath, const QVector<QImage>& thumbs,
+                                         int totalFrames) {
+    if (thumbs.isEmpty()) {
+        return;
+    }
+    QFileInfo binInfo(binPath);
+    if (!binInfo.exists()) {
+        return;
+    }
+    const QString dirPath = thumbnailCacheDir(binPath);
+    if (!QDir().mkpath(dirPath)) {
+        return;
+    }
+
+    const int count = thumbs.size();
+    for (int i = 0; i < count; ++i) {
+        const QString path = QDir(dirPath).filePath(QStringLiteral("%1.png").arg(i, 2, 10, QChar('0')));
+        if (!thumbs.at(i).save(path, "PNG")) {
+            return; // incomplete write: leave no meta so the cache stays invalid
+        }
+    }
+
+    QJsonObject meta;
+    meta["binSize"] = static_cast<qint64>(binInfo.size());
+    meta["binMtime"] = static_cast<qint64>(binInfo.lastModified().toMSecsSinceEpoch());
+    meta["count"] = count;
+    meta["totalFrames"] = totalFrames;
+    meta["width"] = thumbs.first().width();
+    meta["height"] = thumbs.first().height();
+    QFile metaFile(thumbnailCacheMetaPath(binPath));
+    if (metaFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        metaFile.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    }
+}
+
 void AnalysisView::refreshDashboardForCamera(int camIdx) {
     if (!detailDashboard_) {
         return;
@@ -1219,22 +1313,51 @@ void AnalysisView::generateThumbnails(int camIdx) {
     if (pathIt == videoReaderPaths_.end()) {
         return;
     }
+    const QString binPath = pathIt->second;
+
+    // Memory cache: this event/camera already produced thumbnails this session.
+    auto memIt = thumbnailsByPath_.find(binPath);
+    if (memIt != thumbnailsByPath_.end() && !memIt->second.isEmpty()) {
+        if (detailDashboard_) {
+            detailDashboard_->setThumbnails(memIt->second);
+        }
+        thumbCamPending_ = -1;
+        updateDashboardLoadingState();
+        return;
+    }
+
+    // Disk cache: written on the first visit, validated against the .bin.
+    QVector<QImage> cached;
+    if (loadCachedThumbnails(binPath, cached)) {
+        thumbnailsByPath_[binPath] = cached;
+        if (detailDashboard_) {
+            detailDashboard_->setThumbnails(cached);
+        }
+        thumbCamPending_ = -1;
+        updateDashboardLoadingState();
+        return;
+    }
+
     thumbCamPending_ = camIdx;
     updateDashboardLoadingState();
-    // Own reader instance: keeps disk I/O off the playback reader.
-    thumbWatcher_->setFuture(QtConcurrent::run([path = pathIt->second]() {
+    // Own reader instance: keeps disk I/O off the playback reader. Static
+    // cache writes only — no access to the view instance from the worker.
+    thumbWatcher_->setFuture(QtConcurrent::run([binPath]() {
         VideoStreamReader reader;
         QVector<QImage> out;
-        if (!reader.open(path)) {
-            return out;
+        int total = 0;
+        if (reader.open(binPath)) {
+            total = reader.getTotalFrames();
+            const int count = qMin(EventDashboard::kThumbCount, std::max(1, total));
+            for (int i = 0; i < count; ++i) {
+                const int frameIdx = (count > 1)
+                                         ? static_cast<int>(std::round(i * (total - 1) / (count - 1.0)))
+                                         : 0;
+                out.push_back(matToThumbnailImage(reader.getFrame(frameIdx)));
+            }
         }
-        const int total = reader.getTotalFrames();
-        const int count = qMin(EventDashboard::kThumbCount, std::max(1, total));
-        for (int i = 0; i < count; ++i) {
-            const int frameIdx = (count > 1)
-                                     ? static_cast<int>(std::round(i * (total - 1) / (count - 1.0)))
-                                     : 0;
-            out.push_back(matToThumbnailImage(reader.getFrame(frameIdx)));
+        if (!out.isEmpty()) {
+            saveThumbnailsToCache(binPath, out, total);
         }
         return out;
     }));
@@ -1255,6 +1378,13 @@ void AnalysisView::refreshDashboardThumbnails() {
         return; // thumbnails for a camera the user has already moved past
     }
     const QVector<QImage> imgs = thumbWatcher_->result();
+    // Remember the result so re-selecting this event/camera is instant.
+    if (!imgs.isEmpty()) {
+        auto pathIt = videoReaderPaths_.find(thumbCamPending_);
+        if (pathIt != videoReaderPaths_.end()) {
+            thumbnailsByPath_[pathIt->second] = imgs;
+        }
+    }
     if (detailDashboard_) {
         detailDashboard_->setThumbnails(imgs);
     }
@@ -2687,6 +2817,13 @@ void AnalysisView::onLogSelected(int row, int col) {
     
     if (timestamp.isEmpty()) {
         std::cerr << "[AnalysisView] No timestamp data for selected event" << std::endl;
+        return;
+    }
+
+    // Same event already on screen (e.g. re-clicking the selected row, or the
+    // auto-select firing again): the recording is open and rendered, so a full
+    // reload would only freeze the UI to show the identical content.
+    if (shownEventLoaded_ && timestamp == shownEventTimestamp_) {
         return;
     }
     
@@ -4481,6 +4618,8 @@ void AnalysisView::clearData() {
     videoReaders_.clear();
     videoReaderPaths_.clear();
     signalByCam_.clear();
+    // Thumbnails for other events/cameras stay on disk; drop the memory copy.
+    thumbnailsByPath_.clear();
     if (detailDashboard_) {
         detailDashboard_->clear();
     }
