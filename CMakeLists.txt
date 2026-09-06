@@ -16,9 +16,12 @@ find_package(OpenCV REQUIRED)
 find_package(Qt5 COMPONENTS Core Widgets Gui Concurrent Svg Network OpcUa REQUIRED)
 find_package(X11 REQUIRED)
 
-# Init Sources
+# Defines BUILD_TESTING and registers tests with CTest when enabled.
+include(CTest)
+
+# Init Sources (shared by the app and the regression-test executable; main.cpp
+# is added separately below so the test has its own main()).
 set(SOURCES
-src/main.cpp
 src/core/CameraManager.cpp
 src/core/EventController.cpp
 src/core/EventDatabase.cpp
@@ -89,7 +92,7 @@ qt5_wrap_cpp(MOC_SOURCES ${HEADERS})
 qt5_add_resources(RESOURCES resources.qrc)
 
 # Executable
-add_executable(PaperVision_App ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
+add_executable(PaperVision_App src/main.cpp ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
 
 # Link Libraries
 target_link_libraries(PaperVision_App
@@ -102,3 +105,40 @@ target_link_libraries(PaperVision_App
     GenApi_gcc_v3_1_Basler_pylon
     GCBase_gcc_v3_1_Basler_pylon
 )
+
+# ---------------------------------------------------------------------------
+# Regression tests
+#
+# PaperVision_RegressionTest exercises ConfigDialog entry paths (tab showEvent
+# auto-discovery and the Detect Server button) against a deliberately silent
+# OPC UA endpoint and asserts they never block on the network probe.
+# Run with: ctest -R config_dialog_network_regression
+# ---------------------------------------------------------------------------
+if(BUILD_TESTING)
+    find_package(Qt5 COMPONENTS Test REQUIRED)
+
+    qt5_wrap_cpp(TEST_MOC_SOURCES tests/ConfigDialogNetworkRegression.h)
+
+    add_executable(PaperVision_RegressionTest
+        ${SOURCES}
+        tests/ConfigDialogNetworkRegression.cpp
+        ${TEST_MOC_SOURCES}
+        ${MOC_SOURCES}
+        ${RESOURCES}
+    )
+
+    target_link_libraries(PaperVision_RegressionTest
+        ${OpenCV_LIBS}
+        Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg Qt5::Network Qt5::OpcUa Qt5::Test
+        X11::X11
+        pthread
+        pylonbase
+        pylonutility
+        GenApi_gcc_v3_1_Basler_pylon
+        GCBase_gcc_v3_1_Basler_pylon
+    )
+
+    add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest)
+    set_tests_properties(config_dialog_network_regression PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
+endif()
