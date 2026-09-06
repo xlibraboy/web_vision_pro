@@ -17,6 +17,7 @@
 #include "DetailView.h"
 #include "widgets/ToggleSwitch.h"
 #include "widgets/DocsDialog.h"
+#include "widgets/LiveViewWindow.h"
 #include "../core/CameraManager.h"
 #include "../processing/ImageBuffer.h"
 #include "../processing/DefectDetector.h"
@@ -89,6 +90,9 @@ private:
     ConfigDialog* configWindow_ = nullptr;
     DocsDialog* docsDialog_ = nullptr;  // lazy-created, kept open while consulting
     int configTabIndex_ = -1;
+    // Detachable live-only window (grid <-> single camera, no settings). One
+    // instance shared app-wide; opening the Live View Window again raises it.
+    LiveViewWindow* liveViewWindow_ = nullptr;
 
     // State
     std::atomic<bool> framePending_[16]; // Throttle flags per camera for GUI updates
@@ -138,6 +142,7 @@ private slots:
     void promptCustomLayout();
     void showAbout();
     void showDocs();
+    void showLiveViewWindow();
 
 protected:
     void closeEvent(QCloseEvent *event) override;

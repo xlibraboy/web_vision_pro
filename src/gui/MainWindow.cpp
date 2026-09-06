@@ -891,6 +891,12 @@ void MainWindow::setupUi() {
     customLayoutAction_ = viewMenu->addAction("Custom Grid...");
     connect(customLayoutAction_, &QAction::triggered, this, &MainWindow::promptCustomLayout);
 
+    // Detachable live-only window (grid <-> single camera, no settings).
+    // One window shared app-wide; re-opening it raises the existing instance.
+    viewMenu->addSeparator();
+    QAction* liveWindowAction = viewMenu->addAction("Live View Window");
+    connect(liveWindowAction, &QAction::triggered, this, &MainWindow::showLiveViewWindow);
+
     // Settings Menu
     QMenu* settingsMenu = menu->addMenu("Settings");
 
@@ -1207,6 +1213,9 @@ void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
 
     if (frame.empty()) {
         liveDashboard_->clearCameraWidget(cameraId);
+        if (liveViewWindow_) {
+            liveViewWindow_->clearCamera(cameraId);
+        }
         if (detailView_->videoWidget()->cameraId() == cameraId) {
             detailView_->videoWidget()->clearFrame();
         }
@@ -1222,6 +1231,12 @@ void MainWindow::handleFrame(int cameraId, const cv::Mat& frame) {
     
     // 2. Update GUI
     liveDashboard_->updateFrame(cameraId, frame);
+    
+    // Pure video stream to the detached live view window (grid <-> single
+    // camera, no settings).
+    if (liveViewWindow_) {
+        liveViewWindow_->updateFrame(cameraId, frame);
+    }
     
     // Always keep DetailView in sync if it's currently focused on this camera
     if (detailView_->videoWidget()->cameraId() == cameraId) {
@@ -1534,6 +1549,12 @@ void MainWindow::ensureConfigTab() {
                 liveDashboard_->setCameraCount(newCamCount);
                 liveDashboard_->refreshCameraLabels();
             }
+            if (liveViewWindow_) {
+                liveViewWindow_->setCameraCount(newCamCount);
+                liveViewWindow_->setGridDimensions(
+                    liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
+                liveViewWindow_->refreshCameraLabels();
+            }
             if (analysisView_) analysisView_->setCameraCount(newCamCount);
 
             if (detailView_ && detailView_->videoWidget()) {
@@ -1729,6 +1750,24 @@ void MainWindow::showDocs() {
     docsDialog_->activateWindow();
 }
 
+void MainWindow::showLiveViewWindow() {
+    if (!liveViewWindow_) {
+        liveViewWindow_ = new LiveViewWindow();
+        connect(liveViewWindow_, &QObject::destroyed, this, [this]() {
+            liveViewWindow_ = nullptr;
+        });
+        liveViewWindow_->setGridDimensions(
+            liveDashboard_->getCurrentRows(), liveDashboard_->getCurrentCols());
+        liveViewWindow_->updateTheme();
+    }
+
+    liveViewWindow_->showGrid();
+    liveViewWindow_->show();
+    liveViewWindow_->raise();
+    liveViewWindow_->activateWindow();
+    statusBar()->showMessage("Live View Window opened", 2500);
+}
+
 void MainWindow::openSystemConfiguration() {
     if (!promptAdminLogin()) {
         statusBar()->showMessage("Administrator login required for System Configuration.", 3000);
@@ -1922,4 +1961,5 @@ void MainWindow::applyGlobalTheme() {
     if (liveDashboard_) liveDashboard_->updateTheme();
     if (detailView_) detailView_->updateTheme();
     if (analysisView_) analysisView_->updateTheme();
+    if (liveViewWindow_) liveViewWindow_->updateTheme();
 }

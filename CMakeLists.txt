@@ -37,6 +37,7 @@ src/gui/LiveDashboard.cpp
 src/gui/AnalysisView.cpp
 src/gui/DetailView.cpp
 src/gui/widgets/CameraWidget.cpp
+src/gui/widgets/LiveViewWindow.cpp
 src/gui/widgets/AnalysisVideoWidget.cpp
 src/gui/widgets/EventDashboard.cpp
 src/gui/ConfigDialog.cpp
@@ -63,6 +64,7 @@ src/gui/AnalysisView.h
 src/gui/DetailView.h
 src/gui/ConfigDialog.h
 src/gui/widgets/CameraWidget.h
+src/gui/widgets/LiveViewWindow.h
 src/gui/widgets/AnalysisVideoWidget.h
 src/gui/widgets/EventDashboard.h
 src/gui/widgets/ToggleSwitch.h
