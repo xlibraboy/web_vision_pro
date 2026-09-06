@@ -58,6 +58,8 @@ private:
     bool ptpLocked_ = false;
     QString ptpState_;
     int64_t ptpOffsetFromMasterNs_ = -1;
+    // No-inspection-region badge (analysis paused until an ROI is drawn)
+    bool roiPaused_ = false;
 
 public:
     void setOverlayText(const QString& text);
@@ -65,6 +67,9 @@ public:
     void setTemperatureStatus(double temp, TempStatus::Status status);
     void setPtpStatus(bool available, bool enabled, const QString& state,
                       bool locked, int64_t offsetFromMasterNs);
+    // Marks this tile as having detection enabled but no inspection region
+    // drawn yet (live defect scan paused until an ROI exists).
+    void setRoiPaused(bool paused);
     void setPreviewThemeColors(const ThemeColors& themeColors);
     void clearPreviewThemeColors();
     void setPreviewBackgroundStyle(const QString& backgroundStyle);

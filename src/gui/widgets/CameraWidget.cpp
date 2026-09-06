@@ -314,6 +314,10 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         painter.drawText(contentRect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::AlignTop, overlayText_);
     }
 
+    // Top-right badge stack: temperature (when critical/error) then the
+    // no-inspection-region pause badge beneath it.
+    int topRightY = contentRect.top() + 5;
+
     // === Temperature Badge (top-right corner) ===
     // Only drawn for Critical or Error states (Ok/Unknown need no badge)
     if (tempStatus_ == TempStatus::Critical ||
@@ -336,7 +340,7 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         int textW = fm.horizontalAdvance(tempStr) + 8;
         int textH = fm.height() + 4;
         QRect badgeRect(contentRect.right() - textW - 5,
-                        contentRect.top() + 5,
+                        topRightY,
                         textW, textH);
 
         // Badge background
@@ -347,6 +351,31 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         // Badge text
         painter.setPen(Qt::white);
         painter.drawText(badgeRect, Qt::AlignCenter, tempStr);
+
+        topRightY = badgeRect.bottom() + 4;
+    }
+
+    // === No-Inspection-Region Badge (top-right, under the temperature badge) ===
+    // A camera whose live defect scan is paused because no inspection region
+    // has been drawn yet (detection on + empty ROI). Clear it by drawing a
+    // region on the Live View or pressing "Whole Frame".
+    if (roiPaused_) {
+        const QString pausedText = QStringLiteral("No ROI \u00B7 paused");
+        QFont pausedFont = painter.font();
+        pausedFont.setPixelSize(10);
+        pausedFont.setBold(true);
+        painter.setFont(pausedFont);
+
+        QFontMetrics pausedFm(pausedFont);
+        int pausedW = pausedFm.horizontalAdvance(pausedText) + 10;
+        int pausedH = pausedFm.height() + 4;
+        QRect pausedRect(contentRect.right() - pausedW - 5, topRightY, pausedW, pausedH);
+
+        painter.setBrush(QColor("#ff9900"));
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(pausedRect, 3, 3);
+        painter.setPen(Qt::white);
+        painter.drawText(pausedRect, Qt::AlignCenter, pausedText);
     }
 
     // === PTP State Badge (bottom-left corner) ===
@@ -402,6 +431,11 @@ void CameraWidget::setOverlayText(const QString& text) {
 void CameraWidget::setOverlayFont(const QFont& font) {
     overlayFont_ = font;
     update();
+}
+
+void CameraWidget::setRoiPaused(bool paused) {
+    roiPaused_ = paused;
+    update();  // Repaint to show/hide the badge
 }
 
 void CameraWidget::setTemperatureStatus(double temp, TempStatus::Status status) {

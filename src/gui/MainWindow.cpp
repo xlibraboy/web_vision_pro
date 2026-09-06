@@ -690,6 +690,7 @@ void MainWindow::setupUi() {
         if (cameraManager_) {
             cameraManager_->setDefectDetectionEnabled(checked);
         }
+        refreshRoiPausedBadges();
     });
     liveControlsLayout->addWidget(defectDetectionCheck_);
     liveControlsLayout->addStretch();
@@ -758,6 +759,7 @@ void MainWindow::setupUi() {
             // Drop the drawn region from the overlay/panel too (it now refers
             // to the old crop geometry).
             detailView_->setDetectionRoi(QVector<QPointF>(), true, true);
+            refreshRoiPausedBadges();
         }
         EventController::instance().updateCameraFps(cameraId + 1);
     });
@@ -777,6 +779,7 @@ void MainWindow::setupUi() {
         if (cameraManager_) {
             cameraManager_->setCameraDetectionRoi(cameraId, roi);
         }
+        refreshRoiPausedBadges();
         statusBar()->showMessage(
             roi.size() >= 3
                 ? QString("Inspection region set for Camera %1 (%2 pts)").arg(cameraId + 1).arg(roi.size())
@@ -823,8 +826,7 @@ void MainWindow::setupUi() {
     connect(analysisView_, &AnalysisView::manualTriggerRequested, this, &MainWindow::manualTrigger);
     // Control Panel: the Server button is the master switch for the live vision
     // system (start/stop camera acquisition; triggers, recording, and defect
-    // detection are all gated on streaming frames). The Login button is the
-    // sole Administrator Login toggle.
+    // detection are all gated on streaming frames).
     connect(analysisView_, &AnalysisView::serverToggled, this, [this](bool running) {
         if (!cameraManager_) {
             return;
@@ -842,7 +844,6 @@ void MainWindow::setupUi() {
             statusBar()->showMessage("Vision system offline — camera acquisition stopped.", 3000);
         }
     });
-    connect(analysisView_, &AnalysisView::adminLoginRequested, this, &MainWindow::toggleAdmin);
     
     mainTabWidget_->addTab(analysisView_, "Analysis View");
     
@@ -906,6 +907,15 @@ void MainWindow::setupUi() {
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
 
+    // Administrator Login/Logout anchored to the far right of the menu bar row
+    // (same line as File/View/Settings/Docs/Help), so it is reachable from any
+    // view. Text follows admin state via updateAdminStatusIndicator().
+    adminLoginButton_ = new QPushButton("Login", this);
+    adminLoginButton_->setCursor(Qt::PointingHandCursor);
+    adminLoginButton_->setToolTip("Admin Login");
+    connect(adminLoginButton_, &QPushButton::clicked, this, &MainWindow::toggleAdmin);
+    menu->setCornerWidget(adminLoginButton_, Qt::TopRightCorner);
+
     // Emulation-mode badge: lives on the bottom status line (shared by Live
     // View, Detail View, and Analysis View). Visible only when the app runs on
     // emulated cameras (PYLON_CAMEMU or the Camera Mode selector in Settings).
@@ -947,6 +957,20 @@ void MainWindow::pushDetectionRoisToManager() {
     const std::vector<CameraInfo> cams = CameraConfig::getCameras();
     for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
         cameraManager_->setCameraDetectionRoi(i, cams[i].detectionRoi);
+    }
+}
+
+void MainWindow::refreshRoiPausedBadges() {
+    if (!liveDashboard_) {
+        return;
+    }
+    // The inspection region only gates analysis while defect detection is on;
+    // when it is off no camera scans, so clear every badge.
+    const bool detectionEnabled = CameraConfig::isDefectDetectionEnabled();
+    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
+    for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
+        liveDashboard_->setCameraRoiPaused(i,
+            detectionEnabled && cams[i].detectionRoi.size() < 3);
     }
 }
 
@@ -1084,6 +1108,8 @@ void MainWindow::setupCore() {
     // Seed the live defect scan with each camera's configured analysis region
     // (empty = no region -> that camera's analysis is paused until drawn).
     pushDetectionRoisToManager();
+    // Mark the grid tiles that are paused for a missing inspection region.
+    refreshRoiPausedBadges();
     startCameraLifecycleAsync(false, "Starting camera acquisition...");
     applyOpcUaSettings();
 
@@ -1355,6 +1381,10 @@ bool MainWindow::promptAdminLogin() {
 }
 
 void MainWindow::updateAdminStatusIndicator() {
+    if (adminLoginButton_) {
+        adminLoginButton_->setText(isAdmin_ ? "Logout" : "Login");
+        adminLoginButton_->setToolTip(isAdmin_ ? "Logout Administrator" : "Admin Login");
+    }
     if (!adminStatusLabel_) {
         return;
     }

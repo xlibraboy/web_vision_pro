@@ -78,6 +78,7 @@ private:
     QLabel* adminStatusLabel_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
+    QPushButton* adminLoginButton_ = nullptr;  // top-right, on the menu bar row
     QTimer  diskBadgeTimer_;
     QAction* customLayoutAction_;
     QAction* configAction_;
@@ -108,6 +109,9 @@ private:
     // Seed CameraManager with each configured camera's analysis region
     // (detectionRoi). Called at startup and after camera config reloads.
     void pushDetectionRoisToManager();
+    // Reflect which cameras are paused (detection on, no inspection region)
+    // onto the Live View grid tiles.
+    void refreshRoiPausedBadges();
     std::unique_ptr<VideoEncoder> videoEncoder_;
     std::unique_ptr<OpcUaClientService> opcUaClientService_;
 

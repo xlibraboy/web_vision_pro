@@ -34,6 +34,9 @@ public:
 
     // Update the PTP (IEEE 1588) clock-state badge on a specific camera tile
     void updateCameraPtpStatus(int cameraId, const CameraManager::PtpStatus& status);
+
+    // Show/hide the no-inspection-region (analysis paused) badge on a tile
+    void setCameraRoiPaused(int cameraId, bool paused);
     
     // Update status labels
     void updateStatus(double fps, bool recording);
