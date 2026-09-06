@@ -27,6 +27,9 @@
 
 // Forward declarations for new widgets
 #include <QGroupBox>
+#include <QStringList>
+class QOpcUaClient;
+class QOpcUaProvider;
 class CameraCard;
 class CameraWidget;
 class AnalysisVideoWidget;
@@ -124,6 +127,16 @@ private:
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
     void refreshOpcUaSpeedDisplay();
+    // Async OPC UA server discovery. The probe walks the candidate list one
+    // client at a time (750ms per reachable-but-silent host) without ever
+    // blocking the UI thread, so switching to System Configuration or pressing
+    // Detect Server never freezes on a network timeout.
+    void startOpcUaProbe(const QStringList& candidates, bool overwriteExistingEndpoint);
+    void probeNextOpcUaCandidate();
+    void handleOpcUaProbeOutcome(bool detected, const QString& endpointUrl);
+    void handleOpcUaProbeTimeout();
+    void clearActiveOpcUaProbeClient();
+    void finishOpcUaProbe(bool detected, const QString& endpointUrl, const QString& statusMessage);
 
 
     struct UiSettingsSnapshot {
@@ -319,6 +332,19 @@ private:
     QPushButton* opcUaDetectEndpointBtn_ = nullptr;
     QPushButton* opcUaSaveBtn_ = nullptr;
     bool opcUaDiscoveryAttempted_ = false;
+
+    // OPC UA probe state (see startOpcUaProbe / probeNextOpcUaCandidate).
+    QOpcUaClient* opcUaProbeClient_ = nullptr;
+    QOpcUaProvider* opcUaProbeProvider_ = nullptr;
+    QTimer* opcUaProbeTimer_ = nullptr;
+    QStringList opcUaProbeCandidates_;
+    QString opcUaProbeCurrentCandidate_;
+    QString opcUaProbeNotFoundMessage_;
+    int opcUaProbeCandidateIndex_ = 0;
+    bool opcUaProbeActive_ = false;
+    bool opcUaProbeOverwrite_ = false;
+    QString opcUaProbeBackend_;
+    bool opcUaProbeBackendAvailable_ = false;
 
     // Live Status panel
     QLabel* opcUaStatusClientLabel_ = nullptr;

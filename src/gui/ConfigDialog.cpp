@@ -290,93 +290,6 @@ namespace {
         return candidates;
     }
 
-    struct OpcUaDiscoveryResult {
-        bool detected = false;
-        QString endpointUrl;
-        QString statusMessage;
-    };
-
-
-    OpcUaDiscoveryResult detectOpcUaEndpoint(const QString& configuredEndpoint, bool allowNetworkScan) {
-        const QStringList candidates = buildOpcUaDiscoveryCandidates(configuredEndpoint, allowNetworkScan);
-        const QString backend = QStringLiteral("open62541");
-
-        for (const QString& candidate : candidates) {
-            QOpcUaProvider provider;
-            const QStringList availableBackends = provider.availableBackends();
-            if (!availableBackends.contains(backend, Qt::CaseInsensitive)) {
-                OpcUaDiscoveryResult result;
-                result.detected = false;
-                result.statusMessage = QStringLiteral("Qt OPC UA backend 'open62541' is not available.");
-                return result;
-            }
-
-            QOpcUaClient* client = provider.createClient(backend);
-            if (!client) {
-                continue;
-            }
-
-            OpcUaDiscoveryResult result;
-            QEventLoop loop;
-            QTimer timeout;
-            timeout.setSingleShot(true);
-
-            const QMetaObject::Connection timeoutConnection = QObject::connect(&timeout, &QTimer::timeout, &loop, [&]() {
-                result.detected = false;
-                result.statusMessage = QStringLiteral("No OPC UA server responded. Verify your endpoint URL manually.");
-                loop.quit();
-            });
-
-            const QMetaObject::Connection endpointsConnection = QObject::connect(client, &QOpcUaClient::endpointsRequestFinished, &loop,
-                             [&](const QVector<QOpcUaEndpointDescription>& endpoints, QOpcUa::UaStatusCode statusCode, const QUrl&) {
-                if (statusCode == QOpcUa::UaStatusCode::Good && !endpoints.isEmpty()) {
-                    QString detectedEndpoint;
-                    for (const QOpcUaEndpointDescription& endpoint : endpoints) {
-                        if (endpoint.endpointUrl().startsWith(QStringLiteral("opc.tcp://"), Qt::CaseInsensitive)) {
-                            detectedEndpoint = endpoint.endpointUrl().trimmed();
-                            break;
-                        }
-                    }
-                    if (detectedEndpoint.isEmpty()) {
-                        detectedEndpoint = candidate;
-                    }
-                    result.detected = true;
-                    result.endpointUrl = detectedEndpoint;
-                    result.statusMessage = QStringLiteral("Detected OPC UA server: %1").arg(detectedEndpoint);
-                } else {
-                    result.detected = false;
-                    result.statusMessage = QStringLiteral("No OPC UA server responded. Verify your endpoint URL manually.");
-                }
-                loop.quit();
-            });
-
-            timeout.start(750);
-            const bool requestStarted = client->requestEndpoints(candidate);
-            if (requestStarted) {
-                loop.exec();
-            } else {
-                result.detected = false;
-                result.statusMessage = QStringLiteral("No OPC UA server responded. Verify your endpoint URL manually.");
-            }
-
-            QObject::disconnect(timeoutConnection);
-            QObject::disconnect(endpointsConnection);
-            client->disconnectFromEndpoint();
-            delete client;
-
-            if (result.detected) {
-                return result;
-            }
-
-        }
-
-        OpcUaDiscoveryResult result;
-        result.detected = false;
-        result.statusMessage = configuredEndpoint.trimmed().isEmpty()
-            ? QStringLiteral("No OPC UA server found on this network. Enter the endpoint URL manually.")
-            : QStringLiteral("No OPC UA server responded. Verify your endpoint URL manually.");
-        return result;
-    }
     void stylePrimaryActionButton(QPushButton* button, const ThemeColors& tc) {
         button->setStyleSheet(QString(
             "QPushButton { "
@@ -419,6 +332,13 @@ void ConfigDialog::updateOpcUaDiscoveryStatus(const QString& message, bool detec
 }
 
 void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint, bool allowNetworkScan) {
+    // Kick off an async probe and return immediately. The old implementation
+    // waited synchronously (nested event loop, up to 750ms per candidate) from
+    // showEvent, which froze the UI for every entry into System Configuration.
+    if (opcUaProbeActive_) {
+        return;
+    }
+
     const QString configured = opcUaEndpointEdit_ ? opcUaEndpointEdit_->text().trimmed() : QString();
     if (!allowNetworkScan && configured.isEmpty()) {
         updateOpcUaDiscoveryStatus(QStringLiteral("Enter the OPC UA endpoint URL, or click Detect Server to scan manually."), false);
@@ -426,17 +346,166 @@ void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint,
         return;
     }
 
+    opcUaProbeNotFoundMessage_ = configured.isEmpty()
+        ? QStringLiteral("No OPC UA server found on this network. Enter the endpoint URL manually.")
+        : QStringLiteral("No OPC UA server responded. Verify your endpoint URL manually.");
     updateOpcUaDiscoveryStatus(QStringLiteral("Scanning for OPC UA servers…"), false);
     if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(false);
 
-    const OpcUaDiscoveryResult result = detectOpcUaEndpoint(configured, allowNetworkScan);
-    updateOpcUaDiscoveryStatus(result.statusMessage, result.detected);
+    startOpcUaProbe(buildOpcUaDiscoveryCandidates(configured, allowNetworkScan),
+                    overwriteExistingEndpoint);
+}
 
-    if (result.detected && opcUaEndpointEdit_ &&
-            (overwriteExistingEndpoint || opcUaEndpointEdit_->text().trimmed().isEmpty())) {
-        opcUaEndpointEdit_->setText(result.endpointUrl);
+void ConfigDialog::startOpcUaProbe(const QStringList& candidates, bool overwriteExistingEndpoint) {
+    if (opcUaProbeActive_) {
+        return;
     }
-    if (opcUaDetectEndpointBtn_) opcUaDetectEndpointBtn_->setEnabled(true);
+
+    if (!opcUaProbeTimer_) {
+        opcUaProbeTimer_ = new QTimer(this);
+        opcUaProbeTimer_->setSingleShot(true);
+        opcUaProbeTimer_->setInterval(750);
+        connect(opcUaProbeTimer_, &QTimer::timeout,
+                this, [this]() { handleOpcUaProbeTimeout(); });
+    }
+
+    if (!opcUaProbeProvider_) {
+        opcUaProbeProvider_ = new QOpcUaProvider(this);
+    }
+    opcUaProbeBackend_ = QStringLiteral("open62541");
+    opcUaProbeBackendAvailable_ =
+        opcUaProbeProvider_->availableBackends().contains(opcUaProbeBackend_, Qt::CaseInsensitive);
+    if (!opcUaProbeBackendAvailable_) {
+        finishOpcUaProbe(false, QString(),
+                         QStringLiteral("Qt OPC UA backend 'open62541' is not available."));
+        return;
+    }
+
+    if (candidates.isEmpty()) {
+        finishOpcUaProbe(false, QString(), opcUaProbeNotFoundMessage_);
+        return;
+    }
+
+    opcUaProbeCandidates_ = candidates;
+    opcUaProbeCandidateIndex_ = 0;
+    opcUaProbeOverwrite_ = overwriteExistingEndpoint;
+    opcUaProbeActive_ = true;
+    probeNextOpcUaCandidate();
+}
+
+void ConfigDialog::probeNextOpcUaCandidate() {
+    if (!opcUaProbeActive_ || !opcUaProbeProvider_ || !opcUaProbeBackendAvailable_) {
+        return;
+    }
+
+    if (opcUaProbeCandidateIndex_ >= opcUaProbeCandidates_.size()) {
+        finishOpcUaProbe(false, QString(), opcUaProbeNotFoundMessage_);
+        return;
+    }
+
+    opcUaProbeCurrentCandidate_ = opcUaProbeCandidates_[opcUaProbeCandidateIndex_].trimmed();
+    if (opcUaProbeCurrentCandidate_.isEmpty()) {
+        ++opcUaProbeCandidateIndex_;
+        QTimer::singleShot(0, this, [this]() { probeNextOpcUaCandidate(); });
+        return;
+    }
+
+    opcUaProbeClient_ = opcUaProbeProvider_->createClient(opcUaProbeBackend_);
+    if (!opcUaProbeClient_) {
+        ++opcUaProbeCandidateIndex_;
+        QTimer::singleShot(0, this, [this]() { probeNextOpcUaCandidate(); });
+        return;
+    }
+    opcUaProbeClient_->setParent(this);
+
+    connect(opcUaProbeClient_, &QOpcUaClient::endpointsRequestFinished, this,
+            [this](const QVector<QOpcUaEndpointDescription>& endpoints,
+                   QOpcUa::UaStatusCode statusCode, const QUrl&) {
+        if (!opcUaProbeActive_) {
+            return;
+        }
+
+        bool detected = false;
+        QString detectedEndpoint;
+        if (statusCode == QOpcUa::UaStatusCode::Good && !endpoints.isEmpty()) {
+            for (const QOpcUaEndpointDescription& endpoint : endpoints) {
+                if (endpoint.endpointUrl().startsWith(QStringLiteral("opc.tcp://"), Qt::CaseInsensitive)) {
+                    detectedEndpoint = endpoint.endpointUrl().trimmed();
+                    detected = true;
+                    break;
+                }
+            }
+            if (!detected) {
+                // Server answered, but advertised no opc.tcp endpoint: fall
+                // back to the address we probed, like the original flow did.
+                detected = true;
+                detectedEndpoint = opcUaProbeCurrentCandidate_;
+            }
+        }
+        handleOpcUaProbeOutcome(detected, detectedEndpoint);
+    });
+
+    opcUaProbeTimer_->start();
+    if (!opcUaProbeClient_->requestEndpoints(opcUaProbeCurrentCandidate_)) {
+        // Could not even start the request; move on to the next candidate.
+        ++opcUaProbeCandidateIndex_;
+        clearActiveOpcUaProbeClient();
+        QTimer::singleShot(0, this, [this]() { probeNextOpcUaCandidate(); });
+    }
+}
+
+void ConfigDialog::handleOpcUaProbeOutcome(bool detected, const QString& endpointUrl) {
+    if (!opcUaProbeActive_) {
+        return;
+    }
+    clearActiveOpcUaProbeClient();
+
+    if (detected) {
+        finishOpcUaProbe(true, endpointUrl,
+                         QStringLiteral("Detected OPC UA server: %1").arg(endpointUrl));
+        return;
+    }
+
+    ++opcUaProbeCandidateIndex_;
+    QTimer::singleShot(0, this, [this]() { probeNextOpcUaCandidate(); });
+}
+
+void ConfigDialog::handleOpcUaProbeTimeout() {
+    if (!opcUaProbeActive_ || !opcUaProbeClient_) {
+        return;
+    }
+    ++opcUaProbeCandidateIndex_;
+    clearActiveOpcUaProbeClient();
+    QTimer::singleShot(0, this, [this]() { probeNextOpcUaCandidate(); });
+}
+
+void ConfigDialog::clearActiveOpcUaProbeClient() {
+    if (opcUaProbeTimer_) {
+        opcUaProbeTimer_->stop();
+    }
+    if (opcUaProbeClient_) {
+        disconnect(opcUaProbeClient_, nullptr, this, nullptr);
+        if (opcUaProbeClient_->state() != QOpcUaClient::Disconnected) {
+            opcUaProbeClient_->disconnectFromEndpoint();
+        }
+        opcUaProbeClient_->deleteLater();
+        opcUaProbeClient_ = nullptr;
+    }
+}
+
+void ConfigDialog::finishOpcUaProbe(bool detected, const QString& endpointUrl,
+                                    const QString& statusMessage) {
+    opcUaProbeActive_ = false;
+    clearActiveOpcUaProbeClient();
+    updateOpcUaDiscoveryStatus(statusMessage, detected);
+
+    if (detected && opcUaEndpointEdit_ &&
+            (opcUaProbeOverwrite_ || opcUaEndpointEdit_->text().trimmed().isEmpty())) {
+        opcUaEndpointEdit_->setText(endpointUrl);
+    }
+    if (opcUaDetectEndpointBtn_) {
+        opcUaDetectEndpointBtn_->setEnabled(true);
+    }
     opcUaDiscoveryAttempted_ = true;
 }
 
