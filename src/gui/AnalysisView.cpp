@@ -5119,22 +5119,25 @@ void AnalysisView::positionToolsPanel() {
         tracksEdgeTab_->setGeometry(dashRight - inset - cw,
                                     dashTop - ch / 2,
                                     cw, ch);
-        // TRACKS panel: right-aligned to the stacks' right edge. Prefer below
-        // the control; when the stacks are collapsed (all tracks off) there is
-        // no room below, so flip it above instead. Always stays fully inside
-        // the page area [top, bottom].
-        if (tracksPanel_) {
+        // TRACKS panel: sits to the LEFT of the TRACKS tab (the hover trigger)
+        // with a small breathing gap — same pattern as the TOOLS panel next to
+        // its tab — while its top edge keeps the original position (just below
+        // the tab, or above it when the stacks are collapsed). While the panel
+        // is open its position is FROZEN: layout churn (e.g. toggling a track
+        // resizes the dashboard) must not yank it out from under the cursor.
+        // It is re-anchored on the next hover, once the mouse has left.
+        if (tracksPanel_ && !tracksPanel_->isVisible()) {
             const int panelW = tracksPanel_->width();
             const int panelH = tracksPanel_->height();
-            const int tx = dashRight - inset - panelW;
-            int ty = dashTop + ch / 2 + 6;   // below the control
+            const int tx = dashRight - inset - cw - 2 - panelW;  // left of the tab
+            int ty = dashTop + ch / 2 + 6;   // below the control, like the original
             if (ty + panelH > bottom) {      // would overflow the page bottom
                 const int aboveTy = dashTop - ch / 2 - 6 - panelH;
                 ty = (aboveTy >= top) ? aboveTy : qMax(top, bottom - panelH);
             }
             tracksPanel_->setGeometry(tx, ty, panelW, panelH);
-            tracksPanel_->raise();
         }
+        if (tracksPanel_) tracksPanel_->raise();
     }
     if (tracksEdgeTab_) tracksEdgeTab_->raise();
     // Panel body immediately left of the tab handle (2px breathing room).
@@ -5813,6 +5816,10 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     // short grace period for the gap crossing) hides it again.
     if (watched == tracksEdgeTab_ || watched == tracksPanel_) {
         if (event->type() == QEvent::Enter) {
+            // Fresh hover: re-anchor the panel to the tab before showing it.
+            // While the panel is open positionToolsPanel() deliberately skips
+            // it (frozen), so this is the only time its geometry refreshes.
+            positionToolsPanel();
             tracksPanel_->show();
             tracksPanel_->raise();
             tracksEdgeTab_->raise();
