@@ -1015,8 +1015,12 @@ void AnalysisView::updateDashboardVisibility(bool loading) {
     // friend tracks are still running (those paint their own inline progress).
     // The TRACKS edge tab/panel do NOT follow this visibility: they stay
     // reachable while loading (showing their in-panel spinner).
+    // A triggered event that is still being recorded has no data yet, so the
+    // dashboard would only paint its "No event loaded" placeholder — keep it
+    // hidden until the event lands.
+    const bool recording = !pendingEventTimestamp_.isEmpty();
     const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
-    detailDashboard_->setVisible(toggleOn && !loading);
+    detailDashboard_->setVisible(toggleOn && !loading && !recording);
     if (dashLoadingLabel_) {
         dashLoadingLabel_->hide();
     }
@@ -4427,8 +4431,10 @@ void AnalysisView::addPendingEventRow(const QString& timestamp, const QString& r
     pendingEventStartMs_ = QDateTime::currentMSecsSinceEpoch();
     insertPendingEventRow();
     updateRecordCountLabel();
-    // Recording in progress: park the friend tracks until the event is saved.
+    // Recording in progress: park the friend tracks until the event is saved,
+    // and drop the dashboard so its "No event loaded" placeholder never shows.
     updateTracksPanelEnablement();
+    updateDashboardLoadingState();
 }
 
 void AnalysisView::insertPendingEventRow() {
@@ -4438,7 +4444,10 @@ void AnalysisView::insertPendingEventRow() {
     // beyond the normal capture+save window; drop it after that.
     if (QDateTime::currentMSecsSinceEpoch() - pendingEventStartMs_ > 120000) {
         pendingEventTimestamp_.clear();
-        updateTracksPanelEnablement(); // recording never landed — re-enable tracks
+        // Recording never landed: release the tracks and restore the dashboard
+        // to whatever the current state allows.
+        updateTracksPanelEnablement();
+        updateDashboardLoadingState();
         return;
     }
     // Idempotence guard: never stack a second "Recording…" row while one is
