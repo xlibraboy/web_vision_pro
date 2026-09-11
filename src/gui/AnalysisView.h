@@ -266,7 +266,20 @@ private:
     // renders natively (no compositing artifacts) while idle or hidden.
     void ensureToolsPanelOpacityEffect();
     void clearToolsPanelOpacityEffect();
-    
+
+    // Dedicated IMAGE panel (MARKER + VIEW): the per-image controls the
+    // operator reaches for routinely, split out of the general TOOLS drawer so
+    // they get their own vertical IMAGE edge tab. Same hover/drawer pattern as
+    // the TOOLS panel above.
+    void onImageToolsHoverTick();
+    void restyleImageEdgeTab();
+    void animateImagePanelShow();
+    void animateImagePanelHide();
+    void onImagePanelHideFinished();
+    bool imagePanelActuallyVisible() const;
+    void ensureImagePanelOpacityEffect();
+    void clearImagePanelOpacityEffect();
+
     // Main layout
     
     // Main layout
@@ -550,7 +563,6 @@ private:
     QLabel*          toolsEdgeTab_ = nullptr;
     QPushButton*     toolsLockButton_ = nullptr;
     QPushButton*     resetToolsButton_ = nullptr;
-    QCheckBox*       dashboardToggleCheck_ = nullptr;  // TOOLS panel: show/hide event dashboard
     bool             toolsLocked_ = false;  // start unpinned (hover-driven)
     bool             toolsTabHovered_ = false;  // cursor is over the edge tab
     QTimer*          toolsHoverTimer_ = nullptr;
@@ -561,6 +573,17 @@ private:
     QPropertyAnimation*        toolsPanelSlideAnim_ = nullptr;
     QRect                      toolsPanelRestingRect_;  // panel rect, mainArea_ coords
     bool                       toolsPanelShown_ = false;  // target visibility state
+
+    // IMAGE panel (MARKER + VIEW): independent hover drawer with its own edge
+    // tab, mirroring the TOOLS drawer's state above.
+    QWidget*                   imageToolsPanel_ = nullptr;
+    QLabel*                    imageEdgeTab_ = nullptr;
+    bool                       imageTabHovered_ = false;  // cursor is over the edge tab
+    QGraphicsOpacityEffect*    imagePanelOpacity_ = nullptr;
+    QPropertyAnimation*        imagePanelFadeAnim_ = nullptr;
+    QPropertyAnimation*        imagePanelSlideAnim_ = nullptr;
+    QRect                      imagePanelRestingRect_;  // panel rect, mainArea_ coords
+    bool                       imagePanelShown_ = false;  // target visibility state
 
     
     // On-demand video loading (per active camera)
