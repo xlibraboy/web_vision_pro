@@ -3294,6 +3294,24 @@ void AnalysisView::onTabChanged(int index) {
         headerToolsSeparator_->setVisible(index == 1);
     }
 
+    // The media player only scrubs event review on the All Camera / Camera
+    // tabs. The Diagnostic page is a pure live-data table, so the panel is
+    // hidden there and the tab widget (stretch 1) reclaims the space.
+    if (playbackPanel_) {
+        const bool showPlayback = index != 2;
+        playbackPanel_->setVisible(showPlayback);
+        if (showPlayback) {
+            // Deferred: showing the panel (and the tab widget yielding the
+            // space back) only re-lays-out after the event loop returns, so
+            // re-anchor the zero/trigger flag and the floating tools panel once
+            // their geometry is valid again.
+            QTimer::singleShot(0, this, [this]() {
+                updateSliderZeroMarker();
+                positionToolsPanel();
+            });
+        }
+    }
+
     // Hide the right Tools edge tab and panel on All Camera (index 0) and
     // Diagnostic (index 2) — they are only meaningful for the Single Camera
     // detail view (index 1).
