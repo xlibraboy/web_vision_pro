@@ -917,8 +917,7 @@ void CameraManager::ensureConfiguredFrameRate(int configArrayIndex) {
 }
 
 CameraManager::CameraManager(int numCameras)
-    : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0), 
-      defectDetectionEnabled_(false) {
+    : numCameras_(numCameras), acquiring_(false), recovering_(false), width_(780), height_(580), fps_(10.0) {
     prevTempStatus_.assign(numCameras, TemperatureStatus::Unknown);
     // Pylon requires initialization
     
@@ -2769,42 +2768,6 @@ cv::Size CameraManager::getResolution() const {
     return cv::Size(width_, height_);
 }
 
-void CameraManager::setDefectDetectionEnabled(bool enabled) {
-    defectDetectionEnabled_ = enabled;
-    std::cout << "[CameraManager] Defect Detection " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
-}
-
-bool CameraManager::isDefectDetectionEnabled() const {
-    return defectDetectionEnabled_;
-}
-
-void CameraManager::setCameraDetectionRoi(int configArrayIndex, const QVector<QPointF>& roi) {
-    std::lock_guard<std::mutex> lock(paramMutex_);
-    if (configArrayIndex < 0) {
-        return;
-    }
-    if (static_cast<size_t>(configArrayIndex) >= detectionRoi_.size()) {
-        detectionRoi_.resize(static_cast<size_t>(configArrayIndex) + 1);
-    }
-    detectionRoi_[configArrayIndex].clear();
-    detectionRoi_[configArrayIndex].reserve(static_cast<size_t>(roi.size()));
-    for (const QPointF& p : roi) {
-        detectionRoi_[configArrayIndex].push_back(cv::Point2f(static_cast<float>(p.x()),
-                                                              static_cast<float>(p.y())));
-    }
-    std::cout << "[CameraManager] Camera " << configArrayIndex << " detection ROI: "
-              << (roi.isEmpty() ? "CLEARED (analysis paused)"
-                                : QString("%1 vertices").arg(roi.size()).toStdString())
-              << std::endl;
-}
-
-bool CameraManager::hasCameraDetectionRoi(int configArrayIndex) {
-    std::lock_guard<std::mutex> lock(paramMutex_);
-    return configArrayIndex >= 0
-        && static_cast<size_t>(configArrayIndex) < detectionRoi_.size()
-        && detectionRoi_[configArrayIndex].size() >= 3;
-}
-
 void CameraManager::triggerSnapshot(int cameraIndex) {
     std::lock_guard<std::mutex> lock(snapshotMutex_);
     if (cameraIndex >= 0 && cameraIndex < (int)snapshotRequests_.size()) {
@@ -2970,11 +2933,7 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                             }
                         }
 
-                        if (defectDetectionEnabled_) {
-                             processFrame(softFrame, displayFrame, (int)cameraIndex);
-                        } else {
-                            displayFrame = softFrame;
-                        }
+                        displayFrame = softFrame;
 
                         // Resolve the Config ID from the Pylon index
                         int configId = (cameraIndex < cameraIndexToConfigId_.size())
@@ -3083,148 +3042,6 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
     }
     std::cout << "[CameraManager] Exiting acquisition loop for slot " << configArrayIndex << std::endl;
 }
-
-void CameraManager::processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex) {
-    // Telemetry Overlay (always shown)
-    std::string label = (cameraIndex < (int)cameraLabels_.size()) ? cameraLabels_[cameraIndex] : "Cam " + std::to_string(cameraIndex);
-    
-    // Frame Counter / Timestamp
-    static std::atomic<long> frameCount{0};
-    frameCount++;
-    
-    std::string info = label + " | F:" + std::to_string(frameCount);
-    
-    // OPTIMIZATION: Keep Mono8 (Grayscale) to save 3x Memory
-    // Input is already Mono8.
-    // Apply software Gain, Gamma, and Contrast via a LUT for performance
-    {
-        // Resolve config index for this pylon camera index
-        int cfgIdx = cameraIndex;
-        if (cameraIndex < (int)pylonIndexToConfigArrayIndex_.size()) {
-            cfgIdx = pylonIndexToConfigArrayIndex_[cameraIndex];
-        }
-        double gain     = (cfgIdx >= 0 && cfgIdx < (int)swGain_.size())     ? swGain_[cfgIdx]     : 1.0;
-        double gamma    = (cfgIdx >= 0 && cfgIdx < (int)swGamma_.size())    ? swGamma_[cfgIdx]    : 1.0;
-        double contrast = (cfgIdx >= 0 && cfgIdx < (int)swContrast_.size()) ? swContrast_[cfgIdx] : 1.0;
-
-        bool needsProcessing = (std::abs(gain - 1.0) > 0.01 || std::abs(gamma - 1.0) > 0.01 || std::abs(contrast - 1.0) > 0.01);
-        if (needsProcessing) {
-            // Build a 256-entry LUT: Gain -> Contrast -> Gamma
-            cv::Mat lut(1, 256, CV_8U);
-            for (int i = 0; i < 256; ++i) {
-                double v = i * gain;                // apply gain
-                v = (v - 128) * contrast + 128;    // apply contrast around midpoint
-                v = std::pow(std::max(v / 255.0, 0.0), 1.0 / gamma) * 255.0; // apply gamma
-                lut.at<uchar>(i) = static_cast<uchar>(std::min(255.0, std::max(0.0, v)));
-            }
-            cv::LUT(input, lut, output);
-        } else {
-            if (input.data != output.data) {
-                input.copyTo(output);
-            }
-        }
-    }
-    
-    // Only run defect detection if enabled
-    if (defectDetectionEnabled_) {
-        // Resolve the config-array index for this pylon camera index and take a
-        // snapshot of its detection ROI (normalized delivered-frame polygon).
-        int cfgIdx = cameraIndex;
-        std::vector<cv::Point2f> roiNormalized;
-        {
-            std::lock_guard<std::mutex> lock(paramMutex_);
-            if (cameraIndex < (int)pylonIndexToConfigArrayIndex_.size()) {
-                cfgIdx = pylonIndexToConfigArrayIndex_[cameraIndex];
-            }
-            if (cfgIdx >= 0 && cfgIdx < (int)detectionRoi_.size()) {
-                roiNormalized = detectionRoi_[cfgIdx];
-            }
-        }
-
-        // Software ROI is the master analysis switch: without a defined region
-        // the live defect scan is PAUSED (no contours, no triggers) so a camera
-        // whose inspection region is not drawn never silently analyzes the
-        // whole frame.
-        if (roiNormalized.size() < 3) {
-            info += " | Defect Scan: PAUSED (no ROI)";
-            return;
-        }
-
-        // Scale the normalized polygon into delivered-frame pixels.
-        std::vector<cv::Point> roiPixels;
-        roiPixels.reserve(roiNormalized.size());
-        const int fw = input.cols > 0 ? input.cols : 1;
-        const int fh = input.rows > 0 ? input.rows : 1;
-        for (const cv::Point2f& p : roiNormalized) {
-            roiPixels.push_back(cv::Point(static_cast<int>(p.x * fw),
-                                          static_cast<int>(p.y * fh)));
-        }
-        auto insideRoi = [&roiPixels](double x, double y) {
-            return cv::pointPolygonTest(roiPixels, cv::Point2f((float)x, (float)y), false) >= 0.0;
-        };
-
-        // "Best Result": Convert Mono8 to BGR to allow colored (RED) defect visualization
-        // converting input (Mono8) to gray for processing
-        cv::Mat gray, processed;
-        
-        // Input is already Mono8 (guaranteed by buffer pool)
-        gray = input; // Soft copy
-        
-        // 1. Noise Reduction
-        cv::GaussianBlur(gray, processed, cv::Size(5, 5), 1.5);
-        
-        // 2. Defect Detection (Adaptive Threshold)
-        cv::adaptiveThreshold(processed, processed, 255, 
-            cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY_INV, 11, 2);
-            
-        // 3. Web Edge Stability (Canny)
-        cv::Canny(processed, processed, 50, 150);
-        
-        // Find contours
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(processed, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-        
-        // Draw significant contours (potential defects). Only defects whose
-        // centroid lies INSIDE the detection ROI are analyzed/triggered -
-        // pixels outside the region are ignored.
-        for (const auto& contour : contours) {
-            double area = cv::contourArea(contour);
-            if (area > 100) { // Filter small noise
-                 // Restrict to the defined inspection region.
-                 const cv::Moments mu = cv::moments(contour);
-                 if (mu.m00 <= 0.0
-                     || !insideRoi(mu.m10 / mu.m00, mu.m01 / mu.m00)) {
-                     continue;
-                 }
-                 // Draw in WHITE (255) for Mono8 Optimized Result
-                 cv::drawContours(output, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), 2);
-                 
-                 // SIMULATED TRIGGER
-                 if (area > 5000) {
-                     EventController::TriggerContext triggerContext;
-                     triggerContext.reason = QStringLiteral("Defect Detection");
-                     triggerContext.source = QStringLiteral("defect");
-                     // The defect is physically at this camera's machine position:
-                     // spatial alignment centers every camera's window on when the
-                     // defect passes it (offset = (P_cam - P_detect) / speed).
-                     if (cfgIdx >= 0) {
-                         triggerContext.triggerPositionMm =
-                             CameraConfig::getCameraInfo(cfgIdx).machinePosition;
-                     }
-                     EventController::instance().triggerEvent(triggerContext);
-                     cv::putText(output, "TRIGGERED!", cv::Point(10, 80), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(255), 2);
-                 }
-            }
-        }
-        
-        info += " | Defect Scan: ACTIVE";
-    } else {
-        // Defect Scan OFF
-        info += " | Defect Scan: OFF";
-    }
-    // removed overlay drawing
-}
-
 
 void CameraManager::setGlobalFrameRate(double fps) {
     fps_ = static_cast<int>(fps);

@@ -165,17 +165,6 @@ public:
     bool startCamera(int configArrayIndex, const CameraInfo& config);
     bool applyCameraDeviceSettings(int configArrayIndex, const CameraInfo& config);
     
-    // Defect Detection Control
-    void setDefectDetectionEnabled(bool enabled);
-    bool isDefectDetectionEnabled() const;
-
-    // Software detection ROI for one camera (normalized 0..1 vertices relative
-    // to the delivered frame). An empty polygon means NO region defined: the
-    // camera's live defect scan is paused until a region is drawn or the whole
-    // frame is chosen. Config-array-indexed; safe to call from the UI thread.
-    void setCameraDetectionRoi(int configArrayIndex, const QVector<QPointF>& roi);
-    bool hasCameraDetectionRoi(int configArrayIndex);
-
     // Snapshot Control
     void triggerSnapshot(int cameraIndex);
 
@@ -323,9 +312,6 @@ private:
     // Helper to configure camera parameters (resolution, PTP, transport tuning)
     void configureCamera(GenApi::INodeMap& nodemap, const CameraInfo& config, bool isEmulation, bool preserveStartupUserSet = false);
     
-    // Vision Pipeline (Blur -> Threshold -> Canny)
-    void processFrame(const cv::Mat& input, cv::Mat& output, int cameraIndex);
-
     // Per-camera acquisition and recovery helpers
     void acquisitionLoop(int configArrayIndex);
     bool attachConfiguredCamera(int configArrayIndex, const CameraInfo& camInfo,
@@ -378,9 +364,6 @@ private:
     std::mutex latestFramesMutex_;
     cv::Mat tiledBuffer_; // Optimization: Reusable buffer for tiling
     
-    // Defect detection flag (default: disabled)
-    std::atomic<bool> defectDetectionEnabled_;
-
     // Snapshot Requests (vector of atomics is tricky, using vector of bools protected by mutex for simplicity or fixed array of atomics)
     // Since we have fixed MAX_CAMERAS or dynamic, a mutex protected vector is safer for dynamic resizing.
     std::mutex snapshotMutex_;
@@ -418,8 +401,8 @@ private:
     // Preallocated buffer pools (one per camera)
     std::vector<std::unique_ptr<BufferPool>> bufferPools_;
     
-    // Software-applied display parameters (applied in processFrame for visual feedback)
-    // Indexed by config array index (same as UI slot)
+    // Software-applied display parameters (applied in the acquisition loop for
+    // visual feedback). Indexed by config array index (same as UI slot).
     std::vector<double> swGain_;    // Multiplier: 1.0 = no change
     std::vector<double> swGamma_;   // Gamma exponent: 1.0 = no change
     std::vector<double> swContrast_; // Contrast multiplier: 1.0 = no change
@@ -428,14 +411,6 @@ private:
     std::vector<cv::Mat> lutCache_;
     std::vector<bool> lutValid_;
 
-    // Per-camera software detection ROI polygon, normalized to the delivered
-    // frame (0..1 vertices). Indexed by config array index (same as UI slot).
-    // An empty polygon = no region defined -> that camera's live defect scan
-    // is PAUSED (no triggers/contours) until a region is drawn or the whole
-    // frame is chosen. Written by the UI thread, read by the grab threads via
-    // setCameraDetectionRoi()/snapshot in processFrame (paramMutex_ guarded).
-    std::vector<std::vector<cv::Point2f>> detectionRoi_;
-    
     // Mutex protecting software parameter data (swGain/swGamma/swContrast/lutValid/lutCache)
     // Guards against race between UI thread (writer) and acquisition thread (reader)
     std::mutex paramMutex_;

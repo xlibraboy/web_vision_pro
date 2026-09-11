@@ -173,16 +173,6 @@ void CameraConfig::setPreTriggerSeconds(int seconds) {
     settings.setValue("PreTriggerSeconds", seconds);
 }
 
-bool CameraConfig::isDefectDetectionEnabled() {
-    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
-    return settings.value("DefectDetection", false).toBool();
-}
-
-void CameraConfig::setDefectDetectionEnabled(bool enabled) {
-    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
-    settings.setValue("DefectDetection", enabled);
-}
-
 int CameraConfig::getThemePreset() {
     QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
     return settings.value("ThemePreset", 0).toInt(); // Default 0

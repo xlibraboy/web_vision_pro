@@ -173,10 +173,6 @@ public:
     static int getPreTriggerSeconds();
     static void setPreTriggerSeconds(int seconds);
 
-    // Defect Detection
-    static bool isDefectDetectionEnabled();
-    static void setDefectDetectionEnabled(bool enabled);
-
     // UI Theme
     static int getThemePreset();
     static void setThemePreset(int themeIndex);

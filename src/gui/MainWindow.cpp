@@ -616,7 +616,6 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
             manager->setCameraFrameRate(i, cams[i].fps, cams[i].enableAcquisitionFps);
         }
 
-        manager->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
         qInfo() << "[MainWindow] Worker completed successfully";
         return true;
     }));
@@ -680,20 +679,6 @@ void MainWindow::setupUi() {
     pauseBtn_->setToolTip("Pause camera grabbing");
     connect(pauseBtn_, &QPushButton::clicked, this, &MainWindow::togglePauseGrab);
     liveControlsLayout->addWidget(pauseBtn_);
-     
-    QLabel* defectLabel = new QLabel("Trigger on Defect:");
-    liveControlsLayout->addWidget(defectLabel);
-    
-    defectDetectionCheck_ = new ToggleSwitch(this);
-    defectDetectionCheck_->setEnabled(isAdmin_); // Linked to Admin
-    connect(defectDetectionCheck_, &ToggleSwitch::toggled, [this](bool checked) {
-        CameraConfig::setDefectDetectionEnabled(checked);
-        if (cameraManager_) {
-            cameraManager_->setDefectDetectionEnabled(checked);
-        }
-        refreshRoiPausedBadges();
-    });
-    liveControlsLayout->addWidget(defectDetectionCheck_);
     liveControlsLayout->addStretch();
     
     liveLayout->addLayout(liveControlsLayout);
@@ -754,20 +739,17 @@ void MainWindow::setupUi() {
             // must be redrawn for the new geometry.
             cameras[cameraId].detectionRoi.clear();
             CameraConfig::saveCameras(cameras);
-            if (cameraManager_) {
-                cameraManager_->setCameraDetectionRoi(cameraId, QVector<QPointF>());
-            }
             // Drop the drawn region from the overlay/panel too (it now refers
             // to the old crop geometry).
             detailView_->setDetectionRoi(QVector<QPointF>(), true, true);
-            refreshRoiPausedBadges();
         }
         EventController::instance().updateCameraFps(cameraId + 1);
     });
     // Software detection ROI (analysis region) edits from the Live View ROI
-    // panel: persist per-camera and push into the live scan. An AOI geometry
-    // change clears the region (the drawn area would no longer match content),
-    // which the aoiValuesChanged handler above performs after each apply.
+    // panel: persist per-camera for the recorded-event signal scan (roiHits
+    // gates the defect-hit markers). An AOI geometry change clears the region
+    // (the drawn area would no longer match content), which the
+    // aoiValuesChanged handler above performs after each apply.
     connect(detailView_, &DetailView::detectionRoiChanged,
             [this](int cameraId, const QVector<QPointF>& roi, bool maskCurves, bool maskHits) {
         std::vector<CameraInfo> cameras = CameraConfig::getCameras();
@@ -777,15 +759,10 @@ void MainWindow::setupUi() {
             cameras[cameraId].roiMaskHits = maskHits;
             CameraConfig::saveCameras(cameras);
         }
-        if (cameraManager_) {
-            cameraManager_->setCameraDetectionRoi(cameraId, roi);
-        }
-        refreshRoiPausedBadges();
         statusBar()->showMessage(
             roi.size() >= 3
                 ? QString("Inspection region set for Camera %1 (%2 pts)").arg(cameraId + 1).arg(roi.size())
-                : QString("Camera %1 inspection region cleared — analysis paused")
-                      .arg(cameraId + 1),
+                : QString("Camera %1 inspection region cleared").arg(cameraId + 1),
             3500);
     });
     connect(detailView_, &DetailView::saveParametersRequested, [this](int cameraId) {
@@ -970,30 +947,6 @@ void MainWindow::setupUi() {
     statusBar()->showMessage("System Initialized");
 }
 
-void MainWindow::pushDetectionRoisToManager() {
-    if (!cameraManager_) {
-        return;
-    }
-    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
-    for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
-        cameraManager_->setCameraDetectionRoi(i, cams[i].detectionRoi);
-    }
-}
-
-void MainWindow::refreshRoiPausedBadges() {
-    if (!liveDashboard_) {
-        return;
-    }
-    // The inspection region only gates analysis while defect detection is on;
-    // when it is off no camera scans, so clear every badge.
-    const bool detectionEnabled = CameraConfig::isDefectDetectionEnabled();
-    const std::vector<CameraInfo> cams = CameraConfig::getCameras();
-    for (int i = 0; i < static_cast<int>(cams.size()); ++i) {
-        liveDashboard_->setCameraRoiPaused(i,
-            detectionEnabled && cams[i].detectionRoi.size() < 3);
-    }
-}
-
 void MainWindow::setupCore() {
     // 1. Initialize Components
     cameraManager_ = std::make_unique<CameraManager>();
@@ -1124,12 +1077,6 @@ void MainWindow::setupCore() {
     fpsReconcileTimer->start(3000);
 
     // 4. Start Camera
-    cameraManager_->setDefectDetectionEnabled(CameraConfig::isDefectDetectionEnabled());
-    // Seed the live defect scan with each camera's configured analysis region
-    // (empty = no region -> that camera's analysis is paused until drawn).
-    pushDetectionRoisToManager();
-    // Mark the grid tiles that are paused for a missing inspection region.
-    refreshRoiPausedBadges();
     startCameraLifecycleAsync(false, "Starting camera acquisition...");
     applyOpcUaSettings();
 
@@ -1353,10 +1300,6 @@ void MainWindow::toggleAdmin() {
         isAdmin_ = false;
         statusBar()->showMessage("Administrator Logged Out");
         
-        if (defectDetectionCheck_) {
-            defectDetectionCheck_->setChecked(false);
-            defectDetectionCheck_->setEnabled(false);
-        }
         if (analysisView_) {
             analysisView_->setAdminMode(false);
         }
@@ -1394,9 +1337,6 @@ bool MainWindow::promptAdminLogin() {
     isAdmin_ = true;
     statusBar()->showMessage("Administrator Logged In");
 
-    if (defectDetectionCheck_) {
-        defectDetectionCheck_->setEnabled(true);
-    }
     if (analysisView_) {
         analysisView_->setAdminMode(true);
     }

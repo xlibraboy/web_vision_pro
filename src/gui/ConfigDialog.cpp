@@ -1170,13 +1170,6 @@ void ConfigDialog::setupUI() {
         "the Storage row turns amber (red below half of this value).");
     retentionForm->addRow("Low Disk Warning:", lowDiskThresholdSpin_);
 
-    QFormLayout* triggerForm = createSectionForm("Triggering");
-
-    QLabel* defectNote = new QLabel("Defect trigger is controlled from the Live screen for immediate operation.", bufferGroup);
-    defectNote->setWordWrap(true);
-    defectNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
-    triggerForm->addRow("Defect Trigger:", defectNote);
-
     // Unsaved-changes tracking for the recording settings.
     connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);
     connect(preTriggerSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &ConfigDialog::checkRecordingSettingsModified);

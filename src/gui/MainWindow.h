@@ -15,7 +15,6 @@
 #include "LiveDashboard.h"
 #include "AnalysisView.h"
 #include "DetailView.h"
-#include "widgets/ToggleSwitch.h"
 #include "widgets/DocsDialog.h"
 #include "widgets/LiveViewWindow.h"
 #include "../core/CameraManager.h"
@@ -76,7 +75,6 @@ private:
     QPushButton* triggerBtn_;
     QPushButton* snapshotBtn_;
     QPushButton* pauseBtn_;
-    ToggleSwitch* defectDetectionCheck_;
     QLabel* adminStatusLabel_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
@@ -111,12 +109,6 @@ private:
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
 
-    // Seed CameraManager with each configured camera's analysis region
-    // (detectionRoi). Called at startup and after camera config reloads.
-    void pushDetectionRoisToManager();
-    // Reflect which cameras are paused (detection on, no inspection region)
-    // onto the Live View grid tiles.
-    void refreshRoiPausedBadges();
     // Size + style the tab-bar admin Login/Logout button (QToolButton, the
     // widget Qt expects in corner slots; geometry in code so it never clips,
     // colors via a minimal direct stylesheet).
