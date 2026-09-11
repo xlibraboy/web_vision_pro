@@ -4290,7 +4290,10 @@ void AnalysisView::updateSliderZeroMarker() {
     // The flag sits ABOVE the scrubbing line, inside the strip reserved by the
     // toolbar row's top margin — never on the track, so it can't be confused
     // with the playhead nor block scrubbing.
-    const int yPos = sliderRect.y() - sliderZeroMarker_->height() - 4;
+    // Guard against a not-yet-laid-out slider (its valid geometry arrives after
+    // the deferred layout pass): never let the flag land above the panel, where
+    // it would be clipped away. The slider's own resize recomputes it properly.
+    const int yPos = std::max(1, sliderRect.y() - sliderZeroMarker_->height() - 4);
     
     // Position and show the marker
     sliderZeroMarker_->move(xPos - sliderZeroMarker_->width() / 2, yPos);
@@ -4941,6 +4944,9 @@ void AnalysisView::resizeEvent(QResizeEvent* event) {
 void AnalysisView::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     positionToolsPanel();
+    // Re-anchor the flag on (re)show: the panel may have been laid out while
+    // hidden, so a position computed earlier can be stale.
+    updateSliderZeroMarker();
 
     // The sidebar is fixed-width, so this only runs once the tables have their
     // final size; makes Trigger Time + Reason fill the visible width.
@@ -6392,6 +6398,17 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     if (watched == detailDashboard_
             && (event->type() == QEvent::Resize || event->type() == QEvent::Move)) {
         positionToolsPanel();
+        return false;
+    }
+    // The scrub slider's real geometry is only applied once the playback
+    // panel's nested layout activates — which happens AFTER AnalysisView::
+    // resizeEvent runs. Positioning the zero marker from that stale first pass
+    // put it above the panel (clipped away), so it showed or vanished depending
+    // on whether a later resize/load happened to fix it. Reposition whenever the
+    // slider itself is resized/moved, i.e. exactly when its geometry is valid.
+    if (watched == playbackSlider_
+            && (event->type() == QEvent::Resize || event->type() == QEvent::Move)) {
+        updateSliderZeroMarker();
         return false;
     }
     // TRACKS hover tab/panel: enter reveals the panel, leaving both (with a
