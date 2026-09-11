@@ -41,7 +41,10 @@ void EventDashboard::updateMinimumHeight() {
     if (detailEnabled_ && detailVisible_) ++bands;
     bands += visibleLaneCount();
     if (thumbsVisible_) ++bands;
-    const int h = kMargin + bands * (kRegionH + kGap) + kMargin + 16;
+    // No track selected -> collapse to nothing instead of leaving a blank
+    // background strip behind.
+    const int h = bands == 0
+        ? 0 : kMargin + bands * (kRegionH + kGap) + kMargin + 16;
     setMinimumHeight(h);
     setMaximumHeight(h);
 }

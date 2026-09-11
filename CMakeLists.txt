@@ -54,6 +54,7 @@ src/gui/widgets/FixedIpListPanel.cpp
 src/gui/widgets/MachineGroupsPanel.cpp
 src/gui/widgets/MachineLayoutPanel.cpp
 src/gui/widgets/DocsDialog.cpp
+src/gui/widgets/CircularSpinner.cpp
 )
 
 # Header files for Qt MOC
@@ -78,6 +79,7 @@ src/gui/widgets/FixedIpListPanel.h
 src/gui/widgets/MachineGroupsPanel.h
 src/gui/widgets/MachineLayoutPanel.h
 src/gui/widgets/DocsDialog.h
+src/gui/widgets/CircularSpinner.h
 src/communication/OpcUaClientService.h
 src/communication/OpcUaRuntimeStatus.h
 src/processing/EventSignalScanner.h

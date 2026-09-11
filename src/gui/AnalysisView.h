@@ -137,6 +137,10 @@ private slots:
     void onTrackCheckToggled(int index, bool checked);
     void applyTrackVisibilityToDashboard();
     void updateTracksPanelEnablement();
+    // Reflects whether the current camera's signals/thumbnails are still being
+    // analyzed: while true, the TRACKS panel shows its in-panel loading row
+    // (circular spinner + status) instead of the track checkboxes.
+    void updateTracksPanelLoadingState();
     void startNextSignalScan();
     void onDashboardSeekRequested(int frame);
     void onSignalScanFinished(const QString& binPath, const EventSignalData& data);
@@ -569,6 +573,17 @@ private:
     QWidget* tracksPanel_ = nullptr;
     QCheckBox* trackChecks_[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     bool tracksTabHovered_ = false;
+    // In-panel loading state: shown while the detail analysis is still running
+    // so the empty dashboard is never exposed through the checkboxes.
+    QWidget* tracksLoadingRow_ = nullptr;
+    class CircularSpinner* tracksSpinner_ = nullptr;
+    QLabel* tracksLoadLabel_ = nullptr;
+    // Base track (Thumbnails) still being prepared: the panel shows only the
+    // spinner row. Once it is ready the track checkboxes appear — but the
+    // spinner row stays for as long as the friend tracks' signal scan runs
+    // (tracksScanLoading_), so ongoing analysis is always indicated.
+    bool tracksBaseLoading_ = false;
+    bool tracksScanLoading_ = false;
     class EventSignalScanner* signalScanner_ = nullptr;
     QStringList pendingScanPaths_;
     QFutureWatcher<QVector<QImage>>* thumbWatcher_ = nullptr;

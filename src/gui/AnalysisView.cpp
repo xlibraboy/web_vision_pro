@@ -11,6 +11,7 @@
 #include "../core/VideoStreamReader.h"
 #include "../processing/EventSignalScanner.h"
 #include "widgets/EventDashboard.h"
+#include "widgets/CircularSpinner.h"
 #include <QApplication>
 #include <QCursor>
 #include <QVBoxLayout>
@@ -936,6 +937,10 @@ void AnalysisView::setupEventDashboards() {
             if (dashLoadingLabel_ && dashLoadingLabel_->isVisible() && pct >= 0) {
                 dashLoadingLabel_->setText(QStringLiteral("Analyzing event… %1%").arg(pct));
             }
+            // Keep the TRACKS panel's in-panel spinner/label in sync with the
+            // same scan, including its running percentage, so an open panel
+            // shows live progress instead of a static "Loading analysis…".
+            updateTracksPanelLoadingState();
         });
     }
     if (!thumbWatcher_) {
@@ -989,20 +994,29 @@ void AnalysisView::updateDashboardLoadingState() {
             dashLoadingLabel_->setText(QStringLiteral("Preparing preview…"));
         }
     }
-    updateDashboardVisibility(scanPending || thumbsLoading);
+    // Only the BASE track (Thumbnails) gates the dashboard: it is the track
+    // shown by default and its data (decoded frames) is independent of the
+    // signals scan. Waiting for scanPending too made the whole dashboard —
+    // thumbnails included — appear only after the (slower) signal analysis
+    // finished. Friends that are still scanning paint their own inline
+    // "Analyzing signals…" progress inside their region.
+    updateDashboardVisibility(thumbsLoading);
+    // Keep the TRACKS panel's in-panel spinner in sync with the base track.
+    updateTracksPanelLoadingState();
 }
 
 void AnalysisView::updateDashboardVisibility(bool loading) {
-    Q_UNUSED(loading);
     if (!detailDashboard_) {
         return;
     }
-    // The dashboard paints its own inline progress ("Analyzing signals… X%",
-    // "Loading thumbnails…"), so it stays visible while data loads instead of
-    // being hidden behind a text-only placeholder. That removes the perceived
-    // reload flash on every event/camera selection.
+    // While the BASE track (Thumbnails) is still being prepared the dashboard
+    // stays fully hidden — no blank tracks and no loading panel. As soon as
+    // the thumbnails are ready it appears, even if the signal scans for the
+    // friend tracks are still running (those paint their own inline progress).
+    // The TRACKS edge tab/panel do NOT follow this visibility: they stay
+    // reachable while loading (showing their in-panel spinner).
     const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
-    detailDashboard_->setVisible(toggleOn);
+    detailDashboard_->setVisible(toggleOn && !loading);
     if (dashLoadingLabel_) {
         dashLoadingLabel_->hide();
     }
@@ -1013,8 +1027,13 @@ void AnalysisView::updateTracksEdgeTabVisibility() {
     if (!tracksEdgeTab_) {
         return;
     }
+    // Tied to the dashboard TOGGLE and the Camera tab — not to the dashboard
+    // being rendered. While an event is still being analyzed the dashboard is
+    // hidden (no blank background), but the TRACKS chip/panel stay reachable
+    // so the panel can show its in-panel loading state.
+    const bool toggleOn = !dashboardToggleCheck_ || dashboardToggleCheck_->isChecked();
     const bool show = tabWidget_ && tabWidget_->currentIndex() == 1
-        && detailDashboard_ && detailDashboard_->isVisible();
+        && toggleOn && selectedCameraWidget_;
     if (show) {
         // The dashboard may have moved/resized while hidden (loading-state
         // swaps) without the chip noticing — re-anchor before showing it so
@@ -2061,6 +2080,24 @@ void AnalysisView::setupMainArea() {
                        "tracks join it one at a time and stay hidden until\n"
                        "Thumbnails is enabled."));
     tracksLayout->addWidget(tracksTitle);
+
+    // In-panel loading row: a small circular spinner + status text shown while
+    // the current camera's signals/thumbnails are still being analyzed. The
+    // track checkboxes stay hidden until the details are ready so the panel
+    // never exposes an empty dashboard.
+    tracksLoadingRow_ = new QWidget(tracksPanel_);
+    auto tracksLoadLayout = new QHBoxLayout(tracksLoadingRow_);
+    tracksLoadLayout->setContentsMargins(0, 0, 0, 0);
+    tracksLoadLayout->setSpacing(6);
+    tracksSpinner_ = new CircularSpinner(tracksLoadingRow_);
+    tracksSpinner_->setColor(tc.primary);
+    tracksLoadLayout->addWidget(tracksSpinner_, 0, Qt::AlignVCenter);
+    tracksLoadLabel_ = new QLabel(QStringLiteral("Loading analysis…"), tracksLoadingRow_);
+    tracksLoadLabel_->setWordWrap(true);
+    tracksLoadLayout->addWidget(tracksLoadLabel_, 1, Qt::AlignVCenter);
+    tracksLayout->addWidget(tracksLoadingRow_);
+    tracksLoadingRow_->hide();
+
     const char* trackNames[5] = {
         "Brightness", "Detail", "Spots %", "Contrast", "Thumbnails"
     };
@@ -2165,17 +2202,79 @@ void AnalysisView::applyTrackVisibilityToDashboard()
     }
 }
 
+void AnalysisView::updateTracksPanelLoadingState()
+{
+    if (!tracksPanel_ || !tracksLoadingRow_) {
+        return;
+    }
+    QString curPath;
+    if (currentDashCam_ >= 0) {
+        auto it = videoReaderPaths_.find(currentDashCam_);
+        if (it != videoReaderPaths_.end()) curPath = it->second;
+    }
+    const bool haveSignal = signalByCam_.count(curPath) > 0;
+    const bool scanPending = !curPath.isEmpty() && !haveSignal
+        && (pendingScanPaths_.contains(curPath)
+            || (signalScanner_ && signalScanner_->isRunning()
+                && signalScanner_->currentBinPath() == curPath));
+    const bool thumbsLoading = thumbWatcher_ && thumbWatcher_->isRunning()
+        && thumbCamPending_ == currentDashCam_;
+    // The BASE row (Thumbnails) appears as soon as its frames are ready (its
+    // data is independent of the signal scan). The FRIEND rows stay hidden
+    // until their signal analysis has finished — while it runs they are not
+    // offered at all, only the spinner indicates the work in progress.
+    if (thumbsLoading != tracksBaseLoading_ || scanPending != tracksScanLoading_) {
+        tracksBaseLoading_ = thumbsLoading;
+        tracksScanLoading_ = scanPending;
+        for (int i = 0; i < 4; ++i) {
+            if (trackChecks_[i]) trackChecks_[i]->setVisible(!thumbsLoading && !scanPending);
+        }
+        if (trackChecks_[4]) trackChecks_[4]->setVisible(!thumbsLoading);
+        if (thumbsLoading || scanPending) {
+            tracksSpinner_->start();
+            tracksLoadingRow_->show();
+        } else {
+            tracksSpinner_->stop();
+            tracksLoadingRow_->hide();
+        }
+        // Content swapped: re-fit the panel to its new height. The top-left
+        // anchor is kept, so an open panel stays put (only its size changes).
+        tracksPanel_->adjustSize();
+    }
+    // Refresh the running percentage even when the state itself didn't flip.
+    if (tracksLoadLabel_) {
+        if (thumbsLoading) {
+            tracksLoadLabel_->setText(
+                scanPending && dashProgressPercent_ >= 0
+                    ? QStringLiteral("Preparing preview… %1%").arg(dashProgressPercent_)
+                    : QStringLiteral("Preparing preview…"));
+        } else if (scanPending) {
+            tracksLoadLabel_->setText(
+                dashProgressPercent_ >= 0
+                    ? QStringLiteral("Analyzing other tracks… %1%").arg(dashProgressPercent_)
+                    : QStringLiteral("Analyzing other tracks…"));
+        }
+    }
+}
+
 void AnalysisView::updateTracksPanelEnablement()
 {
     if (!tracksPanel_) return;
     const bool thumbsOn = trackChecks_[4] && trackChecks_[4]->isChecked();
-    for (int i = 0; i < 4; ++i) {
-        if (trackChecks_[i]) {
-            trackChecks_[i]->setEnabled(thumbsOn);
-            const QString tip = thumbsOn
-                ? QString() : QStringLiteral("Turn on Thumbnails first");
-            trackChecks_[i]->setToolTip(tip);
+    // A triggered event that is still being recorded has no .bin on disk yet,
+    // so the WHOLE panel is parked until it lands and the analysis starts.
+    const bool recording = !pendingEventTimestamp_.isEmpty();
+    for (int i = 0; i < 5; ++i) {
+        QCheckBox* check = trackChecks_[i];
+        if (!check) continue;
+        check->setEnabled(!recording);
+        QString tip;
+        if (recording) {
+            tip = QStringLiteral("Available once the recording finishes");
+        } else if (i < 4 && !thumbsOn) {
+            tip = QStringLiteral("Turn on Thumbnails first");
         }
+        check->setToolTip(tip);
     }
 }
 
@@ -3059,8 +3158,12 @@ void AnalysisView::onTabChanged(int index) {
         toolsEdgeTab_->setVisible(index == 1);
     }
     if (tracksEdgeTab_) {
-        tracksEdgeTab_->setVisible(index == 1 && detailDashboard_
-                                   && detailDashboard_->isVisible());
+        // Same decoupling as updateTracksEdgeTabVisibility: the chip follows
+        // the dashboard toggle (not the dashboard's current visibility) so it
+        // stays reachable while an event is still being analyzed.
+        const bool dashToggleOn = !dashboardToggleCheck_
+            || dashboardToggleCheck_->isChecked();
+        tracksEdgeTab_->setVisible(index == 1 && dashToggleOn && selectedCameraWidget_);
     }
     if (index == 1) {
         positionToolsPanel();  // Camera page laid out now — anchor TRACKS tab to the dashboard.
@@ -4324,6 +4427,8 @@ void AnalysisView::addPendingEventRow(const QString& timestamp, const QString& r
     pendingEventStartMs_ = QDateTime::currentMSecsSinceEpoch();
     insertPendingEventRow();
     updateRecordCountLabel();
+    // Recording in progress: park the friend tracks until the event is saved.
+    updateTracksPanelEnablement();
 }
 
 void AnalysisView::insertPendingEventRow() {
@@ -4333,6 +4438,7 @@ void AnalysisView::insertPendingEventRow() {
     // beyond the normal capture+save window; drop it after that.
     if (QDateTime::currentMSecsSinceEpoch() - pendingEventStartMs_ > 120000) {
         pendingEventTimestamp_.clear();
+        updateTracksPanelEnablement(); // recording never landed — re-enable tracks
         return;
     }
     // Idempotence guard: never stack a second "Recording…" row while one is
@@ -4385,6 +4491,9 @@ void AnalysisView::reloadEventTables() {
     sortLogTable(paperBreakTable_);
     sortLogTable(permanentPaperBreakTable_);
     updateRecordCountLabel();
+    // The placeholder may have just been retired (the real event landed), so
+    // refresh the tracks gating to release the friend tracks.
+    updateTracksPanelEnablement();
 }
 
 void AnalysisView::updateRecordCountLabel() {
@@ -5109,10 +5218,24 @@ void AnalysisView::positionToolsPanel() {
     // TRACKS glyph control: floats at the stacks' top-right corner — vertically
     // centered on the dashboard's top edge, slightly inside its right edge.
     if (tracksEdgeTab_) {
-        const QPoint dashTopLeft = detailDashboard_
-            ? detailDashboard_->mapTo(mainArea_, QPoint(0, 0)) : QPoint(0, 0);
-        const int dashRight = dashTopLeft.x() + (detailDashboard_ ? detailDashboard_->width() : 0);
-        const int dashTop = dashTopLeft.y();
+        // Anchor to the dashboard's top-right corner. While the dashboard is
+        // hidden (event still loading — no blank background is shown) fall
+        // back to the video's bottom-right corner, which is exactly where the
+        // dashboard's top edge sits when it is visible, so the chip does not
+        // jump between the two states.
+        int dashTop = 0;
+        int dashRight = 0;
+        if (detailDashboard_ && detailDashboard_->isVisible()) {
+            const QPoint tl = detailDashboard_->mapTo(mainArea_, QPoint(0, 0));
+            dashTop = tl.y();
+            dashRight = tl.x() + detailDashboard_->width();
+        } else if (selectedCameraWidget_) {
+            const QPoint br = selectedCameraWidget_->mapTo(
+                mainArea_, QPoint(selectedCameraWidget_->width(),
+                                  selectedCameraWidget_->height()));
+            dashTop = br.y();
+            dashRight = br.x();
+        }
         const int cw = tracksEdgeTab_->width();
         const int ch = tracksEdgeTab_->height();
         const int inset = 5;
@@ -5816,9 +5939,12 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     // short grace period for the gap crossing) hides it again.
     if (watched == tracksEdgeTab_ || watched == tracksPanel_) {
         if (event->type() == QEvent::Enter) {
-            // Fresh hover: re-anchor the panel to the tab before showing it.
+            // Fresh hover: refresh the loading state (so the panel shows the
+            // spinner while the details are still empty, and the checkboxes
+            // once they are ready), then re-anchor to the tab before showing.
             // While the panel is open positionToolsPanel() deliberately skips
             // it (frozen), so this is the only time its geometry refreshes.
+            updateTracksPanelLoadingState();
             positionToolsPanel();
             tracksPanel_->show();
             tracksPanel_->raise();
