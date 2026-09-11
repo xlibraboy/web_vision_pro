@@ -492,6 +492,16 @@ private:
     // stale guard (an event that never saves would otherwise linger forever).
     QString pendingEventTimestamp_;
     qint64 pendingEventStartMs_ = 0;
+    // "Recording…" row animation: animated ellipsis + a pulsing foreground so
+    // the placeholder reads as live work while the event is still being saved.
+    void startPendingRowAnimation();
+    void stopPendingRowAnimation();
+    void applyPendingRowFrame();
+    // Row (or -1) whose column-0 item carries the pending-placeholder marker.
+    int locatePendingEventRow() const;
+    QTimer* pendingRowTimer_ = nullptr;
+    int pendingRowSteps_ = 0;
+    static constexpr int kPendingRowTickMs = 120;
     bool suppressNewEventIndicatorClear_ = false;
     // New-event row pulse animation state.
     QTimer* newEventPulseTimer_ = nullptr;

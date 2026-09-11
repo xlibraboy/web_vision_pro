@@ -41,6 +41,7 @@
 #include <QPropertyAnimation>
 #include <QPolygonF>
 #include <QPainterPath>
+#include <QLinearGradient>
 #include <QStyledItemDelegate>
 #include <algorithm>
 #include <limits>
@@ -53,6 +54,18 @@ public:
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         QStyleOptionViewItem opt(option);
         initStyleOption(&opt, index);
+
+        // "Recording…" placeholder (still being saved): the reason text itself
+        // animates — a bright band sweeps across the word while its dots tick
+        // over. The phase arrives in UserRole+5 from the row timer.
+        if (index.data(Qt::UserRole + 4).toBool()) {
+            if (index.column() == 1) {
+                paintPendingReason(painter, opt, index);
+                return;
+            }
+            QStyledItemDelegate::paint(painter, opt, index);
+            return;
+        }
 
         // The newest-event row carries a pulsing/static tint. The stylesheet
         // rule "QTableWidget::item:selected { background-color: ... }" would
@@ -96,6 +109,76 @@ public:
         ThemeColors tc = CameraConfig::getThemeColors();
         painter->save();
         painter->fillRect(QRect(option.rect.left(), option.rect.top() + 1, 3, option.rect.height() - 2), QColor(tc.primary));
+        painter->restore();
+    }
+
+private:
+    // Paints the "Recording…" reason cell: dim base text with a bright band
+    // sweeping left→right across the glyphs (a shimmer), so the label reads as
+    // live work instead of a static row.
+    static void paintPendingReason(QPainter* painter, const QStyleOptionViewItem& opt,
+                                   const QModelIndex& index) {
+        ThemeColors tc = CameraConfig::getThemeColors();
+        painter->save();
+        painter->setClipRect(opt.rect);
+        QFont f = opt.font;
+        f.setBold(true);
+        painter->setFont(f);
+        if (opt.backgroundBrush.style() != Qt::NoBrush) {
+            painter->fillRect(opt.rect, opt.backgroundBrush);
+        } else {
+            painter->fillRect(opt.rect, QColor(tc.bg));
+        }
+        if (opt.state & QStyle::State_Selected) {
+            painter->fillRect(QRect(opt.rect.left(), opt.rect.top() + 1, 3,
+                                    opt.rect.height() - 2), QColor(tc.primary));
+        }
+
+        const QRect textRect = opt.rect.adjusted(4, 4, -4, -4);
+        const QFontMetrics fm(f);
+        const QString elided = fm.elidedText(opt.text, Qt::ElideRight, textRect.width());
+        const int tw = qMax(1, fm.horizontalAdvance(elided));
+        // Match where drawText will actually place the glyphs (items carry no
+        // explicit alignment, which resolves to left/v-center).
+        const int align = opt.displayAlignment != 0
+            ? opt.displayAlignment : (Qt::AlignLeft | Qt::AlignVCenter);
+        qreal x0 = textRect.left();
+        if (align & Qt::AlignHCenter) {
+            x0 = textRect.left() + (textRect.width() - tw) / 2.0;
+        } else if (align & Qt::AlignRight) {
+            x0 = textRect.right() - tw;
+        }
+
+        // Luminance-contrast shimmer: a bright WHITE band sweeps across a more
+        // muted base, so the motion is unmistakable (two bright tones next to
+        // each other read as static). Bold keeps the row clearly legible.
+        const QColor dim = QColor(tc.text).darker(165);
+        const QColor hot(255, 255, 255);
+        // Not clamped: the band travels slightly past both edges (see
+        // applyPendingRowFrame), and the stop positions below are clamped.
+        const qreal p = index.data(Qt::UserRole + 5).toDouble();
+        const qreal w = 0.32; // band half-width, fraction of the text width
+
+        QLinearGradient grad(x0, 0, x0 + tw, 0);
+        QVector<QPair<qreal, QColor>> stops;
+        stops << qMakePair(0.0, dim);
+        stops << qMakePair(qMax(0.0, p - w), dim);
+        stops << qMakePair(p, hot);
+        stops << qMakePair(qMin(1.0, p + w), dim);
+        stops << qMakePair(1.0, dim);
+        std::sort(stops.begin(), stops.end(),
+                  [](const QPair<qreal, QColor>& a, const QPair<qreal, QColor>& b) {
+                      return a.first < b.first;
+                  });
+        qreal last = -1.0;
+        for (const auto& stop : stops) {
+            if (stop.first <= last) continue; // keep positions strictly increasing
+            grad.setColorAt(stop.first, stop.second);
+            last = stop.first;
+        }
+
+        painter->setPen(QPen(QBrush(grad), 0));
+        painter->drawText(textRect, align, elided);
         painter->restore();
     }
 };
@@ -496,6 +579,11 @@ AnalysisView::AnalysisView(int numCameras, QWidget *parent)
     newEventPulseTimer_ = new QTimer(this);
     newEventPulseTimer_->setInterval(kNewEventPulseTickMs);
     connect(newEventPulseTimer_, &QTimer::timeout, this, &AnalysisView::onNewEventPulseTick);
+
+    // "Recording…" placeholder animation: keeps ticking until the event lands.
+    pendingRowTimer_ = new QTimer(this);
+    pendingRowTimer_->setInterval(kPendingRowTickMs);
+    connect(pendingRowTimer_, &QTimer::timeout, this, &AnalysisView::applyPendingRowFrame);
 
     // Multi-digit camera entry: typed digits accumulate until this fires, then
     // the requested camera opens (see handlePlayerCameraKey).
@@ -4435,6 +4523,81 @@ void AnalysisView::addPendingEventRow(const QString& timestamp, const QString& r
     // and drop the dashboard so its "No event loaded" placeholder never shows.
     updateTracksPanelEnablement();
     updateDashboardLoadingState();
+    startPendingRowAnimation();
+}
+
+int AnalysisView::locatePendingEventRow() const {
+    if (!paperBreakTable_) {
+        return -1;
+    }
+    for (int r = 0; r < paperBreakTable_->rowCount(); ++r) {
+        if (QTableWidgetItem* it = paperBreakTable_->item(r, 0)) {
+            if (it->data(Qt::UserRole + 4).toBool()) {
+                return r;
+            }
+        }
+    }
+    return -1;
+}
+
+void AnalysisView::startPendingRowAnimation() {
+    pendingRowSteps_ = 0;
+    applyPendingRowFrame();
+    if (pendingRowTimer_ && !pendingRowTimer_->isActive()) {
+        pendingRowTimer_->start();
+    }
+}
+
+void AnalysisView::stopPendingRowAnimation() {
+    if (pendingRowTimer_) {
+        pendingRowTimer_->stop();
+    }
+    pendingRowSteps_ = 0;
+}
+
+void AnalysisView::applyPendingRowFrame() {
+    if (pendingEventTimestamp_.isEmpty()) {
+        stopPendingRowAnimation();
+        return;
+    }
+    ++pendingRowSteps_;
+    QTableWidget* table = paperBreakTable_;
+    const int row = locatePendingEventRow();
+    if (!table || row < 0) {
+        stopPendingRowAnimation();
+        return;
+    }
+    // Animated ellipsis, one dot every 3 ticks (~360 ms) — same cadence as the
+    // Connecting… button. The reason text additionally shimmers: a bright band
+    // sweeps across the word (phase pushed through UserRole+5 and painted by
+    // LogSelectionDelegate). The other cells breathe between dim gray and the
+    // theme accent so the whole row reads as live work, not a static label.
+    const int dots = (pendingRowSteps_ / 3) % 4;
+    constexpr double kSweepTicks = 16.0; // ~1.9 s per left→right sweep
+    // Travel a little past both edges so the band enters and exits cleanly
+    // instead of popping in at the first glyph.
+    const double sweep = -0.35 + 1.70 * std::fmod(pendingRowSteps_ / kSweepTicks, 1.0);
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kPhaseTicks = 18.0; // ~2.2 s per full breath
+    const double phase = 0.5 * (1.0 - std::cos(kPi * 2.0 * pendingRowSteps_ / kPhaseTicks));
+    // Bright base (theme text) breathing up to the accent, matching the
+    // shimmering reason cell painted by the delegate.
+    const QColor dim(CameraConfig::getThemeColors().text);
+    const QColor hot(CameraConfig::getThemeColors().primary);
+    const QColor fg(
+        static_cast<int>(dim.red()   + (hot.red()   - dim.red())   * phase),
+        static_cast<int>(dim.green() + (hot.green() - dim.green()) * phase),
+        static_cast<int>(dim.blue()  + (hot.blue()  - dim.blue())  * phase));
+    if (QTableWidgetItem* reason = table->item(row, 1)) {
+        reason->setText(QStringLiteral("Recording") + QString(dots, QLatin1Char('.')));
+        reason->setData(Qt::UserRole + 5, sweep);
+    }
+    for (int col = 0; col < table->columnCount() && col < 4; ++col) {
+        if (col == 1) continue; // reason cell shimmer is painted by the delegate
+        if (QTableWidgetItem* it = table->item(row, col)) {
+            it->setForeground(fg);
+        }
+    }
 }
 
 void AnalysisView::insertPendingEventRow() {
@@ -4446,6 +4609,7 @@ void AnalysisView::insertPendingEventRow() {
         pendingEventTimestamp_.clear();
         // Recording never landed: release the tracks and restore the dashboard
         // to whatever the current state allows.
+        stopPendingRowAnimation();
         updateTracksPanelEnablement();
         updateDashboardLoadingState();
         return;
@@ -4501,8 +4665,15 @@ void AnalysisView::reloadEventTables() {
     sortLogTable(permanentPaperBreakTable_);
     updateRecordCountLabel();
     // The placeholder may have just been retired (the real event landed), so
-    // refresh the tracks gating to release the friend tracks.
+    // refresh the tracks gating to release the friend tracks. The animation
+    // follows: re-arm while the placeholder survives the rebuild, stop once
+    // it is gone.
     updateTracksPanelEnablement();
+    if (pendingEventTimestamp_.isEmpty()) {
+        stopPendingRowAnimation();
+    } else {
+        startPendingRowAnimation();
+    }
 }
 
 void AnalysisView::updateRecordCountLabel() {
