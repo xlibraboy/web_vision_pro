@@ -527,22 +527,30 @@ static QString makePlaybackSliderStyle(const ThemeColors& tc) {
     ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, QColor(tc.handle).lighter(115).name(), tc.bg);
 }
 
-// Vertical counterpart used by the IMAGE panel's Zoom/Brightness sliders. The
-// groove/handle metrics are swapped so the slim 2px rail runs top-to-bottom
-// and the round handle stays the same size as the playback slider's.
+// Vertical counterpart used by the IMAGE panel's Zoom/Brightness sliders.
+// Qt maps the vertical sub-pages the opposite way round from the horizontal
+// axis: for a vertical slider sub-page is the region ABOVE the handle and
+// add-page the region BELOW it. The accent fill therefore goes on add-page so
+// it rises from the bottom, and the cap sits over it like a hardware fader.
+// The wide 24px cap overhangs the slim 5px rail so it reads as a physical grip.
 static QString makeVerticalSliderStyle(const ThemeColors& tc) {
+    const QString capBg = QColor(tc.text).lighter(108).name();
+    const QString capBorder = QColor(tc.primary).darker(160).name();
     return QString(
-        "QSlider::groove:vertical { width: 2px; background: %1; border-radius: 1px; }"
-        "QSlider::sub-page:vertical { background: %3; border-radius: 1px; }"
-        "QSlider::add-page:vertical { background: %2; border-radius: 1px; }"
-        "QSlider::handle:vertical { height: 10px; width: 10px; margin: 0 -4px; background: %4; border: 1px solid %2; border-radius: 5px; }"
-        "QSlider::handle:vertical:hover { background: %5; border-color: %5; }"
-        "QSlider::handle:vertical:pressed { background: %5; }"
+        "QSlider::groove:vertical { width: 5px; background: %1; border-radius: 2px; }"
+        "QSlider::sub-page:vertical { background: %1; border-radius: 2px; }"
+        "QSlider::add-page:vertical { background: %2; border-radius: 2px; }"
+        "QSlider::handle:vertical { height: 11px; width: 24px; margin: 0 -10px;"
+        " background: %3; border: 1px solid %4; border-radius: 3px; }"
+        "QSlider::handle:vertical:hover { background: %2; border-color: %3; }"
+        "QSlider::handle:vertical:pressed { background: %2; border-color: #FFFFFF; }"
+        "QSlider::groove:vertical:hover { background: %5; }"
+        "QSlider::sub-page:vertical:hover { background: %5; }"
         "QSlider::groove:vertical:disabled { background: %6; }"
         "QSlider::sub-page:vertical:disabled { background: %6; }"
-        "QSlider::add-page:vertical:disabled { background: %1; }"
+        "QSlider::add-page:vertical:disabled { background: %6; }"
         "QSlider::handle:vertical:disabled { background: %1; border-color: %6; }"
-    ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, QColor(tc.handle).lighter(115).name(), tc.bg);
+    ).arg(tc.border, tc.primary, capBg, capBorder, tc.btnHover, tc.bg);
 }
 
 static constexpr int kReviewSliderUnitsPerSecond = 1000;
@@ -1799,18 +1807,21 @@ void AnalysisView::setupMainArea() {
     markerShapeCombo_->setFixedWidth(118);
 
     // Zoom + Brightness are vertical (mixer-style) sliders: they live in the
-    // dedicated IMAGE panel, side by side under the VIEW section.
+    // dedicated IMAGE panel, side by side under the VIEW section. The extra
+    // travel over the old horizontal rails makes fine adjustment easy.
     zoomSlider_ = new QSlider(Qt::Vertical, detailToolsWidget_);
     zoomSlider_->setRange(100, 600);
     zoomSlider_->setValue(100);
-    zoomSlider_->setFixedSize(26, 96);
+    zoomSlider_->setFixedSize(28, 120);
+    zoomSlider_->setToolTip("Zoom the detail image (1.0x – 6.0x).");
     zoomValueLabel_ = new QLabel("1.0x", detailToolsWidget_);
     zoomValueLabel_->setMinimumWidth(38);
 
     brightnessSlider_ = new QSlider(Qt::Vertical, detailToolsWidget_);
     brightnessSlider_->setRange(-100, 100);
     brightnessSlider_->setValue(0);
-    brightnessSlider_->setFixedSize(26, 96);
+    brightnessSlider_->setFixedSize(28, 120);
+    brightnessSlider_->setToolTip("Brightness offset for the detail image (-100 – +100).");
     brightnessValueLabel_ = new QLabel("0", detailToolsWidget_);
     brightnessValueLabel_->setMinimumWidth(30);
 
