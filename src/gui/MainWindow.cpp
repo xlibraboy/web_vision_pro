@@ -1808,6 +1808,10 @@ void MainWindow::applyGlobalTheme() {
     const QString& sliderBg   = tc.sliderBg;
     const QString& handleColor = tc.handle;
     const QString& textColor  = tc.text;
+    // Hover fill for an already-checked box: a slightly darker accent. Every
+    // theme primary already sits at full HSV value, so lighter() is a no-op —
+    // darker() is what actually reads as a hover cue without dropping the fill.
+    const QString checkedHoverColor = QColor(primaryColor).darker(115).name();
 
     QString globalStyle = QString(
         // Base Window & Widget backgrounds
@@ -1845,13 +1849,15 @@ void MainWindow::applyGlobalTheme() {
         "QPushButton:pressed { background-color: %5; color: %1; }"
         "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
         // Checkboxes — always render a clearly visible box (dark theme), with
-        // a filled primary-colored state when checked.
+        // a filled primary-colored state when checked. Hovering a checked box
+        // only shifts the accent shade; it must never drop back to the neutral
+        // hover fill, which would make checked and unchecked look identical.
         "QCheckBox { color: %8; font-weight: bold; spacing: 6px; }"
         "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background-color: %1; }"
         "QCheckBox::indicator:hover { border-color: %5; background-color: %4; }"
         "QCheckBox::indicator:pressed { background-color: %4; }"
         "QCheckBox::indicator:checked { background-color: %5; border-color: %5; }"
-        "QCheckBox::indicator:checked:hover { background-color: %4; border-color: %5; }"
+        "QCheckBox::indicator:checked:hover { background-color: %9; border-color: %5; }"
         "QCheckBox::indicator:disabled { background-color: %1; border-color: %2; }"
         // Tables / Grids
         "QTableWidget, QTableView { background-color: %1; alternate-background-color: %3; color: %8; gridline-color: %2; border: 1px solid %2; }"
@@ -1884,7 +1890,8 @@ void MainWindow::applyGlobalTheme() {
         "QWidget#playbackPanel QPushButton:hover { background-color: %4; border-color: %5; }"
         "QWidget#playbackPanel QPushButton[active=\"true\"] { background-color: %5; color: %1; }"
         "QWidget#playbackPanel { border-top: 1px solid %2; }"
-    ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor);
+    ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor,
+          checkedHoverColor);
 
     qApp->setStyleSheet(globalStyle);
 
