@@ -43,6 +43,7 @@ class MachineLayoutPanel;
 class QTimer;
 class OpcUaClientService;
 class QTableWidget;
+class OpcUaLiveStatusWindow;
 
 class ConfigDialog : public QWidget {
     Q_OBJECT
@@ -127,6 +128,7 @@ private:
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
     void refreshOpcUaSpeedDisplay();
+    void showOpcUaLiveStatusWindow();
     // Async OPC UA server discovery. The probe walks the candidate list one
     // client at a time (750ms per reachable-but-silent host) without ever
     // blocking the UI thread, so switching to System Configuration or pressing
@@ -350,6 +352,8 @@ private:
     QLabel* opcUaStatusClientLabel_ = nullptr;
     QLabel* opcUaStatusSpeedLabel_ = nullptr;
     QTableWidget* opcUaStatusTable_ = nullptr;
+    // Detached live status window, created on first use.
+    OpcUaLiveStatusWindow* opcUaLiveStatusWindow_ = nullptr;
     OpcUaClientService* opcUaRuntimeSource_ = nullptr;
     OpcUaRuntimeStatus lastOpcUaRuntimeStatus_;
 

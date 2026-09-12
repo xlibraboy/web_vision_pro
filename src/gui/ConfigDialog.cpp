@@ -9,6 +9,7 @@
 #include "widgets/FixedIpListPanel.h"
 #include "widgets/MachineGroupsPanel.h"
 #include "widgets/MachineLayoutPanel.h"
+#include "widgets/OpcUaLiveStatusWindow.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../core/CameraManager.h"
@@ -526,6 +527,11 @@ void ConfigDialog::setOpcUaRuntimeSource(OpcUaClientService* service) {
 void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
     lastOpcUaRuntimeStatus_ = status;
 
+    // The detached window mirrors the same snapshot as the Live Status tab.
+    if (opcUaLiveStatusWindow_) {
+        opcUaLiveStatusWindow_->updateStatus(status);
+    }
+
     // Client state
     if (opcUaStatusClientLabel_) {
         QString dot;
@@ -652,6 +658,16 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
 
     opcUaStatusSpeedLabel_->setText(QStringLiteral("—"));
     opcUaStatusSpeedLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+}
+
+void ConfigDialog::showOpcUaLiveStatusWindow() {
+    if (!opcUaLiveStatusWindow_) {
+        opcUaLiveStatusWindow_ = new OpcUaLiveStatusWindow(this);
+        opcUaLiveStatusWindow_->updateStatus(lastOpcUaRuntimeStatus_);
+    }
+    opcUaLiveStatusWindow_->show();
+    opcUaLiveStatusWindow_->raise();
+    opcUaLiveStatusWindow_->activateWindow();
 }
 
 void ConfigDialog::showEvent(QShowEvent* event) {
@@ -1710,7 +1726,21 @@ void ConfigDialog::setupUI() {
     updateOpcUaRuntimeStatus(OpcUaRuntimeStatus{});
 
     QHBoxLayout* opcUaActionsLayout = new QHBoxLayout();
+    opcUaActionsLayout->setSpacing(10);
     opcUaActionsLayout->addStretch();
+
+    // Detached monitor so the live tags can be watched while working on another
+    // tab (or outside System Configuration entirely).
+    QPushButton* opcUaLiveStatusWindowBtn = new QPushButton("Open Live Status Window", opcUaGroup);
+    opcUaLiveStatusWindowBtn->setToolTip("Show the live OPC UA client state, machine speed and tag values in a separate window, so they stay visible while you work elsewhere.");
+    opcUaLiveStatusWindowBtn->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; } "
+        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    connect(opcUaLiveStatusWindowBtn, &QPushButton::clicked,
+            this, &ConfigDialog::showOpcUaLiveStatusWindow);
+    opcUaActionsLayout->addWidget(opcUaLiveStatusWindowBtn);
+
     opcUaSaveBtn_ = new QPushButton("Save OPC UA Settings", opcUaGroup);
     opcUaSaveBtn_->setIcon(IconManager::instance().save(16));
     stylePrimaryActionButton(opcUaSaveBtn_, tc);
