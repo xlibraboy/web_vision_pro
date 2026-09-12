@@ -1647,8 +1647,15 @@ void ConfigDialog::setupUI() {
     opcUaTabs->addTab(opcUaSpeedTab, "Speed");
 
     // Live Status: client state, speed, and per-tag trigger state, updated from
-    // OpcUaClientService::runtimeStatusChanged while the dialog is open.
-    QGroupBox* opcUaStatusGroup = new QGroupBox("Live Status", opcUaGroup);
+    // OpcUaClientService::runtimeStatusChanged while the dialog is open. Own tab
+    // instead of a panel under the tab bar, so the status table gets the full
+    // page height and the config tabs stay compact.
+    QWidget* opcUaStatusTab = new QWidget(opcUaTabs);
+    QVBoxLayout* opcUaStatusTabLayout = new QVBoxLayout(opcUaStatusTab);
+    opcUaStatusTabLayout->setContentsMargins(10, 10, 10, 10);
+    opcUaStatusTabLayout->setSpacing(10);
+
+    QGroupBox* opcUaStatusGroup = new QGroupBox("Live Status", opcUaStatusTab);
     opcUaStatusGroup->setStyleSheet(sectionStyle);
     QVBoxLayout* opcUaStatusLayout = new QVBoxLayout(opcUaStatusGroup);
     opcUaStatusLayout->setContentsMargins(14, 18, 14, 14);
@@ -1695,7 +1702,8 @@ void ConfigDialog::setupUI() {
     opcUaStatusHeader->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     opcUaStatusLayout->addWidget(opcUaStatusTable_);
 
-    opcUaLayout->addWidget(opcUaStatusGroup);
+    opcUaStatusTabLayout->addWidget(opcUaStatusGroup);
+    opcUaTabs->addTab(opcUaStatusTab, "Live Status");
 
     // Populate the status table with the configured rows right away (the service
     // refreshes it live once wired up).
