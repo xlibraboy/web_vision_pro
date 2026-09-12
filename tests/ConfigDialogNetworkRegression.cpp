@@ -1,4 +1,5 @@
 #include "ConfigDialogNetworkRegression.h"
+#include "EventCaptureTiming.h"
 
 #include "gui/ConfigDialog.h"
 
@@ -12,6 +13,8 @@
 #include <QTcpServer>
 #include <QTemporaryDir>
 #include <QtTest>
+
+#include <vector>
 
 namespace {
 
@@ -131,9 +134,55 @@ void ConfigDialogNetworkRegression::entryAndDetectPathsDoNotBlockOnOpcUaProbe()
     dialog.hide();
 }
 
+namespace {
+
+// Runs one suite with the suite selector stripped out of the arguments: QTest
+// would otherwise read it as a (non-existent) test function name.
+int runSuite(QObject* suite, int argc, char* argv[])
+{
+    std::vector<QByteArray> args;
+    args.reserve(static_cast<size_t>(argc));
+    args.emplace_back(argv[0]);
+    for (int i = 1; i < argc; ++i) {
+        const QByteArray arg(argv[i]);
+        if (arg == "all" || arg == "config" || arg == "capture") {
+            continue;
+        }
+        args.push_back(arg);
+    }
+    std::vector<char*> forwarded;
+    forwarded.reserve(args.size());
+    for (QByteArray& arg : args) {
+        forwarded.push_back(arg.data());
+    }
+    return QTest::qExec(suite, static_cast<int>(forwarded.size()), forwarded.data());
+}
+
+} // namespace
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
-    ConfigDialogNetworkRegression testCase;
-    return QTest::qExec(&testCase, argc, argv);
+
+    // Suite selector: ctest reports the two areas separately while they share
+    // this one binary (it links the whole app, so a second test executable
+    // would only duplicate that build). No selector runs everything.
+    QString suite = QStringLiteral("all");
+    for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg == QLatin1String("config") || arg == QLatin1String("capture")) {
+            suite = arg;
+        }
+    }
+
+    int status = 0;
+    if (suite != QLatin1String("capture")) {
+        ConfigDialogNetworkRegression configDialogTest;
+        status |= runSuite(&configDialogTest, argc, argv);
+    }
+    if (suite != QLatin1String("config")) {
+        EventCaptureTiming captureTest;
+        status |= runSuite(&captureTest, argc, argv);
+    }
+    return status;
 }

@@ -195,11 +195,20 @@ private:
 
     // Arms the time-based capture window for one participating camera: the
     // trigger instant on its own clock, the instant its window closes (the
-    // sheet needs travelSeconds to carry the defect to this camera), and the
-    // window length used as the stalled-clock runaway guard. Leaves the window
-    // disabled when the camera's clock is unusable (frame target takes over).
+    // sheet needs travelSeconds to carry the defect to this camera, plus the
+    // post-trigger roll), and the window length used as the stalled-clock
+    // runaway guard. Leaves the window disabled when the camera's clock is
+    // unusable (the frame target takes over).
     void armTimeWindow(CameraBufferState& state, double travelSeconds,
-                       int postFrames, int64_t now);
+                       double postSeconds, int64_t now);
+
+    // Post-trigger roll in SECONDS — the configured window, identical for every
+    // camera. Frame counts only describe it for a given rate, so converting a
+    // frame target back into time would stretch the window of a camera that
+    // delivers fewer frames than the rate it reports.
+    double postWindowSeconds() const {
+        return (fps_ > 0.0) ? static_cast<double>(postTriggerLimit_) / fps_ : 0.0;
+    }
 
     // Evaluates whether the armed event can complete (all *live* participants
     // reached their target) and, if so, moves their ring buffers into the save

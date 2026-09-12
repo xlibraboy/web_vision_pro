@@ -117,17 +117,26 @@ target_link_libraries(PaperVision_App
 #
 # PaperVision_RegressionTest exercises ConfigDialog entry paths (tab showEvent
 # auto-discovery and the Detect Server button) against a deliberately silent
-# OPC UA endpoint and asserts they never block on the network probe.
+# OPC UA endpoint and asserts they never block on the network probe, plus the
+# event recorder's cross-camera timing (a camera that misses frames must still
+# record the same post-trigger window in seconds, and a camera that stops
+# streaming must be recorded as missing). Both suites drive the real classes
+# with synthetic frame clocks — no cameras are involved.
 # Run with: ctest -R config_dialog_network_regression
+#           ctest -R event_capture_timing
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     find_package(Qt5 COMPONENTS Test REQUIRED)
 
-    qt5_wrap_cpp(TEST_MOC_SOURCES tests/ConfigDialogNetworkRegression.h)
+    qt5_wrap_cpp(TEST_MOC_SOURCES
+        tests/ConfigDialogNetworkRegression.h
+        tests/EventCaptureTiming.h
+    )
 
     add_executable(PaperVision_RegressionTest
         ${SOURCES}
         tests/ConfigDialogNetworkRegression.cpp
+        tests/EventCaptureTiming.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -144,7 +153,8 @@ if(BUILD_TESTING)
         GCBase_gcc_v3_1_Basler_pylon
     )
 
-    add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest)
-    set_tests_properties(config_dialog_network_regression PROPERTIES
+    add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest config)
+    add_test(NAME event_capture_timing COMMAND PaperVision_RegressionTest capture)
+    set_tests_properties(config_dialog_network_regression event_capture_timing PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()

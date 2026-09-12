@@ -136,7 +136,7 @@ int64_t EventController::cameraClockNowNs(const CameraBufferState& state, int64_
 }
 
 void EventController::armTimeWindow(CameraBufferState& state, double travelSeconds,
-                                    int postFrames, int64_t now) {
+                                    double postSeconds, int64_t now) {
     state.triggerClockNs = 0;
     state.captureStopClockNs = 0;
     state.captureWindowMs = 0;
@@ -148,12 +148,11 @@ void EventController::armTimeWindow(CameraBufferState& state, double travelSecon
         return;
     }
 
-    // Post-trigger roll expressed through the camera's own delivered interval:
-    // a camera that misses frames still records the same number of SECONDS.
-    const double postSeconds = static_cast<double>(postFrames) * intervalNs / 1e9;
-    // The window is the sheet's travel time to this camera PLUS the post roll.
-    // Negative travel (defect already past) can make that less than one frame;
-    // the frame-count path never went below one frame, and neither does this.
+    // The window is the sheet's travel time to this camera PLUS the post roll —
+    // both durations, so every camera covers the same seconds of paper however
+    // many frames it manages to deliver. Negative travel (defect already past)
+    // can make that less than one frame; the frame-count path never went below
+    // one frame, and neither does this.
     const double frameSeconds = intervalNs / 1e9;
     const double windowSeconds = std::max(frameSeconds, travelSeconds + postSeconds);
 
@@ -490,7 +489,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             const int configIndex = pair.first - 1;
             if (configIndex < 0 || configIndex >= static_cast<int>(cameras.size())) {
                 pair.second.captureTargetFrames = postFramesFor(pair.first);
-                armTimeWindow(pair.second, 0.0, postFramesFor(pair.first), triggerMs);
+                armTimeWindow(pair.second, 0.0, postWindowSeconds(), triggerMs);
                 continue;
             }
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
@@ -524,7 +523,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             const double travelSeconds = (localSpeed > 0.0)
                 ? static_cast<double>(deltaMm) / (localSpeed * 1000.0) * 60.0
                 : 0.0;
-            armTimeWindow(pair.second, travelSeconds, postFramesFor(pair.first), triggerMs);
+            armTimeWindow(pair.second, travelSeconds, postWindowSeconds(), triggerMs);
         }
     } else {
         if (alignmentWanted) {
@@ -543,7 +542,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             pair.second.captureTargetFrames = postFramesFor(pair.first);
             // No spatial alignment: the window is the plain post-trigger window,
             // still clocked by the camera itself so missed frames only shorten it.
-            armTimeWindow(pair.second, 0.0, postFramesFor(pair.first), triggerMs);
+            armTimeWindow(pair.second, 0.0, postWindowSeconds(), triggerMs);
         }
     }
 
