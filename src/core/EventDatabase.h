@@ -64,6 +64,10 @@ public:
         // Key = 1-based camera ID, value = 256-bin uint32 pixel counts.
         // Empty for legacy events or when histogram was not computed.
         std::map<int, std::vector<uint32_t>> histograms;
+        // 1-based IDs of participating cameras that produced no recording for
+        // this event (stopped streaming mid-event, or captured no usable
+        // frames). Empty when every camera of the trigger's group was recorded.
+        std::vector<int> missingCameraIds;
     };
     
     // Singleton access

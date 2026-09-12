@@ -148,6 +148,23 @@ private:
         // Used to detect cameras that stopped streaming so a trigger with at
         // least one live camera still completes without waiting on dead ones.
         int64_t lastFrameArrivalMs = 0;
+        // Time-based capture (frame-drop immune). triggerClockNs is this
+        // camera's own clock at the trigger instant — its newest frame
+        // timestamp plus the wall time since that frame arrived. 
+        // captureStopClockNs closes the window at the instant the defect
+        // reaches (or has reached) this camera plus the post window. 0 = this
+        // camera's frame timestamps were not usable, so the frame-count
+        // target drives the capture instead.
+        int64_t triggerClockNs = 0;
+        int64_t captureStopClockNs = 0;
+        // Intended window length (ms) and the wall-clock instant the trigger
+        // was armed: a runaway guard for a camera whose clock stops advancing
+        // (it would otherwise never reach captureStopClockNs and hold the
+        // whole event open).
+        int64_t captureWindowMs = 0;
+        int64_t captureStartMs = 0;
+        // Set once this camera has recorded its full window (either path).
+        bool captureDone = false;
     };
 
     // Buffer state per camera (using 1-based indexing passed from CameraManager's config ID resolving)
@@ -160,9 +177,29 @@ private:
     // mid-event (stale ring buffers are dropped, the event completes with
     // nothing to save, and triggering_ clears so future triggers work again).
     static constexpr int64_t kEventWatchdogIntervalMs = 1000;
+    // A camera whose clock stops advancing while its frames keep arriving can
+    // never reach captureStopClockNs; after this many intended window lengths
+    // its capture closes on the wall clock instead of holding the event open.
+    static constexpr int64_t kCaptureRunawayFactor = 5;
 
     static int64_t nowMs();
     static bool isCameraLive(const CameraBufferState& state, int64_t now);
+
+    // Camera-clock instant of `now` for one camera, or 0 when its frame
+    // timestamps cannot be trusted (never delivered, or a clock observed not
+    // to advance). Also reports the frame interval (ns) measured over that
+    // camera's newest frames: its real delivered rate, which stays correct
+    // when the configured rate does not match what arrives.
+    int64_t cameraClockNowNs(const CameraBufferState& state, int64_t now,
+                             double* intervalNs) const;
+
+    // Arms the time-based capture window for one participating camera: the
+    // trigger instant on its own clock, the instant its window closes (the
+    // sheet needs travelSeconds to carry the defect to this camera), and the
+    // window length used as the stalled-clock runaway guard. Leaves the window
+    // disabled when the camera's clock is unusable (frame target takes over).
+    void armTimeWindow(CameraBufferState& state, double travelSeconds,
+                       int postFrames, int64_t now);
 
     // Evaluates whether the armed event can complete (all *live* participants
     // reached their target) and, if so, moves their ring buffers into the save
@@ -187,6 +224,10 @@ private:
     std::string currentTimestamp_;
     std::map<int, QString> currentEventCameraLabels_;
     std::map<int, int> currentEventCameraPositions_;
+    // Participating cameras that had to be skipped in the active event: not
+    // streaming at completion, or no usable frames captured. Persisted onto the
+    // event so an absent camera is visible instead of silently missing.
+    std::vector<int> currentEventMissingCameraIds_;
     TriggerContext currentTriggerContext_;
 
     // Threading

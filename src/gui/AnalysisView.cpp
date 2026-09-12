@@ -4523,14 +4523,25 @@ void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerI
 }
 
 int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent,
-                              bool selectRow, int group, int defectFrame) {
+                              bool selectRow, int group, int defectFrame,
+                              const QVector<int>& missingCameras) {
     QTableWidget* targetTable = permanent ? permanentPaperBreakTable_ : paperBreakTable_;
     const int row = targetTable->rowCount();
     targetTable->insertRow(row);
 
     const bool isNewRecentEvent = !permanent && !latestAddedEventTimestamp_.isEmpty() && timestamp == latestAddedEventTimestamp_;
+    QStringList missingLabels;
+    missingLabels.reserve(missingCameras.size());
+    for (int cameraId : missingCameras) {
+        missingLabels << QString("cam %1").arg(cameraId);
+    }
+    const QString missingText = missingLabels.join(", ");
+    // The visible columns are Trigger Time + Reason (the scrollbar reveals
+    // Group + Defect Frame), so the missing-camera marker has to ride on Reason
+    // to be seen without scrolling sideways.
     QTableWidgetItem* timeItem = new QTableWidgetItem(formatTimestamp(timestamp));
-    QTableWidgetItem* reasonItem = new QTableWidgetItem(reason);
+    QTableWidgetItem* reasonItem = new QTableWidgetItem(
+        missingLabels.isEmpty() ? reason : QString("%1 · %2 missing").arg(reason, missingText));
     const QString groupText = group >= 0 ? CameraGroup::name(group) : QStringLiteral("All");
     QTableWidgetItem* groupItem = new QTableWidgetItem(groupText);
     QTableWidgetItem* frameItem = new QTableWidgetItem(
@@ -4538,6 +4549,10 @@ int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, b
     timeItem->setData(Qt::UserRole, timestamp);
     timeItem->setData(Qt::UserRole + 2, permanent);
     timeItem->setData(Qt::UserRole + 3, isNewRecentEvent);
+    // Bare reason: the visible text may carry the missing-camera suffix, and the
+    // row can be rebuilt (permanent toggle) or moved between tables — the suffix
+    // must not be appended a second time from the displayed text.
+    reasonItem->setData(Qt::UserRole, reason);
     reasonItem->setData(Qt::UserRole + 2, permanent);
     reasonItem->setData(Qt::UserRole + 3, isNewRecentEvent);
     groupItem->setData(Qt::UserRole + 1, group);
@@ -4547,9 +4562,24 @@ int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, b
     frameItem->setData(Qt::UserRole + 2, permanent);
     frameItem->setData(Qt::UserRole + 3, isNewRecentEvent);
     frameItem->setToolTip("Frame position of the defect within the recording (0-based). The same physical defect lands at this frame in every camera of the group.");
-    groupItem->setToolTip(group >= 0
+    QString missingTip;
+    if (!missingLabels.isEmpty()) {
+        missingTip = QString("Not recorded: %1.\nThe camera delivered no frames during this event "
+                             "(frame drop or disconnect), so no file was saved for it and it cannot "
+                             "be aligned in this event.").arg(missingText);
+    }
+    QString groupTip = group >= 0
         ? QString("Trigger wired to the %1 section. Only cameras assigned to this group were recorded.").arg(groupText)
-        : "Trigger recorded all active cameras.");
+        : "Trigger recorded all active cameras.";
+    if (!missingTip.isEmpty()) {
+        groupTip += QString("\n\n%1").arg(missingTip);
+        // A camera missing from the event is the one thing on this row an
+        // operator must not have to hover to notice.
+        reasonItem->setForeground(QColor(224, 160, 48));
+        reasonItem->setToolTip(missingTip);
+        groupItem->setForeground(QColor(224, 160, 48));
+    }
+    groupItem->setToolTip(groupTip);
 
     if (isNewRecentEvent) {
         ThemeColors tc = CameraConfig::getThemeColors();
@@ -4732,8 +4762,13 @@ void AnalysisView::reloadEventTables() {
         const QString triggerReason = event.triggerReason.trimmed().isEmpty()
             ? QStringLiteral("Triggered")
             : event.triggerReason.trimmed();
+        QVector<int> missingCameras;
+        missingCameras.reserve(static_cast<int>(event.missingCameraIds.size()));
+        for (int cameraId : event.missingCameraIds) {
+            missingCameras.append(cameraId);
+        }
         addEventRow(event.timestamp, triggerReason, event.permanent, false,
-                    event.triggerGroup, event.triggerIndex);
+                    event.triggerGroup, event.triggerIndex, missingCameras);
         if (event.timestamp == pendingEventTimestamp_) {
             pendingEventTimestamp_.clear(); // real event landed — retire placeholder
         }
@@ -6833,15 +6868,26 @@ void AnalysisView::moveSelectedRowsToTable(QTableWidget* sourceTable, QTableWidg
                 defectFrame = frameData.toInt();
             }
         }
-        if (group == CameraGroup::kUnassigned && defectFrame < 0) {
-            // Legacy row (or event without metadata): recover from the database.
-            try {
-                const EventDatabase::EventInfo info = EventDatabase::instance().getEventInfo(ts);
+        // The row carries group and defect frame; the missing-camera list lives
+        // only in the database, so always consult it (legacy rows recover group
+        // and defect frame from there in the same read).
+        QVector<int> missingCameras;
+        try {
+            const EventDatabase::EventInfo info = EventDatabase::instance().getEventInfo(ts);
+            if (group == CameraGroup::kUnassigned && defectFrame < 0) {
                 group = info.triggerGroup;
                 defectFrame = info.triggerIndex;
-            } catch (...) {}
+            }
+            missingCameras.reserve(static_cast<int>(info.missingCameraIds.size()));
+            for (int cameraId : info.missingCameraIds) {
+                missingCameras.append(cameraId);
+            }
+        } catch (...) {}
+        QString reasonText = reasonItem->data(Qt::UserRole).toString();
+        if (reasonText.isEmpty()) {
+            reasonText = reasonItem->text();  // row built before the bare reason was stored
         }
-        addEventRow(ts, reasonItem->text(), permanent, false, group, defectFrame);
+        addEventRow(ts, reasonText, permanent, false, group, defectFrame, missingCameras);
         sourceTable->removeRow(row);
     }
     sortLogTable(sourceTable);

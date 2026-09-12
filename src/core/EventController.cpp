@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
+#include <cstdlib>
 #include <chrono>
 #include <utility>
 #include <QDateTime>
@@ -78,6 +79,90 @@ bool EventController::isCameraLive(const CameraBufferState& state, int64_t now) 
         && (now - state.lastFrameArrivalMs) <= kCameraLiveWindowMs;
 }
 
+// How many of a camera's newest frames back the clock and delivered-rate
+// estimate (median gap over this many frames).
+static constexpr size_t kClockSampleCount = 32;
+
+int64_t EventController::cameraClockNowNs(const CameraBufferState& state, int64_t now,
+                                          double* intervalNs) const {
+    if (intervalNs) *intervalNs = 0.0;
+    const size_t size = state.circularBuffer.size();
+    if (size == 0 || state.currentFillSize == 0 || state.lastFrameArrivalMs == 0) {
+        return 0;
+    }
+
+    // Collect the newest frames' own clock readings, newest first. The sequence
+    // is only trusted while it strictly decreases as we walk back: a wrapped or
+    // reset counter reads forwards and must not be used for timing.
+    std::vector<int64_t> recent;
+    recent.reserve(kClockSampleCount);
+    int64_t newest = 0;
+    int64_t previous = 0;
+    for (size_t i = 0; i < state.currentFillSize && recent.size() < kClockSampleCount; ++i) {
+        const size_t idx = (state.writeIndex + size - 1 - i) % size;
+        const int64_t ts = state.circularBuffer[idx].timestamp;
+        if (ts <= 0) {
+            break;
+        }
+        if (newest == 0) {
+            newest = ts;
+        } else if (ts >= previous) {
+            return 0;
+        }
+        previous = ts;
+        recent.push_back(ts);
+    }
+    if (recent.size() < 2) {
+        return 0;
+    }
+
+    // Delivered interval = median of the observed gaps, so a camera that misses
+    // frames reports the rate it really runs at, not the configured one.
+    std::vector<int64_t> gaps;
+    gaps.reserve(recent.size() - 1);
+    for (size_t i = 0; i + 1 < recent.size(); ++i) {
+        gaps.push_back(recent[i] - recent[i + 1]);
+    }
+    std::sort(gaps.begin(), gaps.end());
+    const int64_t medianGap = gaps[gaps.size() / 2];
+    if (medianGap <= 0) {
+        return 0;
+    }
+    if (intervalNs) *intervalNs = static_cast<double>(medianGap);
+
+    // Extrapolate from the newest frame's own reading to "now" through the wall
+    // time since that frame arrived: the trigger instant on this camera's clock.
+    return newest + std::max<int64_t>(0, now - state.lastFrameArrivalMs) * 1000000LL;
+}
+
+void EventController::armTimeWindow(CameraBufferState& state, double travelSeconds,
+                                    int postFrames, int64_t now) {
+    state.triggerClockNs = 0;
+    state.captureStopClockNs = 0;
+    state.captureWindowMs = 0;
+    state.captureStartMs = now;
+
+    double intervalNs = 0.0;
+    const int64_t clockNow = cameraClockNowNs(state, now, &intervalNs);
+    if (clockNow <= 0 || intervalNs <= 0.0) {
+        return;
+    }
+
+    // Post-trigger roll expressed through the camera's own delivered interval:
+    // a camera that misses frames still records the same number of SECONDS.
+    const double postSeconds = static_cast<double>(postFrames) * intervalNs / 1e9;
+    // The window is the sheet's travel time to this camera PLUS the post roll.
+    // Negative travel (defect already past) can make that less than one frame;
+    // the frame-count path never went below one frame, and neither does this.
+    const double frameSeconds = intervalNs / 1e9;
+    const double windowSeconds = std::max(frameSeconds, travelSeconds + postSeconds);
+
+    state.triggerClockNs = clockNow;
+    state.captureStopClockNs =
+        clockNow + static_cast<int64_t>(std::llround(windowSeconds * 1e9));
+    state.captureWindowMs = static_cast<int64_t>(std::llround(windowSeconds * 1000.0));
+}
+
 void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter) {
     // A camera mid-(re)configuration can emit empty grabs (observed: a
     // starting camera delivered empty Mats that filled the ring and were
@@ -106,13 +191,11 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     CameraBufferState& state = cameraStates_[cameraId];
     state.lastFrameArrivalMs = nowMs();
 
-    // During an active event, stop extending this camera's saved window once it has
-    // collected its per-camera post-trigger target (postTriggerLimit_ + the spatial
-    // alignment offset). Otherwise faster cameras keep overwriting older pre-trigger
-    // frames while waiting for slower cameras. Non-participating cameras (target -1)
-    // keep rolling their ring buffer normally.
-    if (triggering_ && state.captureTargetFrames >= 0
-            && state.postFramesRecorded >= state.captureTargetFrames) {
+    // During an active event, stop extending this camera's saved window once it
+    // has recorded its full window. Otherwise faster cameras keep overwriting
+    // older pre-trigger frames while waiting for slower cameras. Non-participating
+    // cameras (target -1) keep rolling their ring buffer normally.
+    if (triggering_ && state.captureTargetFrames >= 0 && state.captureDone) {
         return;
     }
 
@@ -149,13 +232,37 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
             return;
         }
 
-        int recorded = ++state.postFramesRecorded;
-        if (recorded >= state.captureTargetFrames) {
-            // Reached limit for this camera. Try to complete the event: this only
-            // succeeds when every *live* participating camera has also reached its
-            // target. Cameras that stopped streaming are skipped so the trigger
-            // completes with whatever live cameras remain.
-            tryCompleteEventLocked(nowMs());
+        const int recorded = ++state.postFramesRecorded;
+        const int64_t now = nowMs();
+        bool done = false;
+        if (state.captureStopClockNs > 0 && timestamp > 0) {
+            // Time-based window: the camera stops when ITS OWN clock reaches the
+            // instant the defect has passed plus the post window, so missed
+            // frames only shorten the recording, never shift it against the
+            // other cameras.
+            done = timestamp >= state.captureStopClockNs;
+            if (!done && state.captureWindowMs > 0
+                    && now - state.captureStartMs > state.captureWindowMs * kCaptureRunawayFactor) {
+                // Clock stopped advancing while frames keep coming: close on the
+                // wall clock so this camera cannot hold the event open forever.
+                done = true;
+                std::cerr << "[EventController] Camera " << cameraId
+                          << " exceeded its capture window on the wall clock "
+                             "(frame clock stalled?) - closing its capture." << std::endl;
+            }
+        } else {
+            // No usable frame clock (or emulation): fall back to the frame count,
+            // which assumes the configured/detected rate is what arrives.
+            done = recorded >= state.captureTargetFrames;
+        }
+
+        if (done) {
+            state.captureDone = true;
+            // Try to complete the event: this only succeeds when every *live*
+            // participating camera has also finished. Cameras that stopped
+            // streaming are skipped so the trigger completes with whatever live
+            // cameras remain.
+            tryCompleteEventLocked(now);
         }
     }
 }
@@ -181,7 +288,7 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
         if (!isCameraLive(pair.second, now)) {
             continue;
         }
-        if (pair.second.postFramesRecorded < pair.second.captureTargetFrames) {
+        if (!pair.second.captureDone) {
             allDone = false;
             break;
         }
@@ -195,6 +302,8 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
     {
         std::lock_guard<std::mutex> saveLock(saveMutex_);
 
+        currentEventMissingCameraIds_.clear();
+
         for (auto& pair : cameraStates_) {
             if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
                 continue;
@@ -202,8 +311,13 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
             CameraBufferState& s = pair.second;
             // Only save cameras that actually participated and are (or were just)
             // streaming. A camera that stopped before the trigger fires has a
-            // stale buffer and must not be saved.
+            // stale buffer and must not be saved — but it belongs to the event
+            // and is recorded as missing so the gap is visible in the analysis
+            // instead of the camera just silently not being there.
             if (!isCameraLive(s, now)) {
+                currentEventMissingCameraIds_.push_back(pair.first);
+                std::cerr << "[EventController] Camera " << pair.first
+                          << " is not streaming - excluded from this event (marked missing)." << std::endl;
                 continue;
             }
             s.saveQueue.clear();
@@ -221,16 +335,54 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
             }
 
             // Calculate linearized trigger index for the saved sequence.
-            // The ring rolls while a downstream camera waits for the defect to
-            // arrive, so the defect lands at a stable position (pre-trigger depth)
-            // in every camera's saved window.
-            s.linearizedTriggerIndex = static_cast<int>(s.currentFillSize)
-                - s.postFramesRecorded - 1 + s.captureOffsetFrames;
+            // Preferred: the saved frame whose own clock reading is closest to
+            // the trigger instant as THIS camera saw it. Frames the camera
+            // missed cancel out of a clock-based mark, where the frame-count
+            // arithmetic below drifts by exactly the number of frames lost.
+            int triggerIndex = -1;
+            if (s.triggerClockNs > 0) {
+                int64_t bestDelta = 0;
+                for (size_t i = 0; i < s.currentFillSize; ++i) {
+                    const size_t idx = (tail + i) % s.circularBuffer.size();
+                    const int64_t ts = s.circularBuffer[idx].timestamp;
+                    if (ts <= 0) {
+                        continue;
+                    }
+                    const int64_t delta = std::llabs(ts - s.triggerClockNs);
+                    if (triggerIndex < 0 || delta < bestDelta) {
+                        triggerIndex = static_cast<int>(i);
+                        bestDelta = delta;
+                    }
+                }
+            }
+            if (triggerIndex < 0) {
+                // No usable clock for this camera: the ring rolls while a
+                // downstream camera waits for the defect to arrive, so the defect
+                // lands at a stable position (pre-trigger depth) in every
+                // camera's saved window.
+                triggerIndex = static_cast<int>(s.currentFillSize)
+                    - s.postFramesRecorded - 1 + s.captureOffsetFrames;
+            }
             // Guard against degenerate extreme-upstream offsets that could push
             // the index out of the saved window.
             const int maxIndex = std::max(0, static_cast<int>(s.currentFillSize) - 1);
-            s.linearizedTriggerIndex = std::max(0, std::min(s.linearizedTriggerIndex, maxIndex));
+            s.linearizedTriggerIndex = std::max(0, std::min(triggerIndex, maxIndex));
         }
+
+        // A group camera that never delivered a frame has no buffer state at
+        // all, so it never passed through the loop above. The trigger expected
+        // it, so it is missing from this event too.
+        if (groupRestricted_) {
+            for (int cameraId : recordCameraIds_) {
+                if (cameraStates_.find(cameraId) == cameraStates_.end()) {
+                    currentEventMissingCameraIds_.push_back(cameraId);
+                    std::cerr << "[EventController] Camera " << cameraId
+                              << " is in the trigger's group but never streamed - marked missing."
+                              << std::endl;
+                }
+            }
+        }
+
         saveRequested_ = true;
     }
 
@@ -291,7 +443,14 @@ bool EventController::triggerEvent(const TriggerContext& context) {
         pair.second.postFramesRecorded = 0;
         pair.second.captureTargetFrames = -1;
         pair.second.captureOffsetFrames = 0;
+        pair.second.triggerClockNs = 0;
+        pair.second.captureStopClockNs = 0;
+        pair.second.captureWindowMs = 0;
+        pair.second.captureStartMs = 0;
+        pair.second.captureDone = false;
     }
+    currentEventMissingCameraIds_.clear();
+    const int64_t triggerMs = nowMs();
 
     // Resolve the machine speed for spatial alignment: prefer the trigger's own
     // speed sample, else fall back to the live speed provider (e.g. the OPC UA
@@ -331,6 +490,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             const int configIndex = pair.first - 1;
             if (configIndex < 0 || configIndex >= static_cast<int>(cameras.size())) {
                 pair.second.captureTargetFrames = postFramesFor(pair.first);
+                armTimeWindow(pair.second, 0.0, postFramesFor(pair.first), triggerMs);
                 continue;
             }
             currentEventCameraLabels_[pair.first] = CameraConfig::getCameraLabel(configIndex);
@@ -358,6 +518,13 @@ bool EventController::triggerEvent(const TriggerContext& context) {
             // and the allDone evaluation runs (a target of 0 would early-return
             // before the ring write and could deadlock the whole event).
             pair.second.captureTargetFrames = std::max(1, postFramesFor(pair.first) + offsetFrames);
+            // The same travel distance as a duration — the value the camera's own
+            // clock has to cover, which stays right no matter how many frames it
+            // manages to deliver on the way.
+            const double travelSeconds = (localSpeed > 0.0)
+                ? static_cast<double>(deltaMm) / (localSpeed * 1000.0) * 60.0
+                : 0.0;
+            armTimeWindow(pair.second, travelSeconds, postFramesFor(pair.first), triggerMs);
         }
     } else {
         if (alignmentWanted) {
@@ -374,6 +541,9 @@ bool EventController::triggerEvent(const TriggerContext& context) {
                 currentEventCameraPositions_[pair.first] = cameras[static_cast<size_t>(configIndex)].machinePosition;
             }
             pair.second.captureTargetFrames = postFramesFor(pair.first);
+            // No spatial alignment: the window is the plain post-trigger window,
+            // still clocked by the camera itself so missed frames only shorten it.
+            armTimeWindow(pair.second, 0.0, postFramesFor(pair.first), triggerMs);
         }
     }
 
@@ -381,7 +551,7 @@ bool EventController::triggerEvent(const TriggerContext& context) {
     // streamed, or stopped streaming recently), the event could never complete
     // and triggering_ would stay set forever, silently swallowing every later
     // trigger. Bail out cleanly instead.
-    const int64_t now = nowMs();
+    const int64_t now = triggerMs;
     bool anyParticipantLive = false;
     for (const auto& pair : cameraStates_) {
         if (groupRestricted_ && recordCameraIds_.count(pair.first) == 0) {
@@ -540,6 +710,7 @@ void EventController::saveWorker() {
             std::map<int, int> triggerIndices;
             std::map<int, QString> eventCameraLabels;
             std::map<int, int> eventCameraPositions;
+            std::vector<int> missingCameraIds;
             TriggerContext triggerContext;
 
             {
@@ -550,6 +721,7 @@ void EventController::saveWorker() {
                 }
                 eventCameraLabels = currentEventCameraLabels_;
                 eventCameraPositions = currentEventCameraPositions_;
+                missingCameraIds = currentEventMissingCameraIds_;
                 triggerContext = currentTriggerContext_;
             }
             
@@ -588,6 +760,7 @@ void EventController::saveWorker() {
                 if (!saveAsRaw(frames, baseName, triggerIndex, cameraId)) {
                     std::cout << "[EventController] Skipping Camera " << cameraId
                               << ": no usable frames captured." << std::endl;
+                    missingCameraIds.push_back(cameraId);
                     continue;
                 }
 
@@ -629,6 +802,7 @@ void EventController::saveWorker() {
                 event.triggerPositionMm = triggerContext.triggerPositionMm;
                 event.triggerGroup = triggerContext.group;
                 event.speedAnchors = triggerContext.speedAnchors;
+                event.missingCameraIds = missingCameraIds;
                 int highestCameraId = 0;
                 for (const auto& pair : framesToSave) {
                     if (!pair.second.empty()) {
@@ -675,6 +849,49 @@ void EventController::saveWorker() {
     }
 }
 
+// Effective fps of one saved sequence: the median gap between the frames' own
+// clock readings, so missed frames lower the rate instead of averaging out.
+// `fallbackFps` (the configured/detected rate) is kept whenever the clock is
+// missing, wrapped, or implausibly far from it — a stalled camera must not be
+// allowed to stretch the event's time axis.
+static double measuredSequenceFps(const std::deque<EventController::FrameData>& frames,
+                                  double fallbackFps) {
+    if (!(fallbackFps > 0.0) || frames.size() < 3) {
+        return fallbackFps;
+    }
+
+    std::vector<int64_t> gaps;
+    gaps.reserve(frames.size() - 1);
+    int64_t previous = 0;
+    for (const EventController::FrameData& frame : frames) {
+        if (frame.timestamp <= 0) {
+            return fallbackFps;
+        }
+        if (previous > 0) {
+            const int64_t gap = frame.timestamp - previous;
+            if (gap <= 0) {
+                return fallbackFps;  // wrapped/reset camera clock
+            }
+            gaps.push_back(gap);
+        }
+        previous = frame.timestamp;
+    }
+    if (gaps.empty()) {
+        return fallbackFps;
+    }
+
+    std::sort(gaps.begin(), gaps.end());
+    const int64_t medianGap = gaps[gaps.size() / 2];
+    if (medianGap <= 0) {
+        return fallbackFps;
+    }
+    const double measured = 1e9 / static_cast<double>(medianGap);
+    if (measured < fallbackFps * 0.25 || measured > fallbackFps * 1.1) {
+        return fallbackFps;
+    }
+    return measured;
+}
+
 bool EventController::saveAsRaw(const std::deque<FrameData>& frames, const QString& baseName, int triggerIndex, int cameraId) {
     // Defense in depth: never write a file with no pixels. A header-only
     // 0-width recording (frames captured from never-written ring slots) would
@@ -705,7 +922,11 @@ bool EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
     else header.pixelFormat = 1; // Assume BGR8 for 3-channel default
     // Per-camera truth: each .bin records the fps its camera actually ran at,
     // so playback time axes and slow-motion are correct for mixed-fps lines.
-    header.fps = cameraFps(cameraId);
+    // The configured/detected rate is only the fallback — when the saved frames
+    // carry a usable clock, their own median gap says what really arrived, so a
+    // camera that missed frames converts frame index -> seconds with the rate it
+    // really delivered instead of drifting against the other cameras.
+    header.fps = measuredSequenceFps(frames, cameraFps(cameraId));
     header.totalFrames = static_cast<uint32_t>(frames.size());
     header.triggerIndex = triggerIndex;
 

@@ -470,9 +470,12 @@ private:
     // Returns the final row index of the added row (after the table's
     // timestamp sort), so callers can locate it without assuming where the
     // sort left it.
+    // missingCameras: 1-based IDs of cameras that were part of the trigger's
+    // group but produced no recording for the event. Shown on the row so a
+    // dropped camera is visible instead of just absent.
     int addEventRow(const QString& timestamp, const QString& reason, bool permanent,
                     bool selectRow, int group = CameraGroup::kUnassigned,
-                    int defectFrame = -1);
+                    int defectFrame = -1, const QVector<int>& missingCameras = {});
     void reloadEventTables();
     // Re-append the pending placeholder row after a table rebuild (and retire
     // it once stale or once the real event is in the database).

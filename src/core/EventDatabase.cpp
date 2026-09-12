@@ -185,6 +185,13 @@ void EventDatabase::saveMetadata(const QString& filepath, const EventInfo& event
     meta["triggerPositionMm"] = event.triggerPositionMm;
     meta["triggerGroup"] = event.triggerGroup;
     meta["permanent"] = event.permanent;
+    if (!event.missingCameraIds.empty()) {
+        QJsonArray missingCameras;
+        for (int cameraId : event.missingCameraIds) {
+            missingCameras.append(cameraId);
+        }
+        meta["missingCameraIds"] = missingCameras;
+    }
     QJsonArray speedAnchors;
     for (const SpeedAnchorSnapshot& anchor : event.speedAnchors) {
         QJsonObject a;
@@ -251,6 +258,11 @@ EventDatabase::EventInfo EventDatabase::loadMetadata(const QString& filepath) {
     event.cameraPositionsMm.reserve(static_cast<size_t>(cameraPositions.size()));
     for (const QJsonValue& value : cameraPositions) {
         event.cameraPositionsMm.push_back(value.toInt());
+    }
+    const QJsonArray missingCameras = meta["missingCameraIds"].toArray();
+    event.missingCameraIds.reserve(static_cast<size_t>(missingCameras.size()));
+    for (const QJsonValue& value : missingCameras) {
+        event.missingCameraIds.push_back(value.toInt());
     }
     event.triggerReason = meta["triggerReason"].toString("Triggered");
     event.triggerSource = meta["triggerSource"].toString("unknown");
