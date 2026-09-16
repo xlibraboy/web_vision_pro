@@ -198,6 +198,7 @@ void EventDashboard::setEventData(const QString& cameraLabel, int totalFrames, i
                                   const QVector<int>& defectLocal,
                                   const QVector<int>& defectContrast) {
     cameraLabel_ = cameraLabel;
+    notRecordedReason_.clear();
     totalFrames_ = std::max(0, totalFrames);
     triggerIndex_ = qBound(0, triggerIndex, std::max(0, totalFrames_ - 1));
     fps_ = (fps > 0.0) ? fps : 20.0;
@@ -256,6 +257,7 @@ void EventDashboard::setLoadingThumbnails(bool on) {
 
 void EventDashboard::clear() {
     cameraLabel_.clear();
+    notRecordedReason_.clear();
     totalFrames_ = 0;
     sampleFrames_.clear();
     brightness_.clear();
@@ -282,6 +284,12 @@ void EventDashboard::clear() {
     update();
 }
 
+void EventDashboard::setNotRecorded(const QString& reason) {
+    clear();
+    notRecordedReason_ = reason;
+    update();
+}
+
 void EventDashboard::applyTheme(const QColor& background, const QColor& curve, const QColor& text) {
     bgColor_ = background;
     curveColor_ = curve;
@@ -297,6 +305,24 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
     p.fillRect(rect(), bgColor_);
+
+    if (!notRecordedReason_.isEmpty()) {
+        // This camera has no recording in the event: state it here rather than
+        // drawing lanes without data (or another camera's curves).
+        QFont stateFont = font();
+        stateFont.setBold(true);
+        stateFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
+        p.setFont(stateFont);
+        p.setPen(QColor(textColor_).darker(120));
+        const QRect stateRect = rect().adjusted(8, 8, -8, -8);
+        p.drawText(stateRect, Qt::AlignCenter, QStringLiteral("NOT RECORDED"));
+        QFont reasonFont = font();
+        reasonFont.setItalic(true);
+        p.setFont(reasonFont);
+        p.drawText(stateRect.adjusted(0, QFontMetrics(stateFont).height() + 4, 0, 0),
+                   Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, notRecordedReason_);
+        return;
+    }
 
     if (totalFrames_ <= 0) {
         p.setPen(textColor_);

@@ -760,8 +760,12 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         if (videoReaders_.find(i) != videoReaders_.end()) {
             cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
         } else {
-            cameraWidgets_[i]->setTitle(QString("CAM-%1").arg(i + 1, 2, 10, QChar('0')));
-            cameraWidgets_[i]->clear();
+            // The event has a slot for this camera but no file: either the
+            // trigger's Records selection left its section out, or it was part
+            // of the event and delivered no frames. Name the tile and say which,
+            // so the empty slot is not mistaken for a broken camera.
+            cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
+            cameraWidgets_[i]->setNotRecorded(eventCameraNotRecordedReason(i + 1));
         }
     }
 
@@ -1390,6 +1394,23 @@ void AnalysisView::refreshDashboardForCamera(int camIdx) {
         return;
     }
     if (camIdx < 0 || !videoReaders_.count(camIdx)) {
+        // A camera with no file in this event must not borrow another camera's
+        // chart, curves and thumbnails: show the not-recorded state instead, so
+        // an empty review surface never reads as if this camera had recorded.
+        const QString notRecordedReason = eventCameraNotRecordedReason(camIdx);
+        if (!notRecordedReason.isEmpty()) {
+            currentDashCam_ = -1;
+            thumbCamPending_ = -1;
+            if (thumbWatcher_ && thumbWatcher_->isRunning()) {
+                thumbWatcher_->cancel();
+                thumbWatcher_->waitForFinished();
+            }
+            detailDashboard_->setNotRecorded(notRecordedReason);
+            detailDashboard_->setLoadingSignals(false);
+            detailDashboard_->setLoadingThumbnails(false);
+            updateDashboardLoadingState();
+            return;
+        }
         if (!videoReaders_.empty()) {
             camIdx = videoReaders_.begin()->first;
         } else {
@@ -3220,6 +3241,13 @@ void AnalysisView::updateDynamicTab(int cameraId) {
     selectedCameraWidget_->setMarkerToolEnabled(markerToolCheck_ && markerToolCheck_->isChecked());
     selectedCameraWidget_->setZoomFactor(zoomSlider_ ? zoomSlider_->value() / 100.0 : 1.0);
     selectedCameraWidget_->setBrightnessOffset(brightnessSlider_ ? brightnessSlider_->value() : 0);
+    // A camera the event has no file for: the detail view states that instead of
+    // staying an unexplained empty frame (its dashboard does the same, and never
+    // falls back to another camera's data).
+    const QString notRecordedReason = eventCameraNotRecordedReason(cameraId);
+    if (!notRecordedReason.isEmpty()) {
+        selectedCameraWidget_->setNotRecorded(notRecordedReason);
+    }
     connect(selectedCameraWidget_, &AnalysisVideoWidget::annotationChangedNormalized, this,
             [this](int cameraId, const QString& shape, const QVector<QPointF>& points) {
         const int frameIndex = displayedFrameIndexForCamera(cameraId, currentReviewFrameIndex());
@@ -5140,6 +5168,32 @@ void AnalysisView::clearData() {
     updateAlignmentStatus();
 
     std::cout << "[AnalysisView] Data cleared." << std::endl;
+}
+
+QString AnalysisView::eventCameraNotRecordedReason(int cameraId) const {
+    // Only the per-camera-file review mode can have a camera missing from the
+    // event: live view has no event, and an in-memory/tiled sequence carries
+    // every camera in one recording.
+    if (!isReviewMode_ || !isStreamingMode_) {
+        return QString();
+    }
+    if (cameraId < 0 || videoReaders_.count(cameraId) > 0) {
+        return QString();
+    }
+    const bool wasParticipant =
+        std::find(currentEventInfo_.missingCameraIds.cbegin(),
+                  currentEventInfo_.missingCameraIds.cend(), cameraId)
+        != currentEventInfo_.missingCameraIds.cend();
+    if (wasParticipant) {
+        return QStringLiteral("no frames delivered during this event");
+    }
+    if (cameraId < CameraConfig::getCameraCount()
+        && CameraConfig::getCameraInfo(cameraId).group == CameraGroup::kUnassigned) {
+        // Narrowed triggers never record an unassigned camera, so name that
+        // instead of blaming the section it does not have.
+        return QStringLiteral("no section assigned, so the trigger left it out");
+    }
+    return QStringLiteral("its section was not recorded by this trigger");
 }
 
 QString AnalysisView::currentEventCameraLabel(int cameraId) const {

@@ -32,6 +32,11 @@ public:
     void setReviewFrame(const QImage& frame, const QString& timestamp,
                         const QString& timestampTooltip, const QString& playbackInfo);
     void clear(); // Clear frame and reset to "No Signal" state
+    // Camera that is not part of the loaded event (its section was not in the
+    // trigger's recorded sections, or it delivered no frames): keeps the tile in
+    // place with the camera's name and states why it is empty, instead of
+    // leaving an unnamed blank slot. Cleared by the next real frame.
+    void setNotRecorded(const QString& reason);
     void setPreviewThemeColors(const ThemeColors& themeColors);
     void clearPreviewThemeColors();
     void setPreviewStyle(const AnalysisViewStyle& style);
@@ -69,6 +74,8 @@ private:
     QString title_;
     QString timestamp_;
     QString playbackInfo_;
+    // Non-empty while this tile shows the "not recorded in this event" state.
+    QString notRecordedReason_;
     QImage currentFrame_;
     QImage scaledFrameCache_;
     QSize scaledFrameCacheWidgetSize_;

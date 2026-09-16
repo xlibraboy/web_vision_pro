@@ -29,6 +29,9 @@ void AnalysisVideoWidget::setTitle(const QString& title) {
 }
 
 void AnalysisVideoWidget::setFrame(const QImage& frame) {
+    // A real frame means this camera IS part of the event: drop the
+    // not-recorded marker so it never survives into the next event.
+    notRecordedReason_.clear();
     currentFrame_ = frame;
     scaledFrameCache_ = QImage();
     // Inside the batched review update, setReviewFrame schedules the single
@@ -53,6 +56,7 @@ void AnalysisVideoWidget::setReviewFrame(const QImage& frame, const QString& tim
 }
 
 void AnalysisVideoWidget::setTimestamp(const QString& timestamp, const QString& /*tooltip*/) {
+    notRecordedReason_.clear();
     timestamp_ = timestamp;
     // Hover tooltips on the video frames are intentionally disabled — they pop
     // up over the frames and disturb review. The parameter is kept for API
@@ -71,9 +75,21 @@ void AnalysisVideoWidget::setPlaybackInfo(const QString& info) {
 }
 
 void AnalysisVideoWidget::clear() {
+    notRecordedReason_.clear();
     currentFrame_ = QImage();
     timestamp_ = "00:00:00.000";
     playbackInfo_.clear();
+    update();
+}
+
+void AnalysisVideoWidget::setNotRecorded(const QString& reason) {
+    notRecordedReason_ = reason;
+    currentFrame_ = QImage();
+    scaledFrameCache_ = QImage();
+    playbackInfo_.clear();
+    // The timestamp bar only paints over a frame, so no stale time is left
+    // behind by an empty tile.
+    timestamp_.clear();
     update();
 }
 
@@ -244,6 +260,27 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     
     // Draw background
     painter.fillRect(rect(), surfaceColor);
+
+    // Camera with no recording in this event: name the state inside the tile so
+    // an empty slot is self-explanatory instead of reading as a broken feed.
+    if (!notRecordedReason_.isEmpty()) {
+        QColor stateColor = lightSurface ? QColor(0, 0, 0, 150) : QColor(255, 255, 255, 150);
+        QFont stateFont(style.videoTitleFontFamily);
+        stateFont.setPixelSize(std::max(11, style.videoTitleFontSize + 1));
+        stateFont.setBold(true);
+        stateFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
+        painter.setPen(stateColor);
+        painter.setFont(stateFont);
+        const int stateHeight = QFontMetrics(stateFont).height();
+        const QRect stateRect(8, height() / 2 - stateHeight, width() - 16, stateHeight);
+        painter.drawText(stateRect, Qt::AlignCenter, QStringLiteral("NOT RECORDED"));
+
+        QFont reasonFont(style.videoTitleFontFamily);
+        reasonFont.setPixelSize(std::max(9, style.videoTitleFontSize - 2));
+        painter.setFont(reasonFont);
+        painter.drawText(QRect(8, stateRect.bottom() + 2, width() - 16, stateHeight * 2),
+                         Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, notRecordedReason_);
+    }
     
     // Draw frame if available
     if (!currentFrame_.isNull()) {

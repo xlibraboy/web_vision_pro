@@ -72,6 +72,11 @@ public:
     // fights the panel). Hover seeking is unaffected.
     void setHoverTooltipEnabled(bool on);
     void clear();
+    // Camera that has no recording in the loaded event (its section was not in
+    // the trigger's recorded sections, or it delivered no frames): the region
+    // states that instead of leaving an empty chart or, worse, another camera's
+    // curves. Any setEventData() call clears it.
+    void setNotRecorded(const QString& reason);
     void applyTheme(const QColor& background, const QColor& curve,
                     const QColor& text);
 
@@ -110,6 +115,8 @@ private:
     void detailWindow(int* startFrame, int* endFrame) const;
 
     QString cameraLabel_;
+    // Non-empty while the region shows the "not recorded in this event" state.
+    QString notRecordedReason_;
     int totalFrames_ = 0;
     int triggerIndex_ = 0;
     double fps_ = 20.0;
