@@ -655,6 +655,8 @@ void OpcUaClientService::dispatchTriggerFor(const OpcUaTriggerTagSettings& tagSe
     triggerEvent.nodeId = normalizedNodeId(tagSettings.nodeId);
     triggerEvent.positionDirectionSign = settings_.positionDirectionSign >= 0 ? 1 : -1;
     triggerEvent.group = tagSettings.group;
+    triggerEvent.recordGroups = QVector<int>(tagSettings.recordGroups.begin(),
+                                             tagSettings.recordGroups.end());
     triggerEvent.positionMm = tagSettings.positionMm;
 
     {

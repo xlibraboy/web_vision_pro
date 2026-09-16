@@ -17,6 +17,18 @@
 #include <QDir>
 #include <opencv2/imgcodecs.hpp>
 
+namespace {
+// Comma-joined display names of the sections a trigger records, for the
+// "trigger ignored" message and log line.
+QString sectionNames(const std::set<int>& sections) {
+    QStringList names;
+    for (int section : sections) {
+        names.append(CameraGroup::name(section));
+    }
+    return names.join(", ");
+}
+}
+
 EventController& EventController::instance() {
     static EventController instance;
     return instance;
@@ -296,7 +308,7 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
         return false;
     }
 
-    std::cout << "[EventController] Post-trigger capture complete for the triggered camera group. Moving to save queue." << std::endl;
+    std::cout << "[EventController] Post-trigger capture complete for the participating cameras. Moving to save queue." << std::endl;
 
     {
         std::lock_guard<std::mutex> saveLock(saveMutex_);
@@ -399,7 +411,7 @@ bool EventController::triggerEvent() {
     return triggerEvent(TriggerContext{});
 }
 
-bool EventController::triggerEvent(const TriggerContext& context) {
+bool EventController::triggerEvent(const TriggerContext& context, QString* ignoreReason) {
     if (triggering_) return false;
 
     const QString reason = context.reason.isEmpty() ? QStringLiteral("Triggered") : context.reason;
@@ -419,20 +431,28 @@ bool EventController::triggerEvent(const TriggerContext& context) {
     currentEventCameraPositions_.clear();
     const std::vector<CameraInfo> cameras = CameraConfig::getCameras();
 
-    // Determine which cameras participate: a group-restricted trigger only
-    // records cameras whose config group matches. A trigger with no group
-    // restriction (group < 0) records all active cameras (legacy behavior).
-    groupRestricted_ = context.group >= 0;
+    // Determine which cameras participate: a trigger records the sections it
+    // selected (recordGroups). No selection, or every section selected, records
+    // all cameras (legacy behavior) - including cameras whose group is still
+    // unassigned; a narrower selection records only cameras assigned to it.
+    const std::set<int> scope(context.recordGroups.begin(), context.recordGroups.end());
+    const bool scopeCoversAll = scope.empty()
+        || static_cast<int>(scope.size()) >= CameraGroup::kCount;
+    groupRestricted_ = !scopeCoversAll;
     recordCameraIds_.clear();
     if (groupRestricted_) {
         for (size_t i = 0; i < cameras.size(); ++i) {
-            if (cameras[i].group == context.group) {
+            if (scope.count(cameras[i].group) > 0) {
                 recordCameraIds_.insert(static_cast<int>(i) + 1);
             }
         }
         if (recordCameraIds_.empty()) {
-            std::cout << "[EventController] Trigger ignored: no camera is assigned to group "
-                      << CameraGroup::name(context.group).toStdString() << std::endl;
+            const QString sections = sectionNames(scope);
+            std::cout << "[EventController] Trigger ignored: no camera is assigned to "
+                      << sections.toStdString() << std::endl;
+            if (ignoreReason) {
+                *ignoreReason = QString("no camera is assigned to %1").arg(sections);
+            }
             return false;
         }
     }
@@ -564,6 +584,9 @@ bool EventController::triggerEvent(const TriggerContext& context) {
     if (!anyParticipantLive) {
         std::cout << "[EventController] Trigger ignored: no active camera is "
                      "streaming frames right now." << std::endl;
+        if (ignoreReason) {
+            *ignoreReason = QStringLiteral("no active camera is streaming frames");
+        }
         return false;
     }
 

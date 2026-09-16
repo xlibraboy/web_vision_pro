@@ -40,9 +40,13 @@ public:
         bool hasSpeed = false;
         bool speedStale = false;
         int positionDirectionSign = 1;
-        // Camera group to record (CameraGroup::k*). A negative value means ALL
-        // active cameras are recorded (legacy behavior).
+        // Camera group the trigger sensor belongs to (CameraGroup::k*). Labels
+        // the event (EventInfo.triggerGroup); it does not filter recording.
         int group = CameraGroup::kUnassigned;
+        // Sections to record (CameraGroup::k* values). Empty or every section =
+        // no filtering: all active cameras record (legacy behavior). A subset
+        // records only cameras assigned to those sections.
+        std::vector<int> recordGroups;
         // Machine position (mm) where the trigger fired (sensor / detecting
         // camera). 0 = spatial alignment disabled.
         int triggerPositionMm = 0;
@@ -62,12 +66,17 @@ public:
     // Add frame to a specific camera's circular buffer with metadata
     void addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter);
 
-    // Trigger an event (Paper Break) - captures post-trigger for ALL active cameras
+    // Trigger an event (Paper Break) - captures post-trigger for the
+    // participating cameras (every active camera unless the context selects
+    // sections to record).
     // Returns true when the trigger was accepted (recording armed). Returns false
-    // when it was ignored (e.g. no streaming camera or empty group) so callers can
-    // surface the reason to the user.
+    // when it was ignored (e.g. no streaming camera or no camera in the recorded
+    // sections) so callers can surface the reason to the user; when the trigger is
+    // ignored for one of those reasons, *ignoreReason names it. ignoreReason is
+    // left untouched when the trigger is dropped silently (an event is already
+    // recording), so a break firing several sensors in a row does not spam.
     bool triggerEvent();
-    bool triggerEvent(const TriggerContext& context);
+    bool triggerEvent(const TriggerContext& context, QString* ignoreReason = nullptr);
 
     // Check if currently saving
     bool isSaving() const;
@@ -221,10 +230,10 @@ private:
     std::map<int, CameraBufferState> cameraStates_;
     std::mutex bufferMutex_;
 
-    // True while the active trigger records only a specific camera group.
+    // True while the active trigger records only the sections it selected.
     bool groupRestricted_ = false;
-    // When groupRestricted_, this holds the 1-based camera IDs whose config
-    // group matched the trigger's group.
+    // When groupRestricted_, this holds the 1-based camera IDs assigned to one
+    // of the trigger's recorded sections.
     std::set<int> recordCameraIds_;
 
     // Save state

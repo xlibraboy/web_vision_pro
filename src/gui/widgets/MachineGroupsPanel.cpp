@@ -20,8 +20,8 @@ MachineGroupsPanel::MachineGroupsPanel(QWidget* parent) : QWidget(parent) {
     auto* header = new QHBoxLayout();
     auto* hintLabel = new QLabel(
         "Camera groups - fixed paper-machine sections. Assign each camera to a "
-        "group on its Camera Card. A trigger wired to a group records only that "
-        "group's cameras.", this);
+        "group on its Camera Card; an OPC UA trigger records the sections picked "
+        "in its Records column.", this);
     hintLabel->setWordWrap(true);
     hintLabel->setStyleSheet(kMutedLabelStyle);
     header->addWidget(hintLabel, 1);

@@ -1021,6 +1021,10 @@ void MainWindow::setupCore() {
             triggerContext.speedValue = event.speedValue;
             triggerContext.hasSpeed = event.hasSpeed;
             triggerContext.group = event.group;
+            triggerContext.recordGroups.reserve(static_cast<size_t>(event.recordGroups.size()));
+            for (int group : event.recordGroups) {
+                triggerContext.recordGroups.push_back(group);
+            }
             triggerContext.triggerPositionMm = event.positionMm;
             triggerContext.speedStale = event.speedStale;
             triggerContext.positionDirectionSign = event.positionDirectionSign;
@@ -1033,7 +1037,13 @@ void MainWindow::setupCore() {
                 anchor.nodeId = s.nodeId;
                 triggerContext.speedAnchors.push_back(anchor);
             }
-            EventController::instance().triggerEvent(triggerContext);
+            QString ignoreReason;
+            if (!EventController::instance().triggerEvent(triggerContext, &ignoreReason)) {
+                if (!ignoreReason.isEmpty()) {
+                    statusBar()->showMessage(QString("Trigger ignored: %1.").arg(ignoreReason), 4000);
+                }
+                return;
+            }
             statusBar()->showMessage(QString("%1 triggered recording").arg(triggerContext.reason), 3000);
         });
     }
@@ -1764,8 +1774,13 @@ void MainWindow::manualTrigger() {
         const QString unit = opcUaClientService_->speedUnit();
         triggerContext.speedUnit = unit.isEmpty() ? QStringLiteral("m/min") : unit;
     }
-    if (!EventController::instance().triggerEvent(triggerContext)) {
-        statusBar()->showMessage("Trigger ignored: no active camera is streaming frames.", 4000);
+    QString ignoreReason;
+    if (!EventController::instance().triggerEvent(triggerContext, &ignoreReason)) {
+        statusBar()->showMessage(
+            ignoreReason.isEmpty()
+                ? QStringLiteral("Trigger ignored.")
+                : QString("Trigger ignored: %1.").arg(ignoreReason),
+            4000);
     }
 }
 

@@ -6,8 +6,8 @@
 #include <QVector>
 
 // Fixed paper-machine camera groups. Cameras are assigned to one of these on
-// their Camera Card; a trigger wired to a group records only that group's
-// cameras (group -1 in a TriggerContext means "all cameras").
+// their Camera Card; an OPC UA trigger records the sections selected in its
+// "Records" picker (an empty selection means every camera).
 namespace CameraGroup {
     constexpr int kUnassigned = -1;
     constexpr int kWire = 0;           // forming wire, before the press section

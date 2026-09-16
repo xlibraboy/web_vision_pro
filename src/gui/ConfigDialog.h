@@ -43,6 +43,7 @@ class MachineLayoutPanel;
 class QTimer;
 class OpcUaClientService;
 class QTableWidget;
+class QAction;
 class OpcUaLiveStatusWindow;
 
 class ConfigDialog : public QWidget {
@@ -128,6 +129,9 @@ private:
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
     void refreshOpcUaSpeedDisplay();
+    // Trigger grid: rebuild one row's "Records" button text/tooltip from the
+    // sections currently ticked in its popup.
+    void updateRecordGroupsButton(int row);
     void showOpcUaLiveStatusWindow();
     // Async OPC UA server discovery. The probe walks the candidate list one
     // client at a time (750ms per reachable-but-silent host) without ever
@@ -299,6 +303,12 @@ private:
         QLineEdit* nodeIdEdit = nullptr;
         QComboBox* simulatedCombo = nullptr;
         QComboBox* groupCombo = nullptr;
+        // Sections this trigger records. The button shows a summary and opens a
+        // popup of checkable section actions (kept here so the selection can be
+        // read back and persisted).
+        QPushButton* recordGroupsBtn = nullptr;
+        QList<QAction*> recordGroupActions;
+        QList<int> recordGroups;
         QSpinBox* positionMmSpin = nullptr;
         QPushButton* manualTriggerBtn = nullptr;
         QSpinBox* minimumIntervalSpin = nullptr;

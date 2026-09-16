@@ -14,8 +14,10 @@ class QLabel;
  * camera belongs to is assigned on its Camera Card; this panel is a pure
  * display mirror refreshed by ConfigDialog whenever the camera set changes.
  *
- * Triggers in the OPC UA config can be wired to a group (or All); when a
- * trigger fires, only the cameras of that group are recorded.
+ * Triggers in the OPC UA config can select the sections they record (Records
+ * picker); when a trigger fires, only cameras assigned to the selected
+ * sections are recorded. An unassigned camera is recorded only while the
+ * trigger keeps "All sections" selected.
  */
 class MachineGroupsPanel : public QWidget {
     Q_OBJECT

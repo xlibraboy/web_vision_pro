@@ -56,9 +56,15 @@ struct OpcUaTriggerTagSettings {
     // When true the tag is not subscribed from the OPC UA server; the trigger
     // is driven only by the manual push-hold button.
     bool simulated = false;
-    // Camera group this trigger records: a CameraGroup::k* constant, or
-    // CameraGroup::kUnassigned (-1) to record all cameras.
+    // Camera group this trigger belongs to: a CameraGroup::k* constant, or
+    // CameraGroup::kUnassigned (-1). Labels the event (EventInfo.triggerGroup);
+    // which cameras record is decided by recordGroups below.
     int group = CameraGroup::kUnassigned;
+    // Sections this trigger records (CameraGroup::k* values, ascending). Empty
+    // or all CameraGroup::kCount sections = no filtering: every active camera
+    // records, including cameras whose group is still Unassigned. A subset
+    // records only cameras assigned to those sections.
+    std::vector<int> recordGroups;
     // Machine position (mm) of the trigger sensor. 0 = spatial alignment
     // disabled: every camera records the same wall-clock window.
     int positionMm = 0;

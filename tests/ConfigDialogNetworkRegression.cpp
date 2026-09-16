@@ -1,5 +1,6 @@
 #include "ConfigDialogNetworkRegression.h"
 #include "EventCaptureTiming.h"
+#include "TriggerRecordScope.h"
 
 #include "gui/ConfigDialog.h"
 
@@ -145,7 +146,7 @@ int runSuite(QObject* suite, int argc, char* argv[])
     args.emplace_back(argv[0]);
     for (int i = 1; i < argc; ++i) {
         const QByteArray arg(argv[i]);
-        if (arg == "all" || arg == "config" || arg == "capture") {
+        if (arg == "all" || arg == "config" || arg == "capture" || arg == "scope") {
             continue;
         }
         args.push_back(arg);
@@ -164,25 +165,30 @@ int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
 
-    // Suite selector: ctest reports the two areas separately while they share
+    // Suite selector: ctest reports the areas separately while they share
     // this one binary (it links the whole app, so a second test executable
     // would only duplicate that build). No selector runs everything.
     QString suite = QStringLiteral("all");
     for (int i = 1; i < argc; ++i) {
         const QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == QLatin1String("config") || arg == QLatin1String("capture")) {
+        if (arg == QLatin1String("config") || arg == QLatin1String("capture")
+            || arg == QLatin1String("scope")) {
             suite = arg;
         }
     }
 
     int status = 0;
-    if (suite != QLatin1String("capture")) {
+    if (suite != QLatin1String("capture") && suite != QLatin1String("scope")) {
         ConfigDialogNetworkRegression configDialogTest;
         status |= runSuite(&configDialogTest, argc, argv);
     }
-    if (suite != QLatin1String("config")) {
+    if (suite != QLatin1String("config") && suite != QLatin1String("scope")) {
         EventCaptureTiming captureTest;
         status |= runSuite(&captureTest, argc, argv);
+    }
+    if (suite != QLatin1String("config") && suite != QLatin1String("capture")) {
+        TriggerRecordScope scopeTest;
+        status |= runSuite(&scopeTest, argc, argv);
     }
     return status;
 }

@@ -120,10 +120,13 @@ target_link_libraries(PaperVision_App
 # OPC UA endpoint and asserts they never block on the network probe, plus the
 # event recorder's cross-camera timing (a camera that misses frames must still
 # record the same post-trigger window in seconds, and a camera that stops
-# streaming must be recorded as missing). Both suites drive the real classes
-# with synthetic frame clocks — no cameras are involved.
+# streaming must be recorded as missing) and its section-scoped recording (a
+# narrowed trigger records only its sections, and a selection with no camera is
+# refused with a reason). All suites drive the real classes with synthetic
+# frame clocks — no cameras are involved.
 # Run with: ctest -R config_dialog_network_regression
 #           ctest -R event_capture_timing
+#           ctest -R trigger_record_scope
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     find_package(Qt5 COMPONENTS Test REQUIRED)
@@ -131,12 +134,14 @@ if(BUILD_TESTING)
     qt5_wrap_cpp(TEST_MOC_SOURCES
         tests/ConfigDialogNetworkRegression.h
         tests/EventCaptureTiming.h
+        tests/TriggerRecordScope.h
     )
 
     add_executable(PaperVision_RegressionTest
         ${SOURCES}
         tests/ConfigDialogNetworkRegression.cpp
         tests/EventCaptureTiming.cpp
+        tests/TriggerRecordScope.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -155,6 +160,7 @@ if(BUILD_TESTING)
 
     add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest config)
     add_test(NAME event_capture_timing COMMAND PaperVision_RegressionTest capture)
-    set_tests_properties(config_dialog_network_regression event_capture_timing PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
+    add_test(NAME trigger_record_scope COMMAND PaperVision_RegressionTest scope)
+    set_tests_properties(config_dialog_network_regression event_capture_timing trigger_record_scope
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()

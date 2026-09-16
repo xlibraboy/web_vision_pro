@@ -274,7 +274,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kCalenderReel), CameraGroup::kCalenderReel);
     groupCombo_->setCurrentIndex(groupCombo_->findData(info.group));
     groupCombo_->setStyleSheet(fieldStyle);
-    groupCombo_->setToolTip("Paper-machine section this camera belongs to. Triggers wired to a group record only that group's cameras.");
+    groupCombo_->setToolTip("Paper-machine section this camera belongs to. An OPC UA trigger records this camera only while its Records selection includes this section.");
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Group:", groupCombo_);
 
     // Floor (machine floor the camera is mounted on)

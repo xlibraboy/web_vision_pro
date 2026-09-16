@@ -37,8 +37,11 @@ public:
         bool hasSpeed = false;
         bool speedStale = false;
         int positionDirectionSign = 1;
-        // Camera group to record (CameraGroup::k*), or -1 for all cameras.
+        // Camera group this trigger belongs to (CameraGroup::k*), or -1 when
+        // unset. Labels the event; recordGroups decides what is recorded.
         int group = CameraGroup::kUnassigned;
+        // Sections to record (CameraGroup::k*). Empty = no filtering.
+        QVector<int> recordGroups;
         // Machine position (mm) of the trigger sensor (0 = no spatial alignment).
         int positionMm = 0;
         // Every fresh speed anchor snapshot (position mm + actual local speed),

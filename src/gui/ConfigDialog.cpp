@@ -47,6 +47,9 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QHostInfo>
+#include <QAction>
+#include <QMenu>
+#include <QToolTip>
 #include <QNetworkInterface>
 #include <QEventLoop>
 #include <QTableWidget>
@@ -615,6 +618,37 @@ void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
         opcUaStatusTable_->setItem(i, 3, makeItem(stateText, stateColor));
         opcUaStatusTable_->setItem(i, 4, makeItem(lastFiredText, QStringLiteral("#8B949E")));
     }
+}
+
+void ConfigDialog::updateRecordGroupsButton(int row) {
+    if (row < 0 || row >= kOpcUaTriggerSlots) {
+        return;
+    }
+    const OpcUaTriggerRowWidgets& r = opcUaTriggerRows_[static_cast<size_t>(row)];
+    if (!r.recordGroupsBtn) {
+        return;
+    }
+
+    QStringList names;
+    for (int group : r.recordGroups) {
+        names.append(CameraGroup::name(group));
+    }
+    const bool allSections = r.recordGroups.size() >= CameraGroup::kCount;
+    const QString joined = names.join(", ");
+    // Keep the grid column narrow: a long list of names becomes a count, the
+    // full list stays readable in the tooltip.
+    r.recordGroupsBtn->setText(allSections
+        ? QStringLiteral("All sections")
+        : (joined.size() > 22
+            ? QString("%1 of %2 sections").arg(names.size()).arg(CameraGroup::kCount)
+            : joined));
+    r.recordGroupsBtn->setToolTip(allSections
+        ? QStringLiteral("Records every active camera (all sections). Click to limit this trigger "
+                         "to specific sections; assign cameras to sections on their Camera Card "
+                         "(see Machine Groups).")
+        : QString("Records only cameras assigned to: %1.\nA camera with no section assigned is "
+                  "not recorded, and the trigger is ignored when none of these sections has a "
+                  "camera. Click to change the sections.").arg(joined));
 }
 
 void ConfigDialog::refreshOpcUaSpeedDisplay() {
@@ -1421,17 +1455,20 @@ void ConfigDialog::setupUI() {
     opcUaSimHeader->setToolTip("Simulated: the trigger fires only from the push-hold button (no OPC UA server subscription).");
     opcUaTriggerGrid->addWidget(opcUaSimHeader, 0, 3);
     QLabel* opcUaGroupHeader = new QLabel("Group", opcUaTriggerGroup);
-    opcUaGroupHeader->setToolTip("Camera group this trigger records: All, or one of the machine sections (Press-Part, Pre-Dryer, After-Dryer, Calender-Reel). Only that group's cameras are recorded.");
+    opcUaGroupHeader->setToolTip("Machine section this sensor belongs to. It labels the event in the Analysis view; which cameras record is set by Records.");
     opcUaTriggerGrid->addWidget(opcUaGroupHeader, 0, 4);
+    QLabel* opcUaRecordsHeader = new QLabel("Records", opcUaTriggerGroup);
+    opcUaRecordsHeader->setToolTip("Sections recorded when this trigger fires. 'All sections' records every active camera; a subset records only cameras assigned to those sections (assign cameras on their Camera Card, see Machine Groups).");
+    opcUaTriggerGrid->addWidget(opcUaRecordsHeader, 0, 5);
     QLabel* opcUaPositionHeader = new QLabel("Position", opcUaTriggerGroup);
     opcUaPositionHeader->setToolTip("Machine position (mm) of the trigger sensor. When set (> 0), the recorder spatially aligns every camera: each camera's saved window is centered on when the defect passes it, using the machine speed. 0 = record the same wall-clock window for all cameras.");
-    opcUaTriggerGrid->addWidget(opcUaPositionHeader, 0, 5);
+    opcUaTriggerGrid->addWidget(opcUaPositionHeader, 0, 6);
     QLabel* opcUaHoldHeader = new QLabel("Push-Hold", opcUaTriggerGroup);
     opcUaHoldHeader->setToolTip("Press and hold to fire this trigger repeatedly (every Repeat ms). Release to stop.");
-    opcUaTriggerGrid->addWidget(opcUaHoldHeader, 0, 6);
+    opcUaTriggerGrid->addWidget(opcUaHoldHeader, 0, 7);
     QLabel* opcUaRepeatHeader = new QLabel("Repeat", opcUaTriggerGroup);
     opcUaRepeatHeader->setToolTip("Push-hold repeat interval: while held, a recording fires every N ms (0 = as fast as possible).");
-    opcUaTriggerGrid->addWidget(opcUaRepeatHeader, 0, 7);
+    opcUaTriggerGrid->addWidget(opcUaRepeatHeader, 0, 8);
 
     for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
@@ -1464,15 +1501,61 @@ void ConfigDialog::setupUI() {
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPreDryer), CameraGroup::kPreDryer);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kCalenderReel), CameraGroup::kCalenderReel);
-        row.groupCombo->setToolTip("Camera group this trigger records. 'All' records every active camera; a specific group records only cameras assigned to it (assign cameras on their Camera Card, see Machine Groups).");
+        row.groupCombo->setToolTip("Machine section this sensor belongs to (labels the event in the Analysis view). Which cameras record is set by the Records picker.");
         opcUaTriggerGrid->addWidget(row.groupCombo, i + 1, 4);
+
+        // Sections this trigger records. A button + checkable popup keeps the
+        // grid narrow while the selection stays visible in this row.
+        row.recordGroupsBtn = new QPushButton(opcUaTriggerGroup);
+        row.recordGroupsBtn->setStyleSheet(opcUaTriggerBtnStyle);
+        row.recordGroupsBtn->setCursor(Qt::PointingHandCursor);
+        row.recordGroupsBtn->setMinimumWidth(120);
+        QMenu* recordGroupsMenu = new QMenu(row.recordGroupsBtn);
+        recordGroupsMenu->setStyleSheet(
+            QString("QMenu { background-color: %1; color: %2; border: 1px solid %3; } "
+                    "QMenu::item:selected { color: %4; }")
+                .arg(tc.btnBg, tc.text, tc.border, tc.primary));
+        row.recordGroupActions.clear();
+        row.recordGroups.clear();
+        for (int group = 0; group < CameraGroup::kCount; ++group) {
+            QAction* action = recordGroupsMenu->addAction(CameraGroup::name(group));
+            action->setCheckable(true);
+            action->setChecked(true);
+            row.recordGroups.append(group);
+            connect(action, &QAction::toggled, this, [this, i, action](bool checked) {
+                OpcUaTriggerRowWidgets& r = opcUaTriggerRows_[static_cast<size_t>(i)];
+                if (!checked && r.recordGroups.size() <= 1) {
+                    // At least one section has to record, or the trigger would
+                    // silently record nothing.
+                    action->setChecked(true);
+                    QToolTip::showText(QCursor::pos(),
+                                       QStringLiteral("At least one section must be selected."),
+                                       r.recordGroupsBtn);
+                    return;
+                }
+                r.recordGroups.clear();
+                for (QAction* candidate : r.recordGroupActions) {
+                    if (candidate->isChecked()) {
+                        r.recordGroups.append(candidate->property("group").toInt());
+                    }
+                }
+                std::sort(r.recordGroups.begin(), r.recordGroups.end());
+                updateRecordGroupsButton(i);
+            });
+            action->setProperty("group", group);
+            row.recordGroupActions.append(action);
+        }
+        row.recordGroupsBtn->setMenu(recordGroupsMenu);
+        row.recordGroupsBtn->setToolTip("Sections recorded when this trigger fires. 'All sections' records every active camera; a subset records only cameras assigned to those sections (assign cameras on their Camera Card, see Machine Groups).");
+        updateRecordGroupsButton(i);
+        opcUaTriggerGrid->addWidget(row.recordGroupsBtn, i + 1, 5);
 
         row.positionMmSpin = new QSpinBox(opcUaTriggerGroup);
         row.positionMmSpin->setRange(0, 500000);
         row.positionMmSpin->setSuffix(" mm");
         row.positionMmSpin->setStyleSheet(globalFpsSpin_->styleSheet());
         row.positionMmSpin->setToolTip("Machine position (mm) of the trigger sensor. When set (> 0), every camera's recording window is centered on when the defect passes it (uses the machine speed). 0 = no spatial alignment.");
-        opcUaTriggerGrid->addWidget(row.positionMmSpin, i + 1, 5);
+        opcUaTriggerGrid->addWidget(row.positionMmSpin, i + 1, 6);
 
         row.manualTriggerBtn = new QPushButton("Hold", opcUaTriggerGroup);
         row.manualTriggerBtn->setStyleSheet(opcUaTriggerBtnStyle);
@@ -1488,6 +1571,7 @@ void ConfigDialog::setupUI() {
             tag.enabled = r.enabledCheck && r.enabledCheck->isChecked();
             tag.simulated = r.simulatedCombo && r.simulatedCombo->currentData().toBool();
             tag.group = r.groupCombo ? r.groupCombo->currentData().toInt() : CameraGroup::kUnassigned;
+            tag.recordGroups.assign(r.recordGroups.begin(), r.recordGroups.end());
             tag.positionMm = r.positionMmSpin ? r.positionMmSpin->value() : 0;
             tag.minimumIntervalMs = r.minimumIntervalSpin ? r.minimumIntervalSpin->value() : 0;
             if (tag.name.isEmpty()) {
@@ -1498,14 +1582,14 @@ void ConfigDialog::setupUI() {
         connect(row.manualTriggerBtn, &QPushButton::released, this, [this, i]() {
             emit opcUaManualTriggerRequested(i, false, OpcUaTriggerTagSettings{});
         });
-        opcUaTriggerGrid->addWidget(row.manualTriggerBtn, i + 1, 6, Qt::AlignCenter);
+        opcUaTriggerGrid->addWidget(row.manualTriggerBtn, i + 1, 7, Qt::AlignCenter);
 
         row.minimumIntervalSpin = new QSpinBox(opcUaTriggerGroup);
         row.minimumIntervalSpin->setRange(0, 60000);
         row.minimumIntervalSpin->setSuffix(" ms");
         row.minimumIntervalSpin->setStyleSheet(globalFpsSpin_->styleSheet());
         row.minimumIntervalSpin->setToolTip("Push-hold repeat interval: while held, fires every N ms (0 = as fast as possible).");
-        opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 7);
+        opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 8);
     }
     opcUaTriggerLayout->addLayout(opcUaTriggerGrid);
     opcUaTriggerTabLayout->addWidget(opcUaTriggerGroup);
@@ -2787,6 +2871,18 @@ void ConfigDialog::loadSettings() {
                 row.groupCombo->setCurrentIndex(groupIndex);
             }
         }
+        // Sections this trigger records: an unset list means every section.
+        row.recordGroups = QList<int>(tag.recordGroups.begin(), tag.recordGroups.end());
+        if (row.recordGroups.isEmpty()) {
+            for (int group = 0; group < CameraGroup::kCount; ++group) {
+                row.recordGroups.append(group);
+            }
+        }
+        for (QAction* action : row.recordGroupActions) {
+            QSignalBlocker blocker(action);
+            action->setChecked(row.recordGroups.contains(action->property("group").toInt()));
+        }
+        updateRecordGroupsButton(i);
         if (row.positionMmSpin) {
             row.positionMmSpin->setValue(tag.positionMm);
         }
@@ -3509,6 +3605,7 @@ void ConfigDialog::saveOpcUaSettings() {
         tag.minimumIntervalMs = row.minimumIntervalSpin ? row.minimumIntervalSpin->value() : 0;
         tag.simulated = row.simulatedCombo ? row.simulatedCombo->currentData().toBool() : false;
         tag.group = row.groupCombo ? row.groupCombo->currentData().toInt() : CameraGroup::kUnassigned;
+        tag.recordGroups.assign(row.recordGroups.begin(), row.recordGroups.end());
         tag.positionMm = row.positionMmSpin ? row.positionMmSpin->value() : 0;
 
         if (tag.name.isEmpty()) {

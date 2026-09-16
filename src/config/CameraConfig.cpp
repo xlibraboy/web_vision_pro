@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QSettings>
+#include <algorithm>
 #include <cstdlib>
 
 namespace {
@@ -348,6 +349,20 @@ OpcUaSettings CameraConfig::getOpcUaSettings() {
             tag.minimumIntervalMs = settings.value("minimumIntervalMs", tag.minimumIntervalMs).toInt();
             tag.simulated = settings.value("simulated", tag.simulated).toBool();
             tag.group = settings.value("group", tag.group).toInt();
+            // Sections this trigger records ("1,2"); absent = all sections.
+            tag.recordGroups.clear();
+            const QStringList recordGroupParts = settings.value("recordGroups", QString())
+                .toString().split(',', Qt::SkipEmptyParts);
+            for (const QString& part : recordGroupParts) {
+                bool ok = false;
+                const int group = part.trimmed().toInt(&ok);
+                if (ok && group >= 0 && group < CameraGroup::kCount) {
+                    tag.recordGroups.push_back(group);
+                }
+            }
+            std::sort(tag.recordGroups.begin(), tag.recordGroups.end());
+            tag.recordGroups.erase(std::unique(tag.recordGroups.begin(), tag.recordGroups.end()),
+                                   tag.recordGroups.end());
             tag.positionMm = settings.value("positionMm", tag.positionMm).toInt();
             result.triggerTags.push_back(tag);
         }
@@ -433,6 +448,11 @@ void CameraConfig::setOpcUaSettings(const OpcUaSettings& opcUaSettings) {
         settings.setValue("minimumIntervalMs", tag.minimumIntervalMs);
         settings.setValue("simulated", tag.simulated);
         settings.setValue("group", tag.group);
+        QStringList recordGroupParts;
+        for (int group : tag.recordGroups) {
+            recordGroupParts.append(QString::number(group));
+        }
+        settings.setValue("recordGroups", recordGroupParts.join(','));
         settings.setValue("positionMm", tag.positionMm);
     }
     settings.endArray();

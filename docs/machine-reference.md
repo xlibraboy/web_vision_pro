@@ -115,9 +115,13 @@ Notes:
 
 ## 3. Sheet-Break / Trigger Sensors
 
-Triggers start the circular-buffer recording (pre/post-trigger window). A trigger
-wired to a section records only that section's cameras; unassigned triggers
-record all cameras. Configured in Config Dialog → OPC UA → Trigger Tags.
+Triggers start the circular-buffer recording (pre/post-trigger window). Each
+trigger row picks the sections it **Records**: all sections (default) records
+every active camera, while a narrower selection records only cameras assigned
+to those sections — e.g. a Press-Part sensor set to Press-Part only leaves
+Pre-Dryer, After-Dryer and Calender-Reel out of the event. The row's Group is
+the section the sensor guards; it labels the event. Configured in Config Dialog
+→ OPC UA → Triggers.
 
 ### Planned Sheet-Break Sensors (per group)
 
@@ -136,7 +140,7 @@ no sheet-break sensor configured.
 
 Sensor list (Node IDs and positions TBD):
 
-| Sensor / Trigger | Node ID (OPC UA) | Position (mm) | Records Group | Min Interval (ms) | Enabled |
+| Sensor / Trigger | Node ID (OPC UA) | Position (mm) | Section (Group) | Min Interval (ms) | Enabled |
 |---|---|---|---|---|---|
 | PRESS-PART SB-01 | ns=... <!-- TBD --> | <!-- TBD --> | Press-Part (1) | 1500 | ☐ |
 | PRE-DRYER SB-01 | ns=... <!-- TBD --> | <!-- TBD --> | Pre-Dryer (2) | 1500 | ☐ |
