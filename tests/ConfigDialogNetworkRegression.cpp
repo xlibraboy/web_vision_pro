@@ -1,6 +1,7 @@
 #include "ConfigDialogNetworkRegression.h"
 #include "EventCaptureTiming.h"
 #include "TriggerRecordScope.h"
+#include "AnalysisReviewTiles.h"
 
 #include "gui/ConfigDialog.h"
 
@@ -146,7 +147,8 @@ int runSuite(QObject* suite, int argc, char* argv[])
     args.emplace_back(argv[0]);
     for (int i = 1; i < argc; ++i) {
         const QByteArray arg(argv[i]);
-        if (arg == "all" || arg == "config" || arg == "capture" || arg == "scope") {
+        if (arg == "all" || arg == "config" || arg == "capture" || arg == "scope"
+            || arg == "tiles") {
             continue;
         }
         args.push_back(arg);
@@ -172,23 +174,27 @@ int main(int argc, char* argv[])
     for (int i = 1; i < argc; ++i) {
         const QString arg = QString::fromLocal8Bit(argv[i]);
         if (arg == QLatin1String("config") || arg == QLatin1String("capture")
-            || arg == QLatin1String("scope")) {
+            || arg == QLatin1String("scope") || arg == QLatin1String("tiles")) {
             suite = arg;
         }
     }
 
     int status = 0;
-    if (suite != QLatin1String("capture") && suite != QLatin1String("scope")) {
+    if (suite == QLatin1String("all") || suite == QLatin1String("config")) {
         ConfigDialogNetworkRegression configDialogTest;
         status |= runSuite(&configDialogTest, argc, argv);
     }
-    if (suite != QLatin1String("config") && suite != QLatin1String("scope")) {
+    if (suite == QLatin1String("all") || suite == QLatin1String("capture")) {
         EventCaptureTiming captureTest;
         status |= runSuite(&captureTest, argc, argv);
     }
-    if (suite != QLatin1String("config") && suite != QLatin1String("capture")) {
+    if (suite == QLatin1String("all") || suite == QLatin1String("scope")) {
         TriggerRecordScope scopeTest;
         status |= runSuite(&scopeTest, argc, argv);
+    }
+    if (suite == QLatin1String("all") || suite == QLatin1String("tiles")) {
+        AnalysisReviewTiles tilesTest;
+        status |= runSuite(&tilesTest, argc, argv);
     }
     return status;
 }

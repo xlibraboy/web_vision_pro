@@ -125,10 +125,11 @@ private slots:
     void refreshDashboardForCamera(int camIdx);
     void generateThumbnails(int camIdx);
     void refreshDashboardThumbnails();
-    // Why this camera has no recording in the loaded event ("no frames
-    // delivered…" / "its section was not recorded by this trigger"), or an empty
-    // string when it does have one (or no per-camera event is loaded).
-    QString eventCameraNotRecordedReason(int cameraId) const;
+    // Why the camera at 0-based index camIdx has no recording in the loaded
+    // event ("no frames delivered…" / "its section was not recorded by this
+    // trigger" / "no section assigned…"), or an empty string when it does have
+    // one (or no per-camera event is loaded).
+    QString eventCameraNotRecordedReason(int camIdx) const;
     void updateDashboardLoadingState();
     // Show the dashboard only when its data (signals + thumbnails) is fully
     // loaded and the TOOLS toggle allows it; progress bar otherwise.

@@ -728,7 +728,13 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         return;
     }
 
-    const int eventCameraCount = std::max(1, highestOpenedCameraIndex + 1);
+    // Tiles cover the whole configured lineup, not just the cameras the event
+    // captured: a section the trigger's Records selection left out then shows up
+    // as NOT RECORDED instead of vanishing from the grid (which read as if the
+    // event layout were arbitrary). Events recorded with more cameras than the
+    // config has today keep their extra tiles.
+    const int eventCameraCount = std::max(std::max(1, highestOpenedCameraIndex + 1),
+                                          CameraConfig::getCameraCount());
     if (eventCameraCount != static_cast<int>(cameraWidgets_.size())) {
         setCameraCount(eventCameraCount);
     }
@@ -753,26 +759,33 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
         }
     }
 
+    // Switch to streaming mode. Must happen before the tile pass below: it asks
+    // whether each camera is part of this event, which only applies once the
+    // review mode (per-camera files) is in effect.
+    isReviewMode_ = true;
+    isStreamingMode_ = true;
+    recordedSequence_.clear();  // Clear in-memory sequence as we're loading from disk
+
     for (int i = 0; i < static_cast<int>(cameraWidgets_.size()); ++i) {
         if (!cameraWidgets_[i]) {
             continue;
         }
         if (videoReaders_.find(i) != videoReaders_.end()) {
             cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
+            continue;
+        }
+        // The event has no file for this camera: either the trigger's Records
+        // selection left its section out, or it was part of the event and
+        // delivered no frames. Name the tile and say which, so the empty slot is
+        // not mistaken for a broken camera.
+        cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
+        const QString notRecordedReason = eventCameraNotRecordedReason(i);
+        if (notRecordedReason.isEmpty()) {
+            cameraWidgets_[i]->clear();
         } else {
-            // The event has a slot for this camera but no file: either the
-            // trigger's Records selection left its section out, or it was part
-            // of the event and delivered no frames. Name the tile and say which,
-            // so the empty slot is not mistaken for a broken camera.
-            cameraWidgets_[i]->setTitle(currentEventCameraLabel(i));
-            cameraWidgets_[i]->setNotRecorded(eventCameraNotRecordedReason(i + 1));
+            cameraWidgets_[i]->setNotRecorded(notRecordedReason);
         }
     }
-
-    // Switch to streaming mode
-    isReviewMode_ = true;
-    isStreamingMode_ = true;
-    recordedSequence_.clear();  // Clear in-memory sequence as we're loading from disk
     
     // The review timeline spans the LONGEST recording: with per-camera
     // acquisition fps enabled, a 125 fps camera saves ~2.5x the frames of a
@@ -5170,25 +5183,28 @@ void AnalysisView::clearData() {
     std::cout << "[AnalysisView] Data cleared." << std::endl;
 }
 
-QString AnalysisView::eventCameraNotRecordedReason(int cameraId) const {
+QString AnalysisView::eventCameraNotRecordedReason(int camIdx) const {
     // Only the per-camera-file review mode can have a camera missing from the
     // event: live view has no event, and an in-memory/tiled sequence carries
     // every camera in one recording.
     if (!isReviewMode_ || !isStreamingMode_) {
         return QString();
     }
-    if (cameraId < 0 || videoReaders_.count(cameraId) > 0) {
+    // camIdx is the 0-based camera index used everywhere else in the view
+    // (videoReaders_, CameraConfig::getCameraInfo); missingCameraIds on the
+    // event are 1-based camera IDs.
+    if (camIdx < 0 || videoReaders_.count(camIdx) > 0) {
         return QString();
     }
     const bool wasParticipant =
         std::find(currentEventInfo_.missingCameraIds.cbegin(),
-                  currentEventInfo_.missingCameraIds.cend(), cameraId)
+                  currentEventInfo_.missingCameraIds.cend(), camIdx + 1)
         != currentEventInfo_.missingCameraIds.cend();
     if (wasParticipant) {
         return QStringLiteral("no frames delivered during this event");
     }
-    if (cameraId < CameraConfig::getCameraCount()
-        && CameraConfig::getCameraInfo(cameraId).group == CameraGroup::kUnassigned) {
+    if (camIdx < CameraConfig::getCameraCount()
+        && CameraConfig::getCameraInfo(camIdx).group == CameraGroup::kUnassigned) {
         // Narrowed triggers never record an unassigned camera, so name that
         // instead of blaming the section it does not have.
         return QStringLiteral("no section assigned, so the trigger left it out");

@@ -55,6 +55,8 @@ public:
     void setSyncIndicator(bool visible, const QString& label, const QPointF& normalizedPos = QPointF(0.5, 0.5));
     void clearSyncIndicator();
     int getCameraId() const { return cameraId_; }
+    // True while the tile shows the "not recorded in this event" state.
+    bool isNotRecorded() const { return !notRecordedReason_.isEmpty(); }
 
 signals:
     void clicked(int cameraId);

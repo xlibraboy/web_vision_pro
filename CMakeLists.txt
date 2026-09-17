@@ -135,6 +135,7 @@ if(BUILD_TESTING)
         tests/ConfigDialogNetworkRegression.h
         tests/EventCaptureTiming.h
         tests/TriggerRecordScope.h
+        tests/AnalysisReviewTiles.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -142,6 +143,7 @@ if(BUILD_TESTING)
         tests/ConfigDialogNetworkRegression.cpp
         tests/EventCaptureTiming.cpp
         tests/TriggerRecordScope.cpp
+        tests/AnalysisReviewTiles.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -161,6 +163,8 @@ if(BUILD_TESTING)
     add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest config)
     add_test(NAME event_capture_timing COMMAND PaperVision_RegressionTest capture)
     add_test(NAME trigger_record_scope COMMAND PaperVision_RegressionTest scope)
-    set_tests_properties(config_dialog_network_regression event_capture_timing trigger_record_scope
+    add_test(NAME analysis_review_tiles COMMAND PaperVision_RegressionTest tiles)
+    set_tests_properties(config_dialog_network_regression event_capture_timing
+        trigger_record_scope analysis_review_tiles
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
