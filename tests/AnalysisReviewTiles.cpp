@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -18,8 +19,12 @@ namespace {
 
 // A minimal but valid per-camera recording: the 1024-byte header, then for every
 // frame its pixel data followed by the 64-byte metadata - the order
-// EventController::saveAsRaw and VideoStreamReader agree on.
-bool writeEventBin(const QString& path, int frames)
+// EventController::saveAsRaw and VideoStreamReader agree on. Version and both
+// clock series are parameterized so tests can build cross-comparable and
+// camera-local (PTP-less) recordings alike.
+bool writeEventBin(const QString& path, int frames, uint32_t version = RAW_FILE_VERSION,
+                   int64_t clockBaseNs = 0, int64_t clockIntervalNs = 40000000LL,
+                   int64_t hostBaseNs = 0, int64_t hostIntervalNs = 40000000LL)
 {
     const int width = 16;
     const int height = 12;
@@ -29,7 +34,7 @@ bool writeEventBin(const QString& path, int frames)
     }
     RawFileHeader header = {};
     std::memcpy(header.magic, RAW_FILE_MAGIC, 4);
-    header.version = RAW_FILE_VERSION;
+    header.version = version;
     header.width = static_cast<uint32_t>(width);
     header.height = static_cast<uint32_t>(height);
     header.pixelFormat = 0;  // Mono8
@@ -39,12 +44,16 @@ bool writeEventBin(const QString& path, int frames)
     if (file.write(reinterpret_cast<const char*>(&header), sizeof(header)) != sizeof(header)) {
         return false;
     }
+    const auto at = [](int64_t base, int64_t interval, int i) {
+        return static_cast<uint64_t>(std::max<int64_t>(0, base + interval * i));
+    };
     const std::vector<char> pixels(static_cast<size_t>(width) * height, 128);
     for (int i = 0; i < frames; ++i) {
         FrameMetadata meta = {};
-        meta.timestamp = static_cast<uint64_t>(i) * 40000000ULL;  // 25 fps
+        meta.timestamp = at(clockBaseNs, clockIntervalNs, i);
         meta.frameId = static_cast<uint64_t>(i);
         meta.flags = (i == frames / 2) ? 1u : 0u;
+        meta.hostTimestamp = at(hostBaseNs, hostIntervalNs, i);
         if (file.write(pixels.data(), static_cast<qint64>(pixels.size()))
                 != static_cast<qint64>(pixels.size())) {
             return false;
@@ -120,4 +129,57 @@ void AnalysisReviewTiles::camerasLeftOutOfTheEventAreMarked()
                                 .arg(tile->isNotRecorded() ? "shown" : "missing")
                                 .arg(recorded ? "missing" : "shown")));
     }
+}
+
+// A PTP-less fleet stamps every frame from its own camera counter, so the
+// sensor clocks are not cross-comparable. Review must then align through the
+// shared host arrival clock stored alongside the camera stamp (v2 .bin), not
+// through the old shared index.
+void AnalysisReviewTiles::hostClockMapsWhenCameraClocksDisagree()
+{
+    QTemporaryDir settingsDir;
+    QTemporaryDir dataDir;
+    QVERIFY(settingsDir.isValid());
+    QVERIFY(dataDir.isValid());
+
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    CameraConfig::setEventStoragePath(dataDir.path());
+    CameraConfig::saveCameras(cameraLineup());
+
+    const QString timestamp = QStringLiteral("20260102_120000_000");
+    const QString eventBase = QDir(dataDir.path()).filePath(QString("event_%1").arg(timestamp));
+
+    // cam2: 25 fps, camera clock from 0. cam3: 12.5 fps, camera clock from an
+    // unrelated camera-local epoch (1e15 ns ≈ 11.6 days) - both stamped host
+    // arrival on the one PC clock.
+    const int64_t hostBase = 1700000000000000000LL;  // arbitrary Unix ns
+    QVERIFY(writeEventBin(QString("%1_cam2.bin").arg(eventBase), 8,
+                          RAW_FILE_VERSION, 0, 40000000LL, hostBase, 40000000LL));
+    QVERIFY(writeEventBin(QString("%1_cam3.bin").arg(eventBase), 8,
+                          RAW_FILE_VERSION, 1000000000000000LL, 80000000LL,
+                          hostBase, 80000000LL));
+
+    AnalysisView view(6);
+    view.startReviewFromFile(QString("%1_cam2.bin").arg(eventBase), 4);
+
+    // Timeline = cam2 (equal length, lowest index). Timeline frame 4 is 160 ms
+    // in; cam3's nearest own frame on the host clock is frame 2 (2 × 80 ms) -
+    // the sensor clocks disagree, so the shared index would have said frame 4.
+    QCOMPARE(view.displayedFrameIndexForCamera(2, 4), 2);
+    // Mark alignment maps the other way and must follow the same clock.
+    QCOMPARE(view.tlIndexOfOwnFrame(2, 2), 4);
+
+    // A v1 recording has no host stamp (the same bytes were zeroed padding):
+    // the mapping must fall back to the shared index, not read padding.
+    const QString v1Base = QDir(dataDir.path()).filePath(
+        QStringLiteral("event_20260102_130000_000"));
+    QVERIFY(writeEventBin(QString("%1_cam2.bin").arg(v1Base), 8,
+                          1, 0, 40000000LL, hostBase, 40000000LL));
+    QVERIFY(writeEventBin(QString("%1_cam3.bin").arg(v1Base), 8,
+                          1, 1000000000000000LL, 80000000LL, hostBase, 80000000LL));
+
+    AnalysisView v1View(6);
+    v1View.startReviewFromFile(QString("%1_cam2.bin").arg(v1Base), 4);
+    QCOMPARE(v1View.displayedFrameIndexForCamera(2, 4), 4);
 }

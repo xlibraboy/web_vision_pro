@@ -55,6 +55,7 @@ bool VideoStreamReader::open(const QString& filepath) {
         totalFrames_ = header.totalFrames;
         triggerIndex_ = static_cast<int>(header.triggerIndex);
         pixelFormat_ = header.pixelFormat;  // Store pixel format from header
+        version_ = header.version;
         
         std::cout << "[VideoStreamReader] Opened RAW: " << filepath.toStdString() 
                   << " (" << totalFrames_ << " frames, " << width_ << "x" << height_ 
@@ -122,7 +123,16 @@ bool VideoStreamReader::getFrameMetadata(int frameIndex, FrameMetadata& metadata
         return false;
     }
 
-    return std::fread(&metadata, sizeof(metadata), 1, fileHandle_) == 1;
+    if (std::fread(&metadata, sizeof(metadata), 1, fileHandle_) != 1) {
+        return false;
+    }
+    // v1 files have no host timestamp: the same 8 bytes were zeroed padding.
+    // Report 0 so callers treat the host clock as absent instead of reading
+    // padding as a timestamp.
+    if (version_ < 2) {
+        metadata.hostTimestamp = 0;
+    }
+    return true;
 }
 
 void VideoStreamReader::preloadChunk(int centerFrame, int radius) {

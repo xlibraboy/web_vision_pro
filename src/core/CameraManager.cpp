@@ -2118,11 +2118,23 @@ void CameraManager::configureCamera(GenApi::INodeMap& nodemap, const CameraInfo&
         }
 
         // 1. Enable PTP (IEEE 1588)
-        // Note: Emulated cameras might not support this, check for existence
-        GenApi::CBooleanPtr ptrPtpEnable(nodemap.GetNode("GevIEEE1588"));
-        if (GenApi::IsWritable(ptrPtpEnable)) {
-            ptrPtpEnable->SetValue(true);
-            std::cout << "[CameraManager] PTP Enabled." << std::endl;
+        // Basler models expose either GevIEEE1588 (scout/acA GigE class) or
+        // PtpEnable (ace 2 / dart M): write whichever node the camera provides.
+        {
+            const char* const ptpNodes[] = { "GevIEEE1588", "PtpEnable" };
+            bool ptpEnabled = false;
+            for (const char* nodeName : ptpNodes) {
+                GenApi::CBooleanPtr ptrPtpEnable(nodemap.GetNode(nodeName));
+                if (GenApi::IsWritable(ptrPtpEnable)) {
+                    ptrPtpEnable->SetValue(true);
+                    std::cout << "[CameraManager] PTP Enabled via " << nodeName << "." << std::endl;
+                    ptpEnabled = true;
+                    break;
+                }
+            }
+            if (!ptpEnabled && !isEmulation) {
+                std::cout << "[CameraManager] PTP enable node not found/writable." << std::endl;
+            }
         }
 
         // 2. Persistent IP (Fixed IP)
@@ -2823,7 +2835,18 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     // 1. CHUNK DATA & METADATA
                     int64_t timestamp = 0;
                     int64_t frameCounter = 0;
-                    
+
+                    // Host arrival time is recorded for every frame alongside the
+                    // camera clock: on cameras without a PTP-locked clock the
+                    // chunk stamp is a camera-local epoch, and this is the only
+                    // shared time base review can align cameras with.
+                    int64_t hostTimestamp = 0;
+                    {
+                        auto now = std::chrono::system_clock::now();
+                        hostTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            now.time_since_epoch()).count();
+                    }
+
                     bool chunkValid = false;
                     
                     if (PayloadType_ChunkData == ptrGrabResult->GetPayloadType()) {
@@ -2870,11 +2893,8 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                     
                     // FALLBACK: If Chunk Data is missing or invalid (e.g. Emulation or timestamp=0)
                     if (!chunkValid || timestamp == 0) {
-                        // Generate high-precision software timestamp (nanoseconds)
-                        auto now = std::chrono::system_clock::now();
-                        auto duration = now.time_since_epoch();
-                        timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
-                        
+                        timestamp = hostTimestamp;
+
                         // Increment frame counter per camera using the member vector.
                         // Each slot is written exclusively by its own acquisition thread
                         // so plain int64_t is safe (no mutex or atomic needed).
@@ -2941,7 +2961,7 @@ void CameraManager::acquisitionLoop(int configArrayIndex) {
                                         : (int)(cameraIndex + 1); // fallback
 
                         // 4. EVENT CONTROLLER: feed all connected cameras, using 1-based configId
-                        EventController::instance().addFrame(configId, wrapper, timestamp, frameCounter);
+                        EventController::instance().addFrame(configId, wrapper, timestamp, frameCounter, hostTimestamp);
 
                         // 5. CALLBACK: emit config array index (0-based UI slot) resolved from Pylon index
                         {

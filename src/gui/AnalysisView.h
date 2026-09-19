@@ -224,7 +224,15 @@ private:
     void positionCameraKeyBanner(); // center over the video area, top zone
 
     // Per-camera playback alignment (review-time defect sync)
+    // Regression test drives the timeline mapping directly (no UI round-trip).
+    friend class AnalysisReviewTiles;
     int displayedFrameIndexForCamera(int camIdx, int masterFrameIndex) const;
+    // Nearest-index mapping through one clock series (sensor or host): -1 when
+    // a camera's series is missing/empty or the two epochs are not comparable.
+    int mapTimelineFrameThroughClock(const std::map<int, std::vector<int64_t>>& clock,
+                                     int camIdx, int timelineFrame) const;
+    int mapOwnFrameThroughClock(const std::map<int, std::vector<int64_t>>& clock,
+                                int camIdx, int ownFrame) const;
     // Maps a camera's own frame index to the equivalent timeline (longest
     // recording) frame index via hardware timestamps; -1 when the event has
     // no cross-comparable timestamps (legacy shared-index behavior).
@@ -442,6 +450,10 @@ private:
     // without RAW metadata (legacy video events) are absent and fall back to
     // the shared raw index.
     std::map<int, std::vector<int64_t>> cameraTimestamps_;
+    // Per-camera per-frame host arrival timestamps (Unix ns, v2 recordings).
+    // Fallback mapping when the camera clocks are not cross-comparable (e.g.
+    // chunk stamps on a PTP-less fleet): one shared host clock.
+    std::map<int, std::vector<int64_t>> cameraHostTimestamps_;
     
     // Helper to load raw binary
     void loadRawSequence(const QString& binPath);

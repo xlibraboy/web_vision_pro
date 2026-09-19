@@ -174,7 +174,8 @@ void EventController::armTimeWindow(CameraBufferState& state, double travelSecon
     state.captureWindowMs = static_cast<int64_t>(std::llround(windowSeconds * 1000.0));
 }
 
-void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter) {
+void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter,
+                               int64_t hostTimestamp) {
     // A camera mid-(re)configuration can emit empty grabs (observed: a
     // starting camera delivered empty Mats that filled the ring and were
     // saved as a totalFrames=N, width=0 file — corrupting the event and the
@@ -226,6 +227,7 @@ void EventController::addFrame(int cameraId, const cv::Mat& frame, int64_t times
     // 2. Store Metadata
     target.timestamp = timestamp;
     target.frameCounter = frameCounter;
+    target.hostTimestamp = hostTimestamp;
     
     // 3. Advance index
     state.writeIndex = (state.writeIndex + 1) % state.circularBuffer.size();
@@ -342,6 +344,7 @@ bool EventController::tryCompleteEventLocked(int64_t now) {
                 fd.image = s.circularBuffer[idx].image.clone();
                 fd.timestamp = s.circularBuffer[idx].timestamp;
                 fd.frameCounter = s.circularBuffer[idx].frameCounter;
+                fd.hostTimestamp = s.circularBuffer[idx].hostTimestamp;
                 s.saveQueue.push_back(fd);
             }
 
@@ -976,6 +979,11 @@ bool EventController::saveAsRaw(const std::deque<FrameData>& frames, const QStri
         meta.timestamp = static_cast<uint64_t>(std::max<int64_t>(0, frameData.timestamp));
         meta.frameId = static_cast<uint64_t>(std::max<int64_t>(0, frameData.frameCounter));
         meta.flags = (static_cast<int>(i) == triggerIndex) ? 1u : 0u;
+        // Host arrival time: when a frame predates the v2 grab path (or was fed
+        // without one) the camera stamp doubles as the shared time base, which
+        // keeps old-style callers working.
+        meta.hostTimestamp = static_cast<uint64_t>(std::max<int64_t>(
+            0, frameData.hostTimestamp > 0 ? frameData.hostTimestamp : frameData.timestamp));
         
         outFile.write(reinterpret_cast<const char*>(&meta), sizeof(FrameMetadata));
     }

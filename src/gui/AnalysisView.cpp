@@ -696,6 +696,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     videoReaderPaths_.clear();
     pendingScanPaths_.clear();
     cameraTimestamps_.clear();
+    cameraHostTimestamps_.clear();
     timelineCameraIdx_ = -1;
     
     bool anyOpened = false;
@@ -834,6 +835,7 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
     frameMetadata_.clear();
     metadataTriggerIndex_ = -1;
     cameraTimestamps_.clear();
+    cameraHostTimestamps_.clear();
     timelineCameraIdx_ = -1;
     // Only recordings with real pixels may define the timeline: a camera
     // saved while starting can produce a header-valid but 0-width file whose
@@ -861,16 +863,22 @@ void AnalysisView::startReviewFromFile(const QString& videoPath, int triggerInde
             continue;  // header-only/empty recording: no usable timestamps
         }
         std::vector<int64_t> ts;
+        std::vector<int64_t> hostTs;
         ts.reserve(count);
+        hostTs.reserve(count);
         for (int i = 0; i < count; ++i) {
             ::FrameMetadata rawMeta = {};
             if (!pair.second->getFrameMetadata(i, rawMeta)) {
                 break;
             }
             ts.push_back(static_cast<int64_t>(rawMeta.timestamp));
+            hostTs.push_back(static_cast<int64_t>(rawMeta.hostTimestamp));
         }
         if (static_cast<int>(ts.size()) == count) {
             cameraTimestamps_[pair.first] = std::move(ts);
+        }
+        if (static_cast<int>(hostTs.size()) == count) {
+            cameraHostTimestamps_[pair.first] = std::move(hostTs);
         }
     }
     if (timelineReader) {
@@ -3420,23 +3428,53 @@ int AnalysisView::currentReviewFrameIndex() const {
     return qBound(0, static_cast<int>(std::floor(currentFrame_ + 0.0001)), maxFrame);
 }
 
-int AnalysisView::tlIndexOfOwnFrame(int camIdx, int ownFrame) const {
-    if (camIdx == timelineCameraIdx_) {
-        return ownFrame;
-    }
-    const auto tlIt = cameraTimestamps_.find(timelineCameraIdx_);
-    const auto camIt = cameraTimestamps_.find(camIdx);
-    if (tlIt == cameraTimestamps_.end() || tlIt->second.empty()
-            || camIt == cameraTimestamps_.end() || camIt->second.empty()) {
+// Nearest-own-frame mapping through one clock series. -1 means "not usable":
+// the series is missing/empty, the clock was not recorded (v1 file / software
+// stamp), or the two cameras' epochs are not cross-comparable (>60 s apart —
+// camera-local counters must never be matched against another camera's epoch).
+int AnalysisView::mapTimelineFrameThroughClock(const std::map<int, std::vector<int64_t>>& clock,
+                                               int camIdx, int timelineFrame) const {
+    const auto tlIt = clock.find(timelineCameraIdx_);
+    const auto camIt = clock.find(camIdx);
+    if (tlIt == clock.end() || camIt == clock.end()
+            || tlIt->second.empty() || camIt->second.empty()) {
         return -1;
     }
     const std::vector<int64_t>& ts = camIt->second;
-    const int64_t t = ts[qBound(0, ownFrame, static_cast<int>(ts.size()) - 1)];
-    // Same clock-comparability guard as the display mapping below: camera-local
-    // ticks are not cross-comparable with the timeline camera's epoch stamps.
+    if (ts.front() <= 0 || tlIt->second.front() <= 0) {
+        return -1;
+    }
     if (std::llabs(ts.front() - tlIt->second.front()) >= 60000000000LL) {
         return -1;
     }
+    const int64_t t = tlIt->second[qBound(0, timelineFrame,
+        static_cast<int>(tlIt->second.size()) - 1)];
+    int best = static_cast<int>(
+        std::lower_bound(ts.begin(), ts.end(), t) - ts.begin());
+    if (best >= static_cast<int>(ts.size())) {
+        best = static_cast<int>(ts.size()) - 1;
+    } else if (best > 0 && ts[best] - t > t - ts[best - 1]) {
+        --best;
+    }
+    return best;
+}
+
+int AnalysisView::mapOwnFrameThroughClock(const std::map<int, std::vector<int64_t>>& clock,
+                                          int camIdx, int ownFrame) const {
+    const auto tlIt = clock.find(timelineCameraIdx_);
+    const auto camIt = clock.find(camIdx);
+    if (tlIt == clock.end() || camIt == clock.end()
+            || tlIt->second.empty() || camIt->second.empty()) {
+        return -1;
+    }
+    const std::vector<int64_t>& ts = camIt->second;
+    if (ts.front() <= 0 || tlIt->second.front() <= 0) {
+        return -1;
+    }
+    if (std::llabs(ts.front() - tlIt->second.front()) >= 60000000000LL) {
+        return -1;
+    }
+    const int64_t t = ts[qBound(0, ownFrame, static_cast<int>(ts.size()) - 1)];
     int best = static_cast<int>(
         std::lower_bound(tlIt->second.begin(), tlIt->second.end(), t) - tlIt->second.begin());
     if (best >= static_cast<int>(tlIt->second.size())) {
@@ -3445,6 +3483,19 @@ int AnalysisView::tlIndexOfOwnFrame(int camIdx, int ownFrame) const {
         --best;
     }
     return best;
+}
+
+int AnalysisView::tlIndexOfOwnFrame(int camIdx, int ownFrame) const {
+    if (camIdx == timelineCameraIdx_) {
+        return ownFrame;
+    }
+    // Sensor clock first (PTP-locked fleets), the shared host clock second so
+    // chunk stamps in camera-local epochs don't disable mark alignment.
+    int mapped = mapOwnFrameThroughClock(cameraTimestamps_, camIdx, ownFrame);
+    if (mapped < 0) {
+        mapped = mapOwnFrameThroughClock(cameraHostTimestamps_, camIdx, ownFrame);
+    }
+    return mapped;
 }
 
 double AnalysisView::timelineFps() const {
@@ -3479,29 +3530,18 @@ int AnalysisView::displayedFrameIndexForCamera(int camIdx, int masterFrameIndex)
     // Mixed-fps events: the timeline index counts the LONGEST camera's
     // frames, so sharing it raw shows different wall-clock moments per tile
     // and runs shorter cameras out of frames before the scrub bar ends (the
-    // last stretch froze on their final frame). Map the timeline frame's
-    // hardware timestamp to this camera's nearest own frame instead. Readers
-    // without timestamps (legacy video events) keep the shared-index
-    // behavior; a >60s clock disagreement means the timestamps are not
-    // cross-comparable (camera-local ticks), same fallback.
+    // last stretch froze on their final frame). Map the timeline frame to this
+    // camera's nearest own frame through the sensor clock, or through the
+    // shared host clock when the camera clocks are not cross-comparable
+    // (camera-local epochs on a PTP-less fleet, mixed chunk on/off, legacy
+    // video events). Readers with neither clock keep the shared-index behavior.
     if (camIdx != timelineCameraIdx_) {
-        const auto tlIt = cameraTimestamps_.find(timelineCameraIdx_);
-        const auto camIt = cameraTimestamps_.find(camIdx);
-        if (tlIt != cameraTimestamps_.end() && !tlIt->second.empty()
-                && camIt != cameraTimestamps_.end() && !camIt->second.empty()) {
-            const std::vector<int64_t>& ts = camIt->second;
-            const int64_t t = tlIt->second[qBound(0, requested,
-                static_cast<int>(tlIt->second.size()) - 1)];
-            if (std::llabs(ts.front() - tlIt->second.front()) < 60000000000LL) {
-                int best = static_cast<int>(
-                    std::lower_bound(ts.begin(), ts.end(), t) - ts.begin());
-                if (best >= static_cast<int>(ts.size())) {
-                    best = static_cast<int>(ts.size()) - 1;
-                } else if (best > 0 && ts[best] - t > t - ts[best - 1]) {
-                    --best;
-                }
-                return best;
-            }
+        int mapped = mapTimelineFrameThroughClock(cameraTimestamps_, camIdx, requested);
+        if (mapped < 0) {
+            mapped = mapTimelineFrameThroughClock(cameraHostTimestamps_, camIdx, requested);
+        }
+        if (mapped >= 0) {
+            return mapped;
         }
     }
     return requested;
@@ -4904,6 +4944,7 @@ void AnalysisView::loadRawSequence(const QString& binPath) {
     recordedSequence_.clear();
     frameMetadata_.clear();
     cameraTimestamps_.clear();
+    cameraHostTimestamps_.clear();
     timelineCameraIdx_ = -1;
     recordedSequence_.reserve(frameCount);
     frameMetadata_.reserve(frameCount);
@@ -5150,6 +5191,7 @@ void AnalysisView::clearData() {
     recordedSequence_.clear();
     frameMetadata_.clear();
     cameraTimestamps_.clear();
+    cameraHostTimestamps_.clear();
     timelineCameraIdx_ = -1;
     videoReaders_.clear();
     videoReaderPaths_.clear();

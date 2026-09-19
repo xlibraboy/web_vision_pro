@@ -532,8 +532,11 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cam.enableExposureTimeBase = settings.value("enableExposureTimeBase", false).toBool();
         cam.exposureTimeBaseAbs = settings.value("exposureTimeBaseAbs", 20.0).toDouble();
         cam.exposureTimeRaw = settings.value("exposureTimeRaw", 2044).toInt();
-        cam.chunkModeActive = settings.value("chunkModeActive", false).toBool();
+        cam.chunkModeActive = settings.value("chunkModeActive", true).toBool();
         cam.enabledChunks = settings.value("enabledChunks").toStringList();
+        if (cam.enabledChunks.isEmpty()) {
+            cam.enabledChunks = QStringList() << "Timestamp" << "Framecounter";
+        }
         cam.temperature = 0.0; // Runtime value
         cam.group = settings.value("group", cam.group).toInt();
         cam.floor = settings.value("floor", cam.floor).toInt();
@@ -557,6 +560,23 @@ std::vector<CameraInfo> CameraConfig::getCameras() {
         cameras.push_back(cam);
     }
     settings.endArray();
+
+    // One-time migration: chunk timestamps are the default time base now.
+    // Configs written before this default carry chunkModeActive=false; flip
+    // them once so events stop falling back to host arrival stamps. Mixed
+    // chunk on/off across cameras breaks the shared-epoch guard in review.
+    const int kChunkTimestampsMigration = 1;
+    if (settings.value("Runtime/chunkTimestampsMigration", 0).toInt() < kChunkTimestampsMigration) {
+        for (CameraInfo& cam : cameras) {
+            cam.chunkModeActive = true;
+            if (!cam.enabledChunks.contains("Timestamp")) cam.enabledChunks << "Timestamp";
+            if (!cam.enabledChunks.contains("Framecounter")) cam.enabledChunks << "Framecounter";
+        }
+        settings.setValue("Runtime/chunkTimestampsMigration", kChunkTimestampsMigration);
+        settings.sync();
+        saveCameras(cameras);
+    }
+
     return cameras;
 }
 
@@ -634,8 +654,8 @@ void CameraConfig::ensureDefaultCameras() {
              false, // enableExposureTimeBase
              20.0, // exposureTimeBaseAbs
              2044, // exposureTimeRaw
-             false, // chunkModeActive
-             {}, // enabledChunks
+             true, // chunkModeActive
+             {"Timestamp", "Framecounter"}, // enabledChunks
              0.0 // temperature
          },
          {
@@ -660,8 +680,8 @@ void CameraConfig::ensureDefaultCameras() {
              false, // enableExposureTimeBase
              20.0, // exposureTimeBaseAbs
              2044, // exposureTimeRaw
-             false, // chunkModeActive
-             {}, // enabledChunks
+             true, // chunkModeActive
+             {"Timestamp", "Framecounter"}, // enabledChunks
              0.0 // temperature
          }
      };

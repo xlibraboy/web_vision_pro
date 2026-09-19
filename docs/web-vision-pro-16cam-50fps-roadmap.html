@@ -199,7 +199,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <header class="hero"><div class="inner">
 <h1>web_vision_pro · 16-Camera / 50 fps Roadmap &amp; Hardware</h1>
 <p>Paper-machine vision system · Basler GigE · IEEE 1588 (PTP) time sync · interactive BoM</p>
-<p class="tagline">Planning reference · updated 2026-09-04 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources</p>
+<p class="tagline">Planning reference · updated 2026-09-18 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: “do we need PTP?” decision guide (§2k–2m)</p>
 <div class="kpis">
 <div class="kpi"><b>16</b><span>cameras</span></div>
 <div class="kpi"><b>50 fps</b><span>global rate</span></div>
@@ -232,6 +232,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <a href="#2k-time-sync-ptp-cameras">2k. Time sync — PTP cameras</a>
 <a href="#2l-time-sync-ptp-switch">2l. Time sync — PTP switch</a>
 <a href="#2m-time-sync-grandmaster">2m. Time sync — grandmaster</a>
+<a href="#2k-2m-do-we-need-ptp">2k–2m. Do we need PTP? (decision guide)</a>
 <div class="tocgrp">New sensing</div>
 <a href="#2n-moisture-swir-nir">2n. Moisture — SWIR (NIR)</a>
 <a href="#2o-temperature-mapping">2o. Temperature mapping</a>
@@ -267,7 +268,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <p>One-glance status of the whole line — visible fleet, moisture, temperature, compute, AI and software: what is ready today, what must be added, and the engineering budget that drives §6 BoM.</p>
 <p class="legend"><span class="pill v">✔</span> verified against vendor docs · <span class="pill e">est</span> planning estimate, confirm quote · <span class="chip ok">Ready</span> <span class="chip warn">Add</span> <span class="chip bad">gap</span> = readiness.</p>
 <div class="tiles">
-<a class="tile teal" href="#2e-camera-selection-verified-basler-candidates"><div class="t-label">Cameras · PTP capability</div><div class="t-val">16 / 16 <small>IEEE 1588-2008</small></div><div class="t-sub">ace 2 shortlist + scout-class — all PTP-capable → §2e</div></a>
+<a class="tile teal" href="#2e-camera-selection-verified-basler-candidates"><div class="t-label">Cameras · PTP capability</div><div class="t-val">ace 2 <small>IEEE 1588-2008</small></div><div class="t-sub">shortlist PTP-capable · current scout fleet: none (§2k) → §2e</div></a>
 <a class="tile gold" href="#2l-time-sync-ptp-switch"><div class="t-label">PTP chain</div><div class="t-val"><span class="chip ok">GM → switch → cams</span></div><div class="t-sub">transparent/boundary-clock switch → 16 slaves <span class="chip ok">Locked</span> → §2l</div></a>
 <a class="tile warn" href="#2m-time-sync-grandmaster"><div class="t-label">Today's default</div><div class="t-val"><span class="chip warn">ARB mode</span></div><div class="t-sub">no GPS master yet — cross-cam fine, epoch shifts on reboot → §2m</div></a>
 <a class="tile good" href="#2m-time-sync-grandmaster"><div class="t-label">Recommended GM</div><div class="t-val"><span class="chip ok">GNSS grandmaster</span></div><div class="t-sub">UTC-traceable events aligned with DCS / OPC UA → §2m</div></a>
@@ -401,7 +402,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <ul>
 <li>The &quot;-51&quot; rating is <strong>bandwidth-limited</strong>: 2.3 MB × 51 fps ≈ 117 MB/s ≈ a full GigE link → jumbo frames (MTU 9000) are mandatory to hit rated fps. PTP traffic is tiny by comparison and unaffected by frame rate.</li>
 <li><strong>Color costs no network bandwidth</strong>: color variants transmit Bayer raw (still 1 byte/px on the wire); debayering happens host-side. The all-BGR ×3 applies to host RAM/disk/CPU only — not the camera links.</li>
-<li><strong>PTP (verified 2026-09-04):</strong> every model above implements <strong>IEEE 1588-2008 (PTPv2)</strong>. Ace 2 exposes configurable <code>Ptp*/BslPtp*</code> nodes (priority, profile, network mode, one/two-step, management); classic ace and the current scout class expose <code>GevIEEE1588*</code> nodes with fixed priority 128 — see §2k.</li>
+<li><strong>PTP (verified 2026-09-04):</strong> every shortlist model above implements <strong>IEEE 1588-2008 (PTPv2)</strong>. Ace 2 exposes configurable <code>Ptp*/BslPtp*</code> nodes (priority, profile, network mode, one/two-step, management); classic ace (acA*) exposes <code>GevIEEE1588*</code> nodes with fixed priority 128. The <em>current scout fleet</em> has no documented PTP — see the correction in §2k.</li>
 <li>✅ <strong>pylon compatibility VERIFIED</strong>: official Basler docs for a2A1920-51gmBAS / gcBAS state <em>&quot;Basler pylon Software Suite (version 6.0 or higher)&quot;</em> → our pinned <strong>pylon 6.2.0 is compatible</strong>, incl. Linux x86/ARM. Old <code>acA…</code> models also run on 6.2 but are a phasing-out line (EOL risk).</li>
 <li><strong>Updated hardware verdict at 1920×1200 @ 50 fps × 16 cams:</strong> aggregate ≈ 1.9 GB/s (~15 Gbps) host-side (mono mix) → dual-10G bond confirmed; ring-buffer RAM ≈ 74 GB mono-only at 2000-frame events → either a 128 GB machine or cap events at ~1000–1500 frames (see §2b).</li>
 </ul>
@@ -533,13 +534,14 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </section>
 
 <section id="2k-time-sync-ptp-cameras" class="card timesync section-reveal"><h2><span class="num">2k.</span>Time sync — which cameras have PTP (verified)</h2>
-<p class="lead">Good news: every camera we own or shortlist already speaks IEEE 1588 — the app just turns it on.</p>
-<p>The app already runs on PTP: <code>CameraManager</code> force-enables it on every real camera at config apply, latches state every 10 s, and shows per-camera SLAVE / MASTER / SYNC / OFF badges plus a &gt;1 ms offset alert. This section answers <em>which hardware actually implements it</em>.</p>
-<p class="callout ok">✅ <strong>Verified 2026-09-04</strong> (docs.baslerweb.com — &quot;Precision Time Protocol&quot; feature page): Basler GigE cameras support <strong>IEEE 1588-2008, PTP Version 2</strong>. Both the <em>current</em> scA780-class fleet and the <em>target</em> ace 2 shortlist are PTP-capable — no camera change is required for time sync.</p>
+<p class="lead">The ace 2 shortlist speaks IEEE 1588 — the current scout fleet does not (correction below). The app turns PTP on wherever the camera exposes the nodes.</p>
+<p>The app already handles PTP: <code>CameraManager</code> attempts to enable it on every real camera at config apply (no-op + log line when the nodes are absent), latches state every 10 s, and shows per-camera SLAVE / MASTER / SYNC / OFF badges plus a &gt;1 ms offset alert wherever the camera implements it. This section answers <em>which hardware actually implements it</em>.</p>
+<p class="callout ok">✅ <strong>Verified 2026-09-04</strong> (docs.baslerweb.com — &quot;Precision Time Protocol&quot; feature page): Basler GigE cameras support <strong>IEEE 1588-2008, PTP Version 2</strong>; the ace 2 shortlist is PTP-capable — no camera change is required for time sync on the new fleet.</p>
+<p class="callout warn">⚠️ <strong>Correction 2026-09-18 — the current fleet:</strong> the locally vendored <em>scout GigE User Manual</em> (AW00011919000, 16 482 lines) has <strong>no PTP / IEEE 1588 section at all</strong> — only chunk timestamps and <code>Gev Timestamp Tick Frequency</code>. Treat the <strong>scout scA780-class cameras as PTP-less</strong> until a bench camera proves otherwise; the earlier &quot;16 / 16&quot; line bundled scout together with classic ace. Classic ace (acA*) and ace 2 are the PTP-capable families (<code>GevIEEE1588*</code> / <code>Ptp*</code>). The app degrades cleanly: no PTP nodes → tile badge hidden, Device Settings shows <code>—</code>, no offset alert; the PTP enable write now covers both node names and logs when neither exists.</p>
 <div class="tablewrap"><table>
 <thead><tr><th></th><th>Current — scA780-class (scout / classic acA GigE)</th><th>Target — ace 2 a2A1920-51 gm/gc BAS · PRO · IP67</th></tr></thead><tbody>
-<tr class="vNone"><td><strong>IEEE 1588-2008 (PTPv2)</strong></td><td><span class="chip ok">✔ supported</span></td><td><span class="chip ok">✔ supported</span></td></tr>
-<tr class="vNone"><td><strong>pylon node map</strong></td><td><code>GevIEEE1588</code> · <code>GevIEEE1588Status</code> · <code>GevIEEE1588OffsetFromMaster</code> · <code>GevIEEE1588ClockId</code> · <code>GevIEEE1588ParentClockId</code> · <code>GevIEEE1588DataSetLatch</code></td><td><code>PtpEnable</code> · <code>PtpDataSetLatch</code> · <code>PtpServoStatus</code> (<code>Locked</code>) · <code>PtpGrandmasterClockID</code> · <code>PtpClockAccuracy</code> + <code>BslPtp*</code> tuning</td></tr>
+<tr class="vNone"><td><strong>IEEE 1588-2008 (PTPv2)</strong></td><td><span class="chip bad">✖ scout: not documented</span> (classic ace ✔)</td><td><span class="chip ok">✔ supported</span></td></tr>
+<tr class="vNone"><td><strong>pylon node map</strong></td><td>classic ace (acA*): <code>GevIEEE1588</code> · <code>GevIEEE1588Status</code> · <code>GevIEEE1588OffsetFromMaster</code> · <code>GevIEEE1588ClockId</code> · <code>GevIEEE1588ParentClockId</code> · <code>GevIEEE1588DataSetLatch</code><br><strong>scout: none</strong> (no IEEE 1588 nodes)</td><td><code>PtpEnable</code> · <code>PtpDataSetLatch</code> · <code>PtpServoStatus</code> (<code>Locked</code>) · <code>PtpGrandmasterClockID</code> · <code>PtpClockAccuracy</code> + <code>BslPtp*</code> tuning</td></tr>
 <tr class="vNone"><td><strong>Force master (Priority 1)</strong></td><td>fixed 128 — cannot be nudged</td><td><code>BslPtpPriority1</code> 0–255, settable (0 = highest)</td></tr>
 <tr class="vNone"><td><strong>Delay mechanism</strong></td><td>end-to-end only</td><td>E2E or P2P (<code>BslPtpProfile</code>)</td></tr>
 <tr class="vNone"><td><strong>Clock steps / modes</strong></td><td>always two-step; multicast</td><td>one- or two-step; multicast / hybrid / unicast (<code>BslPtpNetworkMode</code>)</td></tr>
@@ -549,7 +551,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </tbody></table></div>
 <h3>Configuration guidance (Basler-recommended + ours)</h3>
 <ul>
-<li>Enable per camera: <code>GevIEEE1588</code> / <code>PtpEnable</code> = true (the app already does this on config apply).</li>
+<li>Enable per camera: <code>GevIEEE1588</code> / <code>PtpEnable</code> = true. The app writes whichever node the camera exposes — both families covered since 2026-09-18; ace 2 <code>BslPtpPriority1</code> = 255 tuning is still open (§5).</li>
 <li>Basler recommends <strong>ANNOUNCE interval 2 s, SYNC interval 0.5 s</strong>.</li>
 <li>Keep the default <strong>end-to-end delay mechanism</strong>. Peer-to-peer only if <em>every</em> switch in the path is PTP-enabled and configured for P2P.</li>
 <li>Set a dedicated grandmaster with <strong>Priority 1 &lt; 128</strong> (e.g. 100); set ace 2 cameras to <strong>255</strong> so no camera ever arbitrates to master when the GM is present. On scout-class cameras priority is fixed at 128 — the GM still wins on clock class / ID tie-breaks, but you cannot lock cameras out of the arbitration.</li>
@@ -597,6 +599,43 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <li><strong>Day 3 (absolute time):</strong> add the GNSS grandmaster, Priority 1 = 100 (cameras 255 on ace 2), domain 0, and switch chunk timestamps on. Optionally run <code>ptp4l</code> as a slave on the vision server so host-clock event times match too.</li>
 </ol>
 <p class="callout warn">⚠️ <strong>Housekeeping:</strong> an ARB grandmaster is whoever wins arbitration — if that camera is swapped or power-cycled, the epoch shifts and pre/post-reboot events no longer share a timeline. Log <code>PtpGrandmasterClockID</code> per event so reviewers can detect a timescale jump (the app already reads it into <code>PtpStatus.parentClockId</code>).</p>
+</section>
+
+<section id="2k-2m-do-we-need-ptp" class="card timesync section-reveal"><h2><span class="num">2k–2m.</span>Do we need PTP? — what it buys, what it doesn't</h2>
+<p class="lead">PTP is a time-<em>quality</em> upgrade, not a prerequisite for recording. Buffering, pre-trigger and event playback work without it; PTP decides how precisely the frames of different cameras line up in time — and only when chunk timestamps are on.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>What we want</th><th>What it actually needs</th><th>PTP?</th></tr></thead><tbody>
+<tr class="vNone"><td><strong>Record all cameras, save/show only after a trigger</strong></td><td>Free-running cameras + per-camera RAM ring buffer; the trigger (OPC UA sheet-break tag or manual) only gates the save and the review UI. Already how <code>EventController</code> works.</td><td><span class="chip off">no</span></td></tr>
+<tr class="vNone"><td><strong>Pre-trigger window (see what caused the break)</strong></td><td>Frames must exist <em>before</em> the trigger — always-on capture into the host ring buffer (1–60 s configurable, sized pre-seconds × fps). Frames cannot be created retroactively.</td><td><span class="chip off">no</span></td></tr>
+<tr class="vNone"><td><strong>Cross-camera alignment in review</strong></td><td>Works without PTP: all frames carry one host <code>system_clock</code> arrival stamp, so the nearest-frame mapping runs — but arrival stamps include network/queue jitter (ms class). At 1000 m/min that is ≈ 17 mm of web per ms. With PTP + chunk the same mapping becomes sensor-accurate.</td><td><span class="chip warn">helps</span></td></tr>
+<tr class="vstar"><td><strong>Sensor-accurate timestamps per frame</strong></td><td>PTP (cameras lock to one epoch) <strong>and</strong> chunk mode on with <code>ChunkTimestamp</code> + <code>Framecounter</code> — the stamp then comes from the sensor at exposure time. Either one alone is not enough.</td><td><span class="chip ok">yes — both</span></td></tr>
+<tr class="vNone"><td><strong>Cameras agree to µs (relative sync)</strong></td><td>PTP alone. Best-master arbitration elects a clock (normally a camera) — no dedicated grandmaster required; the epoch is arbitrary (ARB mode).</td><td><span class="chip ok">yes</span></td></tr>
+<tr class="vNone"><td><strong>Absolute UTC time (correlate with DCS / drive logs)</strong></td><td>PTP + GNSS grandmaster (rung 2, §2m) for a stable, traceable epoch instead of ARB shifts.</td><td><span class="chip ok">yes + GM</span></td></tr>
+<tr class="vNone"><td><strong>Lock cameras out of master arbitration</strong></td><td>Dedicated grandmaster + ace 2 <code>BslPtpPriority1</code> = 255; scout-class priority is fixed at 128 (§2k).</td><td><span class="chip ok">yes + GM</span></td></tr>
+<tr class="vNone"><td><strong>All cameras expose at the same instant</strong></td><td>Not a PTP feature: a GigE Vision action command or a hardware trigger line. PTP records <em>when</em> each frame was exposed — it does not decide when to expose.</td><td><span class="chip bad">no — action cmd</span></td></tr>
+</tbody></table></div>
+<h3>What PTP does not do</h3>
+<ul>
+<li>It does not create pre-trigger frames — if cameras stream only during events, the seconds before the trigger simply do not exist.</li>
+<li>It does not trigger recording — the event trigger stays the sheet-break OPC UA tags + manual button (§4).</li>
+<li>It does not synchronize shutters — that is an action command or hardware trigger; PTP aligns timestamps, not exposures.</li>
+<li>Without chunk timestamps it only feeds the badges/alert — the recorded <code>.bin</code> still carries host arrival stamps (§5).</li>
+</ul>
+<h3>Action commands (scheduled triggers) — where they fit</h3>
+<ul>
+<li>PTP is the foundation of GigE Vision action commands (Basler white paper): one multicast command makes every matching camera act at the same — or a scheduled future — instant (trigger a frame, start/stop acquisition, fire I/O).</li>
+<li>This app does not use them, and does not need to: cameras free-run and timestamps do the alignment — there is no <code>TriggerMode</code>/<code>TriggerSource</code> configured anywhere.</li>
+<li>&quot;Stream only during events&quot; via action commands is a possible use — and the one that destroys the pre-trigger window. Only a degraded hybrid is realistic: stream low-rate / small-ROI when idle, burst full-rate on trigger.</li>
+</ul>
+<h3>How the app aligns cameras today (keep this)</h3>
+<ul>
+<li>Every saved frame carries <code>FrameMetadata</code> in the <code>.bin</code>: the camera stamp, the frame counter and — since format v2 — the host arrival time.</li>
+<li>On event load every camera's sensor stamps <em>and</em> host stamps are cached; scrubbing maps the timeline camera's frame time to each other camera's <em>nearest own frame</em> (<code>displayedFrameIndexForCamera</code>).</li>
+<li>Two-tier guard: the sensor clocks are used when the first timestamps agree within 60 s; otherwise the shared host clock is tried (always comparable — one PC clock); only when both are unusable (legacy v1 video events) does it fall back to shared-index + <code>cameraFrameOffsets_</code>.</li>
+<li>Ground truth for offsets stays <strong>mark-based alignment</strong> (speed-anchor fallback when unmarked) — it corrects residual per-camera error regardless of stamp quality.</li>
+<li>Roll chunk mode out to <em>all</em> cameras (or none) for one consistent sensor timeline; mixed pairs still align through the host clock, just not at sensor accuracy.</li>
+</ul>
+<p class="callout ok">✅ <strong>Recommendation:</strong> keep the current pipeline (free-run + ring buffer + OPC UA/manual trigger + mark-based alignment) and turn <strong>chunk mode on</strong> (<code>ChunkTimestamp</code> + <code>Framecounter</code>, per camera, staged — needs an acquisition stop) with PTP already enabled. That is the single change that upgrades sync from arrival-time to sensor-time, at negligible bandwidth. Implemented 2026-09-18: chunk-mode default + one-time config migration, the ace 2 <code>PtpEnable</code> write, and dual timestamps (.bin v2 records the host arrival clock next to the camera stamp, so a PTP-less fleet keeps cross-camera alignment through the host clock). Still open (§5): per-event grandmaster clock logging, the 1 ms alert threshold vs the &lt; 10 µs target, and the scA780 chunk bench check.</p>
 </section>
 
 <section id="2n-moisture-swir-nir" class="card section-reveal"><h2><span class="num">2n.</span>Moisture — SWIR / NIR water-band (Basler only)</h2>
@@ -914,13 +953,18 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </ol>
 </section>
 
-<section id="4-current-state-2026-08-26" class="card section-reveal"><h2><span class="num">5.</span>Current state (2026-09-04)</h2>
-<p class="lead">Where main stands today: 150-frame events, PTP badges live, chunk mode still off.</p>
+<section id="4-current-state-2026-08-26" class="card section-reveal"><h2><span class="num">5.</span>Current state (2026-09-18)</h2>
+<p class="lead">Where main stands today: 150-frame events, PTP badges live, chunk timestamps now the default (one-time migration on first start) — plus the remaining PTP gaps below.</p>
 <ul>
 <li><code>main</code>: DETAIL strip (±30 f default, wheel ±10–120, auto-show &lt; 1×), local Y-range label, Recording-settings frame-count info line.</li>
 <li><strong>PTP runtime exists already:</strong> auto-enable on every real camera, 10 s latched status read, Live-View tile badges (SLAVE/MASTER/SYNC/OFF/FAULT), Device-Settings status card with clock IDs, 1 ms offset alert.</li>
 <li>Recording config: Fallback FPS 10, pre 10 s + post 5 s = 150-frame events.</li>
-<li>Chunk mode is <strong>off</strong> in the saved config → events carry software arrival timestamps today (cross-camera comparable, but not sensor-accurate); turning chunk mode on is the step that makes the §2k–2m chain pay off.</li>
+<li><strong>Chunk timestamps now default on</strong> (2026-09-18): <code>CameraConfig</code> defaults <code>chunkModeActive</code> true with <code>Timestamp</code> + <code>Framecounter</code>, and a one-time migration flips saved configs on first start. From the next app start the .bin is format <strong>v2</strong> — it records the host arrival clock next to the camera stamp, so existing v1 events keep working. Bench-verify the scA780 grab → chunk → event path before trusting it on the fleet.</li>
+<li><strong>Current fleet is PTP-less</strong> (scout scA780; §2k correction): no <code>GevIEEE1588*</code> / <code>Ptp*</code> nodes → tile badge hidden, Device Settings shows <code>—</code>, the offset alert never fires. With chunk timestamps on, each camera stamps from its own free-running counter (epoch = camera power-on), so cross-camera scrub aligns through the <strong>host arrival clock</strong> recorded alongside; true cross-camera sensor mapping arrives with a PTP-capable fleet.</li>
+<li><strong>Status readout is scout-node-centric:</strong> state / offset / clock IDs come from <code>GevIEEE1588*</code> only (servo from <code>PtpServoStatus</code>); ace 2's <code>PtpGrandmasterClockID</code> / <code>PtpClockAccuracy</code> are not read → GM ID and accuracy stay blank on ace 2.</li>
+<li><strong>Offset alert is 1 ms</strong> (<code>kMaxPtpOffsetFromMasterNs</code>) against the &lt; 10 µs design target — a ms-degraded (plain-switch) chain still reads green; there is no µs-class advisory.</li>
+<li><strong>No per-event grandmaster logging:</strong> <code>PtpStatus.parentClockId</code> is a Device-Settings tooltip only — an ARB epoch shift is not detectable from the saved events.</li>
+<li><strong>Sync today (keep):</strong> review maps the timeline frame to each camera's nearest own frame through the sensor clocks when they agree, else through the shared host clock (.bin v2), else shared-index + mark/speed offsets — see §2k–2m.</li>
 <li>Parked experiment: <code>experiment/filmstrip-view</code> (unmerged).</li>
 </ul>
 </section>

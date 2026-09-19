@@ -54,6 +54,7 @@ private:
 
     int height_;
     uint32_t pixelFormat_;  // Pixel format from RAW file header (0=Mono8, 1=BGR8, 2=RGB8)
+    uint32_t version_ = 0;  // RAW file format version (hostTimestamp exists from v2)
     
     // Raw mode support
     bool isRawMode_;

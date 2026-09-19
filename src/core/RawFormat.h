@@ -11,7 +11,11 @@
 constexpr char RAW_FILE_MAGIC[4] = {'P', 'A', 'P', 'R'};
 
 // Current format version
-constexpr uint32_t RAW_FILE_VERSION = 1;
+//  v1: timestamp + frame counter only.
+//  v2: adds the host-arrival timestamp (uint64 at offset 20) so review can
+//      still align cameras whose hardware clocks are not comparable (no PTP
+//      lock, camera-local chunk epochs). v1 files read hostTimestamp == 0.
+constexpr uint32_t RAW_FILE_VERSION = 2;
 
 /**
  * File Header (1024 bytes)
@@ -36,8 +40,11 @@ struct RawFileHeader {
 struct FrameMetadata {
     uint64_t timestamp;     // Nanoseconds. Hardware chunk timestamp converted from camera ticks, or software Unix ns fallback.
     uint64_t frameId;       // Frame counter
-    uint32_t flags;         // 0 = Normal, 1 = Trigger Frame
-    char reserved[44];      // Padding to exactly 64 bytes
+    uint32_t flags;         // 0 = Normal, 1 = Trigger Frame  (v1 offset kept: byte 16)
+    // v2 (byte 24; v1 padding there was written as zeros): host arrival time in
+    // Unix ns, the shared clock when camera clocks are not comparable.
+    uint64_t hostTimestamp;
+    char reserved[32];      // Padding to exactly 64 bytes
 };
 
 // Compile-time size checks

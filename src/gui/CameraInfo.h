@@ -80,7 +80,7 @@ struct CameraInfo {
     bool enableExposureTimeBase = false; // Enables exposure time base control
     double exposureTimeBaseAbs = 20.0; // Exposure time base in microseconds
     int exposureTimeRaw = 2044; // Raw exposure value
-    bool chunkModeActive = false; // Enables chunk payload data
+    bool chunkModeActive = true; // Enables chunk payload data (sensor-accurate frame timestamps)
     QStringList enabledChunks; // Enabled chunk selectors
     double temperature = 0.0; // Temperature in Celsius (Runtime, not config)
     QString model;           // Populated at runtime

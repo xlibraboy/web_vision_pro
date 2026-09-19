@@ -24,8 +24,9 @@ class EventController {
 public:
     struct FrameData {
         cv::Mat image;       // Pixel data
-        int64_t timestamp;   // Hardware timestamp (ns)
+        int64_t timestamp;   // Camera clock timestamp (ns): hardware chunk stamp when available, else host arrival
         int64_t frameCounter;
+        int64_t hostTimestamp = 0; // Host arrival time (Unix ns); 0 = unknown
     };
     struct TriggerContext {
         QString reason = QStringLiteral("Triggered");
@@ -64,7 +65,8 @@ public:
     void initialize(int bufferSize = 550, double fps = 55.0, int postTriggerFrames = 110);
 
     // Add frame to a specific camera's circular buffer with metadata
-    void addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter);
+    void addFrame(int cameraId, const cv::Mat& frame, int64_t timestamp, int64_t frameCounter,
+                  int64_t hostTimestamp = 0);
 
     // Trigger an event (Paper Break) - captures post-trigger for the
     // participating cameras (every active camera unless the context selects

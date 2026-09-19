@@ -3396,7 +3396,7 @@ void ConfigDialog::onAddCameraConfigClicked() {
     cam.enableExposureTimeBase = false;
     cam.exposureTimeBaseAbs = 20.0;
     cam.exposureTimeRaw = 2044;
-    cam.chunkModeActive = false;
+    cam.chunkModeActive = true;
     cam.enabledChunks = QStringList() << "Timestamp" << "Framecounter";
     cam.temperature = 0.0;
 
