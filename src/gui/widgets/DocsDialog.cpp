@@ -445,6 +445,8 @@ DocsDialog::DocsDialog(QWidget* parent)
             "speeds walk frame-by-frame, fast speeds jump ahead quickly.</li>"
             "<li>Every annotation, mark, and offset is stored in the event's sidecar JSON, so "
             "reopening the event restores your review state.</li>"
+            "<li>Help &gt; <b>Changelog</b> lists what changed in each release, and Help &gt; "
+            "About shows the running version.</li>"
             "</ul>")));
 
     connect(sectionList_, &QListWidget::currentRowChanged,

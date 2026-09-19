@@ -1,5 +1,6 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
+    <file>CHANGELOG.md</file>
     <file>assets/icons/arrow_down.svg</file>
     <file>assets/icons/arrow_down_disabled.svg</file>
     <file>assets/icons/arrow_up.svg</file>

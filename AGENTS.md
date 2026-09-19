@@ -30,3 +30,8 @@ make
 - Indentation: 4 spaces, K&R braces
 - Use `nullptr`, not `NULL`
 - Commit format: `type: description` (types: feat, fix, docs, style, refactor, test, chore, docker)
+- Keep [CHANGELOG.md](CHANGELOG.md) current: user-visible changes go under `## [Unreleased]`
+  (`feat` -> Added, `fix` -> Fixed, `refactor`/`style`/`chore` usually need no entry), one
+  bullet per line. A release moves the entries under a new `## [x.y.z] - date` heading and
+  bumps `AppVersion::kNumber` in `src/config/AppVersion.h`. The app renders the file in
+  Help > Changelog.

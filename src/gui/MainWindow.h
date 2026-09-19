@@ -16,6 +16,7 @@
 #include "AnalysisView.h"
 #include "DetailView.h"
 #include "widgets/DocsDialog.h"
+#include "widgets/ChangelogDialog.h"
 #include "widgets/LiveViewWindow.h"
 #include "../core/CameraManager.h"
 #include "../processing/ImageBuffer.h"
@@ -87,6 +88,7 @@ private:
     // Windows
     ConfigDialog* configWindow_ = nullptr;
     DocsDialog* docsDialog_ = nullptr;  // lazy-created, kept open while consulting
+    ChangelogDialog* changelogDialog_ = nullptr;  // lazy-created, single instance
     int configTabIndex_ = -1;
     // Detachable live-only window (grid <-> single camera, no settings). One
     // instance shared app-wide; opening the Live View Window again raises it.
@@ -134,6 +136,7 @@ private slots:
     void promptCustomLayout();
     void showAbout();
     void showDocs();
+    void showChangelog();
     void showLiveViewWindow();
 
 protected:

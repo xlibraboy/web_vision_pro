@@ -55,6 +55,7 @@ src/gui/widgets/MachineGroupsPanel.cpp
 src/gui/widgets/MachineLayoutPanel.cpp
 src/gui/widgets/OpcUaLiveStatusWindow.cpp
 src/gui/widgets/DocsDialog.cpp
+src/gui/widgets/ChangelogDialog.cpp
 src/gui/widgets/CircularSpinner.cpp
 )
 
@@ -81,6 +82,7 @@ src/gui/widgets/MachineGroupsPanel.h
 src/gui/widgets/MachineLayoutPanel.h
 src/gui/widgets/OpcUaLiveStatusWindow.h
 src/gui/widgets/DocsDialog.h
+src/gui/widgets/ChangelogDialog.h
 src/gui/widgets/CircularSpinner.h
 src/communication/OpcUaClientService.h
 src/communication/OpcUaRuntimeStatus.h
@@ -122,11 +124,14 @@ target_link_libraries(PaperVision_App
 # record the same post-trigger window in seconds, and a camera that stops
 # streaming must be recorded as missing) and its section-scoped recording (a
 # narrowed trigger records only its sections, and a selection with no camera is
-# refused with a reason). All suites drive the real classes with synthetic
-# frame clocks — no cameras are involved.
+# refused with a reason), and the in-app changelog (the bundled CHANGELOG.md
+# parses into one row per release and renders as themed HTML). All suites drive
+# the real classes with synthetic frame clocks — no cameras are involved.
 # Run with: ctest -R config_dialog_network_regression
 #           ctest -R event_capture_timing
 #           ctest -R trigger_record_scope
+#           ctest -R analysis_review_tiles
+#           ctest -R changelog_dialog_render
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     find_package(Qt5 COMPONENTS Test REQUIRED)
@@ -136,6 +141,7 @@ if(BUILD_TESTING)
         tests/EventCaptureTiming.h
         tests/TriggerRecordScope.h
         tests/AnalysisReviewTiles.h
+        tests/ChangelogDialogTest.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -144,6 +150,7 @@ if(BUILD_TESTING)
         tests/EventCaptureTiming.cpp
         tests/TriggerRecordScope.cpp
         tests/AnalysisReviewTiles.cpp
+        tests/ChangelogDialogTest.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -164,7 +171,8 @@ if(BUILD_TESTING)
     add_test(NAME event_capture_timing COMMAND PaperVision_RegressionTest capture)
     add_test(NAME trigger_record_scope COMMAND PaperVision_RegressionTest scope)
     add_test(NAME analysis_review_tiles COMMAND PaperVision_RegressionTest tiles)
+    add_test(NAME changelog_dialog_render COMMAND PaperVision_RegressionTest changelog)
     set_tests_properties(config_dialog_network_regression event_capture_timing
-        trigger_record_scope analysis_review_tiles
+        trigger_record_scope analysis_review_tiles changelog_dialog_render
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()

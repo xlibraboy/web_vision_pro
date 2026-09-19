@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CameraInfo.h"
 #include "../config/CameraConfig.h"
+#include "../config/AppVersion.h"
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
 #include "../core/EventDatabase.h"
@@ -886,8 +887,11 @@ void MainWindow::setupUi() {
     QAction* docsAction = docsMenu->addAction("Documentation");
     connect(docsAction, &QAction::triggered, this, &MainWindow::showDocs);
 
-    // Help Menu
+    // Help Menu — release history first, then About
     QMenu* helpMenu = menu->addMenu("Help");
+    QAction* changelogAction = helpMenu->addAction("Changelog");
+    connect(changelogAction, &QAction::triggered, this, &MainWindow::showChangelog);
+    helpMenu->addSeparator();
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
 
@@ -1686,9 +1690,10 @@ void MainWindow::promptCustomLayout() {
 
 void MainWindow::showAbout() {
     QMessageBox::about(this, "About PaperVision",
-                       "PaperVision System v1.0\n\n"
-                       "Industrial Vision System for Paper Machine Monitoring.\n"
-                       "Built with Qt 5, OpenCV 4, and Basler Pylon 6.");
+                       QString("PaperVision System v%1\n\n"
+                               "Industrial Vision System for Paper Machine Monitoring.\n"
+                               "Built with Qt 5, OpenCV 4, and Basler Pylon 6.")
+                           .arg(AppVersion::kNumber));
 }
 
 void MainWindow::showDocs() {
@@ -1698,6 +1703,15 @@ void MainWindow::showDocs() {
     docsDialog_->show();
     docsDialog_->raise();
     docsDialog_->activateWindow();
+}
+
+void MainWindow::showChangelog() {
+    if (!changelogDialog_) {
+        changelogDialog_ = new ChangelogDialog(this);
+    }
+    changelogDialog_->show();
+    changelogDialog_->raise();
+    changelogDialog_->activateWindow();
 }
 
 void MainWindow::showLiveViewWindow() {
