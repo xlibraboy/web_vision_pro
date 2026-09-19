@@ -13,6 +13,10 @@ here.
 
 ## [Unreleased]
 
+### Changed
+
+- Analysis View event log: an OPC UA trigger now shows only the sensor name in the Reason column (no more "OPC UA:" prefix).
+
 ## [1.1.0] - 2026-09-19
 
 ### Added

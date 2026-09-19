@@ -1014,7 +1014,7 @@ void MainWindow::setupCore() {
             EventController::TriggerContext triggerContext;
             triggerContext.reason = event.tagName.trimmed().isEmpty()
                 ? QStringLiteral("OPC UA Trigger")
-                : QString("OPC UA: %1").arg(event.tagName.trimmed());
+                : event.tagName.trimmed();
             triggerContext.source = event.source.trimmed().isEmpty() ? QStringLiteral("opcua") : event.source.trimmed();
             triggerContext.triggerTagName = event.tagName.trimmed();
             triggerContext.triggerTagNodeId = event.nodeId.trimmed();
