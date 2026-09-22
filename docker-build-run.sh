@@ -85,6 +85,35 @@ cleanup_container() {
     fi
 }
 
+require_deb_urls() {
+    local missing=0
+
+    if [ -z "${PYLON_DEB_URL:-}" ]; then
+        print_error "PYLON_DEB_URL is not set"
+        missing=1
+    fi
+
+    if [ -z "${PYLON_MPEG4_DEB_URL:-}" ]; then
+        print_error "PYLON_MPEG4_DEB_URL is not set"
+        missing=1
+    fi
+
+    if [ "$missing" = 1 ]; then
+        echo ""
+        print_info "The pylon debs are ~98 MB vendor installers and are no longer tracked in git."
+        print_info "Host them (GitHub release, S3, ...) and export their URLs:"
+        echo "  export PYLON_DEB_URL=https://.../pylon_6.2.0.21487-deb0_amd64.deb"
+        echo "  export PYLON_MPEG4_DEB_URL=https://.../pylon-supplementary-package-for-mpeg-4_1.0.1.118-deb0_amd64.deb"
+        echo ""
+        print_info "Or serve the local copies already on disk:"
+        echo "  (cd .docker && python3 -m http.server 8765 &)"
+        echo "  (cd BaslerDocuments && python3 -m http.server 8766 &)"
+        echo "  export PYLON_DEB_URL=http://host.docker.internal:8765/pylon_6.2.0.21487-deb0_amd64.deb"
+        echo "  export PYLON_MPEG4_DEB_URL=http://host.docker.internal:8766/pylon-supplementary-package-for-mpeg-4_1.0.1.118-deb0_amd64.deb"
+        exit 1
+    fi
+}
+
 build_image() {
     print_info "Building Docker image: $IMAGE_NAME"
     
@@ -128,6 +157,7 @@ if [ "$STOP_ONLY" = true ]; then
 fi
 
 # Build new image
+require_deb_urls
 build_image
 
 # Clean old images if requested

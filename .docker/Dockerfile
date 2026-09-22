@@ -78,13 +78,21 @@ RUN git clone --depth 1 --branch v1.5.4 https://github.com/open62541/open62541.g
 
 
 # Pylon Installation
-# We copy the deb file from the .docker directory (which is the context root for the build)
-COPY .docker/pylon_6.2.0.21487-deb0_amd64.deb /tmp/pylon.deb
-RUN dpkg -i /tmp/pylon.deb || apt-get install -f -y && rm /tmp/pylon.deb
+# The pylon debs are large vendor installers and are not tracked in git.
+# Fetch them at build time:
+#   docker build --build-arg PYLON_DEB_URL=<url> --build-arg PYLON_MPEG4_DEB_URL=<url> ...
+ARG PYLON_DEB_URL
+RUN test -n "$PYLON_DEB_URL" || { echo "ERROR: PYLON_DEB_URL build-arg is required"; exit 1; } && \
+    wget -q -O /tmp/pylon.deb "$PYLON_DEB_URL" && \
+    (dpkg -i /tmp/pylon.deb || apt-get install -f -y) && \
+    rm /tmp/pylon.deb
 
 # Pylon Supplementary Package (MPEG-4)
-COPY BaslerDocuments/pylon-supplementary-package-for-mpeg-4_1.0.1.118-deb0_amd64.deb /tmp/pylon-mpeg4.deb
-RUN dpkg -i /tmp/pylon-mpeg4.deb || apt-get install -f -y && rm /tmp/pylon-mpeg4.deb
+ARG PYLON_MPEG4_DEB_URL
+RUN test -n "$PYLON_MPEG4_DEB_URL" || { echo "ERROR: PYLON_MPEG4_DEB_URL build-arg is required"; exit 1; } && \
+    wget -q -O /tmp/pylon-mpeg4.deb "$PYLON_MPEG4_DEB_URL" && \
+    (dpkg -i /tmp/pylon-mpeg4.deb || apt-get install -f -y) && \
+    rm /tmp/pylon-mpeg4.deb
 
 WORKDIR /app
 
