@@ -4,6 +4,10 @@ bin/
 lib/
 .docker/
 
+# Vendor binaries - not tracked, fetched at build time (see .docker/Dockerfile)
+BaslerDocuments/*.pdf
+BaslerDocuments/*.deb
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
