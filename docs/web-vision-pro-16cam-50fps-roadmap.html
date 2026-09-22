@@ -206,7 +206,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <header class="hero"><div class="inner">
 <h1>web_vision_pro · 16-Camera / 50 fps Roadmap &amp; Hardware</h1>
 <p>Paper-machine vision system · Basler GigE · IEEE 1588 (PTP) time sync · interactive BoM</p>
-<p class="tagline">Planning reference · updated 2026-09-22 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: does fiber carry PTP? <strong>Yes</strong> — IEEE 1588 rides in ordinary Ethernet frames, so the medium is transparent to it; only a media converter breaks the chain (§2p S4) · two-segment network topology — camera → copper → leaf switch → fiber → core → server → client, with the PTP vs non-PTP part lists (§2r–§2s) · BoM split <strong>first buy vs full target</strong> (§6)</p>
+<p class="tagline">Planning reference · updated 2026-09-22 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: fiber plant re-specced to <strong>armored OM3</strong> + 10G-SR (300 m ≫ this ≈ 100 m plant; OM4 for 300–400 m, OS2 beyond) · does fiber carry PTP? <strong>Yes</strong> — IEEE 1588 rides in ordinary Ethernet frames, so the medium is transparent to it; only a media converter breaks the chain (§2p S4 / §2s) · two-segment network topology — camera → copper → leaf switch → fiber → core → server → client, with the PTP vs non-PTP part lists (§2r–§2s) · BoM split <strong>first buy vs full target</strong> (§6)</p>
 <div class="kpis">
 <div class="kpi"><b>16</b><span>cameras</span></div>
 <div class="kpi"><b>50 fps</b><span>global rate</span></div>
@@ -298,7 +298,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Chunk timestamps on</td><td>Turn chunk mode + <code>ChunkTimestamp</code> on per camera so frame stamps come from the PTP-slaved sensor clock, not frame-arrival time.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Moisture (SWIR/NIR)</td><td>2–4 Basler ace 2 SWIR stations (press + dryer exits) for water-band moisture proxy; not in the visible fleet — see §2n.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Temperature mapping</td><td>IR spot pyrometers per dryer station (+ optional LWIR camera) for dryer diagnostics and moisture compensation — see §2o.</td></tr>
-<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Server · client · fiber plant</td><td>Tower vision server, 1 live-view/analyze client, QHD monitors, DAC/OM4/OS2 uplinks — see §2p.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Server · client · fiber plant</td><td>Tower vision server, 1 live-view/analyze client, QHD monitors, DAC/OM3/OM4/OS2 uplinks — see §2p.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>2-segment network plant</td><td>8 cameras + 1 SWIR per segment: Cat6a drops → leaf switch (PoE + PTP) → armored fiber → core switch → server → client — see §2r.</td></tr>
 <tr class="vNone"><td><span class="chip blue">Choose</span></td><td>PTP or non-PTP switches</td><td>Identical cable plant either way; the leaf/core switch class + grandmaster decide µs vs ms — the PTP premium is ≈ $5.6k — see §2s.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>pylon 26 upgrade (from 6.2.0)</td><td>Date-versioned suite (latest 26.06); all shortlist cameras compatible — see §2q.</td></tr>
@@ -789,7 +789,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </section>
 
 <section id="2p-server-client-monitors-fiber" class="card section-reveal"><h2><span class="num">2p.</span>Server · client · monitors · fiber</h2>
-<p><strong>Scope per request (2026-09-05):</strong> tower server on site · 1 client (live view + analyze) · distances unknown so uplinks default to DAC with OM4/OS2 options. All prices <span class="pill e">est</span> — confirm quote.</p>
+<p><strong>Scope per request (2026-09-05):</strong> tower server on site · 1 client (live view + analyze) · distances unknown so uplinks default to DAC with OM3/OM4/OS2 glass options. All prices <span class="pill e">est</span> — confirm quote.</p>
 <h3>S1 — vision server (tower)</h3>
 <div class="tablewrap"><table>
 <thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
@@ -819,12 +819,12 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <div class="tablewrap"><table>
 <thead><tr><th>Link</th><th>Default (BoM)</th><th>If longer / site survey says so</th><th>PTP?</th></tr></thead><tbody>
 <tr class="vNone"><td>Cameras → leaf switch</td><td>Cat6a S/FTP drops — already in §6 cabling rows (2 segments of 8 + 1 in §2r)</td><td>Fiber only for extreme dry-end runs (media converter per drop — last resort)</td><td><span class="chip ok">✔ full PTP</span> — the camera is the slave on its copper drop</td></tr>
-<tr class="vNone"><td>Leaf → core (§2r)</td><td><strong>Armored OM4, 4-strand, pre-terminated LC/UPC</strong> (2 used + 2 spare) + 10G-SR SFP+</td><td>OS2 4-strand + 10G-LR when the control room is &gt; 400 m away</td><td><span class="chip ok">✔ full PTP</span> — fiber is transparent to it (≈ 5 ns/m, symmetric, compensated); the leaf/core switches are the TC/BC hops</td></tr>
-<tr class="vNone"><td>Core switch → server (2× 10G LACP)</td><td><strong>DAC twinax pair</strong> (≤ 5 m, tower next to the core switch)</td><td>OM4 multimode LC-LC + 10G-SR SFP+ (≤ 400 m) · OS2 single-mode + 10G-LR (km range)</td><td><span class="chip ok">✔ full PTP</span> — DAC carries it too; the X710 timestamps in hardware for <code>ptp4l</code></td></tr>
+<tr class="vNone"><td>Leaf → core (§2r)</td><td><strong>Armored OM3, 4-strand, pre-terminated LC/UPC</strong> (2 used + 2 spare) + 10G-SR SFP+</td><td>OM4 4-strand when the measured run lands in 300–400 m · OS2 4-strand + 10G-LR beyond 400 m or into the site backbone</td><td><span class="chip ok">✔ full PTP</span> — fiber is transparent to it (≈ 5 ns/m, symmetric, compensated); the leaf/core switches are the TC/BC hops</td></tr>
+<tr class="vNone"><td>Core switch → server (2× 10G LACP)</td><td><strong>DAC twinax pair</strong> (≤ 5 m, tower next to the core switch)</td><td>OM3/OM4 multimode LC-LC + 10G-SR SFP+ (≤ 300/400 m) · OS2 single-mode + 10G-LR (km range)</td><td><span class="chip ok">✔ full PTP</span> — DAC carries it too; the X710 timestamps in hardware for <code>ptp4l</code></td></tr>
 <tr class="vbad"><td>Media converter (copper ↔ fiber camera drop)</td><td>avoid — last resort only</td><td>—</td><td><span class="chip bad">✖ breaks the chain</span> — bit-transparent but <em>not</em> a transparent clock: adds asymmetry no servo can see</td></tr>
 </tbody></table></div>
 <ul>
-<li><strong>Distances unknown/mixed</strong> → the BoM <code>Uplink media</code> selector prices all three; confirm with a tape measure before ordering (DAC is pennies, LR optics are not).</li>
+<li><strong>Distances unknown/mixed</strong> → the BoM <code>Uplink media</code> selector prices all four (DAC / OM3 / OM4 / OS2); confirm with a tape measure before ordering — OM3 covers everything up to 300 m, so the tape measure only decides between OM3, OM4 and OS2 (DAC is pennies, LR optics are not).</li>
 <li>Leave 2 spare switch ports: 1 client + 1 service laptop. Grandmaster takes its own port (§2l).</li>
 <li>Label every drop with station ID at both ends; OTDR/certify any fiber run at handover.</li>
 </ul>
@@ -914,14 +914,14 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
       <div class="bx cam"><b>SEG A · 8 × ace 2 + M1</b><small>51 / 25 fps · MTU 9000</small></div>
       <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
       <div class="bx sw"><b>Leaf A switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet A</small></div>
-      <span class="arr">→<span class="lbl">armored OM4</span></span>
+      <span class="arr">→<span class="lbl">armored OM3</span></span>
       <div class="bx net"><b>Core switch</b><small>control room</small></div>
     </div>
     <div class="row">
       <div class="bx cam"><b>SEG B · 8 × ace 2 + M2</b><small>51 / 25 fps · MTU 9000</small></div>
       <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
       <div class="bx sw"><b>Leaf B switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet B</small></div>
-      <span class="arr">→<span class="lbl">armored OM4</span></span>
+      <span class="arr">→<span class="lbl">armored OM3</span></span>
       <div class="bx net"><b>Core switch</b><small>control room</small></div>
     </div>
   </div>
@@ -966,12 +966,12 @@ GNSS / GPS antenna (roof)
             │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
             │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
             │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
-            │           └─ armored OM4 4-strand LC/UPC (2 used + 2 spare) ──┐
+            │           └─ armored OM3 4-strand LC/UPC (2 used + 2 spare) ──┐
             ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
             │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
             │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
             │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
-            │           └─ armored OM4 4-strand LC/UPC ────────────────────┘
+            │           └─ armored OM3 4-strand LC/UPC ────────────────────┘
             │
             ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
             │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 → NAS
@@ -992,8 +992,8 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
 <h3>Parts — fiber (leaf → core, machine floor → control room)</h3>
 <div class="tablewrap"><table>
 <thead><tr><th>Part</th><th>Spec to order</th><th>Qty</th><th>Why / note</th></tr></thead><tbody>
-<tr class="vstar"><td><strong>Trunk per segment</strong></td><td><strong>OM4 50/125 µm</strong> (or OS2 9/125 µm), tight-buffered, <strong>interlocked armored</strong>, LSZH, indoor/outdoor, <strong>4 strands</strong>, pre-terminated <strong>LC/UPC duplex</strong>, insertion-loss report</td><td>2 runs</td><td>2 strands used (TX/RX) + 2 spare; armored because it crosses the machine hall</td></tr>
-<tr class="vstar"><td><strong>Leaf ↔ core optics</strong></td><td><strong>10G-SR SFP+</strong> (MMF, ≤ 400 m OM4) or <strong>10G-LR SFP+</strong> (SMF, ≤ 10 km) — one per end of each run</td><td>4 (2 per run)</td><td>terminate the fiber straight into the switch SFP+ port — <strong>no media converter</strong> in the PTP path</td></tr>
+<tr class="vstar"><td><strong>Trunk per segment</strong></td><td><strong>OM3 50/125 µm</strong> (OM4 for 300–400 m, OS2 9/125 µm beyond), tight-buffered, <strong>interlocked armored</strong>, LSZH, indoor/outdoor, <strong>4 strands</strong>, pre-terminated <strong>LC/UPC duplex</strong>, insertion-loss report</td><td>2 runs</td><td>2 strands used (TX/RX) + 2 spare; armored because it crosses the machine hall</td></tr>
+<tr class="vstar"><td><strong>Leaf ↔ core optics</strong></td><td><strong>10G-SR SFP+</strong> (MMF, ≤ 300 m OM3 / ≤ 400 m OM4) or <strong>10G-LR SFP+</strong> (SMF, ≤ 10 km) — one per end of each run</td><td>4 (2 per run)</td><td>same 10G-SR optic on OM3 and OM4; terminate the fiber straight into the switch SFP+ port — <strong>no media converter</strong> in the PTP path</td></tr>
 <tr class="vNone"><td>Patch panel + enclosure</td><td>LC/UPC adapter panel + fiber enclosure, both ends of each run</td><td>2 per segment</td><td>protects the terminated end; label both ends <code>SEG-A/LINK1</code></td></tr>
 <tr class="vNone"><td>Cleaning &amp; test kit</td><td>LC one-click cleaner + inspection scope; OLTS/OTDR certificate</td><td>1 set</td><td>a dirty LC ferrule is the classic intermittent link — certify before handover</td></tr>
 <tr class="vNone"><td>Bend radius</td><td>≥ 10 × cable Ø (≥ 30 mm working), never stapled, service loop at both ends</td><td>—</td><td>macro-bend loss is invisible at 1G/10G — until it is not</td></tr>
@@ -1001,13 +1001,13 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
 <h4>Which fiber type?</h4>
 <div class="tablewrap"><table>
 <thead><tr><th>Fiber</th><th>Core / clad</th><th>Jacket</th><th>10G reach</th><th>Optic</th><th>Verdict for this line</th></tr></thead><tbody>
-<tr class="vstar"><td><strong>OM4 multimode</strong></td><td>50/125 µm</td><td>aqua / violet</td><td><strong>400 m @ 10GBASE-SR</strong></td><td>10G-SR SFP+ (cheap, ≈ $60)</td><td>⭐ default — machine floor → control room is well under 400 m, and SR optics are the lowest cost</td></tr>
-<tr class="vNone"><td>OM3 multimode</td><td>50/125 µm</td><td>aqua</td><td>300 m @ 10GBASE-SR</td><td>10G-SR SFP+</td><td>OK only if the measured run is &lt; 300 m and it is cheaper — no other benefit</td></tr>
+<tr class="vstar"><td><strong>OM3 multimode</strong></td><td>50/125 µm</td><td>aqua</td><td><strong>300 m @ 10GBASE-SR</strong><br>70 m @ 25G-SR · 100 m @ 40/100G-SR4</td><td>10G-SR SFP+ (cheap, ≈ $60)</td><td>⭐ <strong>default</strong> — the plant is ≈ 100 m of machine + routing slack, well inside 300 m. The SR optics, LC/UPC connectors, patch panels and PTP behaviour are <em>identical</em> to OM4, so the glass is the only variable: quote OM3 vs OM4 at the same 4-strand armored spec and take the cheaper</td></tr>
+<tr class="vNone"><td>OM4 multimode</td><td>50/125 µm</td><td>aqua / violet</td><td><strong>400 m @ 10GBASE-SR</strong><br>100 m @ 25G-SR · 150 m @ 40/100G-SR4</td><td>10G-SR SFP+ (same optics)</td><td>step up <em>only</em> when the tape measure lands in <strong>300–400 m</strong>, or when a 25G/40G jump is already planned inside ~100–150 m — that headroom is all the extra reach buys</td></tr>
 <tr class="vNone"><td>OM5 wideband</td><td>50/125 µm</td><td>lime</td><td>400 m @ 10G-SR; SWDM to 150 m for 40/100G</td><td>10G-SR / SWDM4</td><td>skip — pays for 40/100G readiness this system does not use</td></tr>
 <tr class="vstar"><td><strong>OS2 single-mode</strong></td><td>9/125 µm</td><td>yellow</td><td><strong>10 km @ 10GBASE-LR</strong> (25G-LR 10 km)</td><td>10G-LR SFP+ (≈ $250)</td><td>⭐ pick when the control room is &gt; 400 m away or the run ties into the site backbone</td></tr>
 <tr class="vbad"><td>Cat6a copper uplink (10GBASE-T)</td><td>—</td><td>—</td><td>≤ 100 m</td><td>10GBASE-T ports</td><td>inside the control room only — never across the machine hall (EMI + ground loop)</td></tr>
 </tbody></table></div>
-<p class="callout ok">✅ <strong>Fiber verdict:</strong> <strong>armored OM4, 4 strands, LC/UPC + 10G-SR</strong> per segment is the default build; move to <strong>OS2 + 10G-LR</strong> only if the tape measure says &gt; 400 m. Fiber carries PTP with a symmetric ≈ 5 ns/m delay the protocol compensates — the glass choice does not affect clock accuracy, but keep both strands of a link the same type and length so TX/RX stay symmetric.</p>
+<p class="callout ok">✅ <strong>Fiber verdict (2026-09-22):</strong> <strong>armored OM3, 4 strands, LC/UPC + 10G-SR</strong> per segment is the default build — its 300 m 10G-SR reach is far beyond this plant (≈ 100 m of machine plus routing slack). Step up to <strong>OM4</strong> only if the tape measure lands in <strong>300–400 m</strong>, and to <strong>OS2 + 10G-LR</strong> beyond 400 m or when tying into the site backbone. The glass choice does not affect clock accuracy — fiber carries PTP with a symmetric ≈ 5 ns/m delay the protocol compensates — but keep both strands of a link the same type and length so TX/RX stay symmetric.</p>
 <h3>Parts — switches</h3>
 <div class="tablewrap"><table>
 <thead><tr><th>Role</th><th>Ports</th><th>Spec to ask for</th><th>PTP build</th><th>Non-PTP build</th><th>Est. unit</th></tr></thead><tbody>
@@ -1069,7 +1069,7 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
 <tr class="vNone"><td>Leaf switch — 10×1G PoE+ + 2×10G SFP+, industrial</td><td>2</td><td class="r">$850 ea <span class="chip ok">1588 TC/BC</span></td><td class="r">$380 ea <span class="chip warn">plain</span></td></tr>
 <tr class="vNone"><td>Core switch — 4–8×10G SFP+ + 4×1G</td><td>1</td><td class="r">$1 300 <span class="chip ok">1588 BC</span></td><td class="r">$600 <span class="chip warn">plain</span></td></tr>
 <tr class="vNone"><td>GNSS grandmaster (§2m) + antenna</td><td>1</td><td class="r">$4 000</td><td class="r">$0 <span class="chip off">ARB mode</span></td></tr>
-<tr class="vNone"><td>Armored OM4 trunk, 4-strand LC/UPC (per segment)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
+<tr class="vNone"><td>Armored OM3 trunk, 4-strand LC/UPC, per segment (OM4 if the run lands in 300–400 m)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
 <tr class="vNone"><td>10G-SR SFP+ optic (2 per link — 2 leaf↔core + 2 core↔server)</td><td>8</td><td class="r">$60 ea</td><td class="r">$60 ea</td></tr>
 <tr class="vNone"><td>LC/UPC patch panel + enclosure (both ends)</td><td>2</td><td class="r">$120 ea</td><td class="r">$120 ea</td></tr>
 <tr class="vNone"><td>Field cabinet IP54 (per segment)</td><td>2</td><td class="r">$450 ea</td><td class="r">$450 ea</td></tr>
@@ -1077,7 +1077,7 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
 <tr class="vNone"><td>Intel X710-DA2 2×10G NIC (server)</td><td>1</td><td class="r">$420</td><td class="r">$420</td></tr>
 <tr class="vstar"><td><strong>Network line total</strong></td><td></td><td class="r"><strong>≈ $9 760</strong></td><td class="r"><strong>≈ $4 120</strong></td></tr>
 </tbody></table></div>
-<p class="legend">All prices <span class="pill e">est</span> — confirm distributor quotes (switch prices are estimates for the required port/PTP feature set; the §2l Planet/Netgear street checks cover the single-switch baseline). Fiber and copper are rounded per the §6 BoM; the table prices the OM4 variant — the DAC default is ≈ $9 610 / ≈ $4 060 respectively. Every item in these lists is <strong>phase 1</strong> in §6: the PTP premium is not deferrable, because deferring the PTP switches means re-cabling nothing but re-buying all three switches.</p>
+<p class="legend">All prices <span class="pill e">est</span> — confirm distributor quotes (switch prices are estimates for the required port/PTP feature set; the §2l Planet/Netgear street checks cover the single-switch baseline). Fiber and copper are rounded per the §6 BoM; the table prices the OM3 variant — the DAC default is ≈ $9 610 / ≈ $4 060 respectively. Every item in these lists is <strong>phase 1</strong> in §6: the PTP premium is not deferrable, because deferring the PTP switches means re-cabling nothing but re-buying all three switches.</p>
 <p class="callout ok">✅ <strong>Verdict:</strong> build the plant <strong>once</strong> — copper, fiber, cabinets, optics and the server NIC are PTP-agnostic, so nothing is wasted if the switches start plain. Buy the <strong>PTP-capable leaf + core</strong> when the target is µs cross-camera alignment and UTC event times (§1 KPI “&lt; 10 µs”). If the budget must be staged: buy <strong>plain managed switches on the identical fiber plant</strong> now, add the GNSS grandmaster and swap the three switches later — no recabling, no camera change, no software change (the app reads both worlds, §5).</p>
 <p class="callout warn">⚠️ <strong>Half-measures that do not work:</strong> PTP-capable cameras on plain switches → ms offsets and offset-alert noise; a grandmaster without PTP switches → its accuracy is thrown away at the first queueing hop; a media converter mid-link → extra asymmetry with no config visibility; copper (10GBASE-T) between machine floor and control room → ground loops and EMI where fiber costs the same.</p>
 </section>
@@ -1114,7 +1114,7 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
   <div class="plane p-data"><div class="plane-h">DATA · 2 segments → leaf → fiber → core → server → client <span class="hint">2×10G LACP bond · NVMe Gen4 · §2r</span></div>
     <div class="row">
       <div class="bx sw"><b>Leaf A + Leaf B</b><small>8 cams + 1 SWIR each · PoE · PTP BC/TC</small></div>
-      <span class="arr">→<span class="lbl">armored OM4/OS2 · 10G SFP+</span></span>
+      <span class="arr">→<span class="lbl">armored OM3/OM4/OS2 · 10G SFP+</span></span>
       <div class="bx net"><b>Core switch</b><small>control room · GM port · 4–8×10G SFP+</small></div>
       <span class="arr">→<span class="lbl">LACP bond</span></span>
       <div class="bx srv"><b>Vision server</b><small>16 ring buffers · Qt/OpenCV/pylon · EventController · 64–128 GB ECC</small></div>
@@ -1150,12 +1150,12 @@ OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions
             │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
             │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
             │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
-            │           └─ armored OM4 4-strand LC/UPC (2 used + 2 spare) ──┐
+            │           └─ armored OM3 4-strand LC/UPC (2 used + 2 spare) ──┐
             ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
             │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
             │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
             │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
-            │           └─ armored OM4 4-strand LC/UPC ────────────────────┘
+            │           └─ armored OM3 4-strand LC/UPC ────────────────────┘
             │
             ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
             │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 (live)
@@ -1176,7 +1176,7 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
 <p class="callout ok">Moisture overlay (§2n): M1 (press exit) + M2 (after-dryer) join as <strong>ace 2 GigE SWIR slaves</strong> on the same PTP domain 0 — M1 on leaf A, M2 on leaf B — each with its own halogen illuminator + SWIR lens/filter, and each costing one 1G PoE port on its segment. No extra switch or grandmaster.</p>
 <p class="callout ok">Temperature overlay (§2o): IR spot pyrometers ride the <strong>mill plane (OPC UA trend, 1 Hz)</strong> — no GigE load. An optional LWIR camera is standalone and does not join the PTP/event path.</p>
 <p class="callout ok">Workspace overlay (§2p): tower server + 1 client PC hang off the core switch (spare 1G port for the client); client mounts the event share read-only — no recorder on the client.</p>
-<p class="callout ok">Network overlay (§2r): the 16-camera fleet is split <strong>8 + 8</strong> — each segment terminates in a leaf switch on the machine floor, then one armored OM4 (or OS2) run to the control-room core switch that also feeds the server, the client and the grandmaster. All parts — copper, fiber types, leaf/core switch classes — and the PTP vs non-PTP comparison are in <a href="#2r-network-topology-two-segments">§2r</a> / <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
+<p class="callout ok">Network overlay (§2r): the 16-camera fleet is split <strong>8 + 8</strong> — each segment terminates in a leaf switch on the machine floor, then one armored OM3 (or OM4/OS2, per the tape measure) run to the control-room core switch that also feeds the server, the client and the grandmaster. All parts — copper, fiber types, leaf/core switch classes — and the PTP vs non-PTP comparison are in <a href="#2r-network-topology-two-segments">§2r</a> / <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
 </section>
 
 <section id="3-software-roadmap-ordered" class="card section-reveal"><h2><span class="num">4.</span>Software roadmap (ordered)</h2>
@@ -1318,7 +1318,8 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
 <div class="sel"><label for="s-uplink">Uplink media (§2p-S4)</label>
 <select id="s-uplink">
 <option value="dac" selected>DAC twinax pair (≤ 5 m, core→server)</option>
-<option value="om4">OM4 multimode + SR optics</option>
+<option value="om3">OM3 multimode + SR optics (≤ 300 m)</option>
+<option value="om4">OM4 multimode + SR optics (≤ 400 m)</option>
 <option value="os2">OS2 single-mode + LR optics</option>
 </select>
 <div class="sel-note">leaf↔core + core→server; the leaf run is always fiber (§2r)</div></div>
@@ -1397,7 +1398,7 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
 <button class="back-top" aria-label="Back to top" type="button">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"></path></svg>
 </button>
-<footer>Roadmap “web-vision-pro-16cam-50fps-roadmap” · camera/lens/pylon data verified against baslerweb.com / docs.baslerweb.com · PTP support, switch &amp; street prices verified 2026-09-04 · pylon compatibility: ≥ 6.0 required, pinned stack 6.2.0 ✔ · 2-segment network topology, fiber/switch parts and the PTP vs non-PTP comparison added 2026-09-19 (§2r–§2s — switch/fiber prices est, confirm quotes) · fiber vs PTP clarified 2026-09-22: fiber carries PTP unchanged, media converters do not (§2p S4)</footer>
+<footer>Roadmap “web-vision-pro-16cam-50fps-roadmap” · camera/lens/pylon data verified against baslerweb.com / docs.baslerweb.com · PTP support, switch &amp; street prices verified 2026-09-04 · pylon compatibility: ≥ 6.0 required, pinned stack 6.2.0 ✔ · 2-segment network topology, fiber/switch parts and the PTP vs non-PTP comparison added 2026-09-19 (§2r–§2s — switch/fiber prices est, confirm quotes) · fiber vs PTP clarified 2026-09-22: fiber carries PTP unchanged, media converters do not (§2p S4) · fiber glass re-specced 2026-09-22 to armored OM3 + 10G-SR as the default (300 m reach, same optics/connectors/PTP as OM4), OM4 only for 300–400 m runs and OS2 beyond (§2s)</footer>
 <script>
 (function(){
   var progress=document.querySelector('.progress-bar');
@@ -1519,7 +1520,7 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
   var MON27=350;            // est, 27in QHD IPS + VESA arm
   var MON24=150;            // est, 24in admin monitor
   var UPS=450;              // est, 1500VA line-interactive UPS
-  var OM4_PATCH=40;         // est, OM4 LC-LC duplex patch per uplink
+  var MM_PATCH=40;          // est, OM3/OM4 LC-LC duplex patch per uplink
   var SR=60;                // est, 10G-SR SFP+ optic
   var OS2_PATCH=50;         // est, OS2 LC-LC duplex patch per uplink
   var LR=250;               // est, 10G-LR SFP+ optic
@@ -1540,7 +1541,7 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
   var LEAF_PLAIN=380;       // est, same port count/temperature class, no IEEE 1588
   var CORE_PTP=1300;        // est, 4-8x10G SFP+ aggregation, IEEE 1588 boundary clock
   var CORE_PLAIN=600;       // est, plain 10G aggregation switch
-  var FIBER_RUN=180;        // est, armored 4-strand OM4/OS2 pre-terminated trunk, per segment
+  var FIBER_RUN=180;        // est, armored 4-strand OM3/OM4/OS2 pre-terminated trunk, per segment
   var FIBER_PANEL=120;      // est, LC/UPC patch panel + enclosure, per segment (both ends)
   var CABINET=450;          // est, IP54 field cabinet, per segment
   var DIN_PSU=180;          // est, redundant 24 VDC DIN PSU, per segment
@@ -1746,10 +1747,12 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
       total += coreP;
       push(grp, 'Field cabinet IP54 + 24 VDC DIN PSU (per segment)', 2, CABINET+DIN_PSU, 'machine floor · wet end A / dry end B (§2h)', 'e');
       total += 2*(CABINET+DIN_PSU);
-      if(S.uplink==='om4'){
-        push(grp, 'Armored OM4 trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN, '2 strands used + 2 spare · leaf ↔ core (§2r)', 'e');
+      if(S.uplink==='om3' || S.uplink==='om4'){
+        var mmGlass=S.uplink==='om4'?'OM4':'OM3';
+        push(grp, 'Armored '+mmGlass+' trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN,
+          '2 strands used + 2 spare · leaf ↔ core (§2r) · '+(S.uplink==='om4'?'≤ 400 m':'≤ 300 m')+' @ 10G-SR', 'e');
         total += 2*FIBER_RUN;
-        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, '2 per link, both ends', 'e');
+        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, '2 per link, both ends · same optic on OM3 and OM4', 'e');
         total += 4*SR;
       } else if(S.uplink==='os2'){
         push(grp, 'Armored OS2 trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN, '2 strands used + 2 spare · leaf ↔ core (§2r)', 'e');
@@ -1757,7 +1760,7 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
         push(grp, '10G-LR SFP+ optic (leaf ↔ core)', 4, LR, '2 per link, both ends', 'e');
         total += 4*LR;
       } else {
-        push(grp, 'Armored OM4 trunk per segment (DAC cannot span the machine floor)', 2, FIBER_RUN, 'DAC only fits core → server, ≤ 5 m', 'e');
+        push(grp, 'Armored OM3 trunk per segment (DAC cannot span the machine floor)', 2, FIBER_RUN, 'OM4 instead if the measured run is 300–400 m · DAC only fits core → server, ≤ 5 m', 'e');
         total += 2*FIBER_RUN;
         push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, 'the leaf ↔ core run is always fiber', 'e');
         total += 4*SR;
@@ -1770,9 +1773,9 @@ OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions
       total += sw.price;
     }
     if(segmented || S.sw!=='none'){
-      if(S.uplink==='om4'){
-        push(grp, 'OM4 LC-LC duplex patch (core → server)', 2, OM4_PATCH, 'LACP bond', 'e');
-        total += 2*OM4_PATCH;
+      if(S.uplink==='om3' || S.uplink==='om4'){
+        push(grp, (S.uplink==='om4'?'OM4':'OM3')+' LC-LC duplex patch (core → server)', 2, MM_PATCH, 'LACP bond', 'e');
+        total += 2*MM_PATCH;
         push(grp, '10G-SR SFP+ optic (core → server)', 4, SR, '2 per end', 'e');
         total += 4*SR;
       } else if(S.uplink==='os2'){
