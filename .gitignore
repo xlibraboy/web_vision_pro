@@ -26,7 +26,6 @@ __pycache__/
 # Project Specific
 data/
 docker-backups/
-BaslerDocuments/
 *.o
 *.a
 *.so
