@@ -178,6 +178,13 @@ details.note summary{cursor:pointer;font-weight:600;color:#134e4a;font-size:14px
 .bom-table tr.grp td{background:#f0fdfa;color:#134e4a;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;border-top:2px solid #99f6e4}
 .bom-table tr.total td{background:#0f172a;color:#fff;font-weight:700;border-top:2px solid var(--accent)}
 .bom-table tr.total td.grand{font-size:17px}
+.bom-table tr.total.alt td{background:#334155;border-top:1px solid #475569;font-weight:600}
+.bom-table tr.total.alt td.grand{font-size:14.5px}
+.bom-table tr.later td{color:#64748b}
+.bom-table tr.later td.sub{font-weight:500}
+.bom-table tr.never td{color:#94a3b8;font-style:italic}
+.bom-table td.ph{white-space:nowrap}
+.bom-plan{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;font-size:13px;color:var(--muted)}
 .bom-table td.r, .bom-table th.r{text-align:end;font-variant-numeric:tabular-nums}
 .bom-table td.sub{font-weight:600;font-variant-numeric:tabular-nums;text-align:end}
 .bom-warn{display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--warn-bg);border:1px solid #fde68a;color:#92400e;font-size:13px}
@@ -199,7 +206,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <header class="hero"><div class="inner">
 <h1>web_vision_pro · 16-Camera / 50 fps Roadmap &amp; Hardware</h1>
 <p>Paper-machine vision system · Basler GigE · IEEE 1588 (PTP) time sync · interactive BoM</p>
-<p class="tagline">Planning reference · updated 2026-09-18 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: “do we need PTP?” decision guide (§2k–2m)</p>
+<p class="tagline">Planning reference · updated 2026-09-22 · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: does fiber carry PTP? <strong>Yes</strong> — IEEE 1588 rides in ordinary Ethernet frames, so the medium is transparent to it; only a media converter breaks the chain (§2p S4) · two-segment network topology — camera → copper → leaf switch → fiber → core → server → client, with the PTP vs non-PTP part lists (§2r–§2s) · BoM split <strong>first buy vs full target</strong> (§6)</p>
 <div class="kpis">
 <div class="kpi"><b>16</b><span>cameras</span></div>
 <div class="kpi"><b>50 fps</b><span>global rate</span></div>
@@ -207,6 +214,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <div class="kpi"><b>&lt; 10 µs</b><span>PTP target offset</span></div>
 <div class="kpi"><b>1</b><span>grandmaster · PTP</span></div>
 <div class="kpi"><b>10 GbE</b><span>backbone class</span></div>
+<div class="kpi"><b>2 × 8</b><span>camera segments</span></div>
 </div>
 </div></header>
 <div class="layout">
@@ -239,6 +247,9 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <div class="tocgrp">Compute &amp; software</div>
 <a href="#2p-server-client-monitors-fiber">2p. Server · client · monitors · fiber</a>
 <a href="#2q-software-stack-pylon-26">2q. Software stack — pylon 26</a>
+<div class="tocgrp">Network</div>
+<a href="#2r-network-topology-two-segments">2r. Network topology — 2 segments</a>
+<a href="#2s-ptp-vs-non-ptp-build">2s. PTP vs non-PTP build</a>
 <div class="tocgrp">Plan</div>
 <a href="#system-architecture-diagram">3. System diagram &amp; tree</a>
 <a href="#3-software-roadmap-ordered">4. Software roadmap</a>
@@ -259,8 +270,9 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <li><strong>Buy ace 2 a2A1920-51</strong> (mono + color lanes) with C23 lenses and strobed LED bars; one PTP grandmaster + PTP switch puts every frame on a µs timeline (§2e–§2m).</li>
 <li><strong>New sensing:</strong> 2 SWIR moisture stations (press + dryer, §2n) and 2 pyrometers (§2o) join the same timeline and BoM.</li>
 <li><strong>Compute:</strong> tower server + 1 client + QHD monitors, DAC uplinks until the survey says otherwise; RTX 4000 Ada reserved for the AI step (§2p, §2d).</li>
+<li><strong>Network:</strong> split the fleet into <strong>2 segments of 8 + 8</strong> — Cat6a drop → leaf switch in a machine-floor cabinet → armored fiber → core switch → server → client; ≈ 7.5 Gbps per 10G uplink. The cable plant is PTP-agnostic; only the leaf/core switch class and the grandmaster decide µs vs ms (§2r–§2s).</li>
 <li><strong>Software:</strong> C++ on pylon 6.2.0 today → 26.06 next, Qt5→Qt6 deferred; per-camera FPS recording unblocks honest mixed-fleet numbers (§2q, §4).</li>
-<li><strong>Cost:</strong> configure it all live in §6 — indicative total ≈ $68k at defaults.</li>
+<li><strong>Cost:</strong> configure it all live in §6 and split it by phase — <strong>first buy ≈ $57k</strong> (phase 1: visible fleet + network plant + compute/storage, 24 line items) vs <strong>target ≈ $71k</strong> (phases 1 + 2, adding SWIR moisture, pyrometers and the rest). The PTP premium over identical plain switches is ≈ $5.6k and sits entirely in phase 1 (§2s).</li>
 </ul>
 </section>
 
@@ -275,6 +287,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <a class="tile info" href="#2n-moisture-swir-nir"><div class="t-label">Moisture · SWIR</div><div class="t-val">2 <small>stations @ 25 fps</small></div><div class="t-sub">M1 press + M2 dryer · halogen + 1200/1450 nm → §2n</div></a>
 <a class="tile gold" href="#2o-temperature-mapping"><div class="t-label">Temperature</div><div class="t-val">2 <small>pyrometers @ 1 Hz</small></div><div class="t-sub">OPC UA trend, zero GigE load; LWIR optional → §2o</div></a>
 <a class="tile purp" href="#2p-server-client-monitors-fiber"><div class="t-label">Server + client</div><div class="t-val">tower + 1 <small>client</small></div><div class="t-sub">16C/ECC server · 8C client · 2× 27&quot; QHD + UPS → §2p</div></a>
+<a class="tile info" href="#2r-network-topology-two-segments"><div class="t-label">Network · 2 segments</div><div class="t-val">8 + 8 <small>cameras</small></div><div class="t-sub">Cat6a → leaf switch → armored fiber → core → server → client → §2r</div></a>
 <a class="tile warn" href="#2d-gpu-why-none-today-when-to-reconsider"><div class="t-label">AI GPU</div><div class="t-val"><span class="chip warn">none → RTX 4000 Ada</span></div><div class="t-sub">CPU today; 20 GB ECC 130 W when AI lands → §2d</div></a>
 <a class="tile teal" href="#2q-software-stack-pylon-26"><div class="t-label">Software stack</div><div class="t-val">6.2.0 → <small>26.06</small></div><div class="t-sub">shortlist native, scout to confirm · Qt6 deferred → §2q</div></a>
 </div>
@@ -286,6 +299,8 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Moisture (SWIR/NIR)</td><td>2–4 Basler ace 2 SWIR stations (press + dryer exits) for water-band moisture proxy; not in the visible fleet — see §2n.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Temperature mapping</td><td>IR spot pyrometers per dryer station (+ optional LWIR camera) for dryer diagnostics and moisture compensation — see §2o.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Server · client · fiber plant</td><td>Tower vision server, 1 live-view/analyze client, QHD monitors, DAC/OM4/OS2 uplinks — see §2p.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>2-segment network plant</td><td>8 cameras + 1 SWIR per segment: Cat6a drops → leaf switch (PoE + PTP) → armored fiber → core switch → server → client — see §2r.</td></tr>
+<tr class="vNone"><td><span class="chip blue">Choose</span></td><td>PTP or non-PTP switches</td><td>Identical cable plant either way; the leaf/core switch class + grandmaster decide µs vs ms — the PTP premium is ≈ $5.6k — see §2s.</td></tr>
 <tr class="vwarn"><td><span class="chip warn">Add</span></td><td>pylon 26 upgrade (from 6.2.0)</td><td>Date-versioned suite (latest 26.06); all shortlist cameras compatible — see §2q.</td></tr>
 <tr class="vbad"><td><span class="chip bad">Gap</span></td><td>scout scA780 on pylon 26</td><td>Legacy fleet unproven on the new suite — one bench camera must pass grab → PTP → chunk → event before the fleet build moves (§2q).</td></tr>
 <tr class="vbad"><td><span class="chip bad">Gap</span></td><td>Moisture calibration samples</td><td>No oven-dry lab reference per grade yet — without it the SWIR ratio is unitless (§2n).</td></tr>
@@ -555,7 +570,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <li>Basler recommends <strong>ANNOUNCE interval 2 s, SYNC interval 0.5 s</strong>.</li>
 <li>Keep the default <strong>end-to-end delay mechanism</strong>. Peer-to-peer only if <em>every</em> switch in the path is PTP-enabled and configured for P2P.</li>
 <li>Set a dedicated grandmaster with <strong>Priority 1 &lt; 128</strong> (e.g. 100); set ace 2 cameras to <strong>255</strong> so no camera ever arbitrates to master when the GM is present. On scout-class cameras priority is fixed at 128 — the GM still wins on clock class / ID tie-breaks, but you cannot lock cameras out of the arbitration.</li>
-<li>Do not filter PTP multicast on the switch: E2E uses <code>224.0.1.129</code> (announce/sync) and <code>224.0.0.107</code> (delay-req).</li>
+<li>Do not filter PTP multicast on the switch: <code>224.0.1.129</code> (general — sync / announce / delay-req) and <code>224.0.0.107</code> (peer-delay, only with the P2P mechanism).</li>
 <li>Chunk data must be <strong>on</strong> with <code>ChunkTimestamp</code> (+ <code>Framecounter</code>) selected, or the app falls back to software arrival stamps (§ Current state).</li>
 </ul>
 <p class="callout warn">⚠️ <strong>What PTP does and does not give you:</strong> with no GPS master the network runs in <em>arbitrary-timescale (ARB)</em> mode — all cameras agree with each other to µs precision, but the epoch is arbitrary and can shift when the grandmaster reboots or a better clock appears. That is enough for cross-camera frame alignment in one event; absolute UTC requires §2m.</p>
@@ -574,7 +589,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <p class="legend">* Street prices checked 2026-09-04: PlanetechUSA (Planet), CDW/NetGuard (Netgear); Cisco = distributor quote. <span class="pill v">✔</span> verified street price · <span class="pill e">est</span> estimate.</p>
 <h3>Switch + PTP recipe for this system</h3>
 <ul>
-<li><strong>Topology:</strong> 16 cameras → 1G ports (Cat6a ≤ ~90 m or fiber for long runs to the dry end); vision server bonded <strong>2× 10G SFP+</strong> uplinks (LACP); grandmaster on its own port.</li>
+<li><strong>Topology:</strong> 16 cameras → 1G ports (Cat6a ≤ ~90 m or fiber for long runs to the dry end); vision server bonded <strong>2× 10G SFP+</strong> uplinks (LACP); grandmaster on its own port. This is the single-switch baseline — for the split build (2 leaf switches on the machine floor + a core switch in the control room) see <a href="#2r-network-topology-two-segments">§2r</a>, where the leaf/core PTP roles replace this layout.</li>
 <li><strong>Jumbo frames (MTU 9000)</strong> on camera ports — the a2A1920 at 51 fps is ≈ 940 Mbps and needs MTU 9000 to hit rated fps with headroom.</li>
 <li><strong>PTP domain 0</strong>, E2E delay mechanism, do not IGMP-filter the PTP multicast groups (§2k).</li>
 <li><strong>QoS:</strong> priority-tag PTP event messages if the switch supports it; keep the camera VLAN free of broadcast storms.</li>
@@ -800,16 +815,29 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </tbody></table></div>
 <p>Why QHD, not 1080p: at 1920×1200 sensors a 16-tile wall needs the pixels; 4K is optional growth, not required.</p>
 <h3>S4 — fiber / copper plant</h3>
+<p class="callout ok">✅ <strong>Clarified 2026-09-22 — does fiber support PTP? Yes, exactly like copper.</strong> IEEE 1588 travels inside <em>ordinary Ethernet frames</em> (L2 or UDP/IP), so it is indifferent to the physical medium: <strong>&quot;GigE&quot; means Gigabit Ethernet, not copper</strong> — 1000BASE-T (RJ45) and 1000BASE-X / 10GBASE-SR/LR (fiber) are the same Ethernet, and the §2r leaf → core hop already carries <em>fiber · PTP E2E</em>. What decides µs vs ms is the <strong>switch class</strong> (transparent / boundary clock) and the grandmaster — never the glass (§2s).</p>
 <div class="tablewrap"><table>
-<thead><tr><th>Link</th><th>Default (BoM)</th><th>If longer / site survey says so</th></tr></thead><tbody>
-<tr class="vNone"><td>Cameras → switch</td><td>Cat6a shielded drops — already in §6 cabling rows</td><td>Fiber only for extreme dry-end runs (media converter per drop — last resort)</td></tr>
-<tr class="vNone"><td>Switch → server (2× 10G LACP)</td><td><strong>DAC twinax pair</strong> (≤ 5 m, tower next to switch)</td><td>OM4 multimode LC-LC + 10G-SR SFP+ (≤ 400 m) · OS2 single-mode + 10G-LR (km range)</td></tr>
+<thead><tr><th>Link</th><th>Default (BoM)</th><th>If longer / site survey says so</th><th>PTP?</th></tr></thead><tbody>
+<tr class="vNone"><td>Cameras → leaf switch</td><td>Cat6a S/FTP drops — already in §6 cabling rows (2 segments of 8 + 1 in §2r)</td><td>Fiber only for extreme dry-end runs (media converter per drop — last resort)</td><td><span class="chip ok">✔ full PTP</span> — the camera is the slave on its copper drop</td></tr>
+<tr class="vNone"><td>Leaf → core (§2r)</td><td><strong>Armored OM4, 4-strand, pre-terminated LC/UPC</strong> (2 used + 2 spare) + 10G-SR SFP+</td><td>OS2 4-strand + 10G-LR when the control room is &gt; 400 m away</td><td><span class="chip ok">✔ full PTP</span> — fiber is transparent to it (≈ 5 ns/m, symmetric, compensated); the leaf/core switches are the TC/BC hops</td></tr>
+<tr class="vNone"><td>Core switch → server (2× 10G LACP)</td><td><strong>DAC twinax pair</strong> (≤ 5 m, tower next to the core switch)</td><td>OM4 multimode LC-LC + 10G-SR SFP+ (≤ 400 m) · OS2 single-mode + 10G-LR (km range)</td><td><span class="chip ok">✔ full PTP</span> — DAC carries it too; the X710 timestamps in hardware for <code>ptp4l</code></td></tr>
+<tr class="vbad"><td>Media converter (copper ↔ fiber camera drop)</td><td>avoid — last resort only</td><td>—</td><td><span class="chip bad">✖ breaks the chain</span> — bit-transparent but <em>not</em> a transparent clock: adds asymmetry no servo can see</td></tr>
 </tbody></table></div>
 <ul>
 <li><strong>Distances unknown/mixed</strong> → the BoM <code>Uplink media</code> selector prices all three; confirm with a tape measure before ordering (DAC is pennies, LR optics are not).</li>
 <li>Leave 2 spare switch ports: 1 client + 1 service laptop. Grandmaster takes its own port (§2l).</li>
 <li>Label every drop with station ID at both ends; OTDR/certify any fiber run at handover.</li>
 </ul>
+<h3>PTP over the plant — what it needs, what it does not</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody>
+<tr class="vNone"><td>Special fiber for PTP?</td><td><span class="chip bad">no</span> — any OM3/OM4/OS2 carries it; the ≈ 5 ns/m delay is symmetric and compensated. Keep both strands of a link the same type and length (§2s).</td></tr>
+<tr class="vNone"><td>Separate PTP cable / VLAN?</td><td><span class="chip bad">no</span> — PTP rides the same vision VLAN and the same fiber as the frame data; its traffic is tiny next to 7.5 Gbps per uplink.</td></tr>
+<tr class="vNone"><td>Fiber to the camera?</td><td><span class="chip bad">no</span> — the ace 2 (visible + SWIR) has an RJ45 copper GigE port; cameras stay on Cat6a drops ≤ 50 m (§2r). Fiber only appears <em>between switches</em> and to the server NIC.</td></tr>
+<tr class="vNone"><td>What must we configure?</td><td>PTP enabled on the <strong>SFP+ uplink ports as well as the copper ones</strong> — the port role is a per-port setting on most managed switches, and a disabled uplink port silently turns the fiber hop into a plain hop.</td></tr>
+<tr class="vbad"><td>What breaks it?</td><td>A media converter or a non-1588 switch anywhere in the path — both pass the packets, neither is a transparent clock, so offsets degrade to ms class and the app's &gt; 1 ms alert fires (§2k–§2l).</td></tr>
+</tbody></table></div>
+<p class="legend">Bottom line: the <strong>cable plant is PTP-agnostic</strong> — copper or fiber, buy it once. The µs decision sits entirely in the leaf/core switch class and the grandmaster, which is what §2s prices.</p>
 </section>
 
 <section id="2q-software-stack-pylon-26" class="card section-reveal"><h2><span class="num">2q.</span>Software stack — pylon 26 (from pinned 6.2.0)</h2>
@@ -847,12 +875,219 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </ol>
 </section>
 
+<section id="2r-network-topology-two-segments" class="card section-reveal"><h2><span class="num">2r.</span>Network topology — 16 cameras split into 2 segments</h2>
+<p class="lead">One plant, two segments: 8 cameras + 1 SWIR station per segment → Cat6a drop → leaf switch in a machine-floor cabinet → armored fiber → core switch in the control room → vision server → client PC.</p>
+<p>The camera link is the reason the split exists. One <strong>a2A1920-51 at 51 fps is ≈ 940 Mbps</strong> on the wire (1920×1200 Bayer/Mono 8-bit, ≈ 117 MB/s) — essentially a full Gigabit link, so <em>every</em> camera needs its own 1G port and MTU 9000 end-to-end. Sixteen of them is <strong>≈ 15 Gbps</strong> aggregate, which no single access switch can hand off through one uplink. Two segments of 8 + 8 put <strong>≈ 7.5 Gbps on each 10G fiber uplink (≈ 75 %)</strong>, keep the copper drops short, and let each segment terminate in a local cabinet instead of 16 cables crossing the machine hall.</p>
+<h3>Why 2 segments (and not one switch)</h3>
+<ul>
+<li><strong>Uplink math:</strong> 8 × 940 Mbps = 7.5 Gbps → one 10G SFP+ per segment at 75 %. Nine cameras is the ceiling (8.5 Gbps, 85 %); past that, add a 2nd 10G LAG on the leaf or move the segment to 25G SFP28.</li>
+<li><strong>Copper stays short:</strong> 8 drops of ≤ 30–50 m into a local field cabinet, instead of 16 long runs back to the control room on a machine that is ~100 m+ end to end (docs/machine-reference.md mm ruler).</li>
+<li><strong>Fiber = galvanic isolation:</strong> the leaf → core run is fiber, so machine-frame ground and control-room ground are never bonded (drive EMI, earth potential differences). Copper 10GBASE-T across a paper machine is not an option — good 10GBASE-T is for inside the control room only.</li>
+<li><strong>Failure containment:</strong> a segment outage costs 8 cameras, not 16; each segment has its own PoE budget and PSU.</li>
+<li><strong>PTP:</strong> each segment becomes its own clock boundary — a boundary-clock leaf re-serves the GM clock inside its segment, so 2 switch hops still land in the µs range at the cameras (§2s).</li>
+</ul>
+<div class="tablewrap"><table>
+<thead><tr><th>Segment</th><th>Content</th><th>Wire load (8-bit as transmitted)</th><th>Uplink</th><th>Field end</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>A — wet end</strong></td><td>8 × ace 2 + M1 SWIR (§2n)</td><td>≈ 7.5 Gbps + 0.26 Gbps</td><td>1 × 10G SFP+ (≈ 78 %)</td><td>stainless IP54/67 cabinet, splash zone (§2h)</td></tr>
+<tr class="vstar"><td><strong>B — dry end</strong></td><td>8 × ace 2 + M2 SWIR</td><td>≈ 7.5 Gbps + 0.26 Gbps</td><td>1 × 10G SFP+ (≈ 78 %)</td><td>IP54 cabinet, cooled near the dryers (§2j)</td></tr>
+<tr class="vwarn"><td><strong>Split rule</strong></td><td>≤ 9 visible cameras per 10G uplink</td><td>9 × 0.94 ≈ 8.5 Gbps (85 %)</td><td>2nd 10G LAG / 25G SFP28 past that</td><td>follow the wet/dry boundary, keep the drops ≤ 50 m</td></tr>
+</tbody></table></div>
+<p class="legend">Wire load is what the camera transmits (Bayer/Mono). BGR conversion happens host-side and adds no camera-link traffic (§2e). SWIR stations run 25 fps → ≈ 264 Mbps each (§2n).</p>
+<h3>The path — camera sensor → server → client</h3>
+<div class="arch">
+  <div class="plane p-time"><div class="plane-h">TIME / SYNC · PTP domain 0 <span class="hint">GNSS → grandmaster → core (BC) → leaf (BC/TC) → 16 cameras + 2 SWIR</span></div>
+    <div class="row">
+      <div class="bx gnss"><b>GNSS / GPS antenna</b><small>roof</small></div>
+      <span class="arr">→<span class="lbl">1PPS</span></span>
+      <div class="bx gm"><b>Grandmaster</b><small>Meinberg microSync · Priority 1 = 100</small></div>
+      <span class="arr">→<span class="lbl">Cat6a</span></span>
+      <div class="bx net"><b>Core switch</b><small>boundary clock · GM port</small></div>
+      <span class="arr">→<span class="lbl">fiber · PTP E2E</span></span>
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>boundary / transparent clock</small></div>
+      <span class="arr">→<span class="lbl">Cat6a · PTP slave</span></span>
+      <div class="bx cam"><b>16 × ace 2 + 2 × SWIR</b><small><code>PtpEnable</code> · chunk ts @1 GHz</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-cap"><div class="plane-h">CAPTURE SEGMENTS · A (wet end) + B (dry end) <span class="hint">camera + LED bar on one base plate per station (§2i) · one drop = data + PoE</span></div>
+    <div class="row">
+      <div class="bx cam"><b>SEG A · 8 × ace 2 + M1</b><small>51 / 25 fps · MTU 9000</small></div>
+      <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
+      <div class="bx sw"><b>Leaf A switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet A</small></div>
+      <span class="arr">→<span class="lbl">armored OM4</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room</small></div>
+    </div>
+    <div class="row">
+      <div class="bx cam"><b>SEG B · 8 × ace 2 + M2</b><small>51 / 25 fps · MTU 9000</small></div>
+      <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
+      <div class="bx sw"><b>Leaf B switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet B</small></div>
+      <span class="arr">→<span class="lbl">armored OM4</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-data"><div class="plane-h">DATA · leaf → fiber → core → server → client <span class="hint">2×10G LACP on the server · NVMe Gen4 · §2r</span></div>
+    <div class="row">
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>≈ 7.5 Gbps each · PoE · PTP BC/TC</small></div>
+      <span class="arr">→<span class="lbl">10G SFP+ · fiber</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room · 4–8×10G SFP+ · LACP</small></div>
+      <span class="arr">→<span class="lbl">2×10G LACP</span></span>
+      <div class="bx srv"><b>Vision server</b><small>16 ring buffers · EventController · 64–128 GB ECC</small></div>
+      <span class="arr">→<span class="lbl">.bin + .json</span></span>
+      <div class="bx sto"><b>NVMe Gen4 4 TB</b><small>live events (≈ 0.7–1.1 GB/s burst)</small></div>
+      <span class="arr">→<span class="lbl">archive</span></span>
+      <div class="bx sto"><b>NAS</b><small>retention pool</small></div>
+    </div>
+    <div class="row">
+      <div class="bx net"><b>Core switch</b><small>spare 1G port</small></div>
+      <span class="arr">→<span class="lbl">1G</span></span>
+      <div class="bx led"><b>Client PC ×1</b><small>live view + analyze · mounts the event share read-only (§2p)</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-mill"><div class="plane-h">MILL / CONTROL · DCS ⇄ vision <span class="hint">triggers &amp; speed anchors, timestamped on the PTP axis</span></div>
+    <div class="row">
+      <div class="bx dcs"><b>DCS / PLC</b><small>sheet-break sensors · drive speeds</small></div>
+      <span class="arr">⇄<span class="lbl">OPC UA</span></span>
+      <div class="bx srv"><b>Vision server</b><small>OpcUaClientService · trigger tags · speed anchors → event metadata</small></div>
+      <span class="arr">→</span>
+      <div class="bx dcs"><b>Event files</b><small>frame timestamps on the UTC axis (rung 2 GM)</small></div>
+    </div>
+  </div>
+</div>
+<details class="note"><summary>Plain-text tree — 2-segment plant (copy-paste friendly) <span class="sum-tag">(click to expand)</span></summary>
+<pre class="diagram"><code>CAMERA SENSOR → SWITCH → FIBER → SERVER → CLIENT
+
+GNSS / GPS antenna (roof)
+  └─ Grandmaster — Meinberg microSync (PTP domain 0 · Priority1=100 · UTC/TAI)        §2m
+       └─ PTP multicast / E2E ── CORE SWITCH (control room · IEEE 1588 boundary clock)
+            │
+            ├─ SEGMENT A — wet end (field cabinet A, stainless)                       §2r
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
+            │           └─ armored OM4 4-strand LC/UPC (2 used + 2 spare) ──┐
+            ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
+            │           └─ armored OM4 4-strand LC/UPC ────────────────────┘
+            │
+            ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
+            │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 → NAS
+            └─ 1G ── CLIENT PC (read-only event share · live view · analyze)
+
+Per station (§2i): camera + LED bar on one base plate · flash-out → LED driver trigger
+OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions)</code></pre>
+</details>
+<h3>Parts — copper (camera → leaf switch)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>Spec to order</th><th>Qty</th><th>Why / note</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Camera drop, RJ45 bodies</strong></td><td>Cat6a <strong>S/FTP</strong> (individually shielded pairs + overall shield), AWG23 solid, 500 MHz, LSZH or PUR jacket, shielded RJ45 both ends</td><td>9 per segment (+1 spare)</td><td>940 Mbps + MTU 9000 needs a clean 1G link; Cat5e is not acceptable at 90 m with jumbo frames</td></tr>
+<tr class="vstar"><td><strong>Camera drop, IP67 bodies</strong></td><td>M12 X-coded ↔ RJ45, industrial locking (Basler M12 cable line)</td><td>per IP67 station</td><td>sealed ace 2 has no RJ45 — §2h</td></tr>
+<tr class="vNone"><td>Cabinet patch cords</td><td>Cat6a S/FTP, 0.5–2 m, shielded RJ45</td><td>10 per segment</td><td>leaf port → camera-side termination</td></tr>
+<tr class="vNone"><td>Termination &amp; strain relief</td><td>Shielded keystone or DIN patch panel; cable ties + <strong>drip loops</strong> before every connector</td><td>1 per segment</td><td>no drip loop = water into the RJ45 in the wet zone (§2h)</td></tr>
+<tr class="vNone"><td>Routing rules</td><td>≥ 200 mm from drive/motor cables, cross at 90°, own tray or conduit; shield bonded at the switch end</td><td>—</td><td>VFD EMI is the main packet-loss source on a paper machine</td></tr>
+</tbody></table></div>
+<h3>Parts — fiber (leaf → core, machine floor → control room)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>Spec to order</th><th>Qty</th><th>Why / note</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Trunk per segment</strong></td><td><strong>OM4 50/125 µm</strong> (or OS2 9/125 µm), tight-buffered, <strong>interlocked armored</strong>, LSZH, indoor/outdoor, <strong>4 strands</strong>, pre-terminated <strong>LC/UPC duplex</strong>, insertion-loss report</td><td>2 runs</td><td>2 strands used (TX/RX) + 2 spare; armored because it crosses the machine hall</td></tr>
+<tr class="vstar"><td><strong>Leaf ↔ core optics</strong></td><td><strong>10G-SR SFP+</strong> (MMF, ≤ 400 m OM4) or <strong>10G-LR SFP+</strong> (SMF, ≤ 10 km) — one per end of each run</td><td>4 (2 per run)</td><td>terminate the fiber straight into the switch SFP+ port — <strong>no media converter</strong> in the PTP path</td></tr>
+<tr class="vNone"><td>Patch panel + enclosure</td><td>LC/UPC adapter panel + fiber enclosure, both ends of each run</td><td>2 per segment</td><td>protects the terminated end; label both ends <code>SEG-A/LINK1</code></td></tr>
+<tr class="vNone"><td>Cleaning &amp; test kit</td><td>LC one-click cleaner + inspection scope; OLTS/OTDR certificate</td><td>1 set</td><td>a dirty LC ferrule is the classic intermittent link — certify before handover</td></tr>
+<tr class="vNone"><td>Bend radius</td><td>≥ 10 × cable Ø (≥ 30 mm working), never stapled, service loop at both ends</td><td>—</td><td>macro-bend loss is invisible at 1G/10G — until it is not</td></tr>
+</tbody></table></div>
+<h4>Which fiber type?</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Fiber</th><th>Core / clad</th><th>Jacket</th><th>10G reach</th><th>Optic</th><th>Verdict for this line</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>OM4 multimode</strong></td><td>50/125 µm</td><td>aqua / violet</td><td><strong>400 m @ 10GBASE-SR</strong></td><td>10G-SR SFP+ (cheap, ≈ $60)</td><td>⭐ default — machine floor → control room is well under 400 m, and SR optics are the lowest cost</td></tr>
+<tr class="vNone"><td>OM3 multimode</td><td>50/125 µm</td><td>aqua</td><td>300 m @ 10GBASE-SR</td><td>10G-SR SFP+</td><td>OK only if the measured run is &lt; 300 m and it is cheaper — no other benefit</td></tr>
+<tr class="vNone"><td>OM5 wideband</td><td>50/125 µm</td><td>lime</td><td>400 m @ 10G-SR; SWDM to 150 m for 40/100G</td><td>10G-SR / SWDM4</td><td>skip — pays for 40/100G readiness this system does not use</td></tr>
+<tr class="vstar"><td><strong>OS2 single-mode</strong></td><td>9/125 µm</td><td>yellow</td><td><strong>10 km @ 10GBASE-LR</strong> (25G-LR 10 km)</td><td>10G-LR SFP+ (≈ $250)</td><td>⭐ pick when the control room is &gt; 400 m away or the run ties into the site backbone</td></tr>
+<tr class="vbad"><td>Cat6a copper uplink (10GBASE-T)</td><td>—</td><td>—</td><td>≤ 100 m</td><td>10GBASE-T ports</td><td>inside the control room only — never across the machine hall (EMI + ground loop)</td></tr>
+</tbody></table></div>
+<p class="callout ok">✅ <strong>Fiber verdict:</strong> <strong>armored OM4, 4 strands, LC/UPC + 10G-SR</strong> per segment is the default build; move to <strong>OS2 + 10G-LR</strong> only if the tape measure says &gt; 400 m. Fiber carries PTP with a symmetric ≈ 5 ns/m delay the protocol compensates — the glass choice does not affect clock accuracy, but keep both strands of a link the same type and length so TX/RX stay symmetric.</p>
+<h3>Parts — switches</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Role</th><th>Ports</th><th>Spec to ask for</th><th>PTP build</th><th>Non-PTP build</th><th>Est. unit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Leaf ×2</strong><br>(segment A + B)</td><td>10–12 × 1GbE <strong>PoE+</strong> + 2 × 10G SFP+</td><td>industrial managed L2+, jumbo 9000, IGMP snooping, QoS/DSCP, fanless, −40…70 °C, DIN or 19", dual PSU</td><td><span class="chip ok">IEEE 1588v2 TC</span> — <strong>boundary clock preferred</strong> (one per segment; required if the segments sit in separate VLANs)</td><td><span class="chip warn">plain managed PoE</span> — no 1588; PTP still passes but offsets drift to ms (§2s)</td><td>PTP ≈ $850<br>plain ≈ $380 <span class="pill e">est</span></td></tr>
+<tr class="vstar"><td><strong>Core ×1</strong><br>(control room)</td><td>4–8 × 10G SFP+ + 4 × 1G (client, GM, service)</td><td>L2/L3-lite, LACP, IGMP snooping, jumbo 9000, QoS; 1588 BC/GC-capable in the PTP build</td><td><span class="chip ok">IEEE 1588v2 BC</span> — grandmaster attaches here; <code>Priority1 = 100</code>, domain 0, E2E</td><td><span class="chip warn">plain 10G switch</span></td><td>PTP ≈ $1 300<br>plain ≈ $600 <span class="pill e">est</span></td></tr>
+<tr class="vNone"><td>Grandmaster (optional)</td><td>1 × 1G + GNSS antenna</td><td>see §2m</td><td><span class="chip ok">GNSS GM</span> — absolute UTC</td><td><span class="chip off">none</span> — cameras arbitrate (ARB) / host clock</td><td>≈ $4 000 <span class="pill e">est</span></td></tr>
+<tr class="vbad"><td>Media converter</td><td>—</td><td>avoid in this design</td><td><span class="chip bad">breaks the PTP chain</span></td><td><span class="chip bad">extra failure point</span></td><td>—</td></tr>
+</tbody></table></div>
+<p class="legend">Candidate families to quote — leaf: <strong>Planet IGS-6325 series</strong> (same family as the §2l baseline, so the PTP config knowledge transfers), Moxa EDS-5000, Siemens SCALANCE XC-200, Cisco Catalyst IE3300. Core: <strong>Netgear M4300</strong> (already in §2l), Planet IGS/SGS, Cisco Catalyst IE9300. Ask for <strong>boundary clock + per-VLAN PTP support in writing</strong> before ordering — transparent clocks do not cross VLAN boundaries.</p>
+<h3>Switch configuration checklist (both segments identical)</h3>
+<ul>
+<li><strong>PTP:</strong> domain 0, E2E delay mechanism, step mode matching the GM; core = BC with the GM on its own port, leaf = BC (preferred) or TC. Never filter <code>224.0.1.129</code> (general) or <code>224.0.0.107</code> (peer-delay, P2P only); give PTP event messages the highest QoS class.</li>
+<li><strong>Jumbo frames:</strong> MTU 9000 on camera ports, the leaf ↔ core uplinks, the core ↔ server link and the server NIC — one 1500-MTU hop drops the a2A1920 below its rated 51 fps.</li>
+<li><strong>VLANs:</strong> cameras + PTP in one "vision" VLAN per segment, management in another, never route PTP. If the two segments are separate VLANs, the leaf switches <em>must</em> be boundary clocks.</li>
+<li><strong>PoE:</strong> 9 ports × 802.3af (15.4 W budgeted) ≈ 139 W per segment → order ≥ 240 W PoE budget. The SWIR station may need 802.3at — confirm the camera datasheet before ordering the leaf.</li>
+<li><strong>LACP:</strong> core ↔ server bond (2 × 10G, LACP active). Leaf uplinks can be a single 10G, or a 2-port LAG if a segment may grow past 9 cameras.</li>
+<li><strong>Storm/loop protection</strong> and IGMP snooping on the data VLAN — but leave the PTP multicast groups alone.</li>
+<li><strong>UPS:</strong> server + core switch on the UPS (§2p). The field cabinets stay on the machine supply: a segment reboot only costs its own 8 cameras, and cameras re-join PTP on their own.</li>
+</ul>
+<h3>Commissioning &amp; acceptance test (per segment)</h3>
+<ol>
+<li>Certify every copper drop (wire map + length) and every fiber strand (OLTS/OTDR, insertion loss &lt; 2.5 dB for SR / &lt; 6 dB for LR class), label both ends.</li>
+<li>Bring the leaf up alone: ping every camera and verify MTU 9000 with <code>ping -M do -s 8972</code>.</li>
+<li>Stream one camera at 51 fps and watch the pylon/stream-channel counters for dropped frames <em>before</em> adding the rest — 8 streams is where a weak leaf buffer shows up.</li>
+<li>Enable PTP and confirm <code>PtpServoStatus = Locked</code> with offsets &lt; 10 µs on all 9 cameras; then pull the GM cable and confirm the app's ARB/FAULT badges behave (§2k).</li>
+<li>Run one 2000-frame event with all 16 cameras and check <code>ResultingFrameRate</code> ≈ 50 fps on every tile (§4 item 3).</li>
+</ol>
+</section>
+
+<section id="2s-ptp-vs-non-ptp-build" class="card timesync section-reveal"><h2><span class="num">2s.</span>PTP build vs non-PTP build — what changes, what does not</h2>
+<p class="lead">The cable plant is identical in both builds — copper, fiber, cabinets, optics, server NIC. Only <strong>two leaf switches + the core switch + the grandmaster</strong> decide whether the fleet lands on a µs UTC timeline (PTP) or on host arrival stamps (non-PTP). Everything else is bought once.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>PTP build</th><th>Non-PTP build</th><th>Note</th></tr></thead><tbody>
+<tr class="vNone"><td>Cat6a drops (camera → leaf)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>PTP-agnostic — the protocol is just packets</td></tr>
+<tr class="vNone"><td>M12 X-coded sets (IP67 cameras)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+<tr class="vNone"><td>Armored fiber leaf ↔ core + LC panels</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>fiber is transparent to PTP (≈ 5 ns/m, symmetric, compensated)</td></tr>
+<tr class="vNone"><td>SFP+ optics (SR / LR)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+<tr class="vstar"><td><strong>Leaf switch ×2</strong></td><td><span class="chip ok">IEEE 1588 TC/BC required</span></td><td><span class="chip warn">plain managed PoE — works, offsets ms</span></td><td>the PTP-critical part on the access side</td></tr>
+<tr class="vstar"><td><strong>Core switch ×1</strong></td><td><span class="chip ok">IEEE 1588 BC (GM port)</span></td><td><span class="chip warn">plain 10G switch</span></td><td>without a BC the grandmaster cannot be inserted cleanly</td></tr>
+<tr class="vNone"><td>Grandmaster</td><td><span class="chip ok">GNSS GM for UTC (§2m)</span></td><td><span class="chip off">none — cameras arbitrate (ARB)</span></td><td>without a GM the domain still forms; the epoch is arbitrary and shifts on reboot</td></tr>
+<tr class="vNone"><td>Cameras</td><td><span class="chip ok">ace 2 = PTP-capable (<code>PtpEnable</code>)</span></td><td><span class="chip bad">scout scA780 has no PTP nodes</span></td><td>the current fleet stays PTP-less either way (§2k correction)</td></tr>
+<tr class="vNone"><td>Server NIC (X710-DA2)</td><td><span class="chip ok">hardware timestamping → linuxptp <code>ptp4l</code> slave</span></td><td><span class="chip ok">identical NIC · host clock = NTP only</span></td><td>the app already records the host arrival clock in .bin v2</td></tr>
+<tr class="vNone"><td>Client PC + its 1G drop</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>no PTP role</td></tr>
+<tr class="vNone"><td>UPS, field cabinets, 24 VDC</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+</tbody></table></div>
+<h3>What the PTP path buys — and what the plain path loses</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Capability</th><th>PTP build</th><th>Non-PTP build</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Cross-camera frame alignment</strong></td><td>sensor-accurate: every frame stamped at exposure on one shared epoch, µs class</td><td>host arrival clock, ms-class jitter — at 11 m/s that is ≈ 17 mm of web per ms of error</td></tr>
+<tr class="vNone"><td>Absolute UTC (DCS / drive logs)</td><td><span class="chip ok">yes</span> with the GNSS grandmaster (§2m)</td><td><span class="chip bad">no</span> — ARB epoch shifts on reboot / GM change</td></tr>
+<tr class="vNone"><td>App behaviour (§5)</td><td>tile badges <span class="chip ok">PTP SLAVE</span>, offset alert, GM-ID readout</td><td>badges hidden on scout; ace 2 still reports, with ms drift; scrub falls back to the host clock — <strong>already implemented</strong>, no code change needed</td></tr>
+<tr class="vNone"><td>Recording · pre-trigger · review</td><td colspan="2"><span class="chip ok">identical</span> — PTP is not required to record, buffer or play back (see the “do we need PTP?” guide §2k–2m)</td></tr>
+<tr class="vNone"><td>Network line cost</td><td>≈ $9 760 (leaf ×2 + core + GM + fiber + optics + cabinets + NIC)</td><td>≈ $4 120 — same fiber, plain switches, no GM</td></tr>
+<tr class="vstar"><td><strong>PTP premium</strong></td><td colspan="2"><strong>≈ $5 640</strong> = the two PTP leaf switches (+$940), the PTP core (+$700) and the GNSS grandmaster ($4 000) ≈ <strong>8 % of the ≈ $71k BoM</strong></td></tr>
+</tbody></table></div>
+<h3>Two shopping lists (same cable plant)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Qty</th><th class="r">PTP build</th><th class="r">Non-PTP build</th></tr></thead><tbody>
+<tr class="vNone"><td>Leaf switch — 10×1G PoE+ + 2×10G SFP+, industrial</td><td>2</td><td class="r">$850 ea <span class="chip ok">1588 TC/BC</span></td><td class="r">$380 ea <span class="chip warn">plain</span></td></tr>
+<tr class="vNone"><td>Core switch — 4–8×10G SFP+ + 4×1G</td><td>1</td><td class="r">$1 300 <span class="chip ok">1588 BC</span></td><td class="r">$600 <span class="chip warn">plain</span></td></tr>
+<tr class="vNone"><td>GNSS grandmaster (§2m) + antenna</td><td>1</td><td class="r">$4 000</td><td class="r">$0 <span class="chip off">ARB mode</span></td></tr>
+<tr class="vNone"><td>Armored OM4 trunk, 4-strand LC/UPC (per segment)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
+<tr class="vNone"><td>10G-SR SFP+ optic (2 per link — 2 leaf↔core + 2 core↔server)</td><td>8</td><td class="r">$60 ea</td><td class="r">$60 ea</td></tr>
+<tr class="vNone"><td>LC/UPC patch panel + enclosure (both ends)</td><td>2</td><td class="r">$120 ea</td><td class="r">$120 ea</td></tr>
+<tr class="vNone"><td>Field cabinet IP54 (per segment)</td><td>2</td><td class="r">$450 ea</td><td class="r">$450 ea</td></tr>
+<tr class="vNone"><td>24 VDC DIN PSU, redundant (per segment)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
+<tr class="vNone"><td>Intel X710-DA2 2×10G NIC (server)</td><td>1</td><td class="r">$420</td><td class="r">$420</td></tr>
+<tr class="vstar"><td><strong>Network line total</strong></td><td></td><td class="r"><strong>≈ $9 760</strong></td><td class="r"><strong>≈ $4 120</strong></td></tr>
+</tbody></table></div>
+<p class="legend">All prices <span class="pill e">est</span> — confirm distributor quotes (switch prices are estimates for the required port/PTP feature set; the §2l Planet/Netgear street checks cover the single-switch baseline). Fiber and copper are rounded per the §6 BoM; the table prices the OM4 variant — the DAC default is ≈ $9 610 / ≈ $4 060 respectively. Every item in these lists is <strong>phase 1</strong> in §6: the PTP premium is not deferrable, because deferring the PTP switches means re-cabling nothing but re-buying all three switches.</p>
+<p class="callout ok">✅ <strong>Verdict:</strong> build the plant <strong>once</strong> — copper, fiber, cabinets, optics and the server NIC are PTP-agnostic, so nothing is wasted if the switches start plain. Buy the <strong>PTP-capable leaf + core</strong> when the target is µs cross-camera alignment and UTC event times (§1 KPI “&lt; 10 µs”). If the budget must be staged: buy <strong>plain managed switches on the identical fiber plant</strong> now, add the GNSS grandmaster and swap the three switches later — no recabling, no camera change, no software change (the app reads both worlds, §5).</p>
+<p class="callout warn">⚠️ <strong>Half-measures that do not work:</strong> PTP-capable cameras on plain switches → ms offsets and offset-alert noise; a grandmaster without PTP switches → its accuracy is thrown away at the first queueing hop; a media converter mid-link → extra asymmetry with no config visibility; copper (10GBASE-T) between machine floor and control room → ground loops and EMI where fiber costs the same.</p>
+</section>
+
 <section id="system-architecture-diagram" class="card section-reveal"><h2><span class="num">3.</span>System architecture — diagram &amp; tree</h2>
 <p class="lead">Four planes on one page — time, capture, data, mill: follow a frame from sensor to archive.</p>
-<p>Everything on one page: the <strong>time/sync plane</strong> (PTP, gold), the <strong>capture plane</strong> (16 stations), the <strong>data plane</strong> (GigE → server → storage) and the <strong>mill plane</strong> (DCS/OPC UA).</p>
+<p>Everything on one page: the <strong>time/sync plane</strong> (PTP, gold), the <strong>capture plane</strong> (16 stations in 2 segments), the <strong>data plane</strong> (camera → leaf switch → fiber → core → server → client → storage) and the <strong>mill plane</strong> (DCS/OPC UA). The physical plant and its parts list are in <a href="#2r-network-topology-two-segments">§2r</a>; the PTP vs non-PTP part comparison is in <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
 
 <div class="arch">
-  <div class="plane p-time"><div class="plane-h">TIME / SYNC · IEEE 1588-2008 PTP · domain 0 <span class="hint">GPS/GNSS → grandmaster → transparent-clock switch → 16 PTP slaves</span></div>
+  <div class="plane p-time"><div class="plane-h">TIME / SYNC · IEEE 1588-2008 PTP · domain 0 <span class="hint">GPS/GNSS → grandmaster → core (BC) → leaf (BC/TC) → 16 PTP slaves</span></div>
     <div class="row">
       <div class="bx gnss"><b>GNSS / GPS antenna</b><small>roof of machine hall</small></div>
       <span class="arr">→<span class="lbl">10 MHz / 1PPS</span></span>
@@ -864,11 +1099,11 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
     </div>
   </div>
 
-  <div class="plane p-cap"><div class="plane-h">CAPTURE · 16 stations along the machine (mm ruler) <span class="hint">camera ↔ light co-mounted on one base plate each (§2i)</span></div>
+  <div class="plane p-cap"><div class="plane-h">CAPTURE · 16 stations along the machine, split into 2 segments (mm ruler) <span class="hint">camera ↔ light co-mounted on one base plate each (§2i) · §2r</span></div>
     <div class="row">
       <div class="bx cam"><b>Camera i</b><small>a2A1920-51gm/gcBAS · 51 fps · MTU 9000</small></div>
       <span class="arr">⇄<span class="lbl">GigE + PTP + PoE</span></span>
-      <div class="bx sw"><b>Switch</b><small>1G per camera</small></div>
+      <div class="bx sw"><b>Leaf switch</b><small>8 cams per segment · 1G per camera</small></div>
       <span class="arr">—</span>
       <div class="bx led"><b>Strobed LED bar</b><small>per station</small></div>
       <span class="arr">←<span class="lbl">flash / exposure-active</span></span>
@@ -876,15 +1111,22 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
     </div>
   </div>
 
-  <div class="plane p-data"><div class="plane-h">DATA · 16 GigE streams → ring buffers → events <span class="hint">2×10G LACP bond · NVMe Gen4</span></div>
+  <div class="plane p-data"><div class="plane-h">DATA · 2 segments → leaf → fiber → core → server → client <span class="hint">2×10G LACP bond · NVMe Gen4 · §2r</span></div>
     <div class="row">
-      <div class="bx sw"><b>Switch</b><small>10G SFP+ uplinks</small></div>
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>8 cams + 1 SWIR each · PoE · PTP BC/TC</small></div>
+      <span class="arr">→<span class="lbl">armored OM4/OS2 · 10G SFP+</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room · GM port · 4–8×10G SFP+</small></div>
       <span class="arr">→<span class="lbl">LACP bond</span></span>
       <div class="bx srv"><b>Vision server</b><small>16 ring buffers · Qt/OpenCV/pylon · EventController · 64–128 GB ECC</small></div>
       <span class="arr">→<span class="lbl">.bin + .json</span></span>
       <div class="bx sto"><b>NVMe Gen4 4 TB</b><small>live events (≈ 0.7–1.1 GB/s burst)</small></div>
       <span class="arr">→<span class="lbl">archive</span></span>
       <div class="bx sto"><b>NAS</b><small>retention pool</small></div>
+    </div>
+    <div class="row">
+      <div class="bx net"><b>Core switch</b><small>spare 1G port</small></div>
+      <span class="arr">→<span class="lbl">1G</span></span>
+      <div class="bx led"><b>Client PC ×1</b><small>live view + analyze · mounts the event share read-only (§2p)</small></div>
     </div>
   </div>
 
@@ -901,18 +1143,28 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 
 <details class="note"><summary>Plain-text tree (copy-paste friendly)</summary>
 <pre class="diagram"><code>GNSS / GPS antenna (roof)
-  └─ Grandmaster — Meinberg microSync (PTP domain 0 · Priority1=100 · UTC/TAI)
-       └─ PTP multicast / E2E ─┐
-                               ▼
-  SWITCH  Planet IGS-6325-24UP4X  (IEEE 1588 transparent clock · MTU 9000)
-  ├─ 1G · PTP slave + data + PoE ── 16 × ace 2 a2A1920-51gm/gcBAS (PtpEnable · chunk ts)
-  │     each camera: ── flash/exposure-active → LED driver → strobed LED bar (per station)
-  │                    ── M12/RJ45 drop · base plate + bracket (§2h/§2i) · heat sink (§2j)
-  ├─ 2×10G SFP+ ── LACP bond ── Vision server (X710-DA2 · jumbo frames)
-  │     server: 16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 (live)
-  │     └─ event .bin + .json ── NAS archive (retention pool)
-  └─ 1 port ── PTP master in (grandmaster)      [optional: 2nd switch port = PTP slave backhaul]
-  OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions)</code></pre>
+  └─ Grandmaster — Meinberg microSync (PTP domain 0 · Priority1=100 · UTC/TAI)        §2m
+       └─ PTP multicast / E2E ── CORE SWITCH (control room · IEEE 1588 boundary clock)
+            │
+            ├─ SEGMENT A — wet end (field cabinet A, stainless)                       §2r
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
+            │           └─ armored OM4 4-strand LC/UPC (2 used + 2 spare) ──┐
+            ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
+            │           └─ armored OM4 4-strand LC/UPC ────────────────────┘
+            │
+            ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
+            │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 (live)
+            │     └─ event .bin + .json ── NAS archive (retention pool)
+            └─ 1G ── CLIENT PC (read-only event share · live view · analyze)
+
+Per station (§2i): camera + LED bar on one base plate · flash/exposure-active → LED driver
+                   → strobed LED bar · M12/RJ45 drop · heat sink (§2j)
+OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions)</code></pre>
 </details>
 
 <div class="treelegend">
@@ -921,9 +1173,10 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <span class="chip blue">network</span>
 <span class="chip" style="background:#f5f3ff;color:#4c1d95;border-color:#ddd6fe">mill / control</span>
 </div>
-<p class="callout ok">Moisture overlay (§2n): M1 (press exit) + M2 (after-dryer) join as <strong>ace 2 GigE SWIR slaves</strong> on the same PTP domain 0 and switch — each with its own halogen illuminator + SWIR lens/filter. Same tree as above, no extra switch or grandmaster.</p>
+<p class="callout ok">Moisture overlay (§2n): M1 (press exit) + M2 (after-dryer) join as <strong>ace 2 GigE SWIR slaves</strong> on the same PTP domain 0 — M1 on leaf A, M2 on leaf B — each with its own halogen illuminator + SWIR lens/filter, and each costing one 1G PoE port on its segment. No extra switch or grandmaster.</p>
 <p class="callout ok">Temperature overlay (§2o): IR spot pyrometers ride the <strong>mill plane (OPC UA trend, 1 Hz)</strong> — no GigE load. An optional LWIR camera is standalone and does not join the PTP/event path.</p>
-<p class="callout ok">Workspace overlay (§2p): tower server + 1 client PC hang off spare switch ports; client mounts the event share read-only — no recorder on the client.</p>
+<p class="callout ok">Workspace overlay (§2p): tower server + 1 client PC hang off the core switch (spare 1G port for the client); client mounts the event share read-only — no recorder on the client.</p>
+<p class="callout ok">Network overlay (§2r): the 16-camera fleet is split <strong>8 + 8</strong> — each segment terminates in a leaf switch on the machine floor, then one armored OM4 (or OS2) run to the control-room core switch that also feeds the server, the client and the grandmaster. All parts — copper, fiber types, leaf/core switch classes — and the PTP vs non-PTP comparison are in <a href="#2r-network-topology-two-segments">§2r</a> / <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
 </section>
 
 <section id="3-software-roadmap-ordered" class="card section-reveal"><h2><span class="num">4.</span>Software roadmap (ordered)</h2>
@@ -970,10 +1223,24 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 </section>
 
 <section id="bom-configurator" class="card section-reveal"><h2><span class="num">6.</span>BoM configurator (interactive)</h2>
-<p class="lead">Every €/$ in one place: pick products, watch RAM/bandwidth/retention recompute, copy the plain-text BoM.</p>
+<p class="lead">Every €/$ in one place: pick products, watch RAM/bandwidth/retention recompute, copy the plain-text BoM — and see the <strong>target build</strong> next to what the <strong>first buy</strong> actually costs.</p>
 <p>Pick the products below — quantities, totals and the engineering budget recompute live. Prices are <strong>street checks 2026-09-04</strong> where marked <span class="pill v">✔</span>; <span class="pill e">est</span> = planning estimate (confirm with distributor before purchase).</p>
+<h3>Target use vs actual first buy</h3>
+<p>Every row carries a phase, so the full-roadmap number never hides what has to be ordered <em>now</em>:</p>
+<ul>
+<li><span class="chip ok">1st buy</span> — <strong>phase 1, ordered first</strong>: the 16-camera visible fleet, its complete network plant (leaf ×2 + core + fiber + cabinets + NIC + grandmaster) and the compute/storage to record and review events. This is the smallest set that produces a working 16-cam / 50 fps line.</li>
+<li><span class="chip gold">target only</span> — <strong>phase 2, the roadmap target</strong>: SWIR moisture stations, IR pyrometers, extra client desks, the AI GPU. Deferred until phase 1 proves the fleet — not bought in the first order.</li>
+<li><span class="chip off">not bought</span> — in <strong>neither</strong> phase today (optional devices the doc keeps on record, e.g. the LWIR camera or an AI GPU when none is selected). Listed so “we decided not to buy this” is explicit, not a silent omission.</li>
+</ul>
+<p>RAM and NVMe are sized for the <strong>full target</strong> and bought in phase 1 — so the server is opened once, not again when phase 2 lands. Camera, lens, cabling, lighting and the whole network plant are phase 1: none of them can be deferred without losing cameras.</p>
 <div class="bom-shell">
 <div class="selgrid">
+<div class="sel"><label for="s-plan">Buy plan (§6)</label>
+<select id="s-plan">
+<option value="first" selected>First buy — phase 1 only</option>
+<option value="target">Target — full build (phases 1 + 2)</option>
+</select>
+<div class="sel-note">switches which total is headline; every row shows its own phase</div></div>
 <div class="sel"><label for="s-cams">Cameras</label>
 <select id="s-cams">
 <option value="4">4</option><option value="8">8</option><option value="12">12</option>
@@ -1041,13 +1308,20 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <option value="1" selected>1 (operator desk)</option><option value="2">2</option><option value="3">3</option>
 </select>
 <div class="sel-note">live view + analyze; 2× QHD monitors each</div></div>
-<div class="sel"><label for="s-uplink">Switch→server uplink (§2p-S4)</label>
+<div class="sel"><label for="s-net">Network topology (§2r)</label>
+<select id="s-net">
+<option value="seg2ptp" selected>2 segments — PTP leaf ×2 + PTP core</option>
+<option value="seg2plain">2 segments — plain switches (non-PTP)</option>
+<option value="single">Single PTP switch (§2l baseline)</option>
+</select>
+<div class="sel-note">8 cams + 1 SWIR per leaf → fiber → core → server; §2s compares the two builds</div></div>
+<div class="sel"><label for="s-uplink">Uplink media (§2p-S4)</label>
 <select id="s-uplink">
-<option value="dac" selected>DAC twinax pair (≤ 5 m)</option>
+<option value="dac" selected>DAC twinax pair (≤ 5 m, core→server)</option>
 <option value="om4">OM4 multimode + SR optics</option>
 <option value="os2">OS2 single-mode + LR optics</option>
 </select>
-<div class="sel-note">2× 10G LACP bond media</div></div>
+<div class="sel-note">leaf↔core + core→server; the leaf run is always fiber (§2r)</div></div>
 <div class="sel"><label for="s-gpu">AI GPU (§2d)</label>
 <select id="s-gpu">
 <option value="none" selected>None (CPU pipeline today)</option>
@@ -1063,14 +1337,14 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <option value="dc24">24 VDC via camera I/O (own bus)</option>
 </select>
 <div class="sel-note">a2A1920 = IEEE 802.3af PoE · strobes stay on their own 24 V bus (§2g)</div></div>
-<div class="sel"><label for="s-sw">PTP-capable switch</label>
+<div class="sel"><label for="s-sw">Single switch (§2l baseline)</label>
 <select id="s-sw">
 <option value="planet" selected>Planet IGS-6325-24UP4X · $1 670 ✔</option>
 <option value="m4300">Netgear M4300-24X · $3 700 ✔</option>
 <option value="ie9300">Cisco IE9300 (quote) · est $8 000</option>
 <option value="none">Existing / non-PTP (offsets degrade)</option>
 </select>
-<div class="sel-note">16×1G + 2×10G uplink topology (§2l)</div></div>
+<div class="sel-note">used only in single-switch mode; segmented modes buy leaf ×2 + core (§2l)</div></div>
 <div class="sel"><label for="s-gm">Grandmaster</label>
 <select id="s-gm">
 <option value="meinberg" selected>GNSS GM — Meinberg microSync (est $3–5k)</option>
@@ -1097,16 +1371,25 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <div class="tile good"><div class="t-label">Disk per event</div><div class="t-val"><span id="d-disk">—</span></div><div class="t-sub">NVMe Gen4 write burst</div></div>
 <div class="tile purp"><div class="t-label">Retention on NVMe</div><div class="t-val"><span id="d-ret">—</span></div><div class="t-sub">4 TB Gen4 drives @ 20 events/day · 30 days</div></div>
 <div class="tile gold"><div class="t-label">PTP chain</div><div class="t-val"><span id="d-ptp">—</span></div><div class="t-sub">all 16 cameras IEEE 1588 slave</div></div>
+<div class="tile blue"><div class="t-label">Network topology</div><div class="t-val"><span id="d-net">—</span></div><div class="t-sub">segment split · uplink load (§2r)</div></div>
 <div class="tile teal"><div class="t-label">Station power</div><div class="t-val"><span id="d-pwr">—</span></div><div class="t-sub">camera feed + strobe bus, per station</div></div>
-<div class="tile warn"><div class="t-label">BoM estimate</div><div class="t-val"><span id="d-total">—</span></div><div class="t-sub">indicative only — confirm quotes</div></div>
+<div class="tile good"><div class="t-label">First buy — phase 1</div><div class="t-val"><span id="d-first">—</span></div><div class="t-sub" id="d-first-sub">visible fleet + network plant + compute</div></div>
+<div class="tile warn"><div class="t-label">Target BoM — full build</div><div class="t-val"><span id="d-total">—</span></div><div class="t-sub" id="d-total-sub">phases 1 + 2 — indicative only, confirm quotes</div></div>
 </div>
 
+<p class="bom-plan" id="bom-plan"><span>Phase split:</span>
+<span class="chip ok">1st buy</span> <b id="l-first">—</b>
+<span class="chip gold">target only</span> <b id="l-later">—</b>
+<span class="chip off">not bought</span> <b id="l-never">—</b>
+<span class="chip blue">target total</span> <b id="l-target">—</b>
+</p>
 <div class="tablewrap"><table class="bom-table" id="bom">
-<thead><tr><th>Group / item</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Subtotal</th><th>Note</th></tr></thead>
+<thead><tr><th>Group / item</th><th>Phase</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Subtotal</th><th>Note</th></tr></thead>
 <tbody></tbody>
 </table></div>
+<p class="legend" id="bom-legend2">Row phases: <span class="chip ok">1st buy</span> phase 1, ordered first · <span class="chip gold">target only</span> phase 2, deferred · <span class="chip off">not bought</span> in neither phase (kept on record). The dark total is the selected plan; the grey total is the other one — deferred money is <em>not</em> counted in the first buy.</p>
 <button type="button" class="ghost" id="bom-copy">Copy plain-text BoM</button>
-<p class="legend" id="bom-legend">Sources: Basler shop / Edmund Optics / Machine Vision Store / Mouser (cameras, lenses, 2026-09-04); PlanetechUSA (Planet), CDW / NetGuard (Netgear) for the switch; Meinberg (grandmaster) list price on request. Exchange rates and distributor pricing vary — treat totals as ±15 %.</p>
+<p class="legend" id="bom-legend">Sources: Basler shop / Edmund Optics / Machine Vision Store / Mouser (cameras, lenses, 2026-09-04); PlanetechUSA (Planet), CDW / NetGuard (Netgear) for the switch; Meinberg (grandmaster) list price on request. Leaf/core switch, fiber, optics, cabinet and PSU prices are planning estimates for the required port/PTP feature set (§2r–§2s, 2026-09-19) — confirm quotes. Exchange rates and distributor pricing vary — treat totals as ±15 %.</p>
 </div>
 </section>
 </main>
@@ -1114,7 +1397,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 <button class="back-top" aria-label="Back to top" type="button">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"></path></svg>
 </button>
-<footer>Roadmap “web-vision-pro-16cam-50fps-roadmap” · camera/lens/pylon data verified against baslerweb.com / docs.baslerweb.com · PTP support, switch &amp; street prices verified 2026-09-04 · pylon compatibility: ≥ 6.0 required, pinned stack 6.2.0 ✔</footer>
+<footer>Roadmap “web-vision-pro-16cam-50fps-roadmap” · camera/lens/pylon data verified against baslerweb.com / docs.baslerweb.com · PTP support, switch &amp; street prices verified 2026-09-04 · pylon compatibility: ≥ 6.0 required, pinned stack 6.2.0 ✔ · 2-segment network topology, fiber/switch parts and the PTP vs non-PTP comparison added 2026-09-19 (§2r–§2s — switch/fiber prices est, confirm quotes) · fiber vs PTP clarified 2026-09-22: fiber carries PTP unchanged, media converters do not (§2p S4)</footer>
 <script>
 (function(){
   var progress=document.querySelector('.progress-bar');
@@ -1253,6 +1536,14 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
   var DC_DROP=15;           // est, 24 VDC camera power drop
   var NIC=420;              // est, Intel X710-DA2 (2x10G SFP+)
   var DAC=45;               // est, 10G SFP+ DAC cable
+  var LEAF_PTP=850;         // est, industrial 10x1G PoE+ + 2x10G SFP+, IEEE 1588 BC/TC (§2r)
+  var LEAF_PLAIN=380;       // est, same port count/temperature class, no IEEE 1588
+  var CORE_PTP=1300;        // est, 4-8x10G SFP+ aggregation, IEEE 1588 boundary clock
+  var CORE_PLAIN=600;       // est, plain 10G aggregation switch
+  var FIBER_RUN=180;        // est, armored 4-strand OM4/OS2 pre-terminated trunk, per segment
+  var FIBER_PANEL=120;      // est, LC/UPC patch panel + enclosure, per segment (both ends)
+  var CABINET=450;          // est, IP54 field cabinet, per segment
+  var DIN_PSU=180;          // est, redundant 24 VDC DIN PSU, per segment
   var SW={
     planet:{price:1670, s:'v', name:'Planet IGS-6325-24UP4X (24xGbE PoE++ + 4x10G SFP+)'},
     m4300: {price:3700, s:'v', name:'Netgear M4300-24X / XSM4324CS (24x10GBASE-T + 4xSFP+)'},
@@ -1272,6 +1563,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 
   function state(){
     return {
+      plan: $('s-plan').value,
       cams: parseInt($('s-cams').value,10),
       tier: $('s-tier').value,
       mix:  $('s-mix').value,
@@ -1284,6 +1576,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
       pyro:  parseInt($('s-pyro').value,10),
       lwir:  parseInt($('s-lwir').value,10),
       client: parseInt($('s-client').value,10),
+      net:  $('s-net').value,
       uplink: $('s-uplink').value,
       gpu:    $('s-gpu').value,
       sw:   $('s-sw').value,
@@ -1296,6 +1589,8 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
   function calc(){
     var S=state();
     var n=S.cams;
+    var segmented=(S.net!=='single');
+    var ptpNet=(S.net!=='seg2plain');
     var nColor=(S.mix==='color')?n:(S.mix==='half')?Math.floor(n/2):0;
     var nMono=n-nColor;
     var cam=CAM[S.tier];
@@ -1318,7 +1613,8 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
 
     // rows
     var rows=[];
-    var grp, push=function(g,name,qty,unit,note,src){rows.push({g:g,name:name,qty:qty,unit:unit,note:note,src:src});};
+    var grp, curPhase='now';
+    var push=function(g,name,qty,unit,note,src,phase){rows.push({g:g,name:name,qty:qty,unit:unit,note:note,src:src,phase:phase||curPhase});};
     var total=0;
 
     grp='cameras';
@@ -1350,8 +1646,8 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
         total += n*SYNC_CABLE;
       }
     }
-    var poeFromSwitch=(S.power==='poe-switch' && S.sw==='planet');
-    var useInjector=(S.power==='poe-injector') || (S.power==='poe-switch' && S.sw!=='planet');
+    var poeFromSwitch=(S.power==='poe-switch' && (segmented || S.sw==='planet'));
+    var useInjector=(S.power==='poe-injector') || (S.power==='poe-switch' && !poeFromSwitch);
     if(useInjector){
       push(grp, 'PoE midspan injector (802.3af), per camera', n, INJECTOR, 'adds PoE to any non-PoE switch port', 'e');
       total += n*INJECTOR;
@@ -1374,6 +1670,7 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
     }
 
     grp='moisture (SWIR, §2n)';
+    curPhase='later';                       // moisture is phase 2 — after phase 1 proves the fleet
     if(S.mois>0){
       push(grp, 'ace 2 GigE SWIR · IMX990 class (a2A1280-80gmSWIR)', S.mois, MOIS_CAM, '1.3 MP class · 25 fps · PTP slave (quote to confirm)', 'e');
       total += S.mois*MOIS_CAM;
@@ -1387,59 +1684,111 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
       }
       push(grp, 'Basler heat sink (ace 2)', S.mois, HEATSINK, 'passive, every moisture station', 'e');
       total += S.mois*HEATSINK;
+    } else {
+      push(grp, 'SWIR moisture stations — not bought (§2n)', 0, 0, 'phase-2 option; needs oven-dry calibration samples first', 'e', 'never');
     }
 
     grp='temperature (§2o)';
+    curPhase='later';
     if(S.pyro>0){
       push(grp, 'IR spot pyrometer head (8–14 µm, → OPC UA)', S.pyro, PYRO, '1 Hz trend; zero GigE/RAM load', 'e');
       total += S.pyro*PYRO;
+    } else {
+      push(grp, 'IR pyrometers — not bought (§2o)', 0, 0, 'phase-2 option; no GigE load when added later', 'e', 'never');
     }
     if(S.lwir>0){
       push(grp, 'LWIR microbolometer camera 640×480 (non-Basler)', S.lwir, LWIR, 'standalone; outside PTP/event path', 'e');
       total += S.lwir*LWIR;
+    } else {
+      push(grp, 'LWIR thermal camera — not bought (§2o-B)', 0, 0, 'optional non-Basler device, outside the PTP/event path', 'e', 'never');
     }
 
     grp='server, client & workspace';
+    curPhase='now';
     push(grp, 'Tower server — 16C, ECC board, 1000W, 1TB OS SSD (RAM/NVMe/NIC in groups above)', 1, SRV_BASE, 'Ubuntu 22.04 · slot+power reserved for future GPU', 'e');
     total += SRV_BASE;
-    push(grp, 'Client PC — live view + analyze (read-only event share)', S.client, CLIENT, '8C · 32GB · 1G NIC to spare switch port', 'e');
-    total += S.client*CLIENT;
-    push(grp, '27in QHD IPS monitor + VESA arm (client desk)', S.client*2, MON27, 'tiles left, analyze right', 'e');
-    total += S.client*2*MON27;
+    push(grp, 'Client PC — live view + analyze (read-only event share)', 1, CLIENT, '8C · 32GB · 1G NIC to spare switch port · desk 1', 'e');
+    total += CLIENT;
+    push(grp, '27in QHD IPS monitor + VESA arm (client desk 1)', 2, MON27, 'tiles left, analyze right', 'e');
+    total += 2*MON27;
     push(grp, '24in admin monitor (server)', 1, MON24, 'commissioning/service', 'e');
     total += MON24;
     push(grp, 'UPS 1500VA line-interactive (server + switch)', 1, UPS, 'protects mid-write events', 'e');
     total += UPS;
+    if(S.client>1){
+      curPhase='later';
+      push(grp, 'Extra client PC — live view + analyze', S.client-1, CLIENT, 'phase 2 — desk 1 proves the workflow first', 'e');
+      total += (S.client-1)*CLIENT;
+      push(grp, '27in QHD monitor pair (extra desk)', (S.client-1)*2, MON27, 'phase 2', 'e');
+      total += (S.client-1)*2*MON27;
+      curPhase='now';
+    }
     if(S.gpu!=='none'){
+      curPhase='later';
       var gpu=GPU[S.gpu];
-      push(grp, gpu.name, 1, gpu.price, 'nvidia-driver-550 + CUDA 12 + TensorRT (§2d)', gpu.s);
+      push(grp, gpu.name, 1, gpu.price, 'phase 2 · nvidia-driver-550 + CUDA 12 + TensorRT (§2d)', gpu.s);
       total += gpu.price;
+      curPhase='now';
+    } else {
+      push(grp, 'AI GPU — not bought (§2d)', 0, 0, 'buy the day AI defect detection lands (RTX 4000 Ada shortlist)', 'e', 'never');
     }
 
     grp='network & time sync';
-    if(S.sw!=='none'){
+    curPhase='now';                         // the whole network plant is phase 1
+    if(segmented){
+      var leafP=ptpNet?LEAF_PTP:LEAF_PLAIN;
+      var coreP=ptpNet?CORE_PTP:CORE_PLAIN;
+      push(grp, 'Leaf switch — 10×1G PoE+ + 2×10G SFP+ (segment A + B)'+(ptpNet?' · IEEE 1588 TC/BC':''), 2, leafP,
+        ptpNet?'8 cams + 1 SWIR each · PTP domain 0, E2E · PoE feeds the drops':'no IEEE 1588 → offsets drift to ms (§2s)', 'e');
+      total += 2*leafP;
+      push(grp, 'Core switch — 4–8×10G SFP+'+(ptpNet?' · IEEE 1588 boundary clock':''), 1, coreP,
+        ptpNet?'control room · GM attaches here (§2m)':'plain 10G aggregation', 'e');
+      total += coreP;
+      push(grp, 'Field cabinet IP54 + 24 VDC DIN PSU (per segment)', 2, CABINET+DIN_PSU, 'machine floor · wet end A / dry end B (§2h)', 'e');
+      total += 2*(CABINET+DIN_PSU);
+      if(S.uplink==='om4'){
+        push(grp, 'Armored OM4 trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN, '2 strands used + 2 spare · leaf ↔ core (§2r)', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, '2 per link, both ends', 'e');
+        total += 4*SR;
+      } else if(S.uplink==='os2'){
+        push(grp, 'Armored OS2 trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN, '2 strands used + 2 spare · leaf ↔ core (§2r)', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-LR SFP+ optic (leaf ↔ core)', 4, LR, '2 per link, both ends', 'e');
+        total += 4*LR;
+      } else {
+        push(grp, 'Armored OM4 trunk per segment (DAC cannot span the machine floor)', 2, FIBER_RUN, 'DAC only fits core → server, ≤ 5 m', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, 'the leaf ↔ core run is always fiber', 'e');
+        total += 4*SR;
+      }
+      push(grp, 'LC/UPC patch panel + enclosure (both ends, per segment)', 2, FIBER_PANEL, 'label SEG-A/LINK1 … certify with OLTS (§2r)', 'e');
+      total += 2*FIBER_PANEL;
+    } else if(S.sw!=='none'){
       var sw=SW[S.sw];
       push(grp, sw.name, 1, sw.price, 'IEEE 1588 PTP (§2l)', sw.s);
       total += sw.price;
+    }
+    if(segmented || S.sw!=='none'){
       if(S.uplink==='om4'){
-        push(grp, 'OM4 LC-LC duplex patch (switch → server)', 2, OM4_PATCH, 'LACP bond', 'e');
+        push(grp, 'OM4 LC-LC duplex patch (core → server)', 2, OM4_PATCH, 'LACP bond', 'e');
         total += 2*OM4_PATCH;
-        push(grp, '10G-SR SFP+ optic', 4, SR, '2 per end', 'e');
+        push(grp, '10G-SR SFP+ optic (core → server)', 4, SR, '2 per end', 'e');
         total += 4*SR;
       } else if(S.uplink==='os2'){
-        push(grp, 'OS2 LC-LC duplex patch (switch → server)', 2, OS2_PATCH, 'LACP bond', 'e');
+        push(grp, 'OS2 LC-LC duplex patch (core → server)', 2, OS2_PATCH, 'LACP bond', 'e');
         total += 2*OS2_PATCH;
-        push(grp, '10G-LR SFP+ optic', 4, LR, '2 per end', 'e');
+        push(grp, '10G-LR SFP+ optic (core → server)', 4, LR, '2 per end', 'e');
         total += 4*LR;
       } else {
-        push(grp, '10G SFP+ DAC pair (switch → server)', 2, DAC, 'LACP bond', 'e');
+        push(grp, '10G SFP+ DAC pair (core → server)', 2, DAC, 'LACP bond · ≤ 5 m', 'e');
         total += 2*DAC;
       }
       push(grp, 'Intel X710-DA2 2×10G NIC (bond)', 1, NIC, 'kernel tuning + jumbo frames', 'e');
       total += NIC;
     }
     var gm=GM[S.gm];
-    if(gm.price>0){
+    if(gm.price>0 && ptpNet){
       push(grp, gm.name, 1, gm.price, 'Priority1=100 · domain 0 · GNSS antenna incl.', gm.s);
       total += gm.price;
     }
@@ -1455,23 +1804,46 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
       push(grp, 'NVMe Gen4 '+DRIVE_TB+' TB (existing)', 1, 0, 'fits '+num(Math.round(needTB))+' TB retention need', 'e');
     }
 
+    // phase totals — derived from the rows themselves, so they can never drift from the table
+    var totalFirst=0, totalLater=0, totalNever=0;
+    rows.forEach(function(r){
+      var s=r.qty*r.unit;
+      if(r.phase==='later') totalLater+=s;
+      else if(r.phase==='never') totalNever+=s;
+      else totalFirst+=s;
+    });
+    var targetTotal=totalFirst+totalLater;
+    var phaseChip=function(p){
+      if(p==='never') return '<span class="chip off">not bought</span>';
+      if(p==='later') return '<span class="chip gold">target only</span>';
+      return '<span class="chip ok">1st buy</span>';
+    };
+
     // render table
     var tb=$('bom').querySelector('tbody');
     var html='';
     var last='';
     rows.forEach(function(r){
       var sub=r.qty*r.unit;
-      if(r.g!==last){ html+='<tr class="grp"><td colspan="5">'+esc(r.g.toUpperCase())+'</td></tr>'; last=r.g; }
-      html+='<tr><td>'+esc(r.name)+' '+pill(r.src)+'</td>'
+      if(r.g!==last){ html+='<tr class="grp"><td colspan="6">'+esc(r.g.toUpperCase())+'</td></tr>'; last=r.g; }
+      html+='<tr class="'+(r.phase==='later'?'later':r.phase==='never'?'never':'now')+'"><td>'+esc(r.name)+' '+pill(r.src)+'</td>'
+          + '<td class="ph">'+phaseChip(r.phase)+'</td>'
           + '<td class="r">'+num(r.qty)+'</td>'
           + '<td class="r">'+money(r.unit)+'</td>'
           + '<td class="r sub">'+money(sub)+'</td>'
           + '<td>'+esc(r.note)+'</td></tr>';
     });
-    html+='<tr class="total"><td>BoM estimate (excl. server chassis, lens/frame qty above, taxes &amp; shipping)</td>'
-        + '<td></td><td></td>'
-        + '<td class="r grand">'+money(total)+'</td>'
-        + '<td>indicative — confirm distributor quotes</td></tr>';
+    var totRows = (S.plan==='first') ? [
+      ['First buy — phase 1 (what gets ordered first)', totalFirst, 'grand', 'phase-2 money ('+money(totalLater)+') is not counted above'],
+      ['Target — full build (phases 1 + 2)', targetTotal, '', 'the roadmap number · adds the deferred phase-2 items']
+    ] : [
+      ['Target — full build (phases 1 + 2)', targetTotal, 'grand', 'all phases · includes '+money(totalLater)+' deferred to phase 2'],
+      ['First buy — phase 1 only', totalFirst, '', 'what would be ordered first']
+    ];
+    totRows.forEach(function(t,i){
+      html+='<tr class="total'+(i?' alt':'')+'"><td>'+t[0]+'</td><td></td><td></td><td></td>'
+          + '<td class="r '+t[2]+'">'+money(t[1])+'</td><td>'+t[3]+'</td></tr>';
+    });
     tb.innerHTML=html;
 
     // derived dashboard
@@ -1483,11 +1855,27 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
     var gmState = S.gm==='none' ? '<span class="chip warn">ARB — camera is GM</span>'
                 : S.gm==='ptp4l' ? '<span class="chip blue">server = software GM</span>'
                 : '<span class="chip ok">GNSS GM active</span>';
-    var swState = S.sw==='none' ? '<span class="chip warn">switch: no PTP</span>' : '<span class="chip ok">PTP switch</span>';
-    $('d-ptp').innerHTML = gmState+'<br>'+swState+'<br><small>'+n+' vis + '+S.mois+' SWIR IEEE 1588 slave</small>';
+    var swState = segmented ? '<span class="chip '+ (ptpNet?'ok':'warn') +'">'+(ptpNet?'leaf ×2 + core PTP':'plain switches')+'</span>'
+                : S.sw==='none' ? '<span class="chip warn">switch: no PTP</span>' : '<span class="chip ok">PTP switch</span>';
+    $('d-ptp').innerHTML = gmState+'<br>'+swState+'<br><small>'+n+' vis + '+S.mois+' SWIR IEEE 1588 slave'+(segmented?' · 2 segments':'')+'</small>';
+    var segCam=Math.ceil(n/2);
+    var segLoad=segCam*FPS*MP*8/1000 + (S.mois>0?MOIS_FPS*MOIS_MP*8/1000:0);
+    $('d-net').innerHTML = segmented
+      ? '2 × '+segCam+' cams<br><small>'+segLoad.toFixed(1)+' Gbps per uplink ('+Math.round(segLoad/10*100)+'% of 10G)</small>'
+      : '1 switch<br><small>'+num(Math.round(bwMbps/1000))+' Gbps trunk</small>';
     var warnEl=$('pwr-warn');
-    if(S.power==='poe-switch' && S.sw!=='planet'){
-      warnEl.innerHTML='⚠️ “PoE from switch” needs the Planet IGS-6325-24UP4X 802.3bt ports — the selected switch has none, so PoE midspan injectors are added instead.';
+    var warns=[];
+    if(S.power==='poe-switch' && !poeFromSwitch){
+      warns.push('⚠️ “PoE from switch” needs 802.3af/at ports on the access switches — the selected parts have none, so PoE midspan injectors are added instead.');
+    }
+    if(S.net==='seg2plain'){
+      warns.push('⚠️ Non-PTP build: the leaf/core switches have no IEEE 1588 — the fleet still runs (host arrival stamps, .bin v2) but cross-camera alignment degrades to ms class (§2s).');
+    }
+    if(S.net==='seg2plain' && S.gm!=='none'){
+      warns.push('⚠️ Grandmaster selected with a non-PTP network: its accuracy is lost at the first queueing hop (§2s) — either switch the topology to “2 segments — PTP” or set the grandmaster to “None”.');
+    }
+    if(warns.length){
+      warnEl.innerHTML=warns.join('<br>');
       warnEl.classList.add('on');
     } else {
       warnEl.innerHTML='';
@@ -1496,26 +1884,42 @@ details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5p
     var pwrVal, pwrSub;
     if(poeW>0){ pwrVal='≈ '+num(poeW)+' W PoE'; pwrSub=n+' cams × 8 W (802.3af incl. margin)'; }
     else if(S.power==='dc24'){ pwrVal='24 VDC bus'; pwrSub='camera bus isolated from strobe PSUs'; }
-    else { pwrVal='PoE via switch'; pwrSub='802.3bt PoE++ ports power the drops'; }
+    else { pwrVal=segmented?'PoE via leaf switch':'PoE via switch'; pwrSub=segmented?'802.3af/at leaf ports power the drops':'802.3bt PoE++ ports power the drops'; }
     if(S.light==='none'){ pwrSub+=' · no strobes'; }
     $('d-pwr').innerHTML = pwrVal+'<br><small>'+pwrSub+'</small>';
-    $('d-total').innerHTML = money(total);
-    return {rows:rows,total:total,S:S};
+    var nLater=rows.filter(function(r){return r.phase==='later';}).length;
+    var nNever=rows.filter(function(r){return r.phase==='never';}).length;
+    $('d-first').innerHTML = money(totalFirst)+' <small>('+Math.round(totalFirst/targetTotal*100)+'% of target)</small>';
+    $('d-first-sub').innerHTML = 'phase 1 · '+(rows.length-nLater-nNever)+' line items · target adds '+money(totalLater)+' later';
+    $('d-total').innerHTML = money(targetTotal);
+    $('d-total-sub').innerHTML = 'phases 1 + 2 · '+nLater+' line items deferred ('+money(totalLater)+')';
+    $('l-first').innerHTML = money(totalFirst);
+    $('l-later').innerHTML = money(totalLater)+' <small>('+nLater+' items)</small>';
+    $('l-never').innerHTML = (nNever>0 ? money(totalNever)+' <small>('+nNever+' items)</small>' : '—');
+    $('l-target').innerHTML = money(targetTotal);
+    return {rows:rows,total:total,target:targetTotal,first:totalFirst,later:totalLater,never:totalNever,S:S};
   }
 
   var lastResult=null;
   function recalc(){ lastResult=calc(); }
-  ['s-cams','s-tier','s-mix','s-lens','s-housing','s-light','s-mois','s-mois-light','s-pyro','s-lwir','s-client','s-uplink','s-gpu','s-power','s-sw','s-gm','s-eday','s-ret'].forEach(function(id){
+  ['s-plan','s-cams','s-tier','s-mix','s-lens','s-housing','s-light','s-mois','s-mois-light','s-pyro','s-lwir','s-client','s-net','s-uplink','s-gpu','s-power','s-sw','s-gm','s-eday','s-ret'].forEach(function(id){
     $(id).addEventListener('change',recalc);
   });
 
   $('bom-copy').addEventListener('click',function(){
     if(!lastResult) return;
     var lines=['web_vision_pro BoM — '+new Date().toISOString().slice(0,10),''];
+    var lastG='';
     lastResult.rows.forEach(function(r){
-      lines.push(num(r.qty)+' × '+r.name+' @ '+money(r.unit)+'  =  '+money(r.qty*r.unit));
+      if(r.g!==lastG){ lines.push(''); lines.push('['+r.g+']'); lastG=r.g; }
+      var tag = r.phase==='later' ? '   [target only — phase 2]' : r.phase==='never' ? '   [not bought]' : '';
+      lines.push(num(r.qty)+' × '+r.name+' @ '+money(r.unit)+'  =  '+money(r.qty*r.unit)+tag);
     });
-    lines.push('TOTAL  $'+num(lastResult.total));
+    lines.push('');
+    lines.push('FIRST BUY (phase 1)   $'+num(lastResult.first));
+    lines.push('DEFERRED (phase 2)    $'+num(lastResult.later));
+    lines.push('NOT BOUGHT            $'+num(lastResult.never));
+    lines.push('TARGET (phases 1+2)   $'+num(lastResult.target));
     var ta=document.createElement('textarea');
     ta.value=lines.join('\n');
     document.body.appendChild(ta);
