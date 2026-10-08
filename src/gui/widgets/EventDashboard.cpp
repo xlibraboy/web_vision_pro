@@ -1,4 +1,5 @@
 #include "EventDashboard.h"
+#include "../../processing/EventSignalScanner.h"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -22,6 +23,10 @@ const QColor kLocalColor = QColor(QStringLiteral("#FF5252"));
 const QColor kContrastColor = QColor(QStringLiteral("#B388FF"));
 const QColor kPlayheadColor = QColor(QStringLiteral("#FFD54F"));
 const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
+// Detector-rule line and danger-zone tint on the signal lanes. Amber reads as
+// "threshold" and stays distinct from the red defect-hit ticks and the purple
+// contrast curve.
+const QColor kRuleColor = QColor(QStringLiteral("#FFB020"));
 } // namespace
 
 EventDashboard::EventDashboard(QWidget* parent)
@@ -640,17 +645,27 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         }
     }
 
-    // ---------- Signal lanes: CHANGE % and CONTRAST ----------
+    // ---------- Signal lanes: SPOTS % and CONTRAST ----------
+    // Each lane draws the detector's own rule as a dashed line on a fixed
+    // scale, so any two events are directly comparable and a trace crossing
+    // the rule is visible at a glance. The rule values come from the scanner's
+    // constants (single source of truth), never re-typed here.
     struct LaneDef {
         const char* label;
         const QVector<double>* series;
         const QVector<int>* marks;
         QColor markColor;
-        double fixedMax; // 0 = autoscale from data
+        double fixedMax;        // > 0 = exact scale (values above clip at the top)
+        bool hasRule;           // draw the detector rule line on this lane
+        double ruleValue;       // the rule threshold
+        bool ruleAbove;         // true: crossing above is bad; false: below is bad
+        const char* ruleLabel;  // "limit" (upper bound) / "floor" (lower bound)
     };
     const LaneDef lanes[kLaneCount] = {
-        {"SPOTS %", &spotPct_, &defectLocal_, kLocalColor, 0.0},
-        {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 0.0},
+        {"SPOTS %", &spotPct_, &defectLocal_, kLocalColor, 0.5, true,
+         EventSignalScanner::kLocalSpotMinPct, true, "limit"},
+        {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 64.0, true,
+         EventSignalScanner::kLowContrastStd, false, "floor"},
     };
     int visLane = 0;
     for (int li = 0; li < kLaneCount; ++li) {
@@ -661,16 +676,39 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
         double lo = 0.0;
         double hi = ld.fixedMax;
-        if (!ld.series->isEmpty()) {
-            hi = std::max(hi, *std::max_element(ld.series->constBegin(),
-                                                ld.series->constEnd()));
-        }
         if (hi <= lo) {
+            // Autoscale fallback (kept for future lanes without a rule): range
+            // from the data, with a 1.0 floor so an empty series still draws.
             hi = 1.0;
+            if (!ld.series->isEmpty()) {
+                hi = std::max(hi, *std::max_element(ld.series->constBegin(),
+                                                    ld.series->constEnd()));
+            }
         }
         auto yLane = [&](double v) {
             return lane.bottom() - ((v - lo) / std::max(1e-9, hi - lo)) * lane.height();
         };
+
+        // Detector rule: dashed line plus a subtle tint on the dangerous side
+        // (above the spot limit, below the contrast floor), so a drifting
+        // trace is readable even when it is flat.
+        if (ld.hasRule) {
+            const double ruleY = yLane(ld.ruleValue);
+            QColor tint = kRuleColor;
+            tint.setAlpha(22);
+            const QRectF danger = ld.ruleAbove
+                ? QRectF(lane.left(), lane.top(), lane.width(),
+                         qMax(0.0, ruleY - lane.top()))
+                : QRectF(lane.left(), ruleY, lane.width(),
+                         qMax(0.0, lane.bottom() - ruleY));
+            p.fillRect(danger, tint);
+            pen.setColor(kRuleColor);
+            pen.setWidth(1);
+            pen.setStyle(Qt::DashLine);
+            p.setPen(pen);
+            p.drawLine(QPointF(lane.left(), ruleY), QPointF(lane.right(), ruleY));
+            pen.setStyle(Qt::SolidLine);
+        }
 
         // Rule ticks behind the trace.
         pen.setColor(ld.markColor);
@@ -702,7 +740,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                    Qt::AlignLeft | Qt::AlignTop, QLatin1String(ld.label));
         p.drawText(QRectF(lane.right() - 120, lane.top() + 1, 116, 12),
                    Qt::AlignRight | Qt::AlignTop,
-                   QStringLiteral("max %1").arg(hi, 0, 'f', 1));
+                   ld.hasRule
+                       ? QStringLiteral("%1 %2").arg(QLatin1String(ld.ruleLabel))
+                             .arg(ld.ruleValue, 0, 'f', ld.ruleValue < 1.0 ? 2 : 1)
+                       : QStringLiteral("max %1").arg(hi, 0, 'f', 1));
     }
 
     // Trigger line across chart + strip. When the detail strip is active the

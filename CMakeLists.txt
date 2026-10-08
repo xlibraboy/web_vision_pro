@@ -143,6 +143,7 @@ if(BUILD_TESTING)
         tests/TriggerRecordScope.h
         tests/AnalysisReviewTiles.h
         tests/ChangelogDialogTest.h
+        tests/DefectSeverityClassification.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -152,6 +153,7 @@ if(BUILD_TESTING)
         tests/TriggerRecordScope.cpp
         tests/AnalysisReviewTiles.cpp
         tests/ChangelogDialogTest.cpp
+        tests/DefectSeverityClassification.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -173,8 +175,10 @@ if(BUILD_TESTING)
     add_test(NAME trigger_record_scope COMMAND PaperVision_RegressionTest scope)
     add_test(NAME analysis_review_tiles COMMAND PaperVision_RegressionTest tiles)
     add_test(NAME changelog_dialog_render COMMAND PaperVision_RegressionTest changelog)
+    add_test(NAME defect_severity_classification COMMAND PaperVision_RegressionTest severity)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
+        defect_severity_classification
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 

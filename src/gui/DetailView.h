@@ -16,6 +16,9 @@
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
 
+class QKeyEvent;
+class QScrollArea;
+
 class DetailView : public QWidget {
     Q_OBJECT
 
@@ -86,8 +89,16 @@ private slots:
 private:
     void setupUi();
     void applyLiveViewTypography();
+    // Theme the scrollable left column (info + parameters): transparent
+    // surface, slim themed scrollbar. Called at build time and on theme
+    // changes.
+    void applyLeftColumnStyle();
 
     CameraWidget* cameraWidget_;
+    // Scrollable host for the left column. The parameter block is taller than
+    // a 768-class window; without scrolling the layout compressed the spin
+    // boxes until their values rendered blank (verified at 1366x768).
+    QScrollArea* leftScroll_ = nullptr;
     QGroupBox* infoGroup_ = nullptr;
     
     // Camera Info Labels
@@ -132,6 +143,10 @@ private:
     // AOI overlay (chip + floating panel on the video frame)
     class AoiRegionOverlay;
     AoiRegionOverlay* aoiOverlay_ = nullptr;   // sensor-context frame indicator
+    // Visible back-to-grid control on the video frame (top-left). The frame
+    // double-click and Esc remain as shortcuts; this chip is the discoverable,
+    // focusable path the view was missing.
+    QToolButton* backChip_ = nullptr;
     QToolButton* aoiChip_ = nullptr;
     QFrame* aoiPanel_ = nullptr;
     QSpinBox* aoiWidthSpin_ = nullptr;
@@ -195,4 +210,5 @@ private:
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 };

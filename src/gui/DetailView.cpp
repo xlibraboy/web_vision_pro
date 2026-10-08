@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
+#include <QScrollArea>
 #include <QDebug>
 #include <QFont>
 #include <QEvent>
@@ -541,10 +542,20 @@ void DetailView::setupUi() {
     mainLayout->setSpacing(8);
 
     // --- Left Panel: Info + Parameters (Vertical Stack) ---
-    QWidget* leftPanel = new QWidget(this);
-    leftPanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    leftPanel->setMinimumWidth(360);
-    leftPanel->setMaximumWidth(480);
+    // The column carries the info block plus four parameter groups — taller
+    // than a 768-class window. A scroll area keeps the natural control sizes
+    // and scrolls instead of squeezing the spin boxes until their values
+    // render blank (the old behaviour at 1366x768 and below).
+    leftScroll_ = new QScrollArea(this);
+    leftScroll_->setWidgetResizable(true);
+    leftScroll_->setFrameShape(QFrame::NoFrame);
+    leftScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    leftScroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    leftScroll_->setMinimumWidth(360);
+    leftScroll_->setMaximumWidth(480);
+    leftScroll_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+
+    QWidget* leftPanel = new QWidget;
     QVBoxLayout* leftPanelLayout = new QVBoxLayout(leftPanel);
     leftPanelLayout->setContentsMargins(0, 0, 0, 0);
     leftPanelLayout->setSpacing(8);
@@ -704,6 +715,9 @@ void DetailView::setupUi() {
     leftPanelLayout->addWidget(controlGroup_);
     leftPanelLayout->addStretch(); // Push content to top
 
+    leftScroll_->setWidget(leftPanel);
+    applyLeftColumnStyle();
+
     // --- Center Panel: Video ---
     cameraWidget_ = new CameraWidget(this);
     cameraWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -711,12 +725,29 @@ void DetailView::setupUi() {
     // Connect camera widget double-click to go back to grid
     connect(cameraWidget_, &CameraWidget::doubleClicked, this, &DetailView::backRequested);
 
-    // Center layout with just the camera widget (no back button for more space)
+    // Visible back-to-grid chip on the video frame (top-left, under the camera
+    // label). The old layout dropped the back button "for more space" and left
+    // double-click as the only way out — invisible and mouse-only. The chip is
+    // focusable (Tab) and Esc works anywhere the ROI overlay is not drawing.
+    {
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        backChip_ = new QToolButton(cameraWidget_);
+        backChip_->setText(QStringLiteral("\u2190 Grid"));
+        backChip_->setCursor(Qt::PointingHandCursor);
+        backChip_->setFocusPolicy(Qt::StrongFocus);
+        backChip_->setAccessibleName(QStringLiteral("Back to grid"));
+        backChip_->setToolTip(QStringLiteral("Back to the camera grid (Esc)"));
+        backChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
+        connect(backChip_, &QToolButton::clicked, this, &DetailView::backRequested);
+    }
+
+    // Center layout with just the camera widget (the back chip floats on it,
+    // so no row is consumed by chrome)
     QVBoxLayout* centerLayout = new QVBoxLayout();
     centerLayout->addWidget(cameraWidget_);
 
     // Layout Assembly: 25% Left Panel, 75% Video
-    mainLayout->addWidget(leftPanel, 0);
+    mainLayout->addWidget(leftScroll_, 0);
     mainLayout->addLayout(centerLayout, 3); 
 
     buildAoiOverlay();
@@ -1160,6 +1191,9 @@ void DetailView::repositionRoiPanel() {
     if (aoiChip_) {
         aoiChip_->raise();
     }
+    if (backChip_) {
+        backChip_->raise();
+    }
 }
 
 void DetailView::onAoiChipToggled(bool checked) {
@@ -1322,6 +1356,13 @@ void DetailView::repositionAoiOverlay() {
     const int chipH = 26;
     aoiChip_->setGeometry(vg.right() - chipW - margin, vg.top() + margin, chipW, chipH);
 
+    // Back chip on the opposite (left) edge, below the camera label drawn by
+    // CameraWidget at the top-left of the frame, so the two never overlap.
+    if (backChip_) {
+        backChip_->setGeometry(vg.left() + 10, vg.top() + 36, 68, chipH);
+        backChip_->raise();
+    }
+
     // ROI chip sits below the AOI chip (same right-edge stack).
     if (roiChip_) {
         roiChip_->setGeometry(vg.right() - chipW - margin,
@@ -1372,15 +1413,29 @@ bool DetailView::eventFilter(QObject* obj, QEvent* event) {
     return QWidget::eventFilter(obj, event);
 }
 
+void DetailView::keyPressEvent(QKeyEvent* event) {
+    // Esc returns to the grid — the keyboard twin of the ← Grid chip and the
+    // frame double-click. The ROI overlay consumes Esc while a region is being
+    // drawn (it cancels the in-progress polygon instead), so this only fires
+    // when no child took the key first.
+    if (event->key() == Qt::Key_Escape) {
+        event->accept();
+        emit backRequested();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
 QString DetailView::aoiOverlayStyle(const QString& bgColor) const {
     const ThemeColors tc = CameraConfig::getThemeColors();
     return QString(
         "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 13px;"
         " font-size: 11px; font-weight: 600; padding: 2px 10px; }"
         "QToolButton:hover { background-color: %4; }"
+        "QToolButton:focus { background-color: %4; border-color: %7; }"
         "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
         .arg(bgColor, tc.text, tc.border, toRgba(tc.btnHover, 255), toRgba(tc.primary, 40),
-             tc.primary);
+             tc.primary, tc.primary);
 }
 
 void DetailView::setCamera(int cameraId, const CameraInfo& info, CameraWidget* videoSource) {
@@ -1749,6 +1804,12 @@ void DetailView::setDisplayFps(double fps) {
 
 void DetailView::updateTheme() {
     applyLiveViewTypography();
+    applyLeftColumnStyle();
+
+    if (backChip_) {
+        const ThemeColors tc = CameraConfig::getThemeColors();
+        backChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
+    }
 
     if (aoiChip_) {
         const ThemeColors tc = CameraConfig::getThemeColors();
@@ -1835,4 +1896,22 @@ void DetailView::applyLiveViewTypography() {
     if (controlGroup_) {
         controlGroup_->setFont(sectionFont);
     }
+}
+
+void DetailView::applyLeftColumnStyle() {
+    if (!leftScroll_) {
+        return;
+    }
+    // Transparent surface (the theme background shows through) and a slim
+    // themed scrollbar — the only control on this surface that Qt would
+    // otherwise render in default chrome.
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    leftScroll_->setStyleSheet(QString(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: %1; border-radius: 5px; min-height: 24px; }"
+        "QScrollBar::handle:vertical:hover { background: %2; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }")
+        .arg(tc.border, tc.primary));
 }

@@ -327,7 +327,21 @@ MainWindow::MainWindow(QWidget *parent)
         // Simple FPS calculation
         currentFps_ = frameCount_ * 2.0; // Called every 500ms
         frameCount_ = 0;
-        liveDashboard_->updateStatus(currentFps_, false); // Need to update this to support Status per view?
+        // Live capture readout: frames arriving across all cameras, plus
+        // whether an event recording is underway. Same facts on every view —
+        // it lives in the status bar, not inside the Live grid.
+        const bool recording = EventController::instance().isSaving();
+        if (liveStatusLabel_) {
+            liveStatusLabel_->setText(recording
+                ? QString("%1 FPS · RECORDING").arg(currentFps_, 0, 'f', 1)
+                : QString("%1 FPS").arg(currentFps_, 0, 'f', 1));
+            if (liveStatusLabel_->property("recording").toBool() != recording) {
+                liveStatusLabel_->setProperty("recording", recording);
+                liveStatusLabel_->style()->unpolish(liveStatusLabel_);
+                liveStatusLabel_->style()->polish(liveStatusLabel_);
+            }
+        }
+        liveDashboard_->updateStatus(currentFps_, recording);
 
         if (stackedWidget_ && detailView_ && stackedWidget_->currentWidget() == detailView_ && cameraManager_) {
             const int cameraId = detailView_->videoWidget()->cameraId();
@@ -916,6 +930,15 @@ void MainWindow::setupUi() {
     connect(adminLoginButton_, &QToolButton::clicked, this, &MainWindow::toggleAdmin);
     styleAdminLoginButton();
     mainTabWidget_->setCornerWidget(adminLoginButton_, Qt::TopRightCorner);
+
+    // Live capture status: FPS + recording state as a permanent status-bar
+    // readout, so "is it running, and at what rate" is answered from every
+    // view (the command-bar strip shares the bar with the other badges).
+    liveStatusLabel_ = new QLabel(this);
+    liveStatusLabel_->setObjectName("liveStatusLabel");
+    liveStatusLabel_->setToolTip("Frames per second received from all cameras, "
+                                 "and whether an event recording is in progress.");
+    statusBar()->addPermanentWidget(liveStatusLabel_);
 
     // Emulation-mode badge: lives on the bottom status line (shared by Live
     // View, Detail View, and Analysis View). Visible only when the app runs on
@@ -1849,6 +1872,10 @@ void MainWindow::applyGlobalTheme() {
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: #888888; }"
         "QLabel#adminStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
         "QLabel#adminStatusLabel[adminActive='true'] { color: %5; }"
+        // Live capture readout (status bar): FPS for every view, red while an
+        // event recording is in progress.
+        "QLabel#liveStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
+        "QLabel#liveStatusLabel[recording='true'] { color: #FF5A5A; }"
         // Emulation-mode badge (cyan accent matches the emulated status color)
         "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
         "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "

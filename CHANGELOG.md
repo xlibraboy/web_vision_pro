@@ -13,6 +13,19 @@ here.
 
 ## [Unreleased]
 
+### Added
+
+- Detail View: a visible "← Grid" control (and the Esc key) returns to the camera grid; double-clicking the frame still works.
+- Analysis View: the TOOLS, IMAGE and TRACKS handles are clickable, keyboard-focusable buttons that pin their panel open (hover still previews), the TRACKS panel toggles with the T key, and Escape closes a pinned panel.
+- Analysis View: the signal lanes draw the detector's own limit as a dashed line on a fixed scale ("limit 0.05" on SPOTS %, "floor 10.0" on CONTRAST), so different events are directly comparable.
+- Machine Layout: defect marks carry a severity from the event's signal scan (filled = warning, ring = critical, outline = ok); the tooltip shows the verdict and the values behind it, and the summary counts the marks by severity.
+- Status bar: a live FPS readout that turns red while an event recording is running.
+- Live View: unassigned grid slots are labelled "No camera assigned" instead of rendering as bare dark cells.
+
+### Fixed
+
+- Detail View: the camera parameter column scrolls on short windows (e.g. 1366×768) instead of squeezing the spin boxes until their values render blank.
+
 ## [1.2.0] - 2026-10-14
 
 ### Added

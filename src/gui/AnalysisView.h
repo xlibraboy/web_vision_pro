@@ -6,6 +6,7 @@ struct EventSignalData;
 #include <QSplitter>
 #include <QFutureWatcher>
 #include <QPushButton>
+#include <QToolButton>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QSlider>
@@ -266,6 +267,7 @@ private:
 
     // Right tools panel
     void onToolsLockToggled();
+    void onToolsEdgeTabClicked();
     void onToolsHoverTick();
     void positionToolsPanel();
     void restyleToolsEdgeTab();
@@ -285,6 +287,7 @@ private:
     // they get their own vertical IMAGE edge tab. Same hover/drawer pattern as
     // the TOOLS panel above.
     void onImageToolsHoverTick();
+    void onImageEdgeTabClicked();
     void restyleImageEdgeTab();
     void animateImagePanelShow();
     void animateImagePanelHide();
@@ -292,6 +295,14 @@ private:
     bool imagePanelActuallyVisible() const;
     void ensureImagePanelOpacityEffect();
     void clearImagePanelOpacityEffect();
+
+    // Click/keyboard access for the floating drawers: the edge tabs are
+    // focusable buttons that toggle their panel (hover stays as the pointer
+    // preview), and the TRACKS chip has a T shortcut. Escape closes a pinned
+    // drawer, newest first.
+    void onTracksEdgeTabClicked();
+    void toggleTracksPanelPinned();
+    bool closePinnedDrawers();
 
     // Main layout
     
@@ -580,11 +591,14 @@ private:
     // the duration of the fade, so nothing is ever nested under another effect
     // (which renders incorrectly on X11).
     QWidget*         rightToolsPanel_ = nullptr;
-    QLabel*          toolsEdgeTab_ = nullptr;
+    QToolButton*     toolsEdgeTab_ = nullptr;
     QPushButton*     toolsLockButton_ = nullptr;
     QPushButton*     resetToolsButton_ = nullptr;
     bool             toolsLocked_ = false;  // start unpinned (hover-driven)
     bool             toolsTabHovered_ = false;  // cursor is over the edge tab
+    // Set when a click on the handle closed the panel: the hover tick must not
+    // instantly re-open it while the cursor still rests on the handle.
+    bool             toolsClickHoverSuppressed_ = false;
     QTimer*          toolsHoverTimer_ = nullptr;
     // Show/hide animation state. toolsPanelOpacity_ is non-null only while a
     // transition is in progress.
@@ -597,8 +611,10 @@ private:
     // IMAGE panel (MARKER + VIEW): independent hover drawer with its own edge
     // tab, mirroring the TOOLS drawer's state above.
     QWidget*                   imageToolsPanel_ = nullptr;
-    QLabel*                    imageEdgeTab_ = nullptr;
+    QToolButton*               imageEdgeTab_ = nullptr;
     bool                       imageTabHovered_ = false;  // cursor is over the edge tab
+    bool                       imagePanelPinned_ = false;  // click-pinned (stays open)
+    bool                       imageClickHoverSuppressed_ = false;
     QGraphicsOpacityEffect*    imagePanelOpacity_ = nullptr;
     QPropertyAnimation*        imagePanelFadeAnim_ = nullptr;
     QPropertyAnimation*        imagePanelSlideAnim_ = nullptr;
@@ -622,10 +638,12 @@ private:
     int dashProgressPercent_ = -1;
     // TRACKS hover edge tab + panel: per-region show/hide for the dashboard's
     // five stacked tracks (same interaction pattern as the TOOLS tab).
-    QLabel* tracksEdgeTab_ = nullptr;
+    QToolButton* tracksEdgeTab_ = nullptr;
     QWidget* tracksPanel_ = nullptr;
     QCheckBox* trackChecks_[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     bool tracksTabHovered_ = false;
+    bool tracksPanelPinned_ = false;        // click-pinned (stays open)
+    bool tracksClickHoverSuppressed_ = false;
     // In-panel loading state: shown while the detail analysis is still running
     // so the empty dashboard is never exposed through the checkboxes.
     QWidget* tracksLoadingRow_ = nullptr;

@@ -1189,6 +1189,9 @@ void AnalysisView::updateTracksEdgeTabVisibility() {
     if (!show && tracksPanel_) {
         tracksPanel_->hide();
         tracksTabHovered_ = false;
+        tracksPanelPinned_ = false;
+        tracksClickHoverSuppressed_ = false;
+        restyleTracksEdgeTab();
         if (detailDashboard_) {
             detailDashboard_->setHoverTooltipEnabled(true);
         }
@@ -2180,31 +2183,39 @@ void AnalysisView::setupMainArea() {
     });
     toolsHoverTimer_->start();
 
-    // Vertical TOOLS tab on the frame's right edge: the hover target that
-    // reveals the panel when unpinned. Always visible; the label text is
-    // rotated 90° so it reads top-to-bottom down the edge. restyleToolsEdgeTab
-    // renders the vertical pixmap + theme background.
+    // Vertical TOOLS tab on the frame's right edge: a focusable button that
+    // previews the panel on hover and toggles (pins/unpins) it on click,
+    // Enter or Space — pointer and keyboard get the same path in.
+    // restyleToolsEdgeTab renders the vertical pixmap + theme background.
     // Compact vertical tab: slim handle, shorter run than before.
-    toolsEdgeTab_ = new QLabel(mainArea_);
+    toolsEdgeTab_ = new QToolButton(mainArea_);
     toolsEdgeTab_->setObjectName("toolsEdgeTab");
     toolsEdgeTab_->setFixedSize(22, 84);
-    toolsEdgeTab_->setAlignment(Qt::AlignCenter);
-    // No tooltip: the panel opens on hover already, so a tooltip would just
-    // flicker over the tab.
-    toolsEdgeTab_->setToolTip(QString());
+    toolsEdgeTab_->setAutoRaise(true);
+    toolsEdgeTab_->setCursor(Qt::PointingHandCursor);
+    toolsEdgeTab_->setFocusPolicy(Qt::StrongFocus);
+    toolsEdgeTab_->setAccessibleName(QStringLiteral("Analysis tools panel"));
+    toolsEdgeTab_->setToolTip(QStringLiteral("Tools — hover to preview, click to pin"));
+    connect(toolsEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onToolsEdgeTabClicked);
+    toolsEdgeTab_->installEventFilter(this);  // focus repaint
     restyleToolsEdgeTab();
     // Initial tab is All Camera (index 0) — the TOOLS tab only belongs to the
     // Single Camera detail view. onTabChanged() re-evaluates on every switch.
     toolsEdgeTab_->hide();
 
-    // Vertical IMAGE tab: the hover handle for the MARKER + VIEW drawer. It
-    // shares the same right edge, stacked directly above the TOOLS tab.
-    imageEdgeTab_ = new QLabel(mainArea_);
+    // Vertical IMAGE tab: the handle for the MARKER + VIEW drawer, a
+    // focusable button like the TOOLS tab. It shares the same right edge,
+    // stacked directly above the TOOLS tab.
+    imageEdgeTab_ = new QToolButton(mainArea_);
     imageEdgeTab_->setObjectName("imageEdgeTab");
     imageEdgeTab_->setFixedSize(22, 84);
-    imageEdgeTab_->setAlignment(Qt::AlignCenter);
-    // No tooltip: the drawer opens on hover, so a tooltip would only flicker.
-    imageEdgeTab_->setToolTip(QString());
+    imageEdgeTab_->setAutoRaise(true);
+    imageEdgeTab_->setCursor(Qt::PointingHandCursor);
+    imageEdgeTab_->setFocusPolicy(Qt::StrongFocus);
+    imageEdgeTab_->setAccessibleName(QStringLiteral("Image tools panel"));
+    imageEdgeTab_->setToolTip(QStringLiteral("Image tools — hover to preview, click to pin"));
+    connect(imageEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onImageEdgeTabClicked);
+    imageEdgeTab_->installEventFilter(this);  // focus repaint
     restyleImageEdgeTab();
     imageEdgeTab_->hide();
 
@@ -2242,14 +2253,18 @@ void AnalysisView::setupMainArea() {
     positionToolsPanel();
 
     // ── TRACKS hover tab + panel (dashboard per-region show/hide) ──
-    // Separate from TOOLS for clarity: one vertical edge tab per panel.
-    tracksEdgeTab_ = new QLabel(mainArea_);
+    // Separate from TOOLS for clarity: one vertical edge tab per panel. The
+    // waveform chip is a focusable button: hover previews, click/Enter/Space
+    // pins the panel, and T toggles it from the keyboard.
+    tracksEdgeTab_ = new QToolButton(mainArea_);
     tracksEdgeTab_->setObjectName("tracksEdgeTab");
     tracksEdgeTab_->setFixedSize(34, 30);
-    tracksEdgeTab_->setAlignment(Qt::AlignCenter);
-    // No tooltip on the tab: the popup opens on hover already, so a tooltip
-    // would just flicker over the control.
-    tracksEdgeTab_->setToolTip(QString());
+    tracksEdgeTab_->setAutoRaise(true);
+    tracksEdgeTab_->setCursor(Qt::PointingHandCursor);
+    tracksEdgeTab_->setFocusPolicy(Qt::StrongFocus);
+    tracksEdgeTab_->setAccessibleName(QStringLiteral("Dashboard tracks panel"));
+    tracksEdgeTab_->setToolTip(QStringLiteral("Tracks — choose the dashboard lanes (T)"));
+    connect(tracksEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onTracksEdgeTabClicked);
     restyleTracksEdgeTab();
     tracksEdgeTab_->hide();
 
@@ -3382,6 +3397,8 @@ void AnalysisView::onTabChanged(int index) {
     if (tracksPanel_ && index != 1) {
         tracksPanel_->hide();
         tracksTabHovered_ = false;
+        tracksPanelPinned_ = false;
+        tracksClickHoverSuppressed_ = false;
         restyleTracksEdgeTab();
         if (detailDashboard_) {
             detailDashboard_->setHoverTooltipEnabled(true);
@@ -3390,11 +3407,14 @@ void AnalysisView::onTabChanged(int index) {
     if (rightToolsPanel_ && index != 1) {
         rightToolsPanel_->hide();
         toolsPanelShown_ = false;
+        toolsClickHoverSuppressed_ = false;
     }
     if (imageToolsPanel_ && index != 1) {
         imageToolsPanel_->hide();
         imagePanelShown_ = false;
         imageTabHovered_ = false;
+        imagePanelPinned_ = false;
+        imageClickHoverSuppressed_ = false;
         restyleImageEdgeTab();
     }
 
@@ -5334,6 +5354,17 @@ void AnalysisView::onToolsLockToggled() {
     } else {
         onToolsHoverTick();  // hide immediately if the cursor is elsewhere
     }
+    restyleToolsEdgeTab();  // the handle mirrors the pinned state
+}
+
+void AnalysisView::onToolsEdgeTabClicked() {
+    // The handle is a click target now: same effect as the panel's Lock button
+    // (pin/unpin). When this click unpins, arm the hover suppression BEFORE
+    // the toggle runs — unpinning re-evaluates the hover state while the
+    // cursor is still resting on the handle, which would otherwise re-open
+    // the panel and make the click feel broken.
+    toolsClickHoverSuppressed_ = toolsLocked_;
+    onToolsLockToggled();
 }
 
 void AnalysisView::restyleToolsEdgeTab() {
@@ -5341,17 +5372,21 @@ void AnalysisView::restyleToolsEdgeTab() {
         return;
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    const bool hovered = toolsTabHovered_;
-    const QString bg = hovered ? QColor(tc.primary).darker(175).name() : tc.bg;
-    const QString border = hovered ? tc.primary : tc.border;
+    // Hover, keyboard focus and the pinned state all read as "this handle is
+    // live" — a focusable control must show something when Tab lands on it.
+    const bool active = toolsTabHovered_ || toolsEdgeTab_->hasFocus() || toolsLocked_;
+    const QString bg = active ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString border = active ? tc.primary : tc.border;
     toolsEdgeTab_->setStyleSheet(QString(
-        "QWidget#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
+        "QToolButton#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    const QColor fg = hovered ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
-    toolsEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
-                                                   toolsEdgeTab_->width(),
-                                                   toolsEdgeTab_->height()));
+    const QColor fg = active ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
+                                             toolsEdgeTab_->width(),
+                                             toolsEdgeTab_->height());
+    toolsEdgeTab_->setIcon(QIcon(pm));
+    toolsEdgeTab_->setIconSize(pm.size());
 }
 
 void AnalysisView::restyleImageEdgeTab() {
@@ -5359,17 +5394,19 @@ void AnalysisView::restyleImageEdgeTab() {
         return;
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    const bool hovered = imageTabHovered_;
-    const QString bg = hovered ? QColor(tc.primary).darker(175).name() : tc.bg;
-    const QString border = hovered ? tc.primary : tc.border;
+    const bool active = imageTabHovered_ || imageEdgeTab_->hasFocus() || imagePanelPinned_;
+    const QString bg = active ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString border = active ? tc.primary : tc.border;
     imageEdgeTab_->setStyleSheet(QString(
-        "QWidget#imageEdgeTab { background-color: %1; border: 1px solid %2;"
+        "QToolButton#imageEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    const QColor fg = hovered ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
-    imageEdgeTab_->setPixmap(makeVerticalTabPixmap(QStringLiteral("IMAGE"), fg,
-                                                   imageEdgeTab_->width(),
-                                                   imageEdgeTab_->height()));
+    const QColor fg = active ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("IMAGE"), fg,
+                                             imageEdgeTab_->width(),
+                                             imageEdgeTab_->height());
+    imageEdgeTab_->setIcon(QIcon(pm));
+    imageEdgeTab_->setIconSize(pm.size());
 }
 
 void AnalysisView::restyleTracksEdgeTab() {
@@ -5377,22 +5414,25 @@ void AnalysisView::restyleTracksEdgeTab() {
         return;
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    if (tracksTabHovered_) {
-        // Soft rounded tint behind the wave while hovered, so the transparent
-        // control reads as a target; idle state stays glyph only.
+    const bool active = tracksTabHovered_ || tracksEdgeTab_->hasFocus() || tracksPanelPinned_;
+    if (active) {
+        // Soft rounded tint behind the wave while hovered/focused/pinned, so
+        // the transparent control reads as a target; idle stays glyph only.
         QColor tint = QColor(tc.primary);
         tint.setAlpha(40);
         tracksEdgeTab_->setStyleSheet(QString(
-            "QWidget#tracksEdgeTab { background-color: rgba(%1, %2, %3, %4);"
+            "QToolButton#tracksEdgeTab { background-color: rgba(%1, %2, %3, %4);"
             " border-radius: 15px; }")
             .arg(tint.red()).arg(tint.green()).arg(tint.blue()).arg(tint.alpha()));
     } else {
-        tracksEdgeTab_->setStyleSheet(QStringLiteral("QWidget#tracksEdgeTab { background: transparent; }"));
+        tracksEdgeTab_->setStyleSheet(QStringLiteral("QToolButton#tracksEdgeTab { background: transparent; }"));
     }
-    const QColor fg = tracksTabHovered_ ? QColor(tc.primary).lighter(150)
-                                        : QColor(tc.text);
-    tracksEdgeTab_->setPixmap(makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
-                                                     tracksEdgeTab_->height()));
+    const QColor fg = active ? QColor(tc.primary).lighter(150)
+                             : QColor(tc.text);
+    const QPixmap pm = makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
+                                              tracksEdgeTab_->height());
+    tracksEdgeTab_->setIcon(QIcon(pm));
+    tracksEdgeTab_->setIconSize(pm.size());
 }
 
 void AnalysisView::applyToolsPanelTheme() {
@@ -5493,6 +5533,18 @@ void AnalysisView::onToolsHoverTick() {
         toolsTabHovered_ = overTab;
         restyleToolsEdgeTab();
     }
+    if (toolsClickHoverSuppressed_) {
+        if (overTab) {
+            // The click just closed the panel: keep it closed while the
+            // cursor rests on the handle instead of bouncing back open.
+            if (toolsPanelShown_) {
+                toolsPanelShown_ = false;
+                animateToolsPanelHide();
+            }
+            return;
+        }
+        toolsClickHoverSuppressed_ = false;  // pointer left: hover works again
+    }
     const bool overPanel = panelRect.contains(pos);
     // "Actually visible" means shown and not yet faded out, so moving back
     // onto the panel mid-hide reverses the transition instead of waiting.
@@ -5512,10 +5564,10 @@ bool AnalysisView::toolsPanelActuallyVisible() const {
         && (!toolsPanelOpacity_ || toolsPanelOpacity_->opacity() > 0.01);
 }
 
-// Hover-driven show/hide for the IMAGE drawer (no pin: it is a pure hover
-// handle). Mirrors onToolsHoverTick's tab/panel hit-testing.
+// Hover-driven show/hide for the IMAGE drawer (hover previews; a click on the
+// handle pins it open). Mirrors onToolsHoverTick's tab/panel hit-testing.
 void AnalysisView::onImageToolsHoverTick() {
-    if (!imageToolsPanel_ || !mainArea_) {
+    if (!imageToolsPanel_ || !mainArea_ || imagePanelPinned_) {
         return;
     }
     // Hidden outside the Camera tab: its visibility is the invariant that the
@@ -5535,6 +5587,18 @@ void AnalysisView::onImageToolsHoverTick() {
         imageTabHovered_ = overTab;
         restyleImageEdgeTab();
     }
+    if (imageClickHoverSuppressed_) {
+        if (overTab) {
+            // A click just closed the drawer: keep it closed while the cursor
+            // rests on the handle instead of bouncing back open.
+            if (imagePanelShown_) {
+                imagePanelShown_ = false;
+                animateImagePanelHide();
+            }
+            return;
+        }
+        imageClickHoverSuppressed_ = false;  // pointer left: hover works again
+    }
     const bool overPanel = panelRect.contains(pos);
     const bool shouldShow = overTab || (imagePanelActuallyVisible() && overPanel);
     if (shouldShow != imagePanelShown_) {
@@ -5550,6 +5614,75 @@ void AnalysisView::onImageToolsHoverTick() {
 bool AnalysisView::imagePanelActuallyVisible() const {
     return imageToolsPanel_ && imageToolsPanel_->isVisible()
         && (!imagePanelOpacity_ || imagePanelOpacity_->opacity() > 0.01);
+}
+
+void AnalysisView::onImageEdgeTabClicked() {
+    // Click/Enter/Space on the IMAGE handle toggles a pin; hover keeps
+    // previewing while unpinned. Closing arms the same hover suppression as
+    // the TOOLS handle so the click doesn't bounce the drawer back open.
+    if (imagePanelPinned_) {
+        imagePanelPinned_ = false;
+        imagePanelShown_ = false;
+        imageClickHoverSuppressed_ = true;
+        animateImagePanelHide();
+    } else {
+        imagePanelPinned_ = true;
+        imagePanelShown_ = true;
+        animateImagePanelShow();
+    }
+    restyleImageEdgeTab();
+}
+
+void AnalysisView::onTracksEdgeTabClicked() {
+    toggleTracksPanelPinned();
+}
+
+void AnalysisView::toggleTracksPanelPinned() {
+    // Same contract as the other handles: hover previews, click (or T) pins
+    // the panel open; a second click/T (or Escape) closes it.
+    if (tracksPanelPinned_) {
+        tracksPanelPinned_ = false;
+        tracksClickHoverSuppressed_ = true;
+        if (tracksPanel_) {
+            tracksPanel_->hide();
+        }
+        if (detailDashboard_) {
+            detailDashboard_->setHoverTooltipEnabled(true);
+        }
+    } else {
+        tracksPanelPinned_ = true;
+        updateTracksPanelLoadingState();
+        positionToolsPanel();
+        if (tracksPanel_) {
+            tracksPanel_->show();
+            tracksPanel_->raise();
+        }
+        if (tracksEdgeTab_) {
+            tracksEdgeTab_->raise();
+        }
+        if (detailDashboard_) {
+            detailDashboard_->setHoverTooltipEnabled(false);
+        }
+    }
+    restyleTracksEdgeTab();
+}
+
+bool AnalysisView::closePinnedDrawers() {
+    // Escape unwinds the pinned drawers newest-first: the TRACKS chip sits on
+    // the dashboard, then the IMAGE drawer, then the wider TOOLS panel.
+    if (tracksPanelPinned_) {
+        toggleTracksPanelPinned();
+        return true;
+    }
+    if (imagePanelPinned_) {
+        onImageEdgeTabClicked();
+        return true;
+    }
+    if (toolsLocked_) {
+        onToolsEdgeTabClicked();
+        return true;
+    }
+    return false;
 }
 
 // Attach the fade effect only for the duration of a transition, so the panel
@@ -6558,6 +6691,18 @@ void AnalysisView::positionCameraKeyBanner() {
 }
 
 bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
+    // The floating drawer handles are focusable: repaint the focused handle
+    // so keyboard users can see where Tab landed (their stylesheets have no
+    // native focus cue to fall back on).
+    if (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut) {
+        if (watched == toolsEdgeTab_) {
+            restyleToolsEdgeTab();
+        } else if (watched == imageEdgeTab_) {
+            restyleImageEdgeTab();
+        } else if (watched == tracksEdgeTab_) {
+            restyleTracksEdgeTab();
+        }
+    }
     // Tracks stacks moved or resized (regions toggled, zoom, data pushed,
     // loading swaps): keep the TRACKS chip anchored to their top-right corner.
     if (watched == detailDashboard_
@@ -6580,6 +6725,11 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
     // short grace period for the gap crossing) hides it again.
     if (watched == tracksEdgeTab_ || watched == tracksPanel_) {
         if (event->type() == QEvent::Enter) {
+            if (tracksClickHoverSuppressed_) {
+                // A click just closed the panel: wait for the pointer to leave
+                // the handle before hover may re-open it.
+                return false;
+            }
             // Fresh hover: refresh the loading state (so the panel shows the
             // spinner while the details are still empty, and the checkboxes
             // once they are ready), then re-anchor to the tab before showing.
@@ -6602,12 +6752,19 @@ bool AnalysisView::eventFilter(QObject* watched, QEvent* event) {
             return false;
         }
         if (event->type() == QEvent::Leave) {
+            if (tracksClickHoverSuppressed_) {
+                tracksClickHoverSuppressed_ = false;  // left the handle: hover works again
+                return false;
+            }
             QPointer<QWidget> panel = tracksPanel_;
             QPointer<QWidget> tab = tracksEdgeTab_;
             QTimer::singleShot(250, this, [this, panel, tab]() {
                 if (!panel || panel->underMouse()
                     || (tab && tab->underMouse())) {
                     return;
+                }
+                if (tracksPanelPinned_) {
+                    return;  // pinned open: never auto-hide
                 }
                 panel->hide();
                 tracksTabHovered_ = false;
@@ -6718,6 +6875,26 @@ void AnalysisView::keyPressEvent(QKeyEvent* event) {
             handlePlayerCameraKey(event->key());
         }
         event->accept();
+    } else if (event->key() == Qt::Key_T
+               && (event->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+        // TRACKS chip shortcut — only meaningful where the chip is available
+        // (Camera tab with a camera selected). Text fields consume their own
+        // key events, so typing a "t" into the frame input never lands here.
+        if (tracksEdgeTab_ && tracksEdgeTab_->isVisible()) {
+            cancelCameraKeyEntry();
+            toggleTracksPanelPinned();
+            event->accept();
+        } else {
+            QWidget::keyPressEvent(event);
+        }
+    } else if (event->key() == Qt::Key_Escape) {
+        // Escape closes a pinned drawer, newest surface first; otherwise it
+        // falls through untouched (no other Escape handling exists here).
+        if (closePinnedDrawers()) {
+            event->accept();
+        } else {
+            QWidget::keyPressEvent(event);
+        }
     } else {
         QWidget::keyPressEvent(event);
     }

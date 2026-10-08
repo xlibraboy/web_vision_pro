@@ -561,3 +561,48 @@ void EventSignalScanner::saveCache(const QString& binPath, int stride, const Eve
         f.close();
     }
 }
+
+// ── Marked-defect severity ─────────────────────────────────────────────────
+// The verdict is read from the scanned sample nearest the marked frame (scans
+// are strided on long recordings, so an exact frame match is not guaranteed)
+// and mirrors the scanner's own rules: kLocalSpotMinPct for spots,
+// kLowContrastStd for contrast, and the brightness-jump hits recorded by the
+// DefectDetector.
+int EventSignalScanner::nearestSampleIndex(const EventSignalData& data, int frame) {
+    if (data.sampleFrames.isEmpty()) {
+        return -1;
+    }
+    int best = 0;
+    int bestDistance = qAbs(data.sampleFrames[0] - frame);
+    for (int i = 1; i < data.sampleFrames.size(); ++i) {
+        const int distance = qAbs(data.sampleFrames[i] - frame);
+        if (distance < bestDistance) {
+            best = i;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+EventSignalScanner::MarkSeverity EventSignalScanner::classifyMarkedFrame(
+        const EventSignalData& data, int frame) {
+    const int index = nearestSampleIndex(data, frame);
+    if (index < 0 || index >= data.spotPct.size() || index >= data.stddev.size()) {
+        return SeverityUnknown;
+    }
+    const int sampleFrame = data.sampleFrames.at(index);
+    const double spots = data.spotPct.at(index);
+    const double contrast = data.stddev.at(index);
+
+    const bool spotHit = spots >= kLocalSpotMinPct;
+    const bool contrastHit = contrast < kLowContrastStd;
+    const bool brightnessHit = data.defectBrightness.contains(sampleFrame);
+    const int rules = (spotHit ? 1 : 0) + (contrastHit ? 1 : 0) + (brightnessHit ? 1 : 0);
+    if (rules == 0) {
+        return SeverityOk;
+    }
+    const bool severe = spots >= kLocalSpotMinPct * kSevereSpotMultiple
+        || contrast < kLowContrastStd / 2.0
+        || rules >= 2;
+    return severe ? SeverityCritical : SeverityWarn;
+}

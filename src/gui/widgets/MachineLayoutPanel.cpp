@@ -3,6 +3,7 @@
 #include "../../config/CameraConfig.h"
 #include "../../core/EventDatabase.h"
 #include "../../core/SpeedProfile.h"
+#include "../../processing/EventSignalScanner.h"
 #include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
@@ -398,6 +399,28 @@ void MachineLayoutPanel::loadDefects() {
             const int idx = camId - 1;
             const int offset = offsets.value(it.key()).toInt(0);
 
+            // Severity support: the camera's signal cache (written when the
+            // event was analysed) lets every marked frame get a triage verdict
+            // from the same rules the dashboard lanes draw as limit lines.
+            // The cache is keyed by the camera's inspection region (the
+            // scanner refuses to run without one), so load it with the same
+            // signature the Analysis scan used — the current per-camera
+            // region, which is also what the scan reads.
+            EventSignalData signal;
+            QString camBin = ev.videoPath;
+            if (camBin.contains("_cam")) {
+                camBin = camBin.left(camBin.lastIndexOf("_cam"))
+                    + QString("_cam%1.bin").arg(camId);
+            }
+            QString roiSig;
+            if (idx >= 0 && idx < CameraConfig::getCameraCount()) {
+                const CameraInfo info = CameraConfig::getCameraInfo(idx);
+                roiSig = EventSignalScanner::roiSignature(info.detectionRoi,
+                                                          info.roiMaskCurves,
+                                                          info.roiMaskHits);
+            }
+            const bool haveSignal = EventSignalScanner::loadCache(camBin, &signal, roiSig);
+
             QVector<int> frames;
             if (it.value().isArray()) {
                 const QJsonArray arr = it.value().toArray();
@@ -435,10 +458,38 @@ void MachineLayoutPanel::loadDefects() {
                 def.camId = camId;
                 def.mm = mm;
                 def.eventIndex = static_cast<int>(eventGroups_.size());
-                def.detail = QString("Event: %1\nCamera: %2 (marked frame %3, aligned master %4)\nMachine position: %5 mm")
+                if (haveSignal) {
+                    def.severity = static_cast<int>(
+                        EventSignalScanner::classifyMarkedFrame(signal, frame));
+                }
+
+                QString severityText;
+                if (haveSignal) {
+                    const int si = EventSignalScanner::nearestSampleIndex(signal, frame);
+                    const double spots = (si >= 0 && si < signal.spotPct.size())
+                        ? signal.spotPct.at(si) : 0.0;
+                    const double contrast = (si >= 0 && si < signal.stddev.size())
+                        ? signal.stddev.at(si) : 0.0;
+                    const char* verdict = def.severity == EventSignalScanner::SeverityCritical
+                        ? "Critical"
+                        : def.severity == EventSignalScanner::SeverityWarn
+                            ? "Warning"
+                            : def.severity == EventSignalScanner::SeverityOk ? "OK" : "Unknown";
+                    severityText = QString("Severity: %1 — spots %2% (limit %3), contrast %4 (floor %5)")
+                        .arg(QLatin1String(verdict))
+                        .arg(spots, 0, 'f', 2)
+                        .arg(EventSignalScanner::kLocalSpotMinPct, 0, 'f', 2)
+                        .arg(contrast, 0, 'f', 1)
+                        .arg(EventSignalScanner::kLowContrastStd, 0, 'f', 1);
+                } else {
+                    severityText = QStringLiteral(
+                        "Severity: not analyzed yet (open the event in Analysis to scan its signals).");
+                }
+                def.detail = QString("Event: %1\nCamera: %2 (marked frame %3, aligned master %4)\nMachine position: %5 mm\n%6")
                     .arg(def.eventText, def.camLabel)
                     .arg(frame).arg(master)
-                    .arg(mm, 0, 'f', 1);
+                    .arg(mm, 0, 'f', 1)
+                    .arg(severityText);
                 group.defects.append(def);
             }
         }
@@ -1375,29 +1426,70 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
     for (int i = 0; i < defects.size(); ++i) {
         const DefectMark& def = defects[i];
         const int x = static_cast<int>(owner_->mmToX(def.mm));
+        // Severity encoding (see EventSignalScanner::MarkSeverity): shape and
+        // fill carry the triage verdict, the event color carries identity.
+        //   Ok       — hairline outline, no fill (least ink)
+        //   Warn     — filled diamond (the default look)
+        //   Critical — larger, filled, bright ring
+        //   Unknown  — filled with the neutral border (today's look, so an
+        //              unanalyzed event never reads as "Ok")
+        const bool critical = def.severity == EventSignalScanner::SeverityCritical;
+        const bool ok = def.severity == EventSignalScanner::SeverityOk;
+
+        const int halfW = critical ? 10 : 8;
+        const int top = defectLaneAxisY - (critical ? 15 : 12);
+        const int mid = defectLaneAxisY - (critical ? 7 : 6);
+
         // Selection state: dim every defect but the selected one; the selected
         // defect gets an accent border. Hover highlight only applies when no
         // selection is active.
-        QColor fill = def.color;
+        QBrush fill(def.color);
         QPen diamondPen = QPen((i == hoveredDefect_ || i == cursorHitDefect_)
                                    ? Qt::white : QColor(tc.border), 1.5);
+        if (ok) {
+            fill = QBrush(Qt::NoBrush);
+            QColor hairline = def.color;
+            hairline.setAlpha(160);
+            diamondPen = QPen(hairline, 1.0);
+        } else if (critical) {
+            diamondPen = QPen(QColor(tc.text), 2.0);  // bright ring
+        } else if (def.severity == 0) {
+            // Unknown: filled, but a dashed border so "no verdict yet" never
+            // reads as the same thing as a warning.
+            QPen dashed(QColor(tc.border), 1.2);
+            dashed.setStyle(Qt::DashLine);
+            diamondPen = dashed;
+        }
         if (selectedDefect_ >= 0) {
             if (i == selectedDefect_) {
                 diamondPen = QPen(QColor(tc.primary), 2);  // accent border
             } else {
-                fill = QColor(def.color.red(), def.color.green(), def.color.blue(), 89);  // 35% dim
+                fill = QBrush(QColor(def.color.red(), def.color.green(),
+                                     def.color.blue(), 89));  // 35% dim
                 diamondPen = QPen(QColor(tc.border), 1.5);
             }
         }
         painter.setPen(diamondPen);
         painter.setBrush(fill);
         QPainterPath diamond;
-        diamond.moveTo(x, defectLaneAxisY - 12);
-        diamond.lineTo(x + 8, defectLaneAxisY - 6);
+        diamond.moveTo(x, top);
+        diamond.lineTo(x + halfW, mid);
         diamond.lineTo(x, defectLaneAxisY);
-        diamond.lineTo(x - 8, defectLaneAxisY - 6);
+        diamond.lineTo(x - halfW, mid);
         diamond.closeSubpath();
         painter.drawPath(diamond);
+        // Critical ring: a second outline just outside the first, so the mark
+        // reads as "act first" even at a glance over a busy strip.
+        if (critical && selectedDefect_ < 0) {
+            QPainterPath ring;
+            ring.moveTo(x, top - 3);
+            ring.lineTo(x + halfW + 3, mid);
+            ring.lineTo(x, defectLaneAxisY + 3);
+            ring.lineTo(x - halfW - 3, mid);
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(tc.text), 1.0));
+            painter.drawPath(ring);
+        }
     }
 }
 
@@ -1638,7 +1730,8 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     painter.drawPath(dia);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
-    painter.drawText(diaX + 18, trigY, QStringLiteral("DEFECT (colored per event)"));
+    painter.drawText(diaX + 18, trigY,
+        QStringLiteral("DEFECT · fill = warn · ring = critical · outline = ok"));
 
     // ── Reference overlay legend (only while a reference set is enabled) ──
     if (owner_->refEnabled_) {
@@ -1707,6 +1800,18 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     sy += 16;
 
     const bool singleEvent = owner_->eventCombo_ && owner_->eventCombo_->currentData().toInt() >= 0;
+    int criticalCount = 0;
+    int warnCount = 0;
+    int okCount = 0;
+    int unanalyzedCount = 0;
+    for (const DefectMark& d : defects) {
+        switch (d.severity) {
+        case EventSignalScanner::SeverityCritical: ++criticalCount; break;
+        case EventSignalScanner::SeverityWarn: ++warnCount; break;
+        case EventSignalScanner::SeverityOk: ++okCount; break;
+        default: ++unanalyzedCount; break;
+        }
+    }
     QString defectLine;
     if (singleEvent) {
         const int sel = owner_->eventCombo_->currentData().toInt();
@@ -1721,6 +1826,20 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
             defectLine += QString(" · %1 skipped (no speed captured)")
                 .arg(owner_->skippedNoSpeedEvents_);
         }
+    }
+    // Severity breakdown (only for the states that occur), so the operator
+    // knows at a glance how many marks need triage.
+    if (criticalCount > 0) {
+        defectLine += QString(" · %1 critical").arg(criticalCount);
+    }
+    if (warnCount > 0) {
+        defectLine += QString(" · %1 warning").arg(warnCount);
+    }
+    if (okCount > 0) {
+        defectLine += QString(" · %1 ok").arg(okCount);
+    }
+    if (unanalyzedCount > 0) {
+        defectLine += QString(" · %1 not analyzed").arg(unanalyzedCount);
     }
     painter.drawText(leftMargin, sy, defectLine);
     sy += 16;

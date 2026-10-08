@@ -3,6 +3,7 @@
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QFont>
+#include <QColor>
 
 namespace {
 QFont liveViewGridTitleFont() {
@@ -11,6 +12,17 @@ QFont liveViewGridTitleFont() {
     font.setPixelSize(style.gridTitleFontSize);
     font.setBold(true);
     return font;
+}
+
+// Empty grid slots must say what they are: a bare dark cell reads the same as
+// a camera that silently disappeared. Shared by construction and theme
+// refresh so the two can never drift.
+QString emptyCellStyle(const ThemeColors& tc) {
+    return QString(
+        "background-color: %1; "
+        "border: 1px solid %2; "
+        "color: %3;"
+    ).arg(tc.bg, tc.border, QColor(tc.text).darker(160).name());
 }
 
 int cameraIndexForGridSlot(const std::vector<CameraInfo>& cameras, int gridSlot) {
@@ -158,13 +170,12 @@ void LiveDashboard::setupGrid(int rows, int cols) {
         if (cameraIndex >= 0 && cameraIndex < numCameras_ && cameraIndex < static_cast<int>(cameraCells_.size())) {
             gridLayout_->addWidget(cameraCells_[cameraIndex], row, col);
         } else {
-            // Create empty placeholder with border for extra/removed camera slots
-            QWidget* emptyCell = new QWidget(gridContainer_);
+            // Empty placeholder for extra/removed camera slots, labelled so
+            // "not configured" is distinguishable from a missing feed.
+            QLabel* emptyCell = new QLabel("No camera assigned", gridContainer_);
+            emptyCell->setAlignment(Qt::AlignCenter);
             ThemeColors tc = CameraConfig::getThemeColors();
-            emptyCell->setStyleSheet(QString(
-                "background-color: %1; "
-                "border: 1px solid %2;"
-            ).arg(tc.bg, tc.border));
+            emptyCell->setStyleSheet(emptyCellStyle(tc));
             emptyCell->setMinimumSize(50, 50); // Ensure minimum size
             gridLayout_->addWidget(emptyCell, row, col);
             emptyCells_.push_back(emptyCell);
@@ -239,10 +250,7 @@ void LiveDashboard::refreshCameraLabels() {
 
 void LiveDashboard::updateTheme() {
     ThemeColors tc = CameraConfig::getThemeColors();
-    QString emptyStyle = QString(
-        "background-color: %1; "
-        "border: 1px solid %2;"
-    ).arg(tc.bg, tc.border);
+    const QString emptyStyle = emptyCellStyle(tc);
     
     for (QWidget* cell : emptyCells_) {
         cell->setStyleSheet(emptyStyle);

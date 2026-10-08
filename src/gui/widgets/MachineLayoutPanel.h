@@ -79,6 +79,9 @@ private:
         double mm = 0.0;
         QString detail;           // full tooltip text
         int eventIndex = -1;      // index into eventGroups_
+        // 0 unknown / 1 ok / 2 warn / 3 critical — mirrors
+        // EventSignalScanner::MarkSeverity; drives the marker encoding.
+        int severity = 0;
     };
 
     struct TriggerMark {

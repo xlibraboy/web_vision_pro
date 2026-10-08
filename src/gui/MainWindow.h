@@ -78,6 +78,9 @@ private:
     QPushButton* pauseBtn_;
     QLabel* adminStatusLabel_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
+    // Live capture readout (FPS + recording state) in the status bar, so the
+    // most basic monitor facts are visible from every view.
+    QLabel* liveStatusLabel_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
     QToolButton* adminLoginButton_ = nullptr;  // top-right, on the main tab bar row
     QTimer  diskBadgeTimer_;

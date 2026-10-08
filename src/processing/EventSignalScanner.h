@@ -96,6 +96,30 @@ public:
     // Low-contrast rule: stddev below this flags washed-out/flat frames.
     static constexpr double kLowContrastStd = 10.0;
 
+    // ── Marked-defect severity ──────────────────────────────────────────────
+    // Presentation heuristic built on the rules above; single source of truth
+    // for the defect-marker encoding in the Analysis / Machine Layout views.
+    //   Ok       — analyzed, no rule fires at the mark's sample.
+    //   Warn     — at least one rule fires.
+    //   Critical — an order of magnitude past the spot rule
+    //              (kSevereSpotMultiple × kLocalSpotMinPct), a fully washed
+    //              out frame (contrast below half the floor), or two rules at
+    //              once.
+    //   Unknown  — no scan data for the frame (not analyzed yet).
+    enum MarkSeverity {
+        SeverityUnknown = 0,
+        SeverityOk = 1,
+        SeverityWarn = 2,
+        SeverityCritical = 3,
+    };
+    static constexpr double kSevereSpotMultiple = 10.0;
+
+    // Index of the scanned sample nearest `frame` (the scan may be strided),
+    // or -1 when the series is empty. classifyMarkedFrame() uses the same
+    // lookup, so callers can format the values behind a verdict.
+    static int nearestSampleIndex(const EventSignalData& data, int frame);
+    static MarkSeverity classifyMarkedFrame(const EventSignalData& data, int frame);
+
     static QString cachePathForBin(const QString& binPath);
 
     // Cache I/O. loadCache returns false when absent or stale; roiSig must
