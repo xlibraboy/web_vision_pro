@@ -1,5 +1,6 @@
 #include "AnalysisVideoWidget.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <QPen>
@@ -269,7 +270,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     if (!notRecordedReason_.isEmpty()) {
         QColor stateColor = lightSurface ? QColor(0, 0, 0, 150) : QColor(255, 255, 255, 150);
         QFont stateFont(style.videoTitleFontFamily);
-        stateFont.setPixelSize(std::max(11, style.videoTitleFontSize + 1));
+        stateFont.setPixelSize(std::max(UiTypeScale::kMeta, style.videoTitleFontSize + 1));
         stateFont.setBold(true);
         stateFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
         painter.setPen(stateColor);
@@ -279,7 +280,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         painter.drawText(stateRect, Qt::AlignCenter, QStringLiteral("NOT RECORDED"));
 
         QFont reasonFont(style.videoTitleFontFamily);
-        reasonFont.setPixelSize(std::max(9, style.videoTitleFontSize - 2));
+        reasonFont.setPixelSize(std::max(UiTypeScale::kMicro, style.videoTitleFontSize - 2));
         painter.setFont(reasonFont);
         painter.drawText(QRect(8, stateRect.bottom() + 2, width() - 16, stateHeight * 2),
                          Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, notRecordedReason_);
@@ -401,7 +402,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
 
             if (!syncIndicatorLabel_.isEmpty()) {
                 QFont badgeFont = painter.font();
-                badgeFont.setPixelSize(11);
+                badgeFont.setPixelSize(UiTypeScale::kMeta);
                 badgeFont.setBold(true);
                 painter.setFont(badgeFont);
                 const QFontMetrics fm(badgeFont);
@@ -443,13 +444,13 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         // info side (right) uses the timestamp font.
         QFont metaFont(style.defaultMetadataFontFamily.isEmpty()
                            ? style.timestampFontFamily : style.defaultMetadataFontFamily);
-        metaFont.setPixelSize(std::max(10, style.defaultMetadataFontSize > 0
+        metaFont.setPixelSize(std::max(UiTypeScale::kMicro, style.defaultMetadataFontSize > 0
                                         ? style.defaultMetadataFontSize : style.timestampFontSize));
         metaFont.setBold(true);
         const QFontMetrics metaFm(metaFont);
 
         QFont playbackFont(style.timestampFontFamily);
-        playbackFont.setPixelSize(std::max(10, style.timestampFontSize));
+        playbackFont.setPixelSize(std::max(UiTypeScale::kMicro, style.timestampFontSize));
         playbackFont.setBold(true);
         const QFontMetrics playbackFm(playbackFont);
 

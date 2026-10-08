@@ -26,6 +26,8 @@ here.
 
 - Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
 - Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
+- Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
+- Typography: the base UI font is Noto Sans at the body step, and the Analysis HUD/timestamp mono text no longer names an unavailable font (Noto Sans Mono, DejaVu Sans Mono fallback).
 
 ### Fixed
 

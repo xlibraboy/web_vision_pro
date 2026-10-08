@@ -1,6 +1,7 @@
 #include "MachineLayoutPanel.h"
 
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include "../../core/EventDatabase.h"
 #include "../../core/SpeedProfile.h"
 #include "../../processing/EventSignalScanner.h"
@@ -75,11 +76,11 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     headerLayout->setContentsMargins(10, 6, 10, 0);
     headerLayout->setSpacing(8);
     auto* label = new QLabel(QStringLiteral("DEFECTS FROM EVENT:"), header);
-    label->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 400;").arg(tc.text));
+    label->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 400;").arg(tc.text));
     eventCombo_ = new QComboBox(header);
     eventCombo_->setStyleSheet(QString(
         "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 8px; font-size: 11px; min-width: 220px; }"
+        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; min-width: 220px; }"
         "QComboBox:hover { border-color: %4; }"
         "QComboBox::drop-down { border: none; width: 22px; }"
         "QComboBox QAbstractItemView { background-color: %1; color: %2;"
@@ -92,12 +93,12 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     // system) the operator can overlay to compare the live configuration
     // against a known machine layout (see buildReferenceSet).
     auto* refLabel = new QLabel(QStringLiteral("REFERENCE DATA:"), header);
-    refLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 400;").arg(tc.text));
+    refLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 400;").arg(tc.text));
     headerLayout->addWidget(refLabel);
     refCombo_ = new QComboBox(header);
     refCombo_->setStyleSheet(QString(
         "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 8px; font-size: 11px; min-width: 120px; }"
+        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; min-width: 120px; }"
         "QComboBox:hover { border-color: %4; }"
         "QComboBox::drop-down { border: none; width: 22px; }"
         "QComboBox QAbstractItemView { background-color: %1; color: %2;"
@@ -115,7 +116,7 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     // full fit. − / + are always enabled; Reset view only while zoomed.
     const QString zoomBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 0; font-size: 14px; font-weight: 700; }"
+        " border-radius: 6px; padding: 0; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }"
         "QPushButton:hover { border-color: %4; }"
         "QPushButton:disabled { color: %5; border-color: %3; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name());
@@ -142,7 +143,7 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     resetZoomBtn_ = new QPushButton(tr("Reset view"), header);
     resetZoomBtn_->setStyleSheet(QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 10px; font-size: 11px; }"
+        " border-radius: 6px; padding: 4px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QPushButton:hover { border-color: %4; }"
         "QPushButton:disabled { color: %5; border-color: %3; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name()));
@@ -1222,7 +1223,7 @@ void MachineLayoutPanel::Canvas::drawSectionBar(QPainter& p, const ThemeColors& 
             p.fillRect(cursor, barTop, segW, barHeight, col);
             if (segW >= minSegWidth) {
                 p.setPen(QColor(tc.onStatus));
-                QFont f = p.font(); f.setPixelSize(10); p.setFont(f);
+                QFont f = p.font(); f.setPixelSize(UiTypeScale::kMicro); p.setFont(f);
                 p.drawText(QRect(cursor, barTop, segW, barHeight),
                            Qt::AlignCenter, CameraGroup::name(r.group).toUpper());
             }
@@ -1251,7 +1252,7 @@ void MachineLayoutPanel::Canvas::drawPaperWeb(QPainter& p, const ThemeColors& tc
 
     // Direction arrow + label, right-aligned
     QFont f = p.font();
-    f.setPixelSize(9);
+    f.setPixelSize(UiTypeScale::kMicro);
     p.setFont(f);
     p.setPen(QColor("#8A8267"));
     const QString arrow = QStringLiteral("→ DRIVE → OPERATOR →");
@@ -1287,7 +1288,7 @@ void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter& p, const ThemeColo
     const QString text = QString("%1 mm · %2").arg(QLocale().toString(qRound(cursorMm_))).arg(section);
 
     QFont f = p.font();
-    f.setPixelSize(10);
+    f.setPixelSize(UiTypeScale::kMicro);
     p.setFont(f);
     const int textW = p.fontMetrics().horizontalAdvance(text);
     const int pillW = textW + 12;
@@ -1324,7 +1325,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // Titles (floor name only; floors display bottom-up so the top lane is
     // the 3rd floor)
     QFont titleFont = painter.font();
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(UiTypeScale::kMeta);
     painter.setFont(titleFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, lane1TitleY + 14, CameraFloor::name(floorForDisplayRow(0)).toUpper());
@@ -1372,7 +1373,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // design, "Color tokens" section); kept inline because ThemeColors
     // has no `muted` field and adding one is out of scope here.
     QFont sideLabelFont = painter.font();
-    sideLabelFont.setPixelSize(9);
+    sideLabelFont.setPixelSize(UiTypeScale::kMicro);
     painter.setFont(sideLabelFont);
     painter.setPen(QColor(tc.muted));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
@@ -1392,7 +1393,7 @@ void MachineLayoutPanel::Canvas::drawMmRuler(QPainter& painter, const ThemeColor
     // shared by every floor and defect lane above it, so the exact mm of any
     // camera or defect can be read in one place.
     QFont titleFont = painter.font();
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(UiTypeScale::kMeta);
     painter.setFont(titleFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, axisY - 24, QStringLiteral("MM POSITION"));
@@ -1409,7 +1410,7 @@ void MachineLayoutPanel::Canvas::drawMmRuler(QPainter& painter, const ThemeColor
     const int labelEvery = std::max(1, static_cast<int>(std::ceil(70.0 / std::max(1.0, pxPerTick))));
 
     QFont tickFont = painter.font();
-    tickFont.setPixelSize(9);
+    tickFont.setPixelSize(UiTypeScale::kMicro);
     painter.setFont(tickFont);
     const double tickStart = std::ceil(owner_->minMm_ / step) * step;
     int tickCount = 0;
@@ -1433,7 +1434,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
 
     // ── Camera markers, one lane per floor ──
     QFont labelFont = painter.font();
-    labelFont.setPixelSize(10);
+    labelFont.setPixelSize(UiTypeScale::kMicro);
     painter.setFont(labelFont);
     const QVector<CameraMark>& cameras = owner_->cameras_;
     for (int i = 0; i < cameras.size(); ++i) {
@@ -1514,7 +1515,7 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
     const QVector<DefectMark>& defects = owner_->defects_;
     if (defects.isEmpty()) {
         QFont noteFont = painter.font();
-        noteFont.setPixelSize(11);
+        noteFont.setPixelSize(UiTypeScale::kMeta);
         painter.setFont(noteFont);
         painter.setPen(QColor(tc.text));
         const bool singleEvent = owner_->eventCombo_ && owner_->eventCombo_->currentData().toInt() >= 0;
@@ -1603,7 +1604,7 @@ void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const Theme
 
     // ── Trigger record position ──
     QFont titleFont = painter.font();
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(UiTypeScale::kMeta);
     painter.setFont(titleFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, axisY - 24, QStringLiteral("TRIGGER RECORD POSITION"));
@@ -1618,7 +1619,7 @@ void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const Theme
     const QVector<TriggerMark>& triggers = owner_->triggers_;
     if (triggers.isEmpty()) {
         QFont noteFont = painter.font();
-        noteFont.setPixelSize(11);
+        noteFont.setPixelSize(UiTypeScale::kMeta);
         painter.setFont(noteFont);
         painter.setPen(QColor(tc.text));
         const bool singleEvent = owner_->eventCombo_ && owner_->eventCombo_->currentData().toInt() >= 0;
@@ -1726,7 +1727,7 @@ void MachineLayoutPanel::Canvas::drawReferenceStrip(QPainter& painter, const The
     // Compact lane between TRIGGER and MM POSITION: reference speed inputs
     // (cyan dots above the axis) and web break sensors (red × below the axis).
     QFont titleFont = painter.font();
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(UiTypeScale::kMeta);
     painter.setFont(titleFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, axisY - 20, QStringLiteral("REFERENCE DATA"));
@@ -1761,7 +1762,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     // ── Legend ── (below the dedicated MM POSITION ruler lane)
     int ly = mmRulerAxisY_ + 48;
     QFont legendFont = painter.font();
-    legendFont.setPixelSize(10);
+    legendFont.setPixelSize(UiTypeScale::kMicro);
     painter.setFont(legendFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, ly, QStringLiteral("CAMERA GROUPS:"));
@@ -1780,7 +1781,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     // ── Side split legend ──
     const int sideY = ly + 20;  // one line below the camera-groups legend
     QFont sideFont = painter.font();
-    sideFont.setPixelSize(10);
+    sideFont.setPixelSize(UiTypeScale::kMicro);
     painter.setFont(sideFont);
     painter.setPen(QColor(tc.text));
     painter.drawText(leftMargin, sideY, QStringLiteral("SIDE SPLIT:"));
@@ -1889,7 +1890,7 @@ void MachineLayoutPanel::Canvas::drawSummary(QPainter& painter, const ThemeColor
     // ── Summary ── (starts below the legend rows so the two blocks never
     // overlap; an extra row is reserved when the reference overlay is on.)
     QFont sumFont = painter.font();
-    sumFont.setPixelSize(11);
+    sumFont.setPixelSize(UiTypeScale::kMeta);
     sumFont.setBold(false);
     painter.setFont(sumFont);
     painter.setPen(QColor(tc.text));
@@ -1985,7 +1986,7 @@ void MachineLayoutPanel::Canvas::drawZoomIndicator(QPainter& p, const ThemeColor
     const double factor = (owner_->fitMaxMm_ - owner_->fitMinMm_)
                         / (owner_->maxMm_ - owner_->minMm_);
     QFont f = p.font();
-    f.setPixelSize(10);
+    f.setPixelSize(UiTypeScale::kMicro);
     p.setFont(f);
     const QString text = QStringLiteral("×%1").arg(factor, 0, 'f', 2);
     const int tw = p.fontMetrics().horizontalAdvance(text);

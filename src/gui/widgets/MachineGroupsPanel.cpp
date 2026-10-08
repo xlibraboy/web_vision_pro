@@ -1,5 +1,6 @@
 #include "MachineGroupsPanel.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -10,7 +11,7 @@
 
 namespace {
 QString mutedLabelStyle() {
-    return QString("color: %1; font-size: 12px;").arg(CameraConfig::getThemeColors().muted);
+    return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(CameraConfig::getThemeColors().muted);
 }
 }
 

@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include "widgets/AnalysisVideoWidget.h"
 #include "../config/CameraConfig.h"
+#include "../config/UiTypeScale.h"
 #include "../core/EventController.h"
 #include "../core/EventDatabase.h"
 #include "../core/SpeedProfile.h"
@@ -199,7 +200,7 @@ static QPixmap makeVerticalTabPixmap(const QString& text, const QColor& color,
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     QFont f = p.font();
-    f.setPixelSize(9);
+    f.setPixelSize(UiTypeScale::kMicro);
     f.setBold(true);
     f.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
     p.setFont(f);
@@ -318,7 +319,7 @@ static QString makeSidebarPanelStyle(const ThemeColors& tc) {
         "  border-radius: 10px;"
         "  margin-top: 12px;"
         "  padding-top: 12px;"
-        "  font-size: 13px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";"
         "  font-weight: 700;"
         "  color: %3;"
         "}"
@@ -331,12 +332,12 @@ static QString makeSidebarPanelStyle(const ThemeColors& tc) {
         "}"
         "QLabel#analysisSidebarSectionLabel {"
         "  color: %4;"
-        "  font-size: 12px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";"
         "  font-weight: 700;"
         "  padding: 0 2px;"
         "}"
         "QLabel#analysisSidebarSectionLabel[accent='true'] { color: %5; }"
-        "QLabel#analysisSidebarSectionLabel[utility='true'] { color: %6; font-size: 11px; font-weight: 600; padding: 0; }"
+        "QLabel#analysisSidebarSectionLabel[utility='true'] { color: %6; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; padding: 0; }"
         "QFrame#analysisSidebarDivider {"
         "  background-color: %7;"
         "  min-height: 1px;"
@@ -359,7 +360,7 @@ static QString makeSidebarStateButtonStyle(const ThemeColors& tc, bool active) {
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 3px 8px;"
-        "  font-size: 11px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
@@ -376,7 +377,7 @@ static QString makeSidebarConnectingButtonStyle(const ThemeColors& tc) {
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 3px 8px;"
-        "  font-size: 11px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %4; border-color: %2; }"
@@ -394,7 +395,7 @@ static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
         "  border: 1px solid %1;"
         "  border-radius: 6px;"
         "  padding: 3px 8px;"
-        "  font-size: 11px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %3; border-color: %3; }"
@@ -412,7 +413,7 @@ static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checked
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 3px 8px;"
-        "  font-size: 10px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + ";"
         "  font-weight: 700;"
         "}"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
@@ -431,7 +432,7 @@ static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 2px 8px;"
-        "  font-size: 10px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + ";"
         "  font-weight: 600;"
         "}"
         "QPushButton:hover { background-color: %4; color: %5; border-color: %5; }"
@@ -466,7 +467,7 @@ static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
         "  border-top-left-radius: 5px;"
         "  border-bottom-left-radius: 5px;"
         "  color: %4;"
-        "  font-size: 10px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + ";"
         "  font-weight: 700;"
         "  padding: 2px 8px;"
         "}"
@@ -479,7 +480,7 @@ static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
         "  border-top-right-radius: 5px;"
         "  border-bottom-right-radius: 5px;"
         "  color: %9;"
-        "  font-size: 10px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + ";"
         "  font-weight: 700;"
         "  padding: 2px 8px;"
         "}"
@@ -517,7 +518,7 @@ static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
         "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 0 8px;"
-        "  font-size: 11px;"
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
         "  font-weight: 700;"
         "  text-align: left;"
         "}"
@@ -583,14 +584,14 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
                          .arg(tc.critical, tc.onStatus);
     return QString(
         "QTableWidget { background-color: %1; alternate-background-color: %2; color: %4; "
-        "gridline-color: transparent; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; "
+        "gridline-color: transparent; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-family: " + UiTypeScale::uiFamilyCss() + "; "
         "border: 1px solid %3; border-radius: 8px; outline: none; padding: 2px; }"
-        "QHeaderView::section { background-color: %1; color: %4; padding: 6px 4px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
+        "QHeaderView::section { background-color: %1; color: %4; padding: 6px 4px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-family: " + UiTypeScale::uiFamilyCss() + "; font-weight: 700; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
         "{ background-color: %1; color: %4; }"
         "QTableCornerButton::section { background-color: %1; border: none; border-bottom: 1px solid %3; }"
-        "QTableWidget::item { padding: 4px 4px; border: none; color: %4; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
+        "QTableWidget::item { padding: 4px 4px; border: none; color: %4; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-family: " + UiTypeScale::uiFamilyCss() + "; }"
     ).arg(tc.bg, tc.btnBg, divider.name(), tc.text)
      + (deleteMode ? selDelete : selNormal);
 }
@@ -1935,7 +1936,7 @@ void AnalysisView::setupMainArea() {
     dashLoadingLabel_ = new QLabel(QStringLiteral("Analyzing event…"), singleCameraTab_);
     dashLoadingLabel_->setAlignment(Qt::AlignCenter);
     QFont dashLoadFont = dashLoadingLabel_->font();
-    dashLoadFont.setPixelSize(13);
+    dashLoadFont.setPixelSize(UiTypeScale::kBody);
     dashLoadingLabel_->setFont(dashLoadFont);
     dashLoadingLabel_->setStyleSheet(QStringLiteral("background: transparent; color: %1;")
         .arg(QColor(CameraConfig::getThemeColors().text).name()));
@@ -2035,7 +2036,7 @@ void AnalysisView::setupMainArea() {
     auto panelTitle = new QLabel(
         QString("<img src=':/assets/icons/tools_panel.svg' width='16' height='16' style='vertical-align: middle;'> Tools"),
         rightToolsPanel_);
-    panelTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700;").arg(tc.text));
+    panelTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700;").arg(tc.text));
     toolsLockButton_ = new QPushButton("Lock", rightToolsPanel_);  // starts unpinned (hover-driven)
     toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     toolsLockButton_->setCursor(Qt::PointingHandCursor);
@@ -2051,7 +2052,7 @@ void AnalysisView::setupMainArea() {
     // Name caption helper (indented, not aligned with the header).
     auto captionLabel = [&](const QString& text) {
         auto* label = new QLabel(text, rightToolsPanel_);
-        label->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+        label->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
         return label;
     };
     auto indentRow = [](QHBoxLayout* row) { row->setContentsMargins(6, 0, 0, 0); };
@@ -2059,7 +2060,7 @@ void AnalysisView::setupMainArea() {
     auto sectionLabel = [&](const QString& text) {
         auto* label = new QLabel(text, rightToolsPanel_);
         label->setStyleSheet(QString(
-            "color: %1; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 0 2px;")
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; letter-spacing: 1px; padding: 0 2px;")
             .arg(QColor(tc.text).lighter(135).name()));
         return label;
     };
@@ -2092,7 +2093,7 @@ void AnalysisView::setupMainArea() {
     auto imageTitle = new QLabel(
         QString("<img src=':/assets/icons/tools_panel.svg' width='16' height='16' style='vertical-align: middle;'> Image"),
         imageToolsPanel_);
-    imageTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700;").arg(tc.text));
+    imageTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700;").arg(tc.text));
     imageHeader->addWidget(imageTitle);
     imageHeader->addStretch(1);
     imageLayout->addLayout(imageHeader);
@@ -2111,9 +2112,9 @@ void AnalysisView::setupMainArea() {
     imageLayout->addWidget(panelDivider());
     imageLayout->addWidget(sectionLabel("VIEW"));
     auto zoomCaption = new QLabel("Zoom", imageToolsPanel_);
-    zoomCaption->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    zoomCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
     auto brightCaption = new QLabel("Bright", imageToolsPanel_);
-    brightCaption->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    brightCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
     // Vertical sliders sit side by side (mixer style) with their live value
     // under each rail: a taller-travel control reads better in the narrow
     // drawer than the old horizontal rails did.
@@ -2349,8 +2350,8 @@ void AnalysisView::setupMainArea() {
     }
     tracksPanel_->setStyleSheet(QString(
         "QWidget#tracksPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-        "QLabel { color: %3; font-size: 11px; font-weight: bold; }"
-        "QCheckBox { color: %3; font-size: 11px; }"
+        "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: bold; }"
+        "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QCheckBox:disabled { color: %4; }")
         .arg(tc.bg, tc.border, tc.text, QColor(tc.text).darker(135).name()));
     tracksPanel_->adjustSize(); // child widgets don't auto-size on show() — do it now
@@ -2541,7 +2542,7 @@ void AnalysisView::applyAnalysisViewStyle() {
     if (QLabel* frameLabel = playbackPanel_->findChild<QLabel*>("frameLabel")) {
         frameLabel->setStyleSheet(QString(
             "color: %1; font-family: '%2'; font-size: %3px; margin-right: 4px; font-weight: 600;"
-        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(11, style.tabFontSize))));
+        ).arg(tc.text, style.tabFontFamily, QString::number(std::max(UiTypeScale::kMeta, style.tabFontSize))));
     }
 
     for (AnalysisVideoWidget* widget : cameraWidgets_) {
@@ -2712,8 +2713,8 @@ void AnalysisView::setupPlaybackControls() {
     });
     // Compact dropdown: small font, tight rows, readable accent highlight.
     speedMenu_->setStyleSheet(QString(
-        "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: 11px; }"
-        "QMenu::item { padding: 2px 24px 2px 8px; font-size: 11px; }"
+        "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QMenu::item { padding: 2px 24px 2px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QMenu::item:selected { background-color: %4; color: %5; }"
         "QMenu::item:disabled { color: %6; }"
     ).arg(tc.bg, tc.border, tc.text, tc.btnHover, tc.primary, tc.disabled));
@@ -2822,7 +2823,7 @@ void AnalysisView::setupPlaybackControls() {
     alignPal.setColor(QPalette::WindowText, QColor(tc.text));
     alignStatusLabel_->setPalette(alignPal);
     QFont alignFont = alignStatusLabel_->font();
-    alignFont.setPixelSize(11);
+    alignFont.setPixelSize(UiTypeScale::kMeta);
     alignStatusLabel_->setFont(alignFont);
     alignRow->addWidget(alignStatusLabel_, 1);
 
@@ -5479,7 +5480,7 @@ void AnalysisView::applyToolsPanelTheme() {
             .arg(tc.bg, tc.border));
     }
     if (markerToolCheck_) {
-        markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; }").arg(tc.text));
+        markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text));
     }
     if (tracksEdgeTab_) {
         restyleTracksEdgeTab();
@@ -5487,8 +5488,8 @@ void AnalysisView::applyToolsPanelTheme() {
     if (tracksPanel_) {
         tracksPanel_->setStyleSheet(QString(
             "QWidget#tracksPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-            "QLabel { color: %3; font-size: 11px; font-weight: bold; }"
-            "QCheckBox { color: %3; font-size: 11px; }")
+            "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: bold; }"
+            "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }")
             .arg(tc.bg, tc.border, tc.text));
     }
     if (dashLoadingLabel_) {
@@ -5512,10 +5513,10 @@ void AnalysisView::applyToolsPanelTheme() {
         brightnessSlider_->setStyleSheet(makeVerticalSliderStyle(tc));
     }
     if (zoomValueLabel_) {
-        zoomValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 34px;").arg(tc.text));
+        zoomValueLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 700; min-width: 34px;").arg(tc.text));
     }
     if (brightnessValueLabel_) {
-        brightnessValueLabel_->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 700; min-width: 30px;").arg(tc.text));
+        brightnessValueLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 700; min-width: 30px;").arg(tc.text));
     }
     if (resetToolsButton_) {
         resetToolsButton_->setStyleSheet(makeSidebarOutlineButtonStyle(tc));
@@ -6158,7 +6159,7 @@ void AnalysisView::showMarkFeedback(const QString& text, bool success) {
     markFeedbackBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
-        " font-size: 13px; font-weight: 700; }").arg(
+        " font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }").arg(
             accent.lighter(175).name(), accent.name()));
     markFeedbackBanner_->setText(text);
     markFeedbackBanner_->adjustSize();
@@ -6657,7 +6658,7 @@ void AnalysisView::resolveCameraKeyEntry() {
         cameraKeyBanner_->setStyleSheet(QString(
             "QLabel { background-color: rgba(30, 16, 18, 235); color: %1;"
             " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
-            " font-size: 14px; font-weight: 700; }").arg(accent, accent));
+            " font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }").arg(accent, accent));
         cameraKeyBanner_->setText(QString("No camera %1").arg(id));
         cameraKeyBanner_->adjustSize();
         positionCameraKeyBanner();
@@ -6698,7 +6699,7 @@ void AnalysisView::refreshCameraKeyPreview() {
     cameraKeyBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
-        " font-size: 15px; font-weight: 700; }").arg(
+        " font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }").arg(
             accentColor.lighter(175).name(), accentColor.name()));
     // Fast preview of id + name so the user knows the target before it opens.
     cameraKeyBanner_->setText(valid
@@ -7247,7 +7248,7 @@ void AnalysisView::setupDiagnosticTab() {
 
     auto* titleLabel = new QLabel("Camera Diagnostics", diagnosticTab_);
     titleLabel->setStyleSheet(QString(
-        "color: %1; font-size: 16px; font-weight: bold;").arg(tc.primary));
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: bold;").arg(tc.primary));
     titleLabel->setToolTip("Shows live camera health. RAM Frames are EventController ring-buffer frames currently held in host RAM. Drops/Stream Health are based on incomplete grabs. Basler guidance: tune Packet Size, Inter-Packet Delay, bandwidth, AOI, and exposure time if drops occur or resulting FPS falls below acquisition FPS.");
     controlBar->addWidget(titleLabel);
     controlBar->addStretch();
@@ -7255,7 +7256,7 @@ void AnalysisView::setupDiagnosticTab() {
     diagAutoRefreshChk_ = new QCheckBox("Auto (3 s)", diagnosticTab_);
     diagAutoRefreshChk_->setChecked(true);
     diagAutoRefreshChk_->setStyleSheet(QString(
-        "QCheckBox { color: %1; font-size: 12px; }"
+        "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
         "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background: %3; }"
         "QCheckBox::indicator:checked { background: %4; border-color: %4; }").arg(
             tc.text, tc.border, tc.btnBg, tc.primary));
@@ -7265,7 +7266,7 @@ void AnalysisView::setupDiagnosticTab() {
     diagRefreshBtn_->setFixedHeight(28);
     diagRefreshBtn_->setStyleSheet(QString(
         "QPushButton { background: %1; color: %2; border: none; border-radius: 6px;"
-        "  padding: 0 14px; font-size: 12px; font-weight: 600; }"
+        "  padding: 0 14px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; }"
         "QPushButton:hover { background: %3; }"
         "QPushButton:pressed { background: %4; }").arg(
             tc.primary, tc.bg, tc.btnHover, tc.border));

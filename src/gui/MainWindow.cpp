@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CameraInfo.h"
 #include "../config/CameraConfig.h"
+#include "../config/UiTypeScale.h"
 #include "../config/AppVersion.h"
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
@@ -1899,11 +1900,11 @@ void MainWindow::applyGlobalTheme() {
         // Emulation-mode badge (info accent = "emulated" status)
         "QLabel#emulationBadge { background-color: %12; color: %11; "
         "  border: 1px solid %11; border-radius: 10px; padding: 3px 12px; "
-        "  font-weight: bold; font-size: 12px; }"
+        "  font-weight: bold; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
         // Low-disk badge (clickable): amber below threshold, red at critical (< half threshold)
         "QPushButton#diskBadge { background-color: %13; color: %17; "
         "  border: 1px solid %17; border-radius: 10px; padding: 3px 12px; "
-        "  font-weight: bold; font-size: 12px; }"
+        "  font-weight: bold; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
         "QPushButton#diskBadge:hover { background-color: %14; }"
         "QPushButton#diskBadge:focus { border: 1px solid %18; }"
         "QPushButton#diskBadge[critical='true'] { background-color: %15; "
@@ -1918,7 +1919,7 @@ void MainWindow::applyGlobalTheme() {
         // dark text, thin border, normal weight) instead of inheriting the
         // dark app theme.
         "QToolTip { background-color: #FFF8E7; color: #111111; border: 1px solid #888888; "
-        "  padding: 3px 6px; font-size: 12px; font-weight: normal; }"
+        "  padding: 3px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: normal; }"
         // Buttons
         "QPushButton { background-color: %3; color: %8; border: 1px solid %2; border-radius: 4px; padding: 4px 12px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; border-color: %5; }"

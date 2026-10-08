@@ -1,6 +1,7 @@
 #include "OpcUaLiveStatusWindow.h"
 
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QColor>
@@ -31,16 +32,16 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     statusForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     QLabel* clientCaption = new QLabel("Client:", this);
-    clientCaption->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.text));
+    clientCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
     clientLabel_ = new QLabel(QStringLiteral("○ Idle (OPC UA disabled)"), this);
     clientLabel_->setWordWrap(true);
-    clientLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(tc.muted));
+    clientLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted));
     statusForm->addRow(clientCaption, clientLabel_);
 
     QLabel* speedCaption = new QLabel("Speed:", this);
-    speedCaption->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.text));
+    speedCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
     speedLabel_ = new QLabel(QStringLiteral("—"), this);
-    speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
+    speedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
     statusForm->addRow(speedCaption, speedLabel_);
 
     table_ = new QTableWidget(0, kStatusColumns, this);
@@ -53,9 +54,9 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     table_->setShowGrid(false);
     table_->setAlternatingRowColors(false);
     table_->setStyleSheet(QString(
-        "QTableWidget { background: transparent; border: none; color: %1; font-size: 12px; } "
+        "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTableWidget::item { padding: 4px 8px; border: none; } "
-        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: 11px; }"
+        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
     ).arg(tc.text, tc.primary, tc.border));
     QHeaderView* header = table_->horizontalHeader();
     header->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -68,7 +69,7 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
         "No tag values yet — waiting for the OPC UA tags to publish.", this);
     emptyLabel_->setAlignment(Qt::AlignCenter);
     emptyLabel_->setWordWrap(true);
-    emptyLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
+    emptyLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(14, 14, 14, 14);
@@ -96,16 +97,16 @@ void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {
         ? QStringLiteral("Idle (OPC UA disabled)") : status.clientStateText;
     clientLabel_->setText(QStringLiteral("%1 %2").arg(dot, clientText));
     clientLabel_->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(color));
+        QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(color));
 
     if (status.speedValid) {
         const QString staleSuffix = status.speedStale ? QStringLiteral("  (STALE)") : QString();
         speedLabel_->setText(status.speedText + staleSuffix);
-        speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;")
+        speedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;")
             .arg(status.speedStale ? tc.warn : tc.ok));
     } else {
         speedLabel_->setText(QStringLiteral("—"));
-        speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
+        speedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
     }
 
     if (table_->rowCount() != status.tags.size()) {

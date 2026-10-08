@@ -1,5 +1,6 @@
 #include "CameraWidget.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include <algorithm>
 #include <QFont>
 #include <QPainter>
@@ -328,7 +329,7 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
                           : "TEMP!";
 
         QFont badgeFont = painter.font();
-        badgeFont.setPixelSize(11);
+        badgeFont.setPixelSize(UiTypeScale::kMeta);
         badgeFont.setBold(true);
         painter.setFont(badgeFont);
 
@@ -375,7 +376,7 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         }
 
         QFont ptpFont = painter.font();
-        ptpFont.setPixelSize(10);
+        ptpFont.setPixelSize(UiTypeScale::kMicro);
         ptpFont.setBold(true);
         painter.setFont(ptpFont);
 

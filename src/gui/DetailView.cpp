@@ -1,5 +1,6 @@
 #include "DetailView.h"
 #include "../config/CameraConfig.h"
+#include "../config/UiTypeScale.h"
 #include "../core/TemperatureStatus.h"
 #include <algorithm>
 #include <cmath>
@@ -779,9 +780,9 @@ void DetailView::buildAoiOverlay() {
     aoiPanel_->setObjectName("aoiPanel");
     aoiPanel_->setStyleSheet(QString(
         "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-        "QLabel { color: %3; font-size: 11px; }"
+        "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QSpinBox { background-color: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
-        " padding: 2px 4px; font-size: 11px; }")
+        " padding: 2px 4px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }")
         .arg(toRgba(tc.btnBg, 245), tc.border, tc.text, toRgba(tc.bg, 120)));
     QVBoxLayout* aoiLayout = new QVBoxLayout(aoiPanel_);
     aoiLayout->setContentsMargins(10, 8, 10, 8);
@@ -820,7 +821,7 @@ void DetailView::buildAoiOverlay() {
     aoiDrawBtn_->setToolTip("Drag on the frame to define the AOI region, then Apply.");
     aoiDrawBtn_->setStyleSheet(QString(
         "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-        " padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+        " padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
         "QToolButton:hover { background-color: %4; }"
         "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
         .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
@@ -893,8 +894,8 @@ void DetailView::buildRoiControls() {
     roiPanel_->setObjectName("roiPanel");
     roiPanel_->setStyleSheet(QString(
         "QFrame#roiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-        "QLabel { color: %3; font-size: 11px; }"
-        "QCheckBox { color: %3; font-size: 11px; spacing: 4px; }")
+        "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; }")
         .arg(toRgba(tc.btnBg, 245), tc.border, tc.text));
     QVBoxLayout* roiLayout = new QVBoxLayout(roiPanel_);
     roiLayout->setContentsMargins(10, 8, 10, 8);
@@ -915,7 +916,7 @@ void DetailView::buildRoiControls() {
                             " removes the last point, Esc cancels.");
     const QString toolStyle = QString(
         "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-        " padding: 4px 8px; font-size: 11px; font-weight: 600; }"
+        " padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
         "QToolButton:hover { background-color: %4; }"
         "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
         .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
@@ -928,7 +929,7 @@ void DetailView::buildRoiControls() {
     roiWholeBtn_->setFocusPolicy(Qt::NoFocus);
     roiWholeBtn_->setStyleSheet(QString(
         "QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
-        " border-radius: 6px; padding: 4px 8px; font-size: 11px; }"
+        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QPushButton:hover { background-color: %3; }")
         .arg(tc.primary, tc.border, toRgba(tc.btnHover, 255)));
     connect(roiWholeBtn_, &QPushButton::clicked, this, &DetailView::onRoiWholeFrameClicked);
@@ -991,7 +992,7 @@ void DetailView::buildRoiControls() {
     roiOverlay_->onScratchChanged = [this, tc](int count) {
         updateRoiFinishState();
         if (roiStatusLabel_ && roiOverlay_ && roiOverlay_->isDrawing()) {
-            roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px;"
+            roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
                                                    " font-weight: 600; }").arg(tc.ok));
             if (count < 3) {
                 roiStatusLabel_->setText(QString("Drawing: click to add points"
@@ -1157,11 +1158,11 @@ void DetailView::updateRoiStatus() {
     if (roiNorm_.size() < 3) {
         roiStatusLabel_->setText("No inspection region — analysis is PAUSED. "
                                  "Draw the area to analyze or use Whole Frame.");
-        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; }").arg(tc.warn));
+        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }").arg(tc.warn));
     } else {
         roiStatusLabel_->setText(QString("Region: %1 points — analysis runs inside it.")
                                      .arg(roiNorm_.size()));
-        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; }").arg(tc.ok));
+        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }").arg(tc.ok));
     }
 }
 
@@ -1273,7 +1274,7 @@ void DetailView::updateAoiApplyState() {
         aoiApplyBtn_->setEnabled(true);
         aoiApplyBtn_->setStyleSheet(
             QString("QPushButton { background-color: %1; color: %2; border: 1px solid %1;"
-                    " border-radius: 6px; padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+                    " border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
                     "QPushButton:hover { background-color: %3; }")
                 .arg(tc.primary, toRgba(tc.bg, 230), toRgba(tc.primary, 200)));
     } else {
@@ -1281,7 +1282,7 @@ void DetailView::updateAoiApplyState() {
         aoiApplyBtn_->setEnabled(false);
         aoiApplyBtn_->setStyleSheet(
             QString("QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
-                    " border-radius: 6px; padding: 6px 10px; font-size: 11px; }")
+                    " border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }")
                 .arg(tc.border, tc.border));
     }
 }
@@ -1431,7 +1432,7 @@ QString DetailView::aoiOverlayStyle(const QString& bgColor) const {
     const ThemeColors tc = CameraConfig::getThemeColors();
     return QString(
         "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 13px;"
-        " font-size: 11px; font-weight: 600; padding: 2px 10px; }"
+        " font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; padding: 2px 10px; }"
         "QToolButton:hover { background-color: %4; }"
         "QToolButton:focus { background-color: %4; border-color: %7; }"
         "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
@@ -1825,7 +1826,7 @@ void DetailView::updateTheme() {
         if (aoiDrawBtn_) {
             aoiDrawBtn_->setStyleSheet(QString(
                 "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-                " padding: 6px 10px; font-size: 11px; font-weight: 600; }"
+                " padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
                 "QToolButton:hover { background-color: %4; }"
                 "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
                 .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
@@ -1834,9 +1835,9 @@ void DetailView::updateTheme() {
         aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
         aoiPanel_->setStyleSheet(QString(
             "QFrame#aoiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-            "QLabel { color: %3; font-size: 11px; }"
+            "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
             "QSpinBox { background-color: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
-            " padding: 2px 4px; font-size: 11px; }")
+            " padding: 2px 4px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }")
             .arg(toRgba(tc.btnBg, 245), tc.border, tc.text, toRgba(tc.bg, 120)));
         repositionAoiOverlay();
     }
@@ -1847,8 +1848,8 @@ void DetailView::updateTheme() {
         if (roiPanel_) {
             roiPanel_->setStyleSheet(QString(
                 "QFrame#roiPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-                "QLabel { color: %3; font-size: 11px; }"
-                "QCheckBox { color: %3; font-size: 11px; spacing: 4px; }")
+                "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+                "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; }")
                 .arg(toRgba(rt.btnBg, 245), rt.border, rt.text));
         }
         if (roiOverlay_) {

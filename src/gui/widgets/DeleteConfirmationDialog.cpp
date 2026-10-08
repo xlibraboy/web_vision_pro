@@ -9,6 +9,7 @@
 #include <QStyleOption>
 #include "IconManager.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 
 DeleteConfirmationDialog::DeleteConfirmationDialog(QWidget* parent)
     : QDialog(parent, Qt::FramelessWindowHint | Qt::Dialog)
@@ -92,7 +93,7 @@ void DeleteConfirmationDialog::setupUI() {
     titleLabel_ = new QLabel("Delete Confirmation", contentFrame_);
     titleLabel_->setAlignment(Qt::AlignCenter);
     titleLabel_->setStyleSheet(
-        QString("font-size: 20px; font-weight: 700; color: %1;").arg(tc.text)
+        QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;").arg(tc.text)
     );
     contentLayout_->addWidget(titleLabel_);
 
@@ -105,7 +106,7 @@ void DeleteConfirmationDialog::setupUI() {
     messageLabel_->setAlignment(Qt::AlignCenter);
     messageLabel_->setWordWrap(true);
     messageLabel_->setStyleSheet(
-        QString("font-size: 14px; color: %1; line-height: 1.5;").arg(mutedText)
+        QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1; line-height: 1.5;").arg(mutedText)
     );
     contentLayout_->addWidget(messageLabel_);
 
@@ -113,7 +114,7 @@ void DeleteConfirmationDialog::setupUI() {
     itemLabel_ = new QLabel(itemName_, contentFrame_);
     itemLabel_->setAlignment(Qt::AlignCenter);
     itemLabel_->setStyleSheet(
-        QString("font-size: 16px; font-weight: 600; color: %1; "
+        QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1; "
                 "padding: 12px; background-color: %2; border-radius: 8px; "
                 "margin: 8px 40px;")
             .arg(tc.text, tc.bg)
@@ -134,7 +135,7 @@ void DeleteConfirmationDialog::setupUI() {
                 "  border: 1px solid %2; "
                 "  border-radius: 8px; "
                 "  padding: 12px 24px; "
-                "  font-size: 14px; "
+                "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
                 "  font-weight: 500; "
                 "} "
                 "QPushButton:hover { "
@@ -155,7 +156,7 @@ void DeleteConfirmationDialog::setupUI() {
         "  border: none; "
         "  border-radius: 8px; "
         "  padding: 12px 24px; "
-        "  font-size: 14px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  font-weight: 600; "
         "} "
         "QPushButton:hover { "

@@ -1,5 +1,6 @@
 #include "FixedIpListPanel.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,7 +14,7 @@ namespace {
 constexpr int kMaxCameras = 16;  // matches the GUI/camera pipeline hard limit
 
 QString mutedLabelStyle() {
-    return QString("color: %1; font-size: 12px;").arg(CameraConfig::getThemeColors().muted);
+    return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(CameraConfig::getThemeColors().muted);
 }
 
 // Semantic colors matching the camera cards' status colors. Resolved per call

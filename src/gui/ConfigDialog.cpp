@@ -12,6 +12,7 @@
 #include "widgets/OpcUaLiveStatusWindow.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
+#include "../config/UiTypeScale.h"
 #include "../core/CameraManager.h"
 #include "../processing/EventSignalScanner.h"
 #include "../communication/OpcUaClientService.h"
@@ -302,7 +303,7 @@ namespace {
             "  border: none; "
             "  border-radius: 8px; "
             "  padding: 8px 16px; "
-            "  font-size: 13px; "
+            "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
             "  font-weight: 600; "
             "} "
             "QPushButton:hover { "
@@ -333,7 +334,7 @@ void ConfigDialog::updateOpcUaDiscoveryStatus(const QString& message, bool detec
     const ThemeColors tc = CameraConfig::getThemeColors();
     const QString color = detected ? tc.primary : tc.muted;
     opcUaDiscoveryStatusLabel_->setText(message);
-    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(color));
+    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(color));
 }
 
 void ConfigDialog::refreshOpcUaEndpointDiscovery(bool overwriteExistingEndpoint, bool allowNetworkScan) {
@@ -553,7 +554,7 @@ void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
         }
         opcUaStatusClientLabel_->setText(QStringLiteral("%1 %2").arg(dot, status.clientStateText));
         opcUaStatusClientLabel_->setStyleSheet(
-            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(color));
+            QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(color));
     }
 
     refreshOpcUaSpeedDisplay();
@@ -678,7 +679,7 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
         opcUaStatusSpeedLabel_->setText(
             QStringLiteral("%1 %2").arg(QString::number(rawValue * scale + offset, 'f', 2), unit));
         opcUaStatusSpeedLabel_->setStyleSheet(
-            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(tc.ok));
+            QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.ok));
         return;
     }
 
@@ -688,13 +689,13 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
             ? QStringLiteral("  (STALE)") : QString();
         opcUaStatusSpeedLabel_->setText(lastOpcUaRuntimeStatus_.speedText + staleSuffix);
         opcUaStatusSpeedLabel_->setStyleSheet(
-            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(speedColor));
+            QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(speedColor));
         return;
     }
 
     opcUaStatusSpeedLabel_->setText(QStringLiteral("—"));
     opcUaStatusSpeedLabel_->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
+        QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
 }
 
 void ConfigDialog::showOpcUaLiveStatusWindow() {
@@ -819,13 +820,13 @@ void ConfigDialog::setupUI() {
     auto createPillStyle = [&tc](bool active) {
         if (active) {
             return QString(
-                "QPushButton { background-color: %1; color: %2; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 700; } "
+                "QPushButton { background-color: %1; color: %2; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; } "
                 "QPushButton:hover { background-color: %3; } "
                 "QPushButton:pressed { background-color: %1; }"
             ).arg(tc.primary, tc.bg, tc.text);
         }
         return QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; } "
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 600; } "
             "QPushButton:hover { border-color: %4; } "
             "QPushButton:pressed { background-color: %4; }"
         ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
@@ -903,7 +904,7 @@ void ConfigDialog::setupUI() {
         "QListWidget::item { "
         "  padding: 10px 12px; "
         "  color: %3; "
-        "  font-size: 14px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; "
         "  font-weight: 600; "
         "  border-bottom: 1px solid %2; "
         "} "
@@ -978,7 +979,7 @@ void ConfigDialog::setupUI() {
     cameraSubTabs->setDocumentMode(true);
     cameraSubTabs->setStyleSheet(QString(
         "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %3; } "
         "QTabBar::tab:hover { color: %4; }"
@@ -1046,7 +1047,7 @@ void ConfigDialog::setupUI() {
 
     const QString sectionStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: 12px; } "
+        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
     ).arg(tc.primary, tc.border);
 
@@ -1101,8 +1102,8 @@ void ConfigDialog::setupUI() {
     // cap); the DETAIL strip still shows every frame around the playhead.
     recordingInfoLabel_ = new QLabel(bufferGroup);
     recordingInfoLabel_->setWordWrap(true);
-    recordingInfoLabel_->setStyleSheet(QStringLiteral(
-        "QLabel { color: %1; font-size: 11px; }").arg(tc.text));
+    recordingInfoLabel_->setStyleSheet(QString(
+        "QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text));
     recordingForm->addRow(recordingInfoLabel_);
     connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &ConfigDialog::updateRecordingInfoLabel);
@@ -1162,13 +1163,13 @@ void ConfigDialog::setupUI() {
     eventStoragePathEdit_ = new QLineEdit(eventStorageRowWidget);
     eventStoragePathEdit_->setReadOnly(true);
     eventStoragePathEdit_->setStyleSheet(QString(
-        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: 11px; }"
+        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
     ).arg(tc.btnBg, tc.text, tc.border));
     eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
 
     browseEventStorageBtn_ = new QPushButton("Browse", eventStorageRowWidget);
     browseEventStorageBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 500; } "
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; } "
         "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
     browseEventStorageBtn_->setToolTip("Choose a different folder for event storage.");
@@ -1199,14 +1200,14 @@ void ConfigDialog::setupUI() {
 
     QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", bufferGroup);
     eventStorageNote->setWordWrap(true);
-    eventStorageNote->setStyleSheet(QString("color: %1; font-size: 11px; font-style: italic;").arg(tc.text));
+    eventStorageNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-style: italic;").arg(tc.text));
     retentionForm->addRow("", eventStorageNote);
 
     // Live storage statistics for the configured event folder.
     storageStatsLabel_ = new QLabel(bufferGroup);
     storageStatsLabel_->setWordWrap(true);
     storageStatsLabel_->setStyleSheet(QString(
-        "color: %1; font-size: 11px; padding-top: 4px;"
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-top: 4px;"
     ).arg(tc.text));
     retentionForm->addRow("Storage:", storageStatsLabel_);
 
@@ -1242,7 +1243,7 @@ void ConfigDialog::setupUI() {
     // Unsaved-changes indicator for the Recording & Triggers page.
     recordingUnsavedIndicator_ = new QLabel(bufferGroup);
     recordingUnsavedIndicator_->setStyleSheet(QString(
-        "color: %1; font-size: 11px; font-weight: 600;"
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
     ).arg(tc.warn));
     recordingUnsavedIndicator_->setText("");
     recordingUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
@@ -1325,21 +1326,21 @@ void ConfigDialog::setupUI() {
     };
 
     QLabel* opcUaHeaderLabel = new QLabel("OPC UA Client", opcUaGroup);
-    opcUaHeaderLabel->setStyleSheet(QString("color: %1; font-size: 17px; font-weight: 700;").arg(tc.primary));
+    opcUaHeaderLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;").arg(tc.primary));
     opcUaLayout->addWidget(opcUaHeaderLabel);
 
     QLabel* opcUaDescriptionLabel = new QLabel(
         "Connect to external boolean trigger tags and a machine speed tag for event synchronization.",
         opcUaGroup);
     opcUaDescriptionLabel->setWordWrap(true);
-    opcUaDescriptionLabel->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    opcUaDescriptionLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
     opcUaLayout->addWidget(opcUaDescriptionLabel);
 
     QTabWidget* opcUaTabs = new QTabWidget(opcUaGroup);
     opcUaTabs->setDocumentMode(true);
     opcUaTabs->setStyleSheet(QString(
         "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
         "QTabBar::tab:hover { color: %4; }"
@@ -1370,7 +1371,7 @@ void ConfigDialog::setupUI() {
 
     opcUaDiscoveryStatusLabel_ = new QLabel("Checking for discoverable OPC UA servers...", opcUaEndpointActions);
     opcUaDiscoveryStatusLabel_->setWordWrap(true);
-    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(tc.text));
+    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
     opcUaEndpointActionsLayout->addWidget(opcUaDiscoveryStatusLabel_, 1);
 
     opcUaDetectEndpointBtn_ = new QPushButton("Detect Server", opcUaEndpointActions);
@@ -1768,15 +1769,15 @@ void ConfigDialog::setupUI() {
     opcUaStatusForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     QLabel* opcUaStatusClientCaption = new QLabel("Client:", opcUaStatusGroup);
-    opcUaStatusClientCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
+    opcUaStatusClientCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
     opcUaStatusClientLabel_ = new QLabel("○ Idle (OPC UA disabled)", opcUaStatusGroup);
-    opcUaStatusClientLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600;").arg(tc.muted));
+    opcUaStatusClientLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted));
     opcUaStatusForm->addRow(opcUaStatusClientCaption, opcUaStatusClientLabel_);
 
     QLabel* opcUaStatusSpeedCaption = new QLabel("Speed:", opcUaStatusGroup);
-    opcUaStatusSpeedCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
+    opcUaStatusSpeedCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
     opcUaStatusSpeedLabel_ = new QLabel("—", opcUaStatusGroup);
-    opcUaStatusSpeedLabel_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.muted));
+    opcUaStatusSpeedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
     opcUaStatusForm->addRow(opcUaStatusSpeedCaption, opcUaStatusSpeedLabel_);
 
     opcUaStatusLayout->addLayout(opcUaStatusForm);
@@ -1791,9 +1792,9 @@ void ConfigDialog::setupUI() {
     opcUaStatusTable_->setShowGrid(false);
     opcUaStatusTable_->setAlternatingRowColors(false);
     opcUaStatusTable_->setStyleSheet(QString(
-        "QTableWidget { background: transparent; border: none; color: %1; font-size: 12px; } "
+        "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTableWidget::item { padding: 4px 8px; border: none; } "
-        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: 11px; }"
+        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
     ).arg(tc.text, tc.primary, tc.border));
     QHeaderView* opcUaStatusHeader = opcUaStatusTable_->horizontalHeader();
     opcUaStatusHeader->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -1819,7 +1820,7 @@ void ConfigDialog::setupUI() {
     QPushButton* opcUaLiveStatusWindowBtn = new QPushButton("Open Live Status Window", opcUaGroup);
     opcUaLiveStatusWindowBtn->setToolTip("Show the live OPC UA client state, machine speed and tag values in a separate window, so they stay visible while you work elsewhere.");
     opcUaLiveStatusWindowBtn->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; } "
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
         "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
     connect(opcUaLiveStatusWindowBtn, &QPushButton::clicked,
@@ -1851,7 +1852,7 @@ void ConfigDialog::setupUI() {
     // Header section
     QLabel* uiHeaderLabel = new QLabel("UI Preferences", uiGroup);
     uiHeaderLabel->setStyleSheet(QString(
-        "color: %1; font-size: 17px; font-weight: 700;"
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;"
     ).arg(tc.primary));
     uiPageLayout->addWidget(uiHeaderLabel);
 
@@ -1859,7 +1860,7 @@ void ConfigDialog::setupUI() {
         "Customize theme and screen typography.", uiGroup);
     uiDescriptionLabel->setWordWrap(true);
     uiDescriptionLabel->setStyleSheet(QString(
-        "color: %1; font-size: 11px; padding-bottom: 2px;"
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;"
     ).arg(tc.text));
     uiPageLayout->addWidget(uiDescriptionLabel);
 
@@ -1885,7 +1886,7 @@ void ConfigDialog::setupUI() {
 
     const QString uiSectionStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "background-color: rgba(255, 255, 255, 0.02); border-radius: 10px; margin-top: 12px; padding: 12px 10px 7px 10px; font-size: 12px; } "
+        "background-color: rgba(255, 255, 255, 0.02); border-radius: 10px; margin-top: 12px; padding: 12px 10px 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 6px; top: 2px; }"
     ).arg(tc.primary, tc.border);
 
@@ -1911,7 +1912,7 @@ void ConfigDialog::setupUI() {
     uiDetailTabs->setDocumentMode(true);
     uiDetailTabs->setStyleSheet(QString(
         "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: 12px; } "
+        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
         "QTabBar::tab:hover { color: %4; }"
@@ -1931,7 +1932,7 @@ void ConfigDialog::setupUI() {
     liveViewTabLayout->addStretch(1);
 
     QLabel* liveViewSectionTitle = new QLabel("Live View", liveViewGroup);
-    liveViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    liveViewSectionTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
     liveViewGroupLayout->addWidget(liveViewSectionTitle);
 
     QWidget* liveViewContent = new QWidget(liveViewGroup);
@@ -1950,7 +1951,7 @@ void ConfigDialog::setupUI() {
 
     const QString settingsCardStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 10px; margin-top: 8px; "
-        "background-color: rgba(255, 255, 255, 0.02); padding: 10px; font-size: 12px; } "
+        "background-color: rgba(255, 255, 255, 0.02); padding: 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
     ).arg(tc.primary, tc.border);
 
@@ -1978,7 +1979,7 @@ void ConfigDialog::setupUI() {
         labelLayout->setSpacing(0);
 
         QLabel* titleLabel = new QLabel(title, labelWidget);
-        titleLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 600;").arg(tc.text));
+        titleLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;").arg(tc.text));
         titleLabel->setToolTip(formattedTooltip);
         labelLayout->addWidget(titleLabel);
         labelWidget->setToolTip(formattedTooltip);
@@ -1994,7 +1995,7 @@ void ConfigDialog::setupUI() {
     QComboBox* themeCombo = new QComboBox(uiGroup);
     themeCombo_ = themeCombo;
     themeCombo->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 8px; } "
@@ -2048,7 +2049,7 @@ void ConfigDialog::setupUI() {
         // Update combo text color to match selected theme
         const ThemeColors selectedColors = CameraConfig::getThemeColors(this->selectedThemeIndex_);
         themeCombo->setStyleSheet(QString(
-            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
             "QComboBox:hover { border-color: %4; } "
             "QComboBox:focus { border-color: %4; } "
             "QComboBox::drop-down { border: none; padding-right: 8px; } "
@@ -2061,7 +2062,7 @@ void ConfigDialog::setupUI() {
     {
         const ThemeColors initColors = CameraConfig::getThemeColors(selectedThemeIndex_);
         themeCombo->setStyleSheet(QString(
-            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: 12px; font-weight: 600; } "
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
             "QComboBox:hover { border-color: %4; } "
             "QComboBox:focus { border-color: %4; } "
             "QComboBox::drop-down { border: none; padding-right: 8px; } "
@@ -2073,7 +2074,7 @@ void ConfigDialog::setupUI() {
 
     QLabel* liveViewDescription = new QLabel("Tune card surface, title, and section typography.", uiGroup);
     liveViewDescription->setWordWrap(true);
-    liveViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 2px;").arg(tc.text));
+    liveViewDescription->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text));
     liveSettingsCardLayout->addWidget(liveViewDescription);
 
     liveViewBackgroundStyleCombo_ = new QComboBox(uiGroup);
@@ -2082,7 +2083,7 @@ void ConfigDialog::setupUI() {
     liveViewBackgroundStyleCombo_->addItem("Textured Mesh", "textured_mesh");
     liveViewBackgroundStyleCombo_->addItem("White Textured Mesh", "white_textured_mesh");
     liveViewBackgroundStyleCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2095,7 +2096,7 @@ void ConfigDialog::setupUI() {
     liveViewGridTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewGridTitleFontCombo_);
     liveViewGridTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2115,7 +2116,7 @@ void ConfigDialog::setupUI() {
     liveViewDetailTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailTitleFontCombo_);
     liveViewDetailTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2135,7 +2136,7 @@ void ConfigDialog::setupUI() {
     liveViewDetailSectionFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailSectionFontCombo_);
     liveViewDetailSectionFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2168,7 +2169,7 @@ void ConfigDialog::setupUI() {
     analysisViewTabLayout->addStretch(1);
 
     QLabel* analysisViewSectionTitle = new QLabel("Analysis View", analysisViewGroup);
-    analysisViewSectionTitle->setStyleSheet(QString("color: %1; font-size: 13px; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    analysisViewSectionTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
     analysisViewGroupLayout->addWidget(analysisViewSectionTitle);
 
     QWidget* analysisViewContent = new QWidget(analysisViewGroup);
@@ -2193,7 +2194,7 @@ void ConfigDialog::setupUI() {
 
     QLabel* analysisViewDescription = new QLabel("Tune video titles, timestamps, tabs, and playback surface.", uiGroup);
     analysisViewDescription->setWordWrap(true);
-    analysisViewDescription->setStyleSheet(QString("color: %1; font-size: 11px; padding-bottom: 2px;").arg(tc.text));
+    analysisViewDescription->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text));
     analysisSettingsCardLayout->addWidget(analysisViewDescription);
 
     QFormLayout* analysisViewForm = new QFormLayout();
@@ -2206,7 +2207,7 @@ void ConfigDialog::setupUI() {
     analysisVideoTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisVideoTitleFontCombo_);
     analysisVideoTitleFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2223,7 +2224,7 @@ void ConfigDialog::setupUI() {
     analysisTimestampFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTimestampFontCombo_);
     analysisTimestampFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2240,7 +2241,7 @@ void ConfigDialog::setupUI() {
     analysisTabFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTabFontCombo_);
     analysisTabFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2258,7 +2259,7 @@ void ConfigDialog::setupUI() {
     analysisPlaybackSurfaceCombo_->addItem("Dark", "dark");
     analysisPlaybackSurfaceCombo_->addItem("Light", "light");
     analysisPlaybackSurfaceCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2277,7 +2278,7 @@ void ConfigDialog::setupUI() {
     analysisDefaultMetadataCombo_->addItem("Real Time Only", "realtime");
     analysisDefaultMetadataCombo_->addItem("Relative Frame Only", "relative");
     analysisDefaultMetadataCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2290,7 +2291,7 @@ void ConfigDialog::setupUI() {
     analysisMetadataFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisMetadataFontCombo_);
     analysisMetadataFontCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: 11px; } "
+        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
@@ -2312,7 +2313,7 @@ void ConfigDialog::setupUI() {
     liveViewActionsLayout->addStretch();
 
     const QString secondaryActionButtonStyle = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 14px; font-size: 11px; font-weight: 600; } "
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 14px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; } "
         "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
 
@@ -2387,12 +2388,12 @@ void ConfigDialog::setupUI() {
         liveViewCardPreviewTitleLabel_->setStyleSheet(QString("color: %1; background: transparent;").arg(titleColor.name()));
 
         liveViewCardPreviewMetaLabel_->setText("Dryer Section | Operator Side | Mono8");
-        liveViewCardPreviewMetaLabel_->setStyleSheet(QString("color: %1; background: transparent; font-size: 10px;").arg(subtitleColor.name()));
+        liveViewCardPreviewMetaLabel_->setStyleSheet(QString("color: %1; background: transparent; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + ";").arg(subtitleColor.name()));
 
         updateFontPreviewLabel(
             liveViewCardPreviewStatusLabel_,
             currentCuratedFontFamily(liveViewDetailTitleFontCombo_),
-            std::max(11, liveViewDetailTitleSizeSpin_->value() - 3),
+            std::max(UiTypeScale::kMeta, liveViewDetailTitleSizeSpin_->value() - 3),
             "Connected"
         );
         liveViewCardPreviewStatusLabel_->setStyleSheet(QString(
@@ -2467,7 +2468,7 @@ void ConfigDialog::setupUI() {
         ).arg(borderColor.name()));
 
         QFont sectionFont(style.tabFontFamily);
-        sectionFont.setPixelSize(std::max(11, style.tabFontSize));
+        sectionFont.setPixelSize(std::max(UiTypeScale::kMeta, style.tabFontSize));
         sectionFont.setBold(true);
         analysisPreviewSectionLabel_->setFont(sectionFont);
         analysisPreviewSectionLabel_->setStyleSheet(QString("color: %1; background: transparent;").arg(textColor.name()));
@@ -2512,12 +2513,12 @@ void ConfigDialog::setupUI() {
     livePreviewPageLayout->setSpacing(8);
 
     QLabel* previewTitle = new QLabel("Detail Card Preview", livePreviewContainer);
-    previewTitle->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
+    previewTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
     livePreviewPageLayout->addWidget(previewTitle);
 
     QLabel* previewNote = new QLabel("The preview uses the current detail title and section styling with representative live card data.", livePreviewContainer);
     previewNote->setWordWrap(true);
-    previewNote->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent; border: none;").arg(tc.text));
+    previewNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text));
     livePreviewPageLayout->addWidget(previewNote);
 
     liveViewCardPreviewFrame_ = new QFrame(livePreviewContainer);
@@ -2599,12 +2600,12 @@ void ConfigDialog::setupUI() {
     analysisPreviewPageLayout->setSpacing(8);
 
     QLabel* analysisPreviewTitle = new QLabel("Analysis Preview", analysisPreviewContainer);
-    analysisPreviewTitle->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
+    analysisPreviewTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
     analysisPreviewPageLayout->addWidget(analysisPreviewTitle);
 
     QLabel* analysisPreviewNote = new QLabel("The preview uses the current title and timestamp styling with representative analysis card data.", analysisPreviewContainer);
     analysisPreviewNote->setWordWrap(true);
-    analysisPreviewNote->setStyleSheet(QString("color: %1; font-size: 10px; background: transparent; border: none;").arg(tc.text));
+    analysisPreviewNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text));
     analysisPreviewPageLayout->addWidget(analysisPreviewNote);
 
     // Two-row layout: header row + video row
@@ -2661,7 +2662,7 @@ void ConfigDialog::setupUI() {
 
     uiUnsavedIndicator_ = new QLabel(uiGroup);
     uiUnsavedIndicator_->setStyleSheet(QString(
-        "color: %1; font-size: 11px; font-weight: 600;"
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
     ).arg(tc.warn));
     uiUnsavedIndicator_->setText("");
     uiUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
@@ -2700,7 +2701,7 @@ void ConfigDialog::setupUI() {
     QGroupBox* diagLogsGroup = new QGroupBox("Connection Diagnostics", diagnosticsGroup);
     diagLogsGroup->setStyleSheet(QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: 12px; } "
+        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
     ).arg(tc.primary, tc.border));
     
@@ -2716,8 +2717,8 @@ void ConfigDialog::setupUI() {
         "  border: 1px solid %2; "
         "  border-radius: 6px; "
         "  color: %3; "
-        "  font-family: 'SF Mono', Monaco, Consolas, monospace; "
-        "  font-size: 12px; "
+        "  font-family: " + UiTypeScale::monoFamilyCss() + "; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  padding: 8px; "
         "}"
     ).arg(tc.bg, tc.border, tc.text));
@@ -2735,7 +2736,7 @@ void ConfigDialog::setupUI() {
         "  border: none; "
         "  border-radius: 6px; "
         "  padding: 6px 12px; "
-        "  font-size: 12px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  font-weight: 500; "
         "} "
         "QPushButton:hover { background-color: %3; }"
@@ -2754,7 +2755,7 @@ void ConfigDialog::setupUI() {
         "  border: 1px solid %2; "
         "  border-radius: 6px; "
         "  padding: 6px 12px; "
-        "  font-size: 12px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  font-weight: 500; "
         "} "
         "QPushButton:hover { background-color: %3; border-color: %4; color: %4; }"
@@ -3852,7 +3853,7 @@ void ConfigDialog::refreshStorageStats() {
         warningColor = freePct < criticalPct ? themeColors.critical : themeColors.warn;
     }
     storageStatsLabel_->setStyleSheet(QString(
-        "color: %1; font-size: 11px; padding-top: 4px;")
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-top: 4px;")
         .arg(warningColor.isEmpty() ? themeColors.text : warningColor));
 
     const QString sizeMb = QString::number(totalBytes / (1024.0 * 1024.0), 'f', 1);

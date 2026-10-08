@@ -146,6 +146,7 @@ if(BUILD_TESTING)
         tests/ChangelogDialogTest.h
         tests/DefectSeverityClassification.h
         tests/AccessibilitySummary.h
+        tests/UiTypeScaleDefaults.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -157,6 +158,7 @@ if(BUILD_TESTING)
         tests/ChangelogDialogTest.cpp
         tests/DefectSeverityClassification.cpp
         tests/AccessibilitySummary.cpp
+        tests/UiTypeScaleDefaults.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -180,9 +182,10 @@ if(BUILD_TESTING)
     add_test(NAME changelog_dialog_render COMMAND PaperVision_RegressionTest changelog)
     add_test(NAME defect_severity_classification COMMAND PaperVision_RegressionTest severity)
     add_test(NAME accessibility_summaries COMMAND PaperVision_RegressionTest a11y)
+    add_test(NAME ui_type_scale COMMAND PaperVision_RegressionTest type)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
-        defect_severity_classification accessibility_summaries
+        defect_severity_classification accessibility_summaries ui_type_scale
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 

@@ -1,5 +1,6 @@
 #include "CameraCard.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -121,11 +122,11 @@ void CameraCard::createHeader() {
     titleLayout->setContentsMargins(0, 0, 0, 0);
 
     cameraTitle_ = new QLabel(this);
-    cameraTitle_->setStyleSheet(QString("font-size: 13px; font-weight: 600; color: %1;").arg(tc.text));
+    cameraTitle_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;").arg(tc.text));
     titleLayout->addWidget(cameraTitle_);
 
     cameraMetaLabel_ = new QLabel(this);
-    cameraMetaLabel_->setStyleSheet(QString("font-size: 10px; color: %1;").arg(tc.muted));
+    cameraMetaLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; color: %1;").arg(tc.muted));
     cameraMetaLabel_->setWordWrap(true);
     titleLayout->addWidget(cameraMetaLabel_);
 
@@ -139,7 +140,7 @@ void CameraCard::createHeader() {
     // Status label (pending state until setStatus() arrives with a token color)
     statusLabel_ = new QLabel("Pending", this);
     statusLabel_->setStyleSheet(QString(
-        "font-size: 11px; font-weight: 500; padding: 3px 8px; "
+        "font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; padding: 3px 8px; "
         "border-radius: 10px; background-color: %1; "
         "color: %2;"
     ).arg(tintStyle(tc.disabled, 0.2), tc.disabled));
@@ -147,7 +148,7 @@ void CameraCard::createHeader() {
 
     editCheck_ = new QCheckBox("Edit", this);
     editCheck_->setStyleSheet(QString(
-        "QCheckBox { color: %1; font-size: 11px; spacing: 4px; padding-left: 2px; }"
+        "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; padding-left: 2px; }"
         "QCheckBox::indicator { width: 14px; height: 14px; }"
     ).arg(tc.text));
     connect(editCheck_, &QCheckBox::toggled, this, &CameraCard::editToggled);
@@ -204,14 +205,14 @@ void CameraCard::createContent(const CameraInfo& info) {
 
     const QString groupStyle = QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: 11px; }"
+        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
     ).arg(tc.primary, tc.border);
 
     const QString fieldStyle = QString(
         "QComboBox, QLineEdit, QSpinBox { "
         "background-color: %1; border: 1px solid %2; "
-        "border-radius: 6px; padding: 5px 7px; color: %3; font-size: 11px; }"
+        "border-radius: 6px; padding: 5px 7px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
         "QComboBox:hover, QLineEdit:hover { border-color: %4; }"
         "QComboBox:focus, QLineEdit:focus { border-color: %4; }"
         "QSpinBox { padding-right: 0; min-width: 72px; }"
@@ -226,7 +227,7 @@ void CameraCard::createContent(const CameraInfo& info) {
         "  border-radius: 6px; "
         "  padding: 5px 7px; "
         "  color: %2; "
-        "  font-size: 11px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; "
         "}"
     ).arg(tc.border, tc.text);
 
@@ -245,7 +246,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     // Helper lambda to add field
     auto addField = [&](QGroupBox* group, QGridLayout* layout, int& row, const QString& label, QWidget* widget) {
         QLabel* lbl = new QLabel(label, group);
-        lbl->setStyleSheet(QString("color: %1; font-size: 10px; font-weight: 500;").arg(tc.muted));
+        lbl->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 500;").arg(tc.muted));
         lbl->setMinimumWidth(labelColumnMinWidth);
         layout->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
         layout->addWidget(widget, row, 1);
@@ -342,13 +343,13 @@ void CameraCard::createContent(const CameraInfo& info) {
 
     // Configured IP (Read Only)
     ipLabel_ = new QLabel(info.ipAddress, networkInfoGroup_);
-    ipLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: 'SF Mono', Monaco, monospace; color: %1; }").arg(tc.primary));
+    ipLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: " + UiTypeScale::monoFamilyCss() + "; color: %1; }").arg(tc.primary));
     ipLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Configured IP:", ipLabel_);
 
     // Detected IP (Read Only)
     detectedIpLabel_ = new QLabel("Offline", networkInfoGroup_);
-    detectedIpLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: 'SF Mono', Monaco, monospace; color: %1; }").arg(tc.muted));
+    detectedIpLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: " + UiTypeScale::monoFamilyCss() + "; color: %1; }").arg(tc.muted));
     detectedIpLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Detected IP:", detectedIpLabel_);
 
@@ -357,7 +358,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     deviceSettingsBtn_ = new QPushButton("Device Settings...", contentWidget_);
     deviceSettingsBtn_->setIcon(IconManager::instance().settings(16));
     deviceSettingsBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2; border-radius: 6px; padding: 7px 12px; font-size: 11px; font-weight: 500; }"
+        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2; border-radius: 6px; padding: 7px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; }"
         "QPushButton:hover { background-color: %3; border-color: %1; }"
         "QPushButton:disabled { color: %4; border-color: %2; }"
     ).arg(tc.primary, tc.border, tintStyle(tc.primary, 0.08), tc.disabled));
@@ -485,7 +486,7 @@ void CameraCard::setStatus(const QString& text, const QColor& color) {
     // Update status label style: the status fill carries ink, not white
     // (white on the bright ok/warn fills never reached 3:1).
     QString style = QString(
-        "font-size: 11px; font-weight: 600; padding: 3px 10px; "
+        "font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; padding: 3px 10px; "
         "border-radius: 10px; background-color: %1; color: %2;"
     ).arg(color.name()).arg(tc.onStatus);
 

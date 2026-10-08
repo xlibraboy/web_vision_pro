@@ -13,6 +13,7 @@
 
 #include "../../config/AppVersion.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 
 namespace {
 
@@ -56,7 +57,7 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
 
     auto* header = new QLabel(
         QString("<b>PaperVision</b> v%1 \u2014 release history").arg(AppVersion::kNumber), this);
-    header->setStyleSheet(QString("color: %1; font-size: 14px;").arg(tc.text));
+    header->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";").arg(tc.text));
     layout->addWidget(header);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
@@ -71,10 +72,10 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
     contentBrowser_->setOpenExternalLinks(true);
     contentBrowser_->setOpenLinks(true);
     contentBrowser_->document()->setDefaultStyleSheet(QString(
-        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: 17px; }"
-        "h3 { color: %1; font-size: 14px; margin-top: 14px; }"
-        "p  { color: %3; font-size: 13px; }"
-        "li { color: %3; font-size: 13px; margin-bottom: 3px; }"
+        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; }"
+        "h3 { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; margin-top: 14px; }"
+        "p  { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
+        "li { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; margin-bottom: 3px; }"
         "code { color: %1; background-color: %4; padding: 1px 4px; border-radius: 3px; }"
         "b  { color: %3; }"
         "a  { color: %1; }"
@@ -102,7 +103,7 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
         "QDialog { background-color: %1; }"
         "QLabel { color: %2; }"
         "QListWidget#changelogVersionList { background-color: %4; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; font-size: 13px; padding: 4px; }"
+        " border-radius: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; padding: 4px; }"
         "QListWidget#changelogVersionList::item { padding: 7px 8px; border-radius: 3px; }"
         "QListWidget#changelogVersionList::item:selected { background-color: %5; color: %6; }"
         "QListWidget#changelogVersionList::item:hover:!selected { background-color: %7; }"

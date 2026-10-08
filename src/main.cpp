@@ -5,12 +5,14 @@
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QFont>
 #include <QLockFile>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QObject>
 #include <pylon/PylonIncludes.h>
 #include "config/AppPaths.h"
+#include "config/UiTypeScale.h"
 #include "gui/MainWindow.h"
 #include "gui/widgets/AccessibleTextSummary.h"
 
@@ -126,6 +128,13 @@ int main(int argc, char *argv[]) {
     
         // Set style
         app.setStyle("Fusion");
+
+        // The named type scale's base font for every widget that does not set
+        // its own (cards, HUDs and dialog titles keep their explicit fonts).
+        QFont baseFont = app.font();
+        baseFont.setFamily(UiTypeScale::uiFamily());
+        baseFont.setPixelSize(UiTypeScale::kBody);
+        app.setFont(baseFont);
 
         // Painted data views (event dashboard, machine layout) expose a
         // plain-text summary to screen readers through this factory.

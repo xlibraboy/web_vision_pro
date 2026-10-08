@@ -24,6 +24,7 @@
 
 #include "IconManager.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include "../../core/CameraManager.h"
 
 namespace {
@@ -79,19 +80,19 @@ DlgPalette dlgPalette() {
 QString fieldStyle(const char* widgetName) {
     const DlgPalette p = dlgPalette();
     return QString("%1 { background-color: %2; border: 1px solid %3; border-radius: 6px; "
-                   "padding: 6px 8px; color: %4; font-size: 12px; }"
+                   "padding: 6px 8px; color: %4; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
                    "%1:focus { border-color: %5; }")
         .arg(QString::fromLatin1(widgetName), p.panel, p.border, p.text, p.accent);
 }
 
 QString sectionTitleStyle() {
     const DlgPalette p = dlgPalette();
-    return QString("font-size: 14px; font-weight: 600; color: %1;").arg(p.text);
+    return QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;").arg(p.text);
 }
 
 QString sectionHintStyle() {
     const DlgPalette p = dlgPalette();
-    return QString("font-size: 11px; color: %1;").arg(p.muted);
+    return QString("font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color: %1;").arg(p.muted);
 }
 
 QString formatReadOnlyValue(const QString& value) {
@@ -197,7 +198,7 @@ QLabel* createInfoValueLabel(const QString& text = QString()) {
     label->setWordWrap(true);
     label->setStyleSheet(
         QString("QLabel { background-color: %1; border: 1px solid %2; "
-                "border-radius: 6px; padding: 6px 8px; color: %3; font-size: 12px; }")
+                "border-radius: 6px; padding: 6px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }")
             .arg(p.panel, p.border, p.text)
     );
     return label;
@@ -206,14 +207,14 @@ QLabel* createInfoValueLabel(const QString& text = QString()) {
 void addFormRow(QFormLayout* layout, const QString& label, QWidget* field) {
     const DlgPalette p = dlgPalette();
     QLabel* labelWidget = new QLabel(label);
-    labelWidget->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 500;").arg(p.muted));
+    labelWidget->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500;").arg(p.muted));
     layout->addRow(labelWidget, field);
 }
 
 QString groupBoxStyle() {
     const DlgPalette p = dlgPalette();
     return QString("QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 8px; "
-                   "margin-top: 6px; padding-top: 8px; font-size: 12px; }"
+                   "margin-top: 6px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
                    "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }")
         .arg(p.accent, p.border);
 }
@@ -238,11 +239,11 @@ QFrame* buildCallout(QWidget* parent) {
     icon->setFixedSize(28, 28);
     QLabel* text = new QLabel("Changes staged \u2014 stop the camera to apply.", callout);
     text->setStyleSheet(QString(
-        "color: %1; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;").arg(p.warn));
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 500; background: transparent; padding-top: 1px;").arg(p.warn));
     QPushButton* stopApply = new QPushButton("Stop and Apply", callout);
     stopApply->setStyleSheet(QString(
         "QPushButton { background: %1; color: %2; border: 1px solid %3; "
-        "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; "
+        "border-radius: 5px; padding: 5px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; "
         "transition: all 0.15s ease; }"
         "QPushButton:hover { background: %4; border: 1px solid %5; "
         "color: %6; padding: 5px 14px; }"
@@ -417,12 +418,12 @@ void CameraDeviceSettingsDialog::setupUi() {
     titleLayout->addWidget(titleIcon);
     const DlgPalette pal = dlgPalette();
     QLabel* titleLabel = new QLabel(QString("Camera %1 - Device Settings").arg(originalInfo_.id), this);
-    titleLabel->setStyleSheet(QString("font-size: 17px; font-weight: 600; color: %1;").arg(pal.text));
+    titleLabel->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 600; color: %1;").arg(pal.text));
     titleLayout->addWidget(titleLabel);
     titleLayout->addStretch();
     statusChipLabel_ = new QLabel(this);
     statusChipLabel_->setStyleSheet(
-        QString("QLabel { color: %1; font-size: 12px; font-weight: 600; "
+        QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; "
                 "padding: 3px 10px; border: 1px solid %2; border-radius: 10px; }")
             .arg(pal.muted, pal.border));
     titleLayout->addWidget(statusChipLabel_);
@@ -453,7 +454,7 @@ void CameraDeviceSettingsDialog::setupUi() {
     rootLayout->addLayout(footerLayout);
 
     const QString buttonBase =
-        QString("QPushButton { border: 1px solid %1; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; } ")
+        QString("QPushButton { border: 1px solid %1; border-radius: 6px; padding: 7px 14px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } ")
             .arg(pal.border);
     cancelBtn_->setStyleSheet(buttonBase +
         QString("QPushButton { background: transparent; color: %1; } QPushButton:hover { border-color: %2; }")
@@ -539,17 +540,17 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
     statusTitleLabel_ = new QLabel(statusCard_);
     statusTitleLabel_->setWordWrap(true);
     statusTitleLabel_->setStyleSheet(
-        QString("font-size: 13px; font-weight: 600; color: %1; line-height: 1.3;").arg(pal.text));
+        QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1; line-height: 1.3;").arg(pal.text));
     const QString rowPill = QString("background: %1; border-radius: 4px; padding: 3px 8px;")
                                 .arg(toRgba(pal.panel, 160));
     statusModelLabel_ = new QLabel(statusCard_);
-    statusModelLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
+    statusModelLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color: %1; ").arg(pal.muted) + rowPill);
     statusIpLabel_ = new QLabel(statusCard_);
-    statusIpLabel_->setStyleSheet(QString("font-size: 11px; color: %1; font-family: 'SF Mono', Monaco, monospace; ").arg(pal.muted) + rowPill);
+    statusIpLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color: %1; font-family: " + UiTypeScale::monoFamilyCss() + "; ").arg(pal.muted) + rowPill);
     statusTempLabel_ = new QLabel(statusCard_);
-    statusTempLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
+    statusTempLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color: %1; ").arg(pal.muted) + rowPill);
     statusPtpLabel_ = new QLabel(statusCard_);
-    statusPtpLabel_->setStyleSheet(QString("font-size: 11px; color: %1; ").arg(pal.muted) + rowPill);
+    statusPtpLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color: %1; ").arg(pal.muted) + rowPill);
 
     QFrame* cardSep = new QFrame(statusCard_);
     cardSep->setFrameShape(QFrame::HLine);
@@ -557,7 +558,7 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
 
     runStateBtn_ = new QPushButton(statusCard_);
     runStateBtn_->setStyleSheet(
-        QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+        QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; margin-top: 8px; "
                 "color: %1; border: 1px solid %2; background: %3; }"
                 "QPushButton:disabled { color: %1; border: 1px solid %2; background: %3; }")
             .arg(pal.disabled, pal.border, toRgba(pal.border, 90)));
@@ -573,7 +574,7 @@ QWidget* CameraDeviceSettingsDialog::buildSidebar() {
     navList_ = new QListWidget(sidebar);
     navList_->setStyleSheet(
         QString("QListWidget { background: transparent; border: none; outline: 0; }"
-                "QListWidget::item { padding: 8px 10px; border-radius: 6px; color: %1; font-size: 12px; font-weight: 500; }"
+                "QListWidget::item { padding: 8px 10px; border-radius: 6px; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 500; }"
                 "QListWidget::item:hover { background-color: %2; color: %3; }"
                 "QListWidget::item:selected { background-color: %4; color: %3; border-left: 2px solid %5; }")
             .arg(pal.muted, toRgba(pal.accent, 16), pal.text, toRgba(pal.accent, 32), pal.accent));
@@ -635,7 +636,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     roiLayout->setVerticalSpacing(10);
     aoiEnableCheck_ = new QCheckBox(roiGroup);
     aoiEnableCheck_->setText("Crop the image to the region below (AOI active)");
-    aoiEnableCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: 11px; } QCheckBox::indicator { width: 14px; height: 14px; }").arg(palDetail.text));
+    aoiEnableCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } QCheckBox::indicator { width: 14px; height: 14px; }").arg(palDetail.text));
     addFormRow(roiLayout, "Enable AOI:", aoiEnableCheck_);
     widthSpin_ = new QSpinBox(roiGroup);
     widthSpin_->setRange(1, 100000);
@@ -709,8 +710,8 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     exposureTimeBaseSpin_->setStyleSheet(doubleSpinStyle());
     acquisitionRateSpin_->setStyleSheet(doubleSpinStyle());
     exposureTimeRawSpin_->setStyleSheet(spinStyle());
-    enableExposureTimeBaseCheck_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.text));
-    enableAcquisitionRateCheck_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.text));
+    enableExposureTimeBaseCheck_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(palDetail.text));
+    enableAcquisitionRateCheck_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(palDetail.text));
     resultingRateValueLabel_ = createInfoValueLabel();
     addFormRow(exposureForm, "Exposure Time (Abs):", exposureTimeAbsSpin_);
     addFormRow(exposureForm, QString(), enableExposureTimeBaseCheck_);
@@ -744,7 +745,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     chunkGroupLayout->setSpacing(10);
     chunkModeActiveCheck_ = new QCheckBox("Chunk Mode Active", chunkGroup);
     chunkModeActiveCheck_->setStyleSheet(
-        QString("QCheckBox { color: %1; font-size: 12px; spacing: 8px; }"
+        QString("QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; spacing: 8px; }"
                 "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid %2; background: %3; }"
                 "QCheckBox::indicator:hover { border-color: %4; background: %1; }"
                 "QCheckBox::indicator:checked { background: %5; border-color: %5; image: url(none); }"
@@ -754,7 +755,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
     chunkGroupLayout->addWidget(chunkModeActiveCheck_);
     QLabel* chunkHelp = new QLabel("Choose which chunk items should be included in the payload.", chunkGroup);
     chunkHelp->setWordWrap(true);
-    chunkHelp->setStyleSheet(QString("color: %1; font-size: 11px;").arg(palDetail.muted));
+    chunkHelp->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(palDetail.muted));
     chunkGroupLayout->addWidget(chunkHelp);
     chunkListWidget_ = new QListWidget(chunkGroup);
     chunkListWidget_->setSelectionMode(QAbstractItemView::NoSelection);
@@ -830,7 +831,7 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
 
     QLabel* serviceNote = new QLabel("Reset Device is not available in this build.", servicePage);
     serviceNote->setWordWrap(true);
-    serviceNote->setStyleSheet(QString("color: %1; font-size: 12px;").arg(palDetail.muted));
+    serviceNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(palDetail.muted));
     servicePageLayout->addWidget(serviceNote);
     servicePageLayout->addStretch();
     detailStack_->addWidget(servicePage);
@@ -1026,7 +1027,7 @@ void CameraDeviceSettingsDialog::populateUi() {
     populating_ = true;
     const DlgPalette pal = dlgPalette();
     statusTitleLabel_->setText(
-        QString("<b>%1</b><br><span style='font-size:11px; color:%2;'>%3 · %4 mm</span>")
+        QString("<b>%1</b><br><span style='font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; color:%2;'>%3 · %4 mm</span>")
             .arg(originalInfo_.name.toHtmlEscaped(),
                  pal.muted,
                  originalInfo_.location.toHtmlEscaped(),
@@ -1203,7 +1204,7 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     }
     statusChipLabel_->setText(chipText);
     statusChipLabel_->setStyleSheet(
-        QString("QLabel { color: %1; font-size: 12px; font-weight: 600; padding: 3px 10px; border: 1px solid %1; border-radius: 10px; }")
+        QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; padding: 3px 10px; border: 1px solid %1; border-radius: 10px; }")
             .arg(chipColor));
 
     // Card left-border accent reflects live state
@@ -1239,7 +1240,7 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     bool ipOk = !ipValue.trimmed().isEmpty() && ipValue != "Offline";
     statusIpLabel_->setText(
         QString("<span style='color:%1;'>IP</span>  "
-                "<span style='color:%2; font-family: SF Mono, Monaco, monospace;'>%3</span>")
+                "<span style='color:%2; font-family: \"Noto Sans Mono\", \"DejaVu Sans Mono\", monospace;'>%3</span>")
             .arg(pal.muted,
                  ipOk ? pal.text : pal.critical,
                  ipOk ? ipValue.toHtmlEscaped() : "Offline"));
@@ -1315,7 +1316,7 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         runStateBtn_->setText("Unavailable");
         runStateBtn_->setEnabled(false);
         runStateBtn_->setStyleSheet(
-            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; margin-top: 8px; "
                     "color: %1; border: 1px solid %2; background: %3; }")
                 .arg(pal.disabled, pal.border, toRgba(pal.border, 90)));
         return;
@@ -1324,14 +1325,14 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     runStateBtn_->setText(running ? "Stop Camera" : "Start Camera");
     if (running) {
         runStateBtn_->setStyleSheet(
-            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; margin-top: 8px; "
                     "color: %3; border: 1px solid %3; background: %4; }"
                     "QPushButton:hover { background: %5; border-color: %3; }"
                     "QPushButton:disabled { color: %1; border: 1px solid %2; }")
                 .arg(pal.disabled, pal.border, pal.ok, toRgba(pal.ok, 31), toRgba(pal.ok, 56)));
     } else {
         runStateBtn_->setStyleSheet(
-            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
+            QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; margin-top: 8px; "
                     "color: %3; border: 1px solid %3; background: transparent; }"
                     "QPushButton:hover { background: %4; border-color: %3; }"
                     "QPushButton:disabled { color: %1; border: 1px solid %2; }")

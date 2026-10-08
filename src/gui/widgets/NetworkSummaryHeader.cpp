@@ -1,5 +1,6 @@
 #include "NetworkSummaryHeader.h"
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -19,7 +20,7 @@ ThemeColors theme() {
 // border. Used for the camera-count indicators and the link badge.
 QString pillStyle(const QColor& color, double fillAlpha = 0.16, double borderAlpha = 0.35) {
     return QString(
-        "font-size: 12px; font-weight: 600; "
+        "font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; "
         "padding: 5px 10px; border-radius: 12px; "
         "background-color: rgba(%1, %2, %3, %4); "
         "color: %5; "
@@ -53,7 +54,7 @@ void NetworkSummaryHeader::setupUI() {
         "  border: 1px solid %3; "
         "  border-radius: 8px; "
         "  padding: 8px 14px; "
-        "  font-size: 13px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  font-weight: 500; "
         "  min-height: 18px; "
         "} "
@@ -74,7 +75,7 @@ void NetworkSummaryHeader::setupUI() {
         "  border: none; "
         "  border-radius: 8px; "
         "  padding: 8px 14px; "
-        "  font-size: 13px; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  font-weight: 600; "
         "  min-height: 18px; "
         "} "
@@ -116,11 +117,11 @@ void NetworkSummaryHeader::setupUI() {
     titleLayout->setContentsMargins(0, 0, 0, 0);
 
     titleLabel_ = new QLabel("Network Status", this);
-    titleLabel_->setStyleSheet(QString("font-size: 17px; font-weight: 700; color: %1;").arg(tc.text));
+    titleLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;").arg(tc.text));
     titleLayout->addWidget(titleLabel_);
 
     summaryLabel_ = new QLabel("Review camera connectivity and assignment before saving.", this);
-    summaryLabel_->setStyleSheet(QString("font-size: 12px; color: %1;").arg(tc.muted));
+    summaryLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1;").arg(tc.muted));
     titleLayout->addWidget(summaryLabel_);
 
     headerLayout_->addWidget(titleBlock, 1);
@@ -158,7 +159,7 @@ void NetworkSummaryHeader::setupUI() {
     // Status indicator
     statusLabel_ = new QLabel("Scanning network...", this);
     statusLabel_->setStyleSheet(QString(
-        "font-size: 14px; font-weight: 500; color: %1;"
+        "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 500; color: %1;"
     ).arg(tc.muted));
     statusLayout_->addWidget(statusLabel_, 1);
 
@@ -208,7 +209,7 @@ void NetworkSummaryHeader::setNetworkStatus(const QString& status, const QColor&
     const QColor resolved = color.isValid() ? color : QColor(theme().ok);
     // Update status label color
     statusLabel_->setStyleSheet(QString(
-        "font-size: 14px; font-weight: 600; color: %1;"
+        "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;"
     ).arg(resolved.name()));
 }
 

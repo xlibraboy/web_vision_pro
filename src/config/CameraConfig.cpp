@@ -1,4 +1,5 @@
 #include "CameraConfig.h"
+#include "UiTypeScale.h"
 #include <QString>
 #include <QStringList>
 #include <QDir>
@@ -256,12 +257,12 @@ LiveViewCardStyle CameraConfig::getLiveViewCardStyle() {
 
 LiveViewCardStyle CameraConfig::getDefaultLiveViewCardStyle() {
     return {
-        QStringLiteral("Noto Sans"),
-        14,
-        QStringLiteral("Noto Sans"),
-        14,
-        QStringLiteral("Noto Sans"),
-        13,
+        UiTypeScale::uiFamily(),
+        UiTypeScale::kTitle,
+        UiTypeScale::uiFamily(),
+        UiTypeScale::kTitle,
+        UiTypeScale::uiFamily(),
+        UiTypeScale::kBody,
         QStringLiteral("black")
     };
 }
@@ -295,16 +296,16 @@ AnalysisViewStyle CameraConfig::getAnalysisViewStyle() {
 
 AnalysisViewStyle CameraConfig::getDefaultAnalysisViewStyle() {
     return {
-        QStringLiteral("Noto Sans"),
-        10,
-        QStringLiteral("Consolas"),
-        8,
-        QStringLiteral("Noto Sans"),
-        12,
+        UiTypeScale::uiFamily(),
+        UiTypeScale::kMicro,
+        UiTypeScale::monoFamily(),
+        UiTypeScale::kOverlayMono,
+        UiTypeScale::uiFamily(),
+        UiTypeScale::kBody,
         QStringLiteral("dark"),
         QStringLiteral("realtime"),
-        QStringLiteral("Consolas"),
-        8
+        UiTypeScale::monoFamily(),
+        UiTypeScale::kOverlayMono
     };
 }
 
