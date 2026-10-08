@@ -6,6 +6,7 @@
 #include "DefectSeverityClassification.h"
 #include "AccessibilitySummary.h"
 #include "UiTypeScaleDefaults.h"
+#include "OpcUaSpeedAnchorValidation.h"
 
 #include "gui/ConfigDialog.h"
 
@@ -153,7 +154,7 @@ int runSuite(QObject* suite, int argc, char* argv[])
         const QByteArray arg(argv[i]);
         if (arg == "all" || arg == "config" || arg == "capture" || arg == "scope"
             || arg == "tiles" || arg == "changelog" || arg == "severity"
-            || arg == "a11y" || arg == "type") {
+            || arg == "a11y" || arg == "type" || arg == "anchors") {
             continue;
         }
         args.push_back(arg);
@@ -181,7 +182,8 @@ int main(int argc, char* argv[])
         if (arg == QLatin1String("config") || arg == QLatin1String("capture")
             || arg == QLatin1String("scope") || arg == QLatin1String("tiles")
             || arg == QLatin1String("changelog") || arg == QLatin1String("severity")
-            || arg == QLatin1String("a11y") || arg == QLatin1String("type")) {
+            || arg == QLatin1String("a11y") || arg == QLatin1String("type")
+            || arg == QLatin1String("anchors")) {
             suite = arg;
         }
     }
@@ -218,6 +220,10 @@ int main(int argc, char* argv[])
     if (suite == QLatin1String("all") || suite == QLatin1String("type")) {
         UiTypeScaleDefaults typeTest;
         status |= runSuite(&typeTest, argc, argv);
+    }
+    if (suite == QLatin1String("all") || suite == QLatin1String("anchors")) {
+        OpcUaSpeedAnchorValidation anchorTest;
+        status |= runSuite(&anchorTest, argc, argv);
     }
     return status;
 }

@@ -129,6 +129,12 @@ private:
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
     void refreshOpcUaSpeedDisplay();
+    // Reads the speed grid into settings (names and units defaulted) — used by
+    // the save path and by the inline anchor note so both see the same rows.
+    std::vector<OpcUaSpeedTagSettings> collectOpcUaSpeedTags() const;
+    // Refreshes the inline note under the speed grid: duplicate enabled
+    // positions (error) and out-of-order rows (warning).
+    void updateOpcUaSpeedAnchorNote();
     // Trigger grid: rebuild one row's "Records" button text/tooltip from the
     // sections currently ticked in its popup.
     void updateRecordGroupsButton(int row);
@@ -335,11 +341,14 @@ private:
         QSpinBox* positionMmSpin = nullptr;
         QDoubleSpinBox* scaleSpin = nullptr;
         QDoubleSpinBox* offsetSpin = nullptr;
-        QLineEdit* unitEdit = nullptr;
+        QComboBox* unitCombo = nullptr;
         QSpinBox* staleTimeoutSpin = nullptr;
     };
     std::array<OpcUaSpeedRowWidgets, kOpcUaSpeedSlots> opcUaSpeedRows_{};
     QComboBox* opcUaPositionDirectionCombo_ = nullptr;
+    // Inline note under the speed grid: duplicate positions (blocking) and
+    // out-of-order rows (advisory) are stated where the rows are edited.
+    QLabel* opcUaSpeedAnchorNote_ = nullptr;
     QLabel* opcUaDiscoveryStatusLabel_ = nullptr;
     QPushButton* opcUaDetectEndpointBtn_ = nullptr;
     QPushButton* opcUaSaveBtn_ = nullptr;

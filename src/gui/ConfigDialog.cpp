@@ -13,6 +13,7 @@
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../config/UiTypeScale.h"
+#include "../config/OpcUaValidation.h"
 #include "../core/CameraManager.h"
 #include "../processing/EventSignalScanner.h"
 #include "../communication/OpcUaClientService.h"
@@ -672,7 +673,7 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
         const double rawValue = row.simulatedValueSpin ? row.simulatedValueSpin->value() : 0.0;
         const double scale = row.scaleSpin ? row.scaleSpin->value() : 1.0;
         const double offset = row.offsetSpin ? row.offsetSpin->value() : 0.0;
-        QString unit = row.unitEdit ? row.unitEdit->text().trimmed() : QString();
+        QString unit = row.unitCombo ? row.unitCombo->currentText().trimmed() : QString();
         if (unit.isEmpty()) {
             unit = QStringLiteral("m/min");
         }
@@ -696,6 +697,52 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
     opcUaStatusSpeedLabel_->setText(QStringLiteral("—"));
     opcUaStatusSpeedLabel_->setStyleSheet(
         QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
+}
+
+std::vector<OpcUaSpeedTagSettings> ConfigDialog::collectOpcUaSpeedTags() const {
+    std::vector<OpcUaSpeedTagSettings> tags;
+    tags.reserve(kOpcUaSpeedSlots);
+    for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
+        const OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
+        OpcUaSpeedTagSettings tag;
+        tag.enabled = row.enabledCheck && row.enabledCheck->isChecked();
+        tag.name = row.nameEdit ? row.nameEdit->text().trimmed() : QString();
+        tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
+        tag.scale = row.scaleSpin ? row.scaleSpin->value() : 1.0;
+        tag.offset = row.offsetSpin ? row.offsetSpin->value() : 0.0;
+        tag.unit = row.unitCombo ? row.unitCombo->currentText().trimmed() : QStringLiteral("m/min");
+        tag.staleTimeoutMs = row.staleTimeoutSpin ? row.staleTimeoutSpin->value() : 2000;
+        tag.simulated = row.simulatedCombo && row.simulatedCombo->currentData().toBool();
+        tag.simulatedValue = row.simulatedValueSpin ? row.simulatedValueSpin->value() : 0.0;
+        tag.positionMm = row.positionMmSpin ? row.positionMmSpin->value() : 0;
+        if (tag.name.isEmpty()) {
+            tag.name = QString("Speed %1").arg(i + 1);
+        }
+        if (tag.unit.isEmpty()) {
+            tag.unit = QStringLiteral("m/min");
+        }
+        tags.push_back(tag);
+    }
+    return tags;
+}
+
+void ConfigDialog::updateOpcUaSpeedAnchorNote() {
+    if (!opcUaSpeedAnchorNote_) {
+        return;
+    }
+    QStringList errors;
+    QStringList warnings;
+    OpcUaValidation::checkSpeedAnchors(collectOpcUaSpeedTags(), &errors, &warnings);
+    QStringList lines = errors;
+    lines += warnings;
+    opcUaSpeedAnchorNote_->setVisible(!lines.isEmpty());
+    if (lines.isEmpty()) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    opcUaSpeedAnchorNote_->setText(lines.join(QLatin1Char('\n')));
+    opcUaSpeedAnchorNote_->setStyleSheet(QString("color: %1; font-size: %2;")
+        .arg(errors.isEmpty() ? tc.warn : tc.critical, UiTypeScale::px(UiTypeScale::kMeta)));
 }
 
 void ConfigDialog::showOpcUaLiveStatusWindow() {
@@ -1309,6 +1356,11 @@ void ConfigDialog::setupUI() {
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; width: 16px; }"
     ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    // Unit combo (editable): the grid combo plus a transparent inner line edit,
+    // so typing a custom unit keeps the dark combo chrome.
+    const QString opcUaUnitComboStyle = opcUaGridComboStyle + QString(
+        "QComboBox QLineEdit { background: transparent; border: none; color: %1; padding: 0; }"
+    ).arg(tc.text);
     // Compact push-hold trigger button style for the grid.
     const QString opcUaTriggerBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 14px; font-weight: 600; } "
@@ -1695,10 +1747,17 @@ void ConfigDialog::setupUI() {
         row.offsetSpin->setStyleSheet(globalFpsSpin_->styleSheet());
         opcUaSpeedGrid->addWidget(row.offsetSpin, i + 1, sc + 7);
 
-        row.unitEdit = new QLineEdit(opcUaSpeedGroup);
-        row.unitEdit->setPlaceholderText("m/min");
-        row.unitEdit->setStyleSheet(opcUaLineEditStyle);
-        opcUaSpeedGrid->addWidget(row.unitEdit, i + 1, sc + 8);
+        // Editable so a project-specific unit stays possible, but the common
+        // paper-machine units are one click away and the default (m/min) is
+        // visible instead of being filled in silently at save time.
+        row.unitCombo = new QComboBox(opcUaSpeedGroup);
+        row.unitCombo->setEditable(true);
+        row.unitCombo->setInsertPolicy(QComboBox::NoInsert);
+        row.unitCombo->addItems({QStringLiteral("m/min"), QStringLiteral("m/s"),
+                                 QStringLiteral("ft/min"), QStringLiteral("%")});
+        row.unitCombo->setStyleSheet(opcUaUnitComboStyle);
+        row.unitCombo->setToolTip("Unit shown with this anchor's speed (display only).");
+        opcUaSpeedGrid->addWidget(row.unitCombo, i + 1, sc + 8);
 
         row.staleTimeoutSpin = new QSpinBox(opcUaSpeedGroup);
         row.staleTimeoutSpin->setRange(100, 60000);
@@ -1725,10 +1784,21 @@ void ConfigDialog::setupUI() {
                 [this]() { refreshOpcUaSpeedDisplay(); });
         connect(row.offsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this]() { refreshOpcUaSpeedDisplay(); });
-        connect(row.unitEdit, &QLineEdit::textChanged, this,
+        connect(row.unitCombo, &QComboBox::currentTextChanged, this,
                 [this]() { refreshOpcUaSpeedDisplay(); });
+        connect(row.enabledCheck, &QCheckBox::toggled, this,
+                [this]() { updateOpcUaSpeedAnchorNote(); });
+        connect(row.positionMmSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+                [this]() { updateOpcUaSpeedAnchorNote(); });
+        connect(row.nameEdit, &QLineEdit::textChanged, this,
+                [this]() { updateOpcUaSpeedAnchorNote(); });
     }
     opcUaSpeedGroupLayout->addLayout(opcUaSpeedGrid);
+
+    opcUaSpeedAnchorNote_ = new QLabel(opcUaSpeedGroup);
+    opcUaSpeedAnchorNote_->setWordWrap(true);
+    opcUaSpeedAnchorNote_->setVisible(false);
+    opcUaSpeedGroupLayout->addWidget(opcUaSpeedAnchorNote_);
 
     // Paper direction relative to the mm axis (which way the web travels past
     // the cameras). Global for every speed anchor.
@@ -2915,8 +2985,8 @@ void ConfigDialog::loadSettings() {
         if (row.offsetSpin) {
             row.offsetSpin->setValue(tag.offset);
         }
-        if (row.unitEdit) {
-            row.unitEdit->setText(tag.unit);
+        if (row.unitCombo) {
+            row.unitCombo->setCurrentText(tag.unit);
         }
         if (row.staleTimeoutSpin) {
             row.staleTimeoutSpin->setValue(tag.staleTimeoutMs);
@@ -2935,6 +3005,7 @@ void ConfigDialog::loadSettings() {
             row.simulatedValueSpin->setEnabled(tag.simulated);
         }
     }
+    updateOpcUaSpeedAnchorNote();
     if (opcUaPositionDirectionCombo_) {
         const int directionIndex = opcUaPositionDirectionCombo_->findData(opcUaSettings.positionDirectionSign >= 0 ? 1 : -1);
         if (directionIndex != -1) {
@@ -3625,29 +3696,7 @@ void ConfigDialog::saveOpcUaSettings() {
         settings.triggerTags.push_back(tag);
     }
 
-    settings.speedTags.clear();
-    settings.speedTags.reserve(kOpcUaSpeedSlots);
-    for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
-        const OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
-        OpcUaSpeedTagSettings tag;
-        tag.enabled = row.enabledCheck && row.enabledCheck->isChecked();
-        tag.name = row.nameEdit ? row.nameEdit->text().trimmed() : QString();
-        tag.nodeId = row.nodeIdEdit ? row.nodeIdEdit->text().trimmed() : QString();
-        tag.scale = row.scaleSpin ? row.scaleSpin->value() : 1.0;
-        tag.offset = row.offsetSpin ? row.offsetSpin->value() : 0.0;
-        tag.unit = row.unitEdit ? row.unitEdit->text().trimmed() : QStringLiteral("m/min");
-        tag.staleTimeoutMs = row.staleTimeoutSpin ? row.staleTimeoutSpin->value() : 2000;
-        tag.simulated = row.simulatedCombo && row.simulatedCombo->currentData().toBool();
-        tag.simulatedValue = row.simulatedValueSpin ? row.simulatedValueSpin->value() : 0.0;
-        tag.positionMm = row.positionMmSpin ? row.positionMmSpin->value() : 0;
-        if (tag.name.isEmpty()) {
-            tag.name = QString("Speed %1").arg(i + 1);
-        }
-        if (tag.unit.isEmpty()) {
-            tag.unit = QStringLiteral("m/min");
-        }
-        settings.speedTags.push_back(tag);
-    }
+    settings.speedTags = collectOpcUaSpeedTags();
 
     bool hasRealTag = false;
     for (const auto& tag : settings.triggerTags) {
@@ -3689,6 +3738,12 @@ void ConfigDialog::saveOpcUaSettings() {
             validationErrors.append(QString("%1 is enabled but has no NodeId.").arg(tag.name));
         }
     }
+
+    // Duplicate anchor positions block the save (the interpolated speed there
+    // would be ambiguous); out-of-order rows stay a warning, mirrored live by
+    // the note under the speed grid.
+    QStringList anchorWarnings;
+    OpcUaValidation::checkSpeedAnchors(settings.speedTags, &validationErrors, &anchorWarnings);
 
     if (!validationErrors.isEmpty()) {
         QMessageBox::warning(this, "Invalid OPC UA Settings", validationErrors.join("\n"));
@@ -3955,7 +4010,7 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
         if (row.positionMmSpin) row.positionMmSpin->setEnabled(isAdmin);
         if (row.scaleSpin) row.scaleSpin->setEnabled(isAdmin);
         if (row.offsetSpin) row.offsetSpin->setEnabled(isAdmin);
-        if (row.unitEdit) row.unitEdit->setEnabled(isAdmin);
+        if (row.unitCombo) row.unitCombo->setEnabled(isAdmin);
         if (row.staleTimeoutSpin) row.staleTimeoutSpin->setEnabled(isAdmin);
     }
     if (opcUaPositionDirectionCombo_) opcUaPositionDirectionCombo_->setEnabled(isAdmin);

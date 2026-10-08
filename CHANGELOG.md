@@ -37,6 +37,7 @@ here.
 - Detail View: the camera parameter column scrolls on short windows (e.g. 1366×768) instead of squeezing the spin boxes until their values render blank.
 - Analysis View: the Enable Event Deletion switch announces its label to screen readers and draws a visible keyboard-focus ring.
 - Analysis and Machine Layout: the event dashboard and the machine schematic expose a plain-text summary (frames, defect hits, marks by severity, largest spot areas) to screen readers instead of reading as silent painted surfaces.
+- OPC UA speed grid: two enabled anchors at the same position now block the save (the speed interpolated between them would be ambiguous), out-of-order rows get an inline note under the grid, and the Unit column is an editable combo that shows its m/min default instead of a blank field that silently saved one.
 
 ## [1.2.0] - 2026-10-14
 
