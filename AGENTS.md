@@ -23,6 +23,17 @@ cmake ..
 make
 ```
 
+## Docker
+
+Image builds reuse cached layers: a rebuild skips `apt-get update`, the Qt/OpcUa source builds and the
+pylon downloads unless a layer's inputs change, so a cached rebuild can silently keep obsolete packages.
+Before rebuilding the image, ask the user whether to refresh system packages (a fresh `apt-get update`):
+- no rebuild in weeks/months (`docker image inspect web-vision-pro:1.0 --format '{{.Created}}'`), or a
+  dependency is obsolete / needs a patch -> recommend `./docker-build-run.sh --no-cache`
+- otherwise -> default cached build (`./docker-build-run.sh`)
+
+Never force `--no-cache` / a fresh `apt-get update` without asking first.
+
 ## Conventions
 
 - C++17, CMake 3.10+, Qt5, OpenCV 4.x, Pylon 6.x
