@@ -71,6 +71,30 @@ void ToggleSwitch::paintEvent(QPaintEvent*) {
         painter.drawPath(trackPath);
     }
 
+    // Keyboard focus: a ring inside the track, drawn before the thumb so the
+    // knob stays whole. The focus token equals the preset accent on most
+    // presets, which is exactly the checked track fill, so fall back to the
+    // text color and then the status ink until the ring separates from the
+    // fill it sits on.
+    if (hasFocus()) {
+        const auto colorDistance = [](const QColor& a, const QColor& b) {
+            return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green())
+                 + qAbs(a.blue() - b.blue());
+        };
+        QColor ringColor(tc.focus);
+        if (colorDistance(ringColor, trackColor) < 180) {
+            ringColor = QColor(tc.text);
+        }
+        if (colorDistance(ringColor, trackColor) < 180) {
+            ringColor = QColor(tc.onStatus);
+        }
+        painter.setPen(QPen(ringColor, 2));
+        painter.setBrush(Qt::NoBrush);
+        const int inset = 2;
+        painter.drawRoundedRect(QRectF(rect()).adjusted(inset, inset, -inset, -inset),
+                                height() / 2.0 - inset, height() / 2.0 - inset);
+    }
+
     // Draw thumb
     painter.setPen(Qt::NoPen);
     if (!isEnabled()) {

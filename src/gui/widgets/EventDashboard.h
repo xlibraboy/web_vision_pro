@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AccessibleTextSummary.h"
+
 #include <QWidget>
 #include <QVector>
 #include <QString>
@@ -18,7 +20,7 @@
  * frame under the cursor. Purely presentational: data is pushed in by the
  * owner (AnalysisView) from EventSignalScanner results and decoded frames.
  */
-class EventDashboard : public QWidget {
+class EventDashboard : public QWidget, public AccessibleSummaryProvider {
     Q_OBJECT
 public:
     static constexpr int kThumbCount = 24;
@@ -80,6 +82,10 @@ public:
     void setNotRecorded(const QString& reason);
     // Apply the active theme preset (canvas, surface, text, markers).
     void applyTheme(const ThemeColors& theme);
+
+    // Plain-text summary of the event, its defect hits and the visible
+    // regions, read by screen readers (see AccessibleSummaryProvider).
+    QString accessibleSummary() const override;
 
     QSize sizeHint() const override;
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AccessibleTextSummary.h"
+
 #include <QWidget>
 #include <QVector>
 #include <QColor>
@@ -82,6 +84,9 @@ private:
         // 0 unknown / 1 ok / 2 warn / 3 critical — mirrors
         // EventSignalScanner::MarkSeverity; drives the marker encoding.
         int severity = 0;
+        // Spot area % at the mark's sample — the size proxy used to rank
+        // marks for the screen-reader summary. 0 when not analyzed.
+        double spotPct = 0.0;
     };
 
     struct TriggerMark {
@@ -133,10 +138,16 @@ private:
         int camCount = 0;
     };
 
-    class Canvas : public QWidget {
+    class Canvas : public QWidget, public AccessibleSummaryProvider {
         friend class MachineLayoutPanel;  // panel clears selection on combo change
     public:
         explicit Canvas(MachineLayoutPanel* owner);
+
+        // Plain-text summary of the drawn markers, read by screen readers
+        // (see AccessibleSummaryProvider).
+        QString accessibleSummary() const override;
+        // The panel is a schematic, not a chart.
+        QAccessible::Role accessibleSummaryRole() const override { return QAccessible::Graphic; }
 
     protected:
         void paintEvent(QPaintEvent* event) override;

@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QAbstractSpinBox>
+#include <QAccessible>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
@@ -11,6 +12,7 @@
 #include <pylon/PylonIncludes.h>
 #include "config/AppPaths.h"
 #include "gui/MainWindow.h"
+#include "gui/widgets/AccessibleTextSummary.h"
 
 #include <execinfo.h>
 #include <csignal>
@@ -124,6 +126,10 @@ int main(int argc, char *argv[]) {
     
         // Set style
         app.setStyle("Fusion");
+
+        // Painted data views (event dashboard, machine layout) expose a
+        // plain-text summary to screen readers through this factory.
+        QAccessible::installFactory(accessibleTextSummaryFactory);
 
         MainWindow window;
         QObject::connect(&activationServer, &QLocalServer::newConnection, [&]() {

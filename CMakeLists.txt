@@ -58,6 +58,7 @@ src/gui/widgets/OpcUaLiveStatusWindow.cpp
 src/gui/widgets/DocsDialog.cpp
 src/gui/widgets/ChangelogDialog.cpp
 src/gui/widgets/CircularSpinner.cpp
+src/gui/widgets/AccessibleTextSummary.cpp
 )
 
 # Header files for Qt MOC
@@ -144,6 +145,7 @@ if(BUILD_TESTING)
         tests/AnalysisReviewTiles.h
         tests/ChangelogDialogTest.h
         tests/DefectSeverityClassification.h
+        tests/AccessibilitySummary.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -154,6 +156,7 @@ if(BUILD_TESTING)
         tests/AnalysisReviewTiles.cpp
         tests/ChangelogDialogTest.cpp
         tests/DefectSeverityClassification.cpp
+        tests/AccessibilitySummary.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -176,9 +179,10 @@ if(BUILD_TESTING)
     add_test(NAME analysis_review_tiles COMMAND PaperVision_RegressionTest tiles)
     add_test(NAME changelog_dialog_render COMMAND PaperVision_RegressionTest changelog)
     add_test(NAME defect_severity_classification COMMAND PaperVision_RegressionTest severity)
+    add_test(NAME accessibility_summaries COMMAND PaperVision_RegressionTest a11y)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
-        defect_severity_classification
+        defect_severity_classification accessibility_summaries
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 

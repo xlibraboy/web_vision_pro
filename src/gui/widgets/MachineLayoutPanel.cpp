@@ -24,6 +24,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QSet>
+#include <QStringList>
 #include <QDateTime>
 #include <algorithm>
 #include <cmath>
@@ -36,6 +38,16 @@ const int kMaxMarkedEvents = 25;  // most recent marked events offered in the co
 // lane (display row 0) is the 3rd floor and the bottom lane is the 1st floor.
 inline int displayRowForLane(int lane) { return CameraFloor::kCount - 1 - lane; }
 inline int floorForDisplayRow(int row) { return CameraFloor::kThird - row; }
+
+// Lowercase severity word for mid-sentence use in the accessible summary.
+inline QString severityWord(int severity) {
+    switch (severity) {
+    case EventSignalScanner::SeverityCritical: return QStringLiteral("critical");
+    case EventSignalScanner::SeverityWarn: return QStringLiteral("warning");
+    case EventSignalScanner::SeverityOk: return QStringLiteral("ok");
+    default: return QStringLiteral("not analyzed");
+    }
+}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -470,6 +482,7 @@ void MachineLayoutPanel::loadDefects() {
                         ? signal.spotPct.at(si) : 0.0;
                     const double contrast = (si >= 0 && si < signal.stddev.size())
                         ? signal.stddev.at(si) : 0.0;
+                    def.spotPct = spots;
                     const char* verdict = def.severity == EventSignalScanner::SeverityCritical
                         ? "Critical"
                         : def.severity == EventSignalScanner::SeverityWarn
@@ -983,6 +996,91 @@ MachineLayoutPanel::Canvas::Canvas(MachineLayoutPanel* owner)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);  // hover events (tooltips) need tracking on
     setFocusPolicy(Qt::StrongFocus);  // so Esc reaches keyPressEvent
+    setAccessibleName(QStringLiteral("Machine layout"));
+    setObjectName(QStringLiteral("machineLayoutCanvas"));
+}
+
+QString MachineLayoutPanel::Canvas::accessibleSummary() const {
+    const QVector<CameraMark>& cameras = owner_->cameras_;
+    const QVector<DefectMark>& defects = owner_->defects_;
+    const QVector<TriggerMark>& triggers = owner_->triggers_;
+
+    int withPosition = 0;
+    for (const CameraMark& camera : cameras) {
+        if (camera.hasPosition) {
+            ++withPosition;
+        }
+    }
+    QString summary = cameras.isEmpty()
+        ? QStringLiteral("Machine layout: no cameras configured.")
+        : QString("Machine layout: %1 cameras, %2 with a machine position.")
+              .arg(cameras.size())
+              .arg(withPosition);
+
+    int critical = 0;
+    int warn = 0;
+    int ok = 0;
+    int unanalyzed = 0;
+    QSet<int> defectEvents;
+    for (const DefectMark& defect : defects) {
+        switch (defect.severity) {
+        case EventSignalScanner::SeverityCritical: ++critical; break;
+        case EventSignalScanner::SeverityWarn: ++warn; break;
+        case EventSignalScanner::SeverityOk: ++ok; break;
+        default: ++unanalyzed; break;
+        }
+        if (defect.eventIndex >= 0) {
+            defectEvents.insert(defect.eventIndex);
+        }
+    }
+    const bool singleEvent = owner_->eventCombo_
+        && owner_->eventCombo_->currentData().toInt() >= 0;
+    if (defects.isEmpty()) {
+        if (!cameras.isEmpty()) {
+            summary += QStringLiteral(" No marked and aligned defects.");
+        }
+    } else {
+        summary += QString(" Defect marks: %1 (%2 critical, %3 warning, %4 ok, %5 not analyzed) %6.")
+            .arg(defects.size())
+            .arg(critical)
+            .arg(warn)
+            .arg(ok)
+            .arg(unanalyzed)
+            .arg(singleEvent
+                     ? QStringLiteral("from the selected event")
+                     : QString("from %1 event%2")
+                           .arg(defectEvents.size())
+                           .arg(defectEvents.size() == 1 ? QString() : QStringLiteral("s")));
+    }
+
+    // Rank marks by spot area (the size proxy) so the marks that most need
+    // triage are read first.
+    QVector<const DefectMark*> ranked;
+    for (const DefectMark& defect : defects) {
+        if (defect.spotPct > 0.0) {
+            ranked.append(&defect);
+        }
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const DefectMark* a, const DefectMark* b) {
+        return a->spotPct > b->spotPct;
+    });
+    if (!ranked.isEmpty()) {
+        QStringList largest;
+        for (int i = 0; i < ranked.size() && i < 3; ++i) {
+            const DefectMark* defect = ranked.at(i);
+            largest << QString("%1 at %2 mm, spot area %3 percent (%4)")
+                           .arg(defect->camLabel)
+                           .arg(defect->mm, 0, 'f', 1)
+                           .arg(defect->spotPct, 0, 'f', 2)
+                           .arg(severityWord(defect->severity));
+        }
+        summary += QString(" Largest marks: %1.").arg(largest.join(QStringLiteral("; ")));
+    }
+
+    if (!triggers.isEmpty()) {
+        summary += QString(" %1 trigger records.").arg(triggers.size());
+    }
+    return summary;
 }
 
 QRect MachineLayoutPanel::Canvas::cameraMarkerRect(const CameraMark& cam) const {

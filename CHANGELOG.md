@@ -22,9 +22,19 @@ here.
 - Status bar: a live FPS readout that turns red while an event recording is running.
 - Live View: unassigned grid slots are labelled "No camera assigned" instead of rendering as bare dark cells.
 
+### Changed
+
+- Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
+- Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
+
 ### Fixed
 
+- Theme presets now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected preset.
+- Status text and badges meet stronger contrast targets (the previous critical red measured well below the readability bar on the default theme).
+- The low-disk status-bar badge keeps a visible keyboard focus ring instead of erasing it.
 - Detail View: the camera parameter column scrolls on short windows (e.g. 1366×768) instead of squeezing the spin boxes until their values render blank.
+- Analysis View: the Enable Event Deletion switch announces its label to screen readers and draws a visible keyboard-focus ring.
+- Analysis and Machine Layout: the event dashboard and the machine schematic expose a plain-text summary (frames, defect hits, marks by severity, largest spot areas) to screen readers instead of reading as silent painted surfaces.
 
 ## [1.2.0] - 2026-10-14
 
@@ -37,14 +47,6 @@ here.
 
 - Configuration and event storage paths resolve per environment now: `PAPERVISION_CONFIG_DIR` / `PAPERVISION_DATA_DIR` overrides, `/app/data` inside Docker, XDG directories (`~/.config`, `~/.local/share`) on a native install; camera parameter files moved next to the recordings.
 - Analysis View event log: an OPC UA trigger now shows only the sensor name in the Reason column (no more "OPC UA:" prefix).
-- Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
-- Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
-
-### Fixed
-
-- Theme presets now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected preset.
-- Status text and badges meet stronger contrast targets (the previous critical red measured well below the readability bar on the default theme).
-- The low-disk status-bar badge keeps a visible keyboard focus ring instead of erasing it.
 
 ## [1.1.0] - 2026-09-19
 

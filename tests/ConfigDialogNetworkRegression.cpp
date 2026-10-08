@@ -4,6 +4,7 @@
 #include "AnalysisReviewTiles.h"
 #include "ChangelogDialogTest.h"
 #include "DefectSeverityClassification.h"
+#include "AccessibilitySummary.h"
 
 #include "gui/ConfigDialog.h"
 
@@ -150,7 +151,8 @@ int runSuite(QObject* suite, int argc, char* argv[])
     for (int i = 1; i < argc; ++i) {
         const QByteArray arg(argv[i]);
         if (arg == "all" || arg == "config" || arg == "capture" || arg == "scope"
-            || arg == "tiles" || arg == "changelog" || arg == "severity") {
+            || arg == "tiles" || arg == "changelog" || arg == "severity"
+            || arg == "a11y") {
             continue;
         }
         args.push_back(arg);
@@ -177,7 +179,8 @@ int main(int argc, char* argv[])
         const QString arg = QString::fromLocal8Bit(argv[i]);
         if (arg == QLatin1String("config") || arg == QLatin1String("capture")
             || arg == QLatin1String("scope") || arg == QLatin1String("tiles")
-            || arg == QLatin1String("changelog") || arg == QLatin1String("severity")) {
+            || arg == QLatin1String("changelog") || arg == QLatin1String("severity")
+            || arg == QLatin1String("a11y")) {
             suite = arg;
         }
     }
@@ -206,6 +209,10 @@ int main(int argc, char* argv[])
     if (suite == QLatin1String("all") || suite == QLatin1String("severity")) {
         DefectSeverityClassification severityTest;
         status |= runSuite(&severityTest, argc, argv);
+    }
+    if (suite == QLatin1String("all") || suite == QLatin1String("a11y")) {
+        AccessibilitySummary a11yTest;
+        status |= runSuite(&a11yTest, argc, argv);
     }
     return status;
 }

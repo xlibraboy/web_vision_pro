@@ -5,6 +5,7 @@
 #include <QPainterPath>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QStringList>
 #include <QToolTip>
 #include <algorithm>
 #include <cmath>
@@ -32,6 +33,7 @@ EventDashboard::EventDashboard(QWidget* parent)
     theme_ = CameraConfig::getThemeColors();
     setMouseTracking(true);
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    setAccessibleName(QStringLiteral("Event dashboard"));
     updateMinimumHeight();
 }
 
@@ -297,6 +299,66 @@ void EventDashboard::setNotRecorded(const QString& reason) {
 void EventDashboard::applyTheme(const ThemeColors& theme) {
     theme_ = theme;
     update();
+}
+
+QString EventDashboard::accessibleSummary() const {
+    if (!notRecordedReason_.isEmpty()) {
+        return QString("Event dashboard: this camera has no recording in the event. %1")
+            .arg(notRecordedReason_);
+    }
+    if (totalFrames_ <= 0) {
+        return QStringLiteral("Event dashboard: no event loaded.");
+    }
+
+    QStringList regions;
+    if (brightnessVisible_) {
+        regions << QStringLiteral("brightness chart");
+    }
+    if (detailEnabled_ && detailVisible_) {
+        regions << QStringLiteral("detail strip");
+    }
+    if (lanesVisible_[0]) {
+        regions << QStringLiteral("spots lane");
+    }
+    if (lanesVisible_[1]) {
+        regions << QStringLiteral("contrast lane");
+    }
+    if (thumbsVisible_) {
+        regions << QStringLiteral("thumbnails");
+    }
+
+    double peakSpots = 0.0;
+    for (double value : spotPct_) {
+        peakSpots = qMax(peakSpots, value);
+    }
+
+    // The defect series are frame indices of the drawn hit markers.
+    QString summary = QString("Event dashboard for %1: %2 frames at %3 FPS. "
+                              "Trigger at frame %4, playhead at frame %5.")
+        .arg(cameraLabel_.isEmpty() ? QStringLiteral("camera") : cameraLabel_)
+        .arg(totalFrames_)
+        .arg(fps_, 0, 'f', 1)
+        .arg(triggerIndex_)
+        .arg(currentFrame_);
+    summary += QString(" Defect hits: %1 brightness jump, %2 local spot, %3 low contrast.")
+        .arg(defectBrightness_.size())
+        .arg(defectLocal_.size())
+        .arg(defectContrast_.size());
+    if (peakSpots > 0.0) {
+        summary += QString(" Peak spot area %1 percent (limit %2).")
+            .arg(peakSpots, 0, 'f', 2)
+            .arg(EventSignalScanner::kLocalSpotMinPct, 0, 'f', 2);
+    }
+    summary += regions.isEmpty()
+        ? QStringLiteral(" No signal regions shown.")
+        : QString(" Showing: %1.").arg(regions.join(QStringLiteral(", ")));
+    if (loadingSignals_) {
+        summary += QStringLiteral(" Signal scan in progress.");
+    }
+    if (loadingThumbs_) {
+        summary += QStringLiteral(" Thumbnails loading.");
+    }
+    return summary;
 }
 
 QSize EventDashboard::sizeHint() const {

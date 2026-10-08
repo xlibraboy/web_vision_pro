@@ -1705,6 +1705,9 @@ void AnalysisView::setupLeftSidebar() {
 
     enableDeleteCheck_ = new ToggleSwitch(logGroup);
     enableDeleteCheck_->setEnabled(false);
+    // The switch draws its own face, so the row's label is not read with it:
+    // without an explicit name it announces no name at all.
+    enableDeleteCheck_->setAccessibleName(deleteLabel->text());
     connect(enableDeleteCheck_, &ToggleSwitch::toggled, this, &AnalysisView::setDeleteEnabled);
     deleteModeRow->addWidget(enableDeleteCheck_, 0, Qt::AlignVCenter);
     logLayout->addLayout(deleteModeRow);
