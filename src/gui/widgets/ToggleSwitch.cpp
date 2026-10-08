@@ -50,7 +50,7 @@ void ToggleSwitch::paintEvent(QPaintEvent*) {
     ThemeColors tc = CameraConfig::getThemeColors();
     QColor bgColor(tc.bg);
     QColor activeColor(tc.primary);
-    QColor disabledTrack("#555555");
+    QColor disabledTrack(tc.disabled);
     QColor trackColor = state ? activeColor : bgColor;
 
     if (!isEnabled()) {
@@ -74,9 +74,9 @@ void ToggleSwitch::paintEvent(QPaintEvent*) {
     // Draw thumb
     painter.setPen(Qt::NoPen);
     if (!isEnabled()) {
-        painter.setBrush(QColor("#888888"));
+        painter.setBrush(QColor(tc.muted));
     } else {
-        painter.setBrush(Qt::white);
+        painter.setBrush(QColor(tc.handle));
     }
     
     int thumbSize = height() - 4;

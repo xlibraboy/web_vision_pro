@@ -5,6 +5,7 @@
 #include <QString>
 #include <QImage>
 #include <QColor>
+#include "../../config/CameraConfig.h"
 
 /**
  * EventDashboard - Single-camera time-series view of one recorded event.
@@ -77,8 +78,8 @@ public:
     // states that instead of leaving an empty chart or, worse, another camera's
     // curves. Any setEventData() call clears it.
     void setNotRecorded(const QString& reason);
-    void applyTheme(const QColor& background, const QColor& curve,
-                    const QColor& text);
+    // Apply the active theme preset (canvas, surface, text, markers).
+    void applyTheme(const ThemeColors& theme);
 
     QSize sizeHint() const override;
 
@@ -155,7 +156,5 @@ private:
     bool loadingThumbs_ = false;
     bool hoverTooltipEnabled_ = true;
 
-    QColor bgColor_ = QColor(QStringLiteral("#1B1B1F"));
-    QColor curveColor_ = QColor(QStringLiteral("#4FC3F7"));
-    QColor textColor_ = QColor(QStringLiteral("#E0E0E0"));
+    ThemeColors theme_;
 };

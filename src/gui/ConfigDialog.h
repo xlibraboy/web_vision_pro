@@ -394,9 +394,6 @@ private:
     // Admin mode
     bool isAdminMode_;
 
-    // Theme colors
-    QColor primaryColor_;
-
     struct PresetButtonGroup {
         QPushButton* btnS = nullptr;
         QPushButton* btnM = nullptr;
@@ -420,5 +417,4 @@ private:
     PresetButtonGroup analysisTimestampPresets_;
     PresetButtonGroup analysisTabPresets_;
     PresetButtonGroup analysisMetadataPresets_;
-    QColor accentColor_;
 };

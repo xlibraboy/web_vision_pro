@@ -192,7 +192,7 @@ public:
         errorLabel_ = new QLabel(this);
         errorLabel_->setVisible(false);
         errorLabel_->setWordWrap(true);
-        errorLabel_->setStyleSheet("color: #E06060;");
+        errorLabel_->setStyleSheet(QString("color: %1;").arg(CameraConfig::getThemeColors().critical));
         root->addWidget(errorLabel_);
 
         root->addStretch();
@@ -209,7 +209,7 @@ public:
         capsLockIconLabel_ = new QLabel(this);
         capsLockIconLabel_->setVisible(false);
         capsLockIconLabel_->setToolTip("Caps Lock is ON — passwords are case-sensitive.");
-        capsLockIconLabel_->setPixmap(makeCapsLockIcon(QColor("#E0A800")).pixmap(18, 18));
+        capsLockIconLabel_->setPixmap(makeCapsLockIcon(QColor(CameraConfig::getThemeColors().warn)).pixmap(18, 18));
 
         QHBoxLayout* footerLayout = new QHBoxLayout();
         footerLayout->setContentsMargins(0, 0, 0, 0);
@@ -1650,7 +1650,7 @@ void MainWindow::updateConfigTabAccess() {
     }
 
     mainTabWidget_->setTabEnabled(tabIndex, isAdmin_);
-    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? palette().color(QPalette::WindowText) : QColor("#777777"));
+    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? palette().color(QPalette::WindowText) : QColor(CameraConfig::getThemeColors().disabled));
     configWindow_->setAdminMode(isAdmin_);
 }
 
@@ -1837,9 +1837,11 @@ void MainWindow::togglePauseGrab() {
     if (!isPaused) {
         pauseBtn_->setText("Resume");
         pauseBtn_->setToolTip("Resume camera grabbing");
-        // Apply a visual warning tint (light red) to signify paused state. 
+        // Apply a visual warning tint to signify paused state.
         // This takes precedence over global stylesheet.
-        pauseBtn_->setStyleSheet("background-color: #ffaaaa; color: #880000;");
+        const ThemeColors tcPaused = CameraConfig::getThemeColors();
+        pauseBtn_->setStyleSheet(QString("background-color: %1; color: %2;")
+                                     .arg(tcPaused.warn, tcPaused.onStatus));
         statusBar()->showMessage("Camera Grabbing PAUSED", 3000);
     } else {
         pauseBtn_->setText("Pause");
@@ -1865,35 +1867,53 @@ void MainWindow::applyGlobalTheme() {
     // darker() is what actually reads as a hover cue without dropping the fill.
     const QString checkedHoverColor = QColor(primaryColor).darker(115).name();
 
+    // Badges and disabled chrome use the semantic tokens so every preset
+    // reaches them. The focus ring replaces a former outline:none rule: the
+    // badge keeps a visible cue while it holds keyboard focus.
+    auto tint = [](const QString& hex, double alpha) {
+        const QColor c(hex);
+        return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
+    };
+    const QString disabledColor = tc.disabled;
+    const QString infoColor = tc.info;
+    const QString warnColor = tc.warn;
+    const QString criticalColor = tc.critical;
+    const QString focusColor = tc.focus;
+    const QString emulationWash = tint(tc.info, 0.16);
+    const QString diskWash = tint(tc.warn, 0.16);
+    const QString diskHoverWash = tint(tc.warn, 0.32);
+    const QString diskCriticalWash = tint(tc.critical, 0.18);
+    const QString diskCriticalHoverWash = tint(tc.critical, 0.34);
+
     QString globalStyle = QString(
         // Base Window & Widget backgrounds
         "QMainWindow, QDialog { background-color: %1; color: %8; }"
         "QMainWindow QWidget, QDialog QWidget { background-color: %1; color: %8; }"
-        "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: #888888; }"
+        "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: %10; }"
         "QLabel#adminStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
         "QLabel#adminStatusLabel[adminActive='true'] { color: %5; }"
         // Live capture readout (status bar): FPS for every view, red while an
         // event recording is in progress.
         "QLabel#liveStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
-        "QLabel#liveStatusLabel[recording='true'] { color: #FF5A5A; }"
-        // Emulation-mode badge (cyan accent matches the emulated status color)
-        "QLabel#emulationBadge { background-color: rgba(0, 229, 255, 0.16); color: #00E5FF; "
-        "  border: 1px solid #00E5FF; border-radius: 10px; padding: 3px 12px; "
+        "QLabel#liveStatusLabel[recording='true'] { color: %19; }"
+        // Emulation-mode badge (info accent = "emulated" status)
+        "QLabel#emulationBadge { background-color: %12; color: %11; "
+        "  border: 1px solid %11; border-radius: 10px; padding: 3px 12px; "
         "  font-weight: bold; font-size: 12px; }"
         // Low-disk badge (clickable): amber below threshold, red at critical (< half threshold)
-        "QPushButton#diskBadge { background-color: rgba(255, 176, 32, 0.16); color: #FFB020; "
-        "  border: 1px solid #FFB020; border-radius: 10px; padding: 3px 12px; "
+        "QPushButton#diskBadge { background-color: %13; color: %17; "
+        "  border: 1px solid %17; border-radius: 10px; padding: 3px 12px; "
         "  font-weight: bold; font-size: 12px; }"
-        "QPushButton#diskBadge:hover { background-color: rgba(255, 176, 32, 0.32); }"
-        "QPushButton#diskBadge:focus { outline: none; }"
-        "QPushButton#diskBadge[critical='true'] { background-color: rgba(255, 90, 90, 0.18); "
-        "  color: #FF5A5A; border: 1px solid #FF5A5A; }"
-        "QPushButton#diskBadge[critical='true']:hover { background-color: rgba(255, 90, 90, 0.34); }"
+        "QPushButton#diskBadge:hover { background-color: %14; }"
+        "QPushButton#diskBadge:focus { border: 1px solid %18; }"
+        "QPushButton#diskBadge[critical='true'] { background-color: %15; "
+        "  color: %19; border: 1px solid %19; }"
+        "QPushButton#diskBadge[critical='true']:hover { background-color: %16; }"
         // Toolbars and Borders
         "QToolBar, QMenuBar { background-color: %3; border-bottom: 1px solid %2; color: %8; }"
         "QMenu { background-color: %3; border: 1px solid %2; color: %8; }"
         "QMenu::item:selected { background-color: %4; color: %5; }"
-        "QMenu::item:disabled { color: #888888; }"
+        "QMenu::item:disabled { color: %10; }"
         // Tooltips — one standard, readable look app-wide (light background,
         // dark text, thin border, normal weight) instead of inheriting the
         // dark app theme.
@@ -1903,7 +1923,7 @@ void MainWindow::applyGlobalTheme() {
         "QPushButton { background-color: %3; color: %8; border: 1px solid %2; border-radius: 4px; padding: 4px 12px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %1; }"
-        "QPushButton:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        "QPushButton:disabled { background-color: %1; color: %10; border: 1px solid %2; }"
         // Checkboxes — always render a clearly visible box (dark theme), with
         // a filled primary-colored state when checked. Hovering a checked box
         // only shifts the accent shade; it must never drop back to the neutral
@@ -1926,11 +1946,11 @@ void MainWindow::applyGlobalTheme() {
         "QSlider::handle:horizontal:hover { transform: scale(1.2); background: %5; }"
         "QSlider::handle:horizontal:disabled { background: %2; }"
         "QSlider::sub-page:horizontal { background: %6; border-radius: 2px; }"
-        "QSlider::sub-page:horizontal:disabled { background: #888888; border-radius: 2px; }"
+        "QSlider::sub-page:horizontal:disabled { background: %10; border-radius: 2px; }"
         "QSlider::add-page:horizontal { background: %2; border-radius: 2px; }"
         // Inputs
         "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: %3; color: %8; border: 1px solid %2; border-radius: 2px; padding: 2px 4px; }"
-        "QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled { background-color: %1; color: #888888; border: 1px solid %2; }"
+        "QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled { background-color: %1; color: %10; border: 1px solid %2; }"
         "QComboBox::drop-down { border-left: 1px solid %2; }"
         // SpinBox buttons — must be styled explicitly when background-color is set
         "QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 16px; border-left: 1px solid %2; background-color: %3; }"
@@ -1947,7 +1967,10 @@ void MainWindow::applyGlobalTheme() {
         "QWidget#playbackPanel QPushButton[active=\"true\"] { background-color: %5; color: %1; }"
         "QWidget#playbackPanel { border-top: 1px solid %2; }"
     ).arg(bgColor, borderColor, btnBg, btnHover, primaryColor, sliderBg, handleColor, textColor,
-          checkedHoverColor);
+          checkedHoverColor)
+     .arg(disabledColor, infoColor, emulationWash, diskWash, diskHoverWash, diskCriticalWash,
+          diskCriticalHoverWash, warnColor, focusColor)
+     .arg(criticalColor);
 
     qApp->setStyleSheet(globalStyle);
 

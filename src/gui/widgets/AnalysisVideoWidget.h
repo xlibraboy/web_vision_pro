@@ -106,7 +106,7 @@ private:
     QPoint markerEnd_;
     QVector<QPoint> markerPenPoints_;
     QVector<QPointF> markerNormalizedPoints_;
-    QColor markerColor_ = QColor(30, 144, 255);
+    QColor markerColor_;  // resolved from the theme accent in the constructor
     double zoomFactor_ = 1.0;
     int brightnessOffset_ = 0;
     QPointF panOffset_;

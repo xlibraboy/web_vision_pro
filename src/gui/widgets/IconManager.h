@@ -43,14 +43,16 @@ class IconManager {
 public:
     static IconManager& instance();
 
-    // Get an icon with specified size and colors
+    // Get an icon with specified size and colors. Passing an invalid QColor
+    // (the default) resolves that plane from the active theme: text for the
+    // primary plane, accent for the secondary plane.
     QIcon getIcon(const QString& name, int size = 20,
-                  const QColor& primaryColor = QColor("#E3E3E3"),
-                  const QColor& secondaryColor = QColor("#00E5FF"));
+                  const QColor& primaryColor = QColor(),
+                  const QColor& secondaryColor = QColor());
 
     QPixmap getPixmap(const QString& name, int size = 20,
-                      const QColor& primaryColor = QColor("#E3E3E3"),
-                      const QColor& secondaryColor = QColor("#00E5FF"));
+                      const QColor& primaryColor = QColor(),
+                      const QColor& secondaryColor = QColor());
 
     // Predefined icon getters with theme-aware colors
     QIcon camera(int size = 20);
@@ -81,9 +83,6 @@ public:
     QIcon statusError(int size = 20);
     QIcon statusOffline(int size = 20);
 
-    // Set theme colors
-    void setThemeColors(const QColor& primary, const QColor& accent);
-
 private:
     IconManager();
     ~IconManager() = default;
@@ -92,10 +91,6 @@ private:
 
     // SVG icon data storage
     QMap<QString, QString> iconData_;
-
-    // Theme colors
-    QColor primaryColor_;
-    QColor accentColor_;
 
     // Initialize built-in icons
     void initializeIcons();

@@ -86,7 +86,13 @@ public:
                 if (index.column() == 0) {
                     painter->fillRect(QRect(opt.rect.left(), opt.rect.top() + 1, 3, opt.rect.height() - 2), QColor(tc.primary));
                 }
-                painter->setPen(QColor(Qt::white)); // matches the :selected text color
+                // Match the stylesheet's selected text: light on the dark
+                // selection (normal mode), ink on the bright critical fill
+                // (delete mode).
+                const QColor selectionBg = opt.backgroundBrush.style() != Qt::NoBrush
+                    ? opt.backgroundBrush.color() : QColor(tc.bg);
+                painter->setPen(selectionBg.lightness() > 128 ? QColor(tc.onStatus)
+                                                              : QColor(tc.text));
             } else {
                 painter->setPen(QColor(tc.text));
             }
@@ -293,6 +299,13 @@ static QPixmap makeSparklinePixmap(const std::vector<double>& samples,
     return pm;
 }
 
+// Tinted fill for QSS: the token color at the given opacity over whatever the
+// widget background is. Keeps status chrome readable on any preset.
+static QString tintStyle(const QString& hex, double alpha) {
+    const QColor c(hex);
+    return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
+}
+
 static QString makeSidebarPanelStyle(const ThemeColors& tc) {
     const QString divider = QColor(tc.border).lighter(112).name();
     const QString subtleText = QColor(tc.text).lighter(110).name();
@@ -334,10 +347,11 @@ static QString makeSidebarPanelStyle(const ThemeColors& tc) {
 }
 
 static QString makeSidebarStateButtonStyle(const ThemeColors& tc, bool active) {
-    const QString bg = active ? QStringLiteral("#0F6B52") : tc.bg;
-    const QString border = active ? QStringLiteral("#18A57B") : tc.border;
-    const QString hover = active ? QStringLiteral("#138362") : tc.btnHover;
-    const QString text = active ? QStringLiteral("#F5FFFC") : tc.text;
+    // Active = the "good" state: ok token as text/border on its own wash.
+    const QString bg = active ? tintStyle(tc.ok, 0.16) : tc.bg;
+    const QString border = active ? tc.ok : tc.border;
+    const QString hover = active ? tintStyle(tc.ok, 0.28) : tc.btnHover;
+    const QString text = active ? tc.ok : tc.text;
     return QString(
         "QPushButton {"
         "  background-color: %1;"
@@ -357,18 +371,19 @@ static QString makeSidebarStateButtonStyle(const ThemeColors& tc, bool active) {
 static QString makeSidebarConnectingButtonStyle(const ThemeColors& tc) {
     return QString(
         "QPushButton {"
-        "  background-color: #6B4F12;"
-        "  color: #FFD98A;"
-        "  border: 1px solid #B8860B;"
+        "  background-color: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
         "  border-radius: 6px;"
         "  padding: 3px 8px;"
         "  font-size: 11px;"
         "  font-weight: 700;"
         "}"
-        "QPushButton:hover { background-color: #7A5C1A; border-color: #D4A017; }"
-        "QPushButton:pressed { background-color: #5A4210; }"
-        "QPushButton:disabled { background-color: %1; color: %2; border-color: %2; }"
-    ).arg(tc.btnBg, tc.border);
+        "QPushButton:hover { background-color: %4; border-color: %2; }"
+        "QPushButton:pressed { background-color: %1; }"
+        "QPushButton:disabled { background-color: %5; color: %6; border-color: %6; }"
+    ).arg(tintStyle(tc.warn, 0.16), tc.warn, tintStyle(tc.warn, 0.45),
+          tintStyle(tc.warn, 0.28), tc.btnBg, tc.disabled);
 }
 
 static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
@@ -463,15 +478,16 @@ static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
         "  border: none;"
         "  border-top-right-radius: 5px;"
         "  border-bottom-right-radius: 5px;"
-        "  color: #FFB4B4;"
+        "  color: %9;"
         "  font-size: 10px;"
         "  font-weight: 700;"
         "  padding: 2px 8px;"
         "}"
-        "QPushButton#deleteActionButton:hover { background-color: #982B2B; color: #FFF5F5; }"
-        "QPushButton#deleteActionButton:pressed { background-color: #7C2020; color: #FFF5F5; }"
+        "QPushButton#deleteActionButton:hover { background-color: %10; color: %9; }"
+        "QPushButton#deleteActionButton:pressed { background-color: %11; color: %9; }"
         "QPushButton#deleteActionButton:disabled { color: %8; background: transparent; }"
-    ).arg(tc.btnBg, tc.border, divider, accentText, tc.btnHover, tc.text, pressedBg, muted);
+    ).arg(tc.btnBg, tc.border, divider, accentText, tc.btnHover, tc.text, pressedBg, muted,
+          tc.critical, tintStyle(tc.critical, 0.18), tintStyle(tc.critical, 0.32));
 }
 
 static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = false) {
@@ -543,14 +559,14 @@ static QString makeVerticalSliderStyle(const ThemeColors& tc) {
         "QSlider::handle:vertical { height: 11px; width: 24px; margin: 0 -10px;"
         " background: %3; border: 1px solid %4; border-radius: 3px; }"
         "QSlider::handle:vertical:hover { background: %2; border-color: %3; }"
-        "QSlider::handle:vertical:pressed { background: %2; border-color: #FFFFFF; }"
+        "QSlider::handle:vertical:pressed { background: %2; border-color: %7; }"
         "QSlider::groove:vertical:hover { background: %5; }"
         "QSlider::sub-page:vertical:hover { background: %5; }"
         "QSlider::groove:vertical:disabled { background: %6; }"
         "QSlider::sub-page:vertical:disabled { background: %6; }"
         "QSlider::add-page:vertical:disabled { background: %6; }"
         "QSlider::handle:vertical:disabled { background: %1; border-color: %6; }"
-    ).arg(tc.border, tc.primary, capBg, capBorder, tc.btnHover, tc.bg);
+    ).arg(tc.border, tc.primary, capBg, capBorder, tc.btnHover, tc.bg, tc.handle);
 }
 
 static constexpr int kReviewSliderUnitsPerSecond = 1000;
@@ -561,20 +577,21 @@ static QString makeTableStyle(const ThemeColors& tc, bool deleteMode) {
     QColor divider(tc.border);
     divider = divider.lightness() < 128 ? divider.lighter(130) : divider.darker(115);
     selectedBg = selectedBg.lightness() < 128 ? selectedBg.lighter(125) : selectedBg.darker(115);
-    QString selNormal  = QString("QTableWidget::item:selected { background-color: %1; color: white; }")
-                         .arg(selectedBg.name());
-    QString selDelete  = "QTableWidget::item:selected { background-color: #D32F2F; color: white; }";
+    QString selNormal  = QString("QTableWidget::item:selected { background-color: %1; color: %2; }")
+                         .arg(selectedBg.name(), tc.text);
+    QString selDelete  = QString("QTableWidget::item:selected { background-color: %1; color: %2; }")
+                         .arg(tc.critical, tc.onStatus);
     return QString(
-        "QTableWidget { background-color: %1; alternate-background-color: %2; color: #E0E0E0; "
+        "QTableWidget { background-color: %1; alternate-background-color: %2; color: %4; "
         "gridline-color: transparent; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; "
         "border: 1px solid %3; border-radius: 8px; outline: none; padding: 2px; }"
-        "QHeaderView::section { background-color: %1; color: #E0E0E0; padding: 6px 4px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
+        "QHeaderView::section { background-color: %1; color: %4; padding: 6px 4px; border: none; border-bottom: 1px solid %3; text-align: left; font-size: 10px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; font-weight: 700; }"
         "QHeaderView::section:checked, QHeaderView::section:pressed, "
         "QHeaderView::section:hover, QHeaderView::section:disabled "
-        "{ background-color: %1; color: #E0E0E0; }"
+        "{ background-color: %1; color: %4; }"
         "QTableCornerButton::section { background-color: %1; border: none; border-bottom: 1px solid %3; }"
-        "QTableWidget::item { padding: 4px 4px; border: none; color: #E0E0E0; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
-    ).arg(tc.bg, tc.btnBg, divider.name())
+        "QTableWidget::item { padding: 4px 4px; border: none; color: %4; font-size: 11px; font-family: 'Noto Sans', 'DejaVu Sans', sans-serif; }"
+    ).arg(tc.bg, tc.btnBg, divider.name(), tc.text)
      + (deleteMode ? selDelete : selNormal);
 }
 
@@ -2695,8 +2712,8 @@ void AnalysisView::setupPlaybackControls() {
         "QMenu { background-color: %1; border: 1px solid %2; color: %3; padding: 2px; font-size: 11px; }"
         "QMenu::item { padding: 2px 24px 2px 8px; font-size: 11px; }"
         "QMenu::item:selected { background-color: %4; color: %5; }"
-        "QMenu::item:disabled { color: #888888; }"
-    ).arg(tc.bg, tc.border, tc.text, tc.btnHover, tc.primary));
+        "QMenu::item:disabled { color: %6; }"
+    ).arg(tc.bg, tc.border, tc.text, tc.btnHover, tc.primary, tc.disabled));
     toolbarLayout->addWidget(speedButton_);
     
     // 2. Play/Pause
@@ -4557,7 +4574,10 @@ void AnalysisView::updateAnnotationSliderMarkers() {
                     .arg(camNumber).arg(frameIndex)
                     .arg(relativeSeconds >= 0.0 ? "+" : "")
                     .arg(relativeSeconds, 0, 'f', 3));
-            marker->setStyleSheet("background-color: #FF5A5A; border: 1px solid white; border-radius: 4px;");
+            // Drawn over the video frame: the light ring stays for visibility
+            // on any image, the fill follows the critical token.
+            marker->setStyleSheet(QString("background-color: %1; border: 1px solid white; border-radius: 4px;")
+                                      .arg(QColor(CameraConfig::getThemeColors().critical).name()));
             marker->move(xPos - 4, defectYPos);
             marker->setCursor(Qt::PointingHandCursor);
             marker->installEventFilter(this);
@@ -4626,6 +4646,7 @@ void AnalysisView::addPaperBreakEvent(const std::string& timestamp, int triggerI
 int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, bool permanent,
                               bool selectRow, int group, int defectFrame,
                               const QVector<int>& missingCameras) {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     QTableWidget* targetTable = permanent ? permanentPaperBreakTable_ : paperBreakTable_;
     const int row = targetTable->rowCount();
     targetTable->insertRow(row);
@@ -4676,9 +4697,9 @@ int AnalysisView::addEventRow(const QString& timestamp, const QString& reason, b
         groupTip += QString("\n\n%1").arg(missingTip);
         // A camera missing from the event is the one thing on this row an
         // operator must not have to hover to notice.
-        reasonItem->setForeground(QColor(224, 160, 48));
+        reasonItem->setForeground(QColor(tc.warn));
         reasonItem->setToolTip(missingTip);
-        groupItem->setForeground(QColor(224, 160, 48));
+        groupItem->setForeground(QColor(tc.warn));
     }
     groupItem->setToolTip(groupTip);
 
@@ -4811,6 +4832,7 @@ void AnalysisView::applyPendingRowFrame() {
 }
 
 void AnalysisView::insertPendingEventRow() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     if (pendingEventTimestamp_.isEmpty()) return;
     // Stale guard: an event that was armed but never saved (all cameras died,
     // save aborted) would otherwise show "Recording…" forever. 2 min is far
@@ -4846,7 +4868,7 @@ void AnalysisView::insertPendingEventRow() {
             QFont f = it->font();
             f.setItalic(true);
             it->setFont(f);
-            it->setForeground(QColor(128, 128, 128));
+            it->setForeground(QColor(tc.muted));
         }
     }
 }
@@ -5076,6 +5098,12 @@ void AnalysisView::updateTheme() {
         toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     }
     applyToolsPanelTheme();
+
+    // The event dashboard paints its own canvas: hand it the active theme so
+    // its plot area, curves, and markers follow theme switches too.
+    if (detailDashboard_) {
+        detailDashboard_->applyTheme(tc);
+    }
 
     // Re-apply the current delete-mode state (the segment itself is always
     // visible now, so drive it from the toggle instead of button visibility).
@@ -6123,7 +6151,7 @@ void AnalysisView::showMarkFeedback(const QString& text, bool success) {
         markFeedbackBanner_->hide();
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
-    const QColor accent = success ? QColor(tc.primary) : QColor("#ff6b6b");
+    const QColor accent = success ? QColor(tc.primary) : QColor(tc.critical);
     markFeedbackBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -6622,7 +6650,7 @@ void AnalysisView::resolveCameraKeyEntry() {
     // Unknown camera: flash a short warning instead of switching.
     if (cameraKeyBanner_) {
         const ThemeColors tc = CameraConfig::getThemeColors();
-        const QString accent = QColor("#ff6b6b").name();
+        const QString accent = QColor(tc.critical).name();
         cameraKeyBanner_->setStyleSheet(QString(
             "QLabel { background-color: rgba(30, 16, 18, 235); color: %1;"
             " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -6663,7 +6691,7 @@ void AnalysisView::refreshCameraKeyPreview() {
     const bool valid = id >= 1 && id <= numCameras_;
     const ThemeColors tc = CameraConfig::getThemeColors();
     const QColor accentColor = valid ? QColor(tc.primary)
-                                     : QColor("#8a8a8a");
+                                     : QColor(tc.disabled);
     cameraKeyBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -7540,17 +7568,22 @@ void AnalysisView::refreshDiagTable() {
                                      "0.0 = healthy. Rising values = bandwidth/packet-loss trend. "
                                      "The mini chart shows the last "
                                      + QString::number(kDiagDropRateHistoryMax) + " samples.");
-                QColor sparkColor("#4CAF50");
+                QColor sparkColor(tc.ok);
+                QColor dropWash;
                 if (dropsPerSec >= 10.0) {
-                    rateItem->setBackground(QColor(0xFF, 0x40, 0x40, 180));
-                    rateItem->setForeground(QColor("#FFFFFF"));
-                    sparkColor = QColor("#FF4040");
+                    dropWash = QColor(tc.critical);
+                    dropWash.setAlpha(180);
+                    rateItem->setBackground(dropWash);
+                    rateItem->setForeground(QColor(tc.onStatus));
+                    sparkColor = QColor(tc.critical);
                 } else if (dropsPerSec > 0.0) {
-                    rateItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
-                    rateItem->setForeground(QColor("#1A1A1A"));
-                    sparkColor = QColor("#FFAA00");
+                    dropWash = QColor(tc.warn);
+                    dropWash.setAlpha(180);
+                    rateItem->setBackground(dropWash);
+                    rateItem->setForeground(QColor(tc.onStatus));
+                    sparkColor = QColor(tc.warn);
                 } else {
-                    rateItem->setForeground(QColor("#4CAF50"));
+                    rateItem->setForeground(QColor(tc.ok));
                 }
                 rateItem->setIcon(QIcon(makeSparklinePixmap(history, sparkColor)));
             } else {
@@ -7579,10 +7612,12 @@ void AnalysisView::refreshDiagTable() {
                     "(~181 Mb/s) and causes incomplete grabs / 0 frames.")
                     .arg(linkMbps));
                 if (linkMbps < 1000) {
-                    linkItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));   // slow link
-                    linkItem->setForeground(QColor("#1A1A1A"));
+                    QColor slowWash(tc.warn);          // slow link
+                    slowWash.setAlpha(180);
+                    linkItem->setBackground(slowWash);
+                    linkItem->setForeground(QColor(tc.onStatus));
                 } else {
-                    linkItem->setForeground(QColor("#4CAF50"));
+                    linkItem->setForeground(QColor(tc.ok));
                 }
             }
             diagTable_->setItem(row, 14, linkItem);
@@ -7601,9 +7636,13 @@ void AnalysisView::refreshDiagTable() {
 
         if (cameraManager_) {
             if (isConnected) {
-                applyRowColors(row, QColor(20, 70, 40, 90), QColor(tc.text));
+                QColor connectedWash(tc.ok);
+                connectedWash.setAlpha(90);
+                applyRowColors(row, connectedWash, QColor(tc.text));
             } else {
-                applyRowColors(row, QColor(90, 35, 35, 90), QColor("#F2C2C2"));
+                QColor offlineWash(tc.critical);
+                offlineWash.setAlpha(90);
+                applyRowColors(row, offlineWash, QColor(tc.text));
             }
         }
 
@@ -7612,10 +7651,15 @@ void AnalysisView::refreshDiagTable() {
             QTableWidgetItem* tempItem = diagTable_->item(row, 2);
             if (tempItem) {
                 CameraManager::TemperatureStatus st = CameraManager::classifyTemperature(temperature);
-                if (st == CameraManager::TS_Error)
-                    tempItem->setBackground(QColor(0xFF, 0x40, 0x40, 160));
-                else if (st == CameraManager::TS_Critical)
-                    tempItem->setBackground(QColor(0xFF, 0xAA, 0x00, 160));
+                if (st == CameraManager::TS_Error) {
+                    QColor tempError(tc.critical);
+                    tempError.setAlpha(160);
+                    tempItem->setBackground(tempError);
+                } else if (st == CameraManager::TS_Critical) {
+                    QColor tempCritical(tc.warn);
+                    tempCritical.setAlpha(160);
+                    tempItem->setBackground(tempCritical);
+                }
             }
         }
 
@@ -7623,17 +7667,25 @@ void AnalysisView::refreshDiagTable() {
         if (healthItem) {
             healthItem->setToolTip("OK: no incomplete grabs. Recovered: drops occurred earlier. WARNING: ongoing incomplete grabs or a slow NIC link (<1 Gb/s) - usually bandwidth/packet timing/cable or switch port issue.");
             if (healthText == "WARNING") {
-                healthItem->setBackground(QColor(0xFF, 0xAA, 0x00, 180));
-                healthItem->setForeground(QColor("#1A1A1A"));
+                QColor warnWash(tc.warn);
+                warnWash.setAlpha(180);
+                healthItem->setBackground(warnWash);
+                healthItem->setForeground(QColor(tc.onStatus));
             } else if (healthText == "Recovered") {
-                healthItem->setBackground(QColor(0xFF, 0xD3, 0x6B, 140));
-                healthItem->setForeground(QColor("#2B2B2B"));
+                QColor recoveredWash(tc.warn);
+                recoveredWash.setAlpha(140);
+                healthItem->setBackground(recoveredWash);
+                healthItem->setForeground(QColor(tc.onStatus));
             } else if (healthText == "OK") {
-                healthItem->setBackground(QColor(0x57, 0xD3, 0x7C, 140));
-                healthItem->setForeground(QColor("#103218"));
+                QColor okWash(tc.ok);
+                okWash.setAlpha(140);
+                healthItem->setBackground(okWash);
+                healthItem->setForeground(QColor(tc.onStatus));
             } else {
-                healthItem->setBackground(QColor(0x90, 0x35, 0x35, 120));
-                healthItem->setForeground(QColor("#F2C2C2"));
+                QColor offlineHealthWash(tc.critical);
+                offlineHealthWash.setAlpha(120);
+                healthItem->setBackground(offlineHealthWash);
+                healthItem->setForeground(QColor(tc.text));
             }
         }
     }

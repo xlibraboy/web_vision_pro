@@ -34,13 +34,13 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     clientCaption->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.text));
     clientLabel_ = new QLabel(QStringLiteral("○ Idle (OPC UA disabled)"), this);
     clientLabel_->setWordWrap(true);
-    clientLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px; font-weight: 600;"));
+    clientLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(tc.muted));
     statusForm->addRow(clientCaption, clientLabel_);
 
     QLabel* speedCaption = new QLabel("Speed:", this);
     speedCaption->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.text));
     speedLabel_ = new QLabel(QStringLiteral("—"), this);
-    speedLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+    speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
     statusForm->addRow(speedCaption, speedLabel_);
 
     table_ = new QTableWidget(0, kStatusColumns, this);
@@ -68,7 +68,7 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
         "No tag values yet — waiting for the OPC UA tags to publish.", this);
     emptyLabel_->setAlignment(Qt::AlignCenter);
     emptyLabel_->setWordWrap(true);
-    emptyLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+    emptyLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(14, 14, 14, 14);
@@ -79,17 +79,18 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
 }
 
 void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     QString dot;
     QString color;
     if (status.clientConnected) {
         dot = QStringLiteral("●");
-        color = QStringLiteral("#4CAF50");
+        color = tc.ok;
     } else if (status.connecting) {
         dot = QStringLiteral("◐");
-        color = QStringLiteral("#E0A800");
+        color = tc.warn;
     } else {
         dot = QStringLiteral("○");
-        color = QStringLiteral("#8B949E");
+        color = tc.muted;
     }
     const QString clientText = status.clientStateText.isEmpty()
         ? QStringLiteral("Idle (OPC UA disabled)") : status.clientStateText;
@@ -101,10 +102,10 @@ void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {
         const QString staleSuffix = status.speedStale ? QStringLiteral("  (STALE)") : QString();
         speedLabel_->setText(status.speedText + staleSuffix);
         speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;")
-            .arg(status.speedStale ? QStringLiteral("#E0A800") : QStringLiteral("#4CAF50")));
+            .arg(status.speedStale ? tc.warn : tc.ok));
     } else {
         speedLabel_->setText(QStringLiteral("—"));
-        speedLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+        speedLabel_->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
     }
 
     if (table_->rowCount() != status.tags.size()) {
@@ -136,13 +137,13 @@ void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {
         }
 
         QString stateText = QStringLiteral("Idle");
-        QString stateColor = QStringLiteral("#4CAF50");
+        QString stateColor = tc.ok;
         if (tag.held || tag.active) {
             stateText = QStringLiteral("FIRING");
-            stateColor = QStringLiteral("#E0A800");
+            stateColor = tc.warn;
         } else if (!tag.enabled) {
             stateText = QStringLiteral("Off");
-            stateColor = QStringLiteral("#8B949E");
+            stateColor = tc.disabled;
         }
 
         QString lastFiredText = QStringLiteral("—");
@@ -151,12 +152,12 @@ void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {
                 .toString(QStringLiteral("HH:mm:ss.zzz"));
         }
 
-        table_->setItem(i, 0, makeItem(name, QStringLiteral("#E3E3E3")));
+        table_->setItem(i, 0, makeItem(name, tc.text));
         table_->setItem(i, 1, makeItem(tag.simulated ? QStringLiteral("Sim") : QStringLiteral("Live"),
-            tag.simulated ? QStringLiteral("#00E5FF") : QStringLiteral("#A9B4C2")));
-        table_->setItem(i, 2, makeItem(tag.valueText, QStringLiteral("#E3E3E3")));
+            tag.simulated ? tc.info : tc.muted));
+        table_->setItem(i, 2, makeItem(tag.valueText, tc.text));
         table_->setItem(i, 3, makeItem(stateText, stateColor));
-        table_->setItem(i, 4, makeItem(lastFiredText, QStringLiteral("#8B949E")));
+        table_->setItem(i, 4, makeItem(lastFiredText, tc.muted));
     }
 
     table_->setVisible(visibleRows > 0);

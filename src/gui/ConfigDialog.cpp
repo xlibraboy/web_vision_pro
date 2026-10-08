@@ -330,7 +330,8 @@ bool ConfigDialog::eventFilter(QObject* obj, QEvent* event) {
 
 void ConfigDialog::updateOpcUaDiscoveryStatus(const QString& message, bool detected) {
     if (!opcUaDiscoveryStatusLabel_) return;
-    const QString color = detected ? CameraConfig::getThemeColors().primary : QStringLiteral("#A9B4C2");
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const QString color = detected ? tc.primary : tc.muted;
     opcUaDiscoveryStatusLabel_->setText(message);
     opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: 11px;").arg(color));
 }
@@ -529,6 +530,7 @@ void ConfigDialog::setOpcUaRuntimeSource(OpcUaClientService* service) {
 
 void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
     lastOpcUaRuntimeStatus_ = status;
+    const ThemeColors tc = CameraConfig::getThemeColors();
 
     // The detached window mirrors the same snapshot as the Live Status tab.
     if (opcUaLiveStatusWindow_) {
@@ -541,13 +543,13 @@ void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
         QString color;
         if (status.clientConnected) {
             dot = QStringLiteral("●");
-            color = QStringLiteral("#4CAF50");
+            color = tc.ok;
         } else if (status.connecting) {
             dot = QStringLiteral("◐");
-            color = QStringLiteral("#E0A800");
+            color = tc.warn;
         } else {
             dot = QStringLiteral("○");
-            color = QStringLiteral("#8B949E");
+            color = tc.muted;
         }
         opcUaStatusClientLabel_->setText(QStringLiteral("%1 %2").arg(dot, status.clientStateText));
         opcUaStatusClientLabel_->setStyleSheet(
@@ -590,13 +592,13 @@ void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
         QString stateColor;
         if (tagStatus.held || tagStatus.active) {
             stateText = QStringLiteral("FIRING");
-            stateColor = QStringLiteral("#E0A800");
+            stateColor = tc.warn;
         } else if (!tagStatus.enabled) {
             stateText = QStringLiteral("Off");
-            stateColor = QStringLiteral("#8B949E");
+            stateColor = tc.disabled;
         } else {
             stateText = QStringLiteral("Idle");
-            stateColor = QStringLiteral("#4CAF50");
+            stateColor = tc.ok;
         }
 
         QString lastFiredText = QStringLiteral("—");
@@ -611,12 +613,12 @@ void ConfigDialog::updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status) {
             item->setFlags(Qt::ItemIsEnabled);
             return item;
         };
-        opcUaStatusTable_->setItem(i, 0, makeItem(tagStatus.name, QStringLiteral("#E3E3E3")));
+        opcUaStatusTable_->setItem(i, 0, makeItem(tagStatus.name, tc.text));
         opcUaStatusTable_->setItem(i, 1, makeItem(typeText,
-            tagStatus.simulated ? QStringLiteral("#00E5FF") : QStringLiteral("#A9B4C2")));
-        opcUaStatusTable_->setItem(i, 2, makeItem(tagStatus.valueText, QStringLiteral("#E3E3E3")));
+            tagStatus.simulated ? tc.info : tc.muted));
+        opcUaStatusTable_->setItem(i, 2, makeItem(tagStatus.valueText, tc.text));
         opcUaStatusTable_->setItem(i, 3, makeItem(stateText, stateColor));
-        opcUaStatusTable_->setItem(i, 4, makeItem(lastFiredText, QStringLiteral("#8B949E")));
+        opcUaStatusTable_->setItem(i, 4, makeItem(lastFiredText, tc.muted));
     }
 }
 
@@ -655,6 +657,7 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
     if (!opcUaStatusSpeedLabel_) {
         return;
     }
+    const ThemeColors tc = CameraConfig::getThemeColors();
 
     // Live Status reflects the primary (first) speed anchor row.
     const OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[0];
@@ -675,13 +678,12 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
         opcUaStatusSpeedLabel_->setText(
             QStringLiteral("%1 %2").arg(QString::number(rawValue * scale + offset, 'f', 2), unit));
         opcUaStatusSpeedLabel_->setStyleSheet(
-            QStringLiteral("color: #4CAF50; font-size: 12px; font-weight: 600;"));
+            QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(tc.ok));
         return;
     }
 
     if (lastOpcUaRuntimeStatus_.speedValid) {
-        const QString speedColor = lastOpcUaRuntimeStatus_.speedStale
-            ? QStringLiteral("#E0A800") : QStringLiteral("#4CAF50");
+        const QString speedColor = lastOpcUaRuntimeStatus_.speedStale ? tc.warn : tc.ok;
         const QString staleSuffix = lastOpcUaRuntimeStatus_.speedStale
             ? QStringLiteral("  (STALE)") : QString();
         opcUaStatusSpeedLabel_->setText(lastOpcUaRuntimeStatus_.speedText + staleSuffix);
@@ -691,7 +693,8 @@ void ConfigDialog::refreshOpcUaSpeedDisplay() {
     }
 
     opcUaStatusSpeedLabel_->setText(QStringLiteral("—"));
-    opcUaStatusSpeedLabel_->setStyleSheet(QStringLiteral("color: #8B949E; font-size: 12px;"));
+    opcUaStatusSpeedLabel_->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px;").arg(tc.muted));
 }
 
 void ConfigDialog::showOpcUaLiveStatusWindow() {
@@ -745,9 +748,7 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     : QWidget(parent)
     , cameraManager_(cameraManager)
     , networkSummaryHeader_(nullptr)
-    , isAdminMode_(false)
-    , primaryColor_("#E3E3E3")
-    , accentColor_("#00E5FF") {
+    , isAdminMode_(false) {
 
     setWindowTitle("System Configuration");
 
@@ -1241,8 +1242,8 @@ void ConfigDialog::setupUI() {
     // Unsaved-changes indicator for the Recording & Triggers page.
     recordingUnsavedIndicator_ = new QLabel(bufferGroup);
     recordingUnsavedIndicator_->setStyleSheet(QString(
-        "color: #FFB020; font-size: 11px; font-weight: 600;"
-    ));
+        "color: %1; font-size: 11px; font-weight: 600;"
+    ).arg(tc.warn));
     recordingUnsavedIndicator_->setText("");
     recordingUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
     recordingActionsLayout->addWidget(recordingUnsavedIndicator_, 0, Qt::AlignVCenter);
@@ -1769,13 +1770,13 @@ void ConfigDialog::setupUI() {
     QLabel* opcUaStatusClientCaption = new QLabel("Client:", opcUaStatusGroup);
     opcUaStatusClientCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
     opcUaStatusClientLabel_ = new QLabel("○ Idle (OPC UA disabled)", opcUaStatusGroup);
-    opcUaStatusClientLabel_->setStyleSheet("color: #8B949E; font-size: 12px; font-weight: 600;");
+    opcUaStatusClientLabel_->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600;").arg(tc.muted));
     opcUaStatusForm->addRow(opcUaStatusClientCaption, opcUaStatusClientLabel_);
 
     QLabel* opcUaStatusSpeedCaption = new QLabel("Speed:", opcUaStatusGroup);
     opcUaStatusSpeedCaption->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.text));
     opcUaStatusSpeedLabel_ = new QLabel("—", opcUaStatusGroup);
-    opcUaStatusSpeedLabel_->setStyleSheet("color: #8B949E; font-size: 12px;");
+    opcUaStatusSpeedLabel_->setStyleSheet(QString("color: %1; font-size: 12px;").arg(tc.muted));
     opcUaStatusForm->addRow(opcUaStatusSpeedCaption, opcUaStatusSpeedLabel_);
 
     opcUaStatusLayout->addLayout(opcUaStatusForm);
@@ -2354,7 +2355,7 @@ void ConfigDialog::setupUI() {
         const QColor subtitleColor = themeTextColor.lighter(145);
         const QColor groupTextColor = themeTextColor;
         const QColor groupBorderColor = themeBorderColor;
-        const QColor statusTextColor = QColor("#0B1116");
+        const QColor statusTextColor = QColor(previewThemeColors.onStatus);
         const QColor statusBackgroundColor = themePrimaryColor;
         const QColor detailPanelBackground(themePanelColor.red(), themePanelColor.green(), themePanelColor.blue(), 224);
 
@@ -2660,8 +2661,8 @@ void ConfigDialog::setupUI() {
 
     uiUnsavedIndicator_ = new QLabel(uiGroup);
     uiUnsavedIndicator_->setStyleSheet(QString(
-        "color: #FFB020; font-size: 11px; font-weight: 600;"
-    ));
+        "color: %1; font-size: 11px; font-weight: 600;"
+    ).arg(tc.warn));
     uiUnsavedIndicator_->setText("");
     uiUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
     uiActionsLayout->addWidget(uiUnsavedIndicator_, 0, Qt::AlignRight);
@@ -2743,6 +2744,9 @@ void ConfigDialog::setupUI() {
     
     QPushButton* diagClearBtn = new QPushButton("Clear Logs", diagLogsGroup);
     diagClearBtn->setIcon(IconManager::instance().trash(16));
+    const QColor clearHover(tc.critical);
+    const QString clearHoverWash = QString("rgba(%1, %2, %3, 0.12)")
+        .arg(clearHover.red()).arg(clearHover.green()).arg(clearHover.blue());
     diagClearBtn->setStyleSheet(QString(
         "QPushButton { "
         "  background-color: transparent; "
@@ -2753,8 +2757,8 @@ void ConfigDialog::setupUI() {
         "  font-size: 12px; "
         "  font-weight: 500; "
         "} "
-        "QPushButton:hover { background-color: rgba(255, 90, 90, 0.1); border-color: #FF5A5A; color: #FF5A5A; }"
-    ).arg(tc.text, tc.border));
+        "QPushButton:hover { background-color: %3; border-color: %4; color: %4; }"
+    ).arg(tc.text, tc.border, clearHoverWash, tc.critical));
     connect(diagClearBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
     
     diagBtnsLayout->addWidget(diagRefreshBtn);
@@ -3845,8 +3849,7 @@ void ConfigDialog::refreshStorageStats() {
     QString warningColor;
     if (storage.isValid() && freePct < warningPct) {
         warningMarker = QStringLiteral("\u26A0 ");
-        warningColor = freePct < criticalPct ? QStringLiteral("#FF5A5A")
-                                             : QStringLiteral("#FFB020");
+        warningColor = freePct < criticalPct ? themeColors.critical : themeColors.warn;
     }
     storageStatsLabel_->setStyleSheet(QString(
         "color: %1; font-size: 11px; padding-top: 4px;")
@@ -4253,6 +4256,7 @@ void ConfigDialog::refreshNetworkStatus() {
     // Camera Mode selector is Emulated. When active, Real cards cannot attach
     // (no real hardware is present) and Emulated cards are the ones that run.
     const bool emulationActive = CameraConfig::isEmulationActive();
+    const ThemeColors tc = CameraConfig::getThemeColors();
 
     QMap<QString, QList<QString>> liveIpToMacs;
     QMap<QString, GigEDeviceInfo> macToDevice;
@@ -4317,15 +4321,15 @@ void ConfigDialog::refreshNetworkStatus() {
 
         QString detectedIp = "Offline";
         QString statusText = "Disabled";
-        QColor statusColor("#888888");
+        QColor statusColor(tc.disabled);
 
         if (source != 2) {
             statusText = "Unassigned MAC";
-            statusColor = QColor("#E0A800");
+            statusColor = QColor(tc.warn);
 
             if (duplicateConfiguredIps.contains(configuredIp)) {
                 statusText = "Duplicate IP";
-                statusColor = QColor("#FF5A5A");
+                statusColor = QColor(tc.critical);
                 blockingCount++;
                 errorCount++;
             } else if (source == 1 && (configuredMac.isEmpty() || configuredMac == "NONE/AUTO")) {
@@ -4333,7 +4337,7 @@ void ConfigDialog::refreshNetworkStatus() {
                     // Emulation is on but this card is Real: there is no real
                     // hardware to attach to, and the MAC requirement is moot.
                     statusText = "Offline - no hardware";
-                    statusColor = QColor("#6E7681");
+                    statusColor = QColor(tc.muted);
                     missingCount++;
                     offlineCount++;
                 } else {
@@ -4342,19 +4346,19 @@ void ConfigDialog::refreshNetworkStatus() {
                 }
             } else if (source == 1 && duplicateConfiguredMacs.contains(configuredMac)) {
                 statusText = "Duplicate MAC";
-                statusColor = QColor("#FF5A5A");
+                statusColor = QColor(tc.critical);
                 blockingCount++;
                 errorCount++;
             } else if (source == 0) {
                 if (emulationActive) {
                     statusText = "Emulated";
-                    statusColor = QColor("#4CAF50");
+                    statusColor = QColor(tc.ok);
                     onlineCount++;
                 } else {
                     // Selector is OFF: emulated devices are not created, so a
                     // card set to Emulated cannot activate until it is switched on.
                     statusText = "Offline - emulation off";
-                    statusColor = QColor("#6E7681");
+                    statusColor = QColor(tc.muted);
                     offlineCount++;
                 }
             } else if (macToDevice.contains(configuredMac)) {
@@ -4364,17 +4368,17 @@ void ConfigDialog::refreshNetworkStatus() {
 
                 if (liveIpToMacs.value(normalizedDetectedIp).size() > 1) {
                     statusText = "Duplicate live IP";
-                    statusColor = QColor("#FF5A5A");
+                    statusColor = QColor(tc.critical);
                     liveDuplicateSeen = true;
                     blockingCount++;
                     errorCount++;
                 } else if (normalizedDetectedIp == configuredIp) {
                     statusText = "Online";
-                    statusColor = QColor("#4CAF50");
+                    statusColor = QColor(tc.ok);
                     onlineCount++;
                 } else {
                     statusText = "IP mismatch";
-                    statusColor = QColor("#E0A800");
+                    statusColor = QColor(tc.warn);
                     mismatchCount++;
                     warningCount++;
                 }
@@ -4383,12 +4387,12 @@ void ConfigDialog::refreshNetworkStatus() {
                     // Emulation is on but this Real card has no matching real
                     // device - explain the cause instead of a generic Offline.
                     statusText = "Offline - no hardware";
-                    statusColor = QColor("#6E7681");
+                    statusColor = QColor(tc.muted);
                     missingCount++;
                     offlineCount++;
                 } else {
                     statusText = "Offline";
-                    statusColor = QColor("#6E7681");
+                    statusColor = QColor(tc.muted);
                     missingCount++;
                     offlineCount++;
                 }
@@ -4420,10 +4424,10 @@ void ConfigDialog::refreshNetworkStatus() {
 
     // Update summary text
     QStringList summary;
-    QColor summaryColor = QColor("#4CAF50");
+    QColor summaryColor = QColor(tc.ok);
 
     if (blockingCount > 0) {
-        summaryColor = QColor("#FF5A5A");
+        summaryColor = QColor(tc.critical);
         if (!duplicateConfiguredIps.isEmpty()) {
             summary << "Duplicate configured IPs detected";
         }
@@ -4436,21 +4440,21 @@ void ConfigDialog::refreshNetworkStatus() {
     }
 
     if (mismatchCount > 0) {
-        if (summaryColor != QColor("#FF5A5A")) {
-            summaryColor = QColor("#E0A800");
+        if (summaryColor != QColor(tc.critical)) {
+            summaryColor = QColor(tc.warn);
         }
         summary << QString("%1 camera%2 have IP mismatch").arg(mismatchCount).arg(mismatchCount == 1 ? "" : "s");
     }
 
     if (missingCount > 0) {
-        if (summaryColor == QColor("#4CAF50")) {
-            summaryColor = QColor("#E0A800");
+        if (summaryColor == QColor(tc.ok)) {
+            summaryColor = QColor(tc.warn);
         }
         summary << QString("%1 camera%2 not visible").arg(missingCount).arg(missingCount == 1 ? "" : "s");
     }
 
     if (summary.isEmpty()) {
-        networkSummaryHeader_->setNetworkStatus("Network OK: All cameras configured correctly", QColor("#4CAF50"));
+        networkSummaryHeader_->setNetworkStatus("Network OK: All cameras configured correctly", QColor(tc.ok));
     } else {
         networkSummaryHeader_->setNetworkStatus(summary.join(" | "), summaryColor);
     }

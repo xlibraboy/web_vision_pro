@@ -1,7 +1,9 @@
 #include "CircularSpinner.h"
+#include "../../config/CameraConfig.h"
 #include <QPainter>
 
 CircularSpinner::CircularSpinner(QWidget* parent) : QWidget(parent) {
+    color_ = QColor(CameraConfig::getThemeColors().primary);
     setFixedSize(14, 14);
     timer_.setInterval(40);   // ~25 fps rotation
     connect(&timer_, &QTimer::timeout, this, &CircularSpinner::advance);

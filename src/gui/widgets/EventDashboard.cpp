@@ -17,20 +17,19 @@ constexpr int kRegionH = 72;
 constexpr int kLaneCount = 2; // CHANGE % and CONTRAST
 constexpr int kGap = 5;
 
-const QColor kTriggerColor = QColor(QStringLiteral("#E57373"));
-const QColor kDefectColor = QColor(QStringLiteral("#FF9800"));
-const QColor kLocalColor = QColor(QStringLiteral("#FF5252"));
-const QColor kContrastColor = QColor(QStringLiteral("#B388FF"));
-const QColor kPlayheadColor = QColor(QStringLiteral("#FFD54F"));
-const QColor kPlotAreaColor = QColor(QStringLiteral("#23262D"));
-// Detector-rule line and danger-zone tint on the signal lanes. Amber reads as
-// "threshold" and stays distinct from the red defect-hit ticks and the purple
-// contrast curve.
-const QColor kRuleColor = QColor(QStringLiteral("#FFB020"));
+// Data-series identity colors, OKLCH-derived and simulated for deuteranopia /
+// protanopia / tritanopia: brightness / SPOTS % / CONTRAST stay >= 22 OKLab*100
+// apart in every simulation. Markers (trigger line, playhead) intentionally
+// carry no series hue: trigger is neutral text, playhead is the theme accent,
+// so the three series keep their identity at a glance.
+const QColor kDefectColor = QColor(QStringLiteral("#FEC837"));
+const QColor kLocalColor = QColor(QStringLiteral("#EA4E55"));
+const QColor kContrastColor = QColor(QStringLiteral("#9870EA"));
 } // namespace
 
 EventDashboard::EventDashboard(QWidget* parent)
     : QWidget(parent) {
+    theme_ = CameraConfig::getThemeColors();
     setMouseTracking(true);
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     updateMinimumHeight();
@@ -295,10 +294,8 @@ void EventDashboard::setNotRecorded(const QString& reason) {
     update();
 }
 
-void EventDashboard::applyTheme(const QColor& background, const QColor& curve, const QColor& text) {
-    bgColor_ = background;
-    curveColor_ = curve;
-    textColor_ = text;
+void EventDashboard::applyTheme(const ThemeColors& theme) {
+    theme_ = theme;
     update();
 }
 
@@ -309,7 +306,16 @@ QSize EventDashboard::sizeHint() const {
 void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
-    p.fillRect(rect(), bgColor_);
+
+    const QColor bgColor(theme_.bg);
+    const QColor textColor(theme_.text);
+    const QColor curveColor(theme_.info);
+    const QColor plotAreaColor(theme_.surface);
+    const QColor triggerColor(theme_.text);
+    const QColor playheadColor(theme_.primary);
+    const QColor ruleColor(theme_.warn);  // detector threshold / danger zone
+
+    p.fillRect(rect(), bgColor);
 
     if (!notRecordedReason_.isEmpty()) {
         // This camera has no recording in the event: state it here rather than
@@ -318,7 +324,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         stateFont.setBold(true);
         stateFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
         p.setFont(stateFont);
-        p.setPen(QColor(textColor_).darker(120));
+        p.setPen(QColor(textColor).darker(120));
         const QRect stateRect = rect().adjusted(8, 8, -8, -8);
         p.drawText(stateRect, Qt::AlignCenter, QStringLiteral("NOT RECORDED"));
         QFont reasonFont = font();
@@ -330,7 +336,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     }
 
     if (totalFrames_ <= 0) {
-        p.setPen(textColor_);
+        p.setPen(textColor);
         p.drawText(rect(), Qt::AlignCenter, QStringLiteral("No event loaded"));
         return;
     }
@@ -339,7 +345,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
     // ---------- Chart region ----------
     QRectF plot(kMargin, chartTop(), width() - 2 * kMargin, chartHeight());
-    p.fillRect(plot, kPlotAreaColor);
+    p.fillRect(plot, plotAreaColor);
 
     if (brightnessVisible_) {
     if (brightness_.isEmpty() && loadingSignals_) {
@@ -350,7 +356,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         QFont f = font();
         f.setItalic(true);
         p.setFont(f);
-        p.setPen(QColor(textColor_).darker(130));
+        p.setPen(QColor(textColor).darker(130));
         p.drawText(plot, Qt::AlignCenter, msg);
     }
 
@@ -391,7 +397,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                 path.lineTo(pt);
             }
         }
-        pen.setColor(curveColor_);
+        pen.setColor(curveColor);
         pen.setWidth(1);
         p.setPen(pen);
         p.setRenderHint(QPainter::Antialiasing, true);
@@ -400,7 +406,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     }
 
     // Range labels (top-right).
-    p.setPen(textColor_);
+    p.setPen(textColor);
     p.setFont(font());
     p.drawText(QRectF(plot.right() - 120, plot.top() + 2, 118, 14),
                Qt::AlignRight, QStringLiteral("brightness %1–%2")
@@ -418,7 +424,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     int winEnd = 0;
     if (detailActive) {
         det = QRectF(kMargin, detailTop(), width() - 2 * kMargin, kRegionH);
-        p.fillRect(det, kPlotAreaColor);
+        p.fillRect(det, plotAreaColor);
         detailWindow(&winStart, &winEnd);
         const double spanW = std::max(1, winEnd - winStart);
         auto dxFor = [&](double frame) {
@@ -475,13 +481,13 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                     const QPointF pt(dxFor(frames.at(i)), dyFor(brightness.at(i)));
                     if (i == 0) dp.moveTo(pt); else dp.lineTo(pt);
                 }
-                pen.setColor(curveColor_);
+                pen.setColor(curveColor);
                 pen.setWidth(1);
                 p.setPen(pen);
                 p.setRenderHint(QPainter::Antialiasing, true);
                 p.drawPath(dp);
                 if (det.width() / std::max(1.0, spanW) >= 3.0) {
-                    p.setBrush(curveColor_);
+                    p.setBrush(curveColor);
                     for (int i = 0; i < frames.size(); ++i) {
                         p.drawRect(QRectF(dxFor(frames.at(i)) - 1.5,
                                           dyFor(brightness.at(i)) - 1.5, 3, 3));
@@ -492,7 +498,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
                 // Local trigger tick (the global line below is clipped out here).
                 if (triggerIndex_ >= winStart && triggerIndex_ <= winEnd) {
-                    pen.setColor(kTriggerColor);
+                    pen.setColor(triggerColor);
                     pen.setWidth(2);
                     p.setPen(pen);
                     p.drawLine(QPointF(dxFor(triggerIndex_), det.top()),
@@ -500,7 +506,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                 }
 
                 // Frame-number ruler at both window edges.
-                p.setPen(QColor(textColor_).darker(120));
+                p.setPen(QColor(textColor).darker(120));
                 p.setFont(font());
                 p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
                            Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
@@ -509,7 +515,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
                 // Local Y range: makes the magnification explicit vs the main
                 // chart's whole-event range label.
-                p.setPen(textColor_);
+                p.setPen(textColor);
                 p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
                            Qt::AlignRight | Qt::AlignTop,
                            QStringLiteral("y %1–%2")
@@ -574,13 +580,13 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                 const QPointF pt(dxFor(sampleFrames_.at(i)), dyFor(brightness_.at(i)));
                 if (k == 0) dp.moveTo(pt); else dp.lineTo(pt);
             }
-            pen.setColor(curveColor_);
+            pen.setColor(curveColor);
             pen.setWidth(1);
             p.setPen(pen);
             p.setRenderHint(QPainter::Antialiasing, true);
             p.drawPath(dp);
             if (det.width() / spanW >= 3.0) {
-                p.setBrush(curveColor_);
+                p.setBrush(curveColor);
                 for (int k = 0; k < idx.size(); ++k) {
                     const int i = idx.at(k);
                     p.drawRect(QRectF(dxFor(sampleFrames_.at(i)) - 1.5,
@@ -592,7 +598,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
             // Local trigger tick (the global line below is clipped out here).
             if (triggerIndex_ >= winStart && triggerIndex_ <= winEnd) {
-                pen.setColor(kTriggerColor);
+                pen.setColor(triggerColor);
                 pen.setWidth(2);
                 p.setPen(pen);
                 p.drawLine(QPointF(dxFor(triggerIndex_), det.top()),
@@ -600,7 +606,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             }
 
             // Frame-number ruler at both window edges.
-            p.setPen(QColor(textColor_).darker(120));
+            p.setPen(QColor(textColor).darker(120));
             p.setFont(font());
             p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
                        Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
@@ -609,7 +615,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
             // Local Y range: makes the magnification explicit vs the main
             // chart's whole-event range label.
-            p.setPen(textColor_);
+            p.setPen(textColor);
             p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
                        Qt::AlignRight | Qt::AlignTop,
                        QStringLiteral("y %1–%2")
@@ -619,7 +625,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             QFont f = font();
             f.setItalic(true);
             p.setFont(f);
-            p.setPen(QColor(textColor_).darker(130));
+            p.setPen(QColor(textColor).darker(130));
             p.drawText(det, Qt::AlignCenter,
                        (loadingSignals_ || (detailLoading_ && detailFrames_.isEmpty()))
                            ? QStringLiteral("Analyzing signals…")
@@ -628,7 +634,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         }
 
         // Label.
-        p.setPen(textColor_);
+        p.setPen(textColor);
         p.setFont(font());
         p.drawText(QRectF(det.left() + 4, det.top() + 1, 150, 12),
                    Qt::AlignLeft | Qt::AlignTop,
@@ -638,7 +644,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         // (its x differs from the global-scale playhead line below).
         const double localPlayX = dxFor(currentFrame_);
         if (localPlayX >= det.left() && localPlayX <= det.right()) {
-            pen.setColor(kPlayheadColor);
+            pen.setColor(playheadColor);
             pen.setWidth(1);
             p.setPen(pen);
             p.drawLine(QPointF(localPlayX, det.top()), QPointF(localPlayX, det.bottom()));
@@ -672,7 +678,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         if (!lanesVisible_[li]) continue;
         const LaneDef& ld = lanes[li];
         QRectF lane(kMargin, laneTop(visLane++), width() - 2 * kMargin, kRegionH);
-        p.fillRect(lane, kPlotAreaColor);
+        p.fillRect(lane, plotAreaColor);
 
         double lo = 0.0;
         double hi = ld.fixedMax;
@@ -691,10 +697,11 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
         // Detector rule: dashed line plus a subtle tint on the dangerous side
         // (above the spot limit, below the contrast floor), so a drifting
-        // trace is readable even when it is flat.
+        // trace is readable even when it is flat. Amber = "threshold": the warn
+        // token, dashed so it never reads as one of the series curves.
         if (ld.hasRule) {
             const double ruleY = yLane(ld.ruleValue);
-            QColor tint = kRuleColor;
+            QColor tint = ruleColor;
             tint.setAlpha(22);
             const QRectF danger = ld.ruleAbove
                 ? QRectF(lane.left(), lane.top(), lane.width(),
@@ -702,7 +709,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                 : QRectF(lane.left(), ruleY, lane.width(),
                          qMax(0.0, lane.bottom() - ruleY));
             p.fillRect(danger, tint);
-            pen.setColor(kRuleColor);
+            pen.setColor(ruleColor);
             pen.setWidth(1);
             pen.setStyle(Qt::DashLine);
             p.setPen(pen);
@@ -726,7 +733,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                                  yLane(std::max(lo, std::min(hi, ld.series->at(i)))));
                 if (i == 0) lp.moveTo(pt); else lp.lineTo(pt);
             }
-            pen.setColor(curveColor_);
+            pen.setColor(curveColor);
             pen.setWidth(1);
             p.setPen(pen);
             p.setRenderHint(QPainter::Antialiasing, true);
@@ -734,7 +741,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             p.setRenderHint(QPainter::Antialiasing, false);
         }
 
-        p.setPen(textColor_);
+        p.setPen(textColor);
         p.setFont(font());
         p.drawText(QRectF(lane.left() + 4, lane.top() + 1, 90, 12),
                    Qt::AlignLeft | Qt::AlignTop, QLatin1String(ld.label));
@@ -750,7 +757,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // global-scale x has no meaning inside it (different time scale), so the
     // line is drawn in two segments around that region.
     const double trigX = frameToX(triggerIndex_);
-    pen.setColor(kTriggerColor);
+    pen.setColor(triggerColor);
     pen.setWidth(2);
     p.setPen(pen);
     if (detailActive) {
@@ -769,14 +776,14 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         QFont f = font();
         f.setItalic(true);
         p.setFont(f);
-        p.setPen(QColor(textColor_).darker(130));
+        p.setPen(QColor(textColor).darker(130));
         p.drawText(QRectF(kMargin, stripTop(), stripW, stripHeight()),
                    Qt::AlignCenter, QStringLiteral("Loading thumbnails…"));
     }
 
     for (int i = 0; i < kThumbCount; ++i) {
         QRectF slot(kMargin + i * slotW, stripTop(), slotW - 1.0, stripHeight());
-        p.fillRect(slot, kPlotAreaColor);
+        p.fillRect(slot, plotAreaColor);
         if (i < thumbs_.size() && !thumbs_.at(i).isNull()) {
             const QImage& img = thumbs_.at(i);
             QImage scaled = img.scaled(static_cast<int>(slot.width()),
@@ -787,7 +794,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             p.drawImage(QPointF(ix, iy), scaled);
         } else {
             // Slot frame position marker even when the thumb is missing.
-            p.setPen(bgColor_.lighter(140));
+            p.setPen(bgColor.lighter(140));
             p.drawRect(slot.adjusted(0, 0, -1, -1));
         }
     }
@@ -796,7 +803,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     const double frac = static_cast<double>(currentFrame_)
                         / std::max(1, totalFrames_ - 1);
     const int curSlot = qBound(0, static_cast<int>(frac * kThumbCount), kThumbCount - 1);
-    pen.setColor(kPlayheadColor);
+    pen.setColor(playheadColor);
     pen.setWidth(2);
     p.setPen(pen);
     p.setBrush(Qt::NoBrush);
@@ -805,7 +812,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
     // Playhead across both regions (same segment split as the trigger line).
     const double playX = frameToX(currentFrame_);
-    pen.setColor(kPlayheadColor);
+    pen.setColor(playheadColor);
     p.setPen(pen);
     if (detailActive) {
         p.drawLine(QPointF(playX, plot.top() - 3), QPointF(playX, det.top() - 2));
@@ -822,7 +829,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     // the scrubber lives).
     const double axisTop = stripTop() + stripHeight();
     constexpr double kAxisRowH = 16.0;
-    p.setPen(textColor_);
+    p.setPen(textColor);
     const int tickPx = 90;
     const int tickCount = std::max(2, width() / tickPx);
     for (int k = 0; k <= tickCount; ++k) {

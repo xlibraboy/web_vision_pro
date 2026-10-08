@@ -37,6 +37,14 @@ here.
 
 - Configuration and event storage paths resolve per environment now: `PAPERVISION_CONFIG_DIR` / `PAPERVISION_DATA_DIR` overrides, `/app/data` inside Docker, XDG directories (`~/.config`, `~/.local/share`) on a native install; camera parameter files moved next to the recordings.
 - Analysis View event log: an OPC UA trigger now shows only the sensor name in the Reason column (no more "OPC UA:" prefix).
+- Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
+- Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
+
+### Fixed
+
+- Theme presets now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected preset.
+- Status text and badges meet stronger contrast targets (the previous critical red measured well below the readability bar on the default theme).
+- The low-disk status-bar badge keeps a visible keyboard focus ring instead of erasing it.
 
 ## [1.1.0] - 2026-09-19
 

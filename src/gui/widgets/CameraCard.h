@@ -87,9 +87,6 @@ public:
     // Smart behavior
     void updateSmartState(); // Auto-expand based on status
 
-    // Theme
-    void applyTheme(const QColor& primaryColor, const QColor& accentColor);
-
 signals:
     void editToggled(bool checked);
     void sourceChanged(int source);
@@ -173,8 +170,6 @@ private:
 
     // Styling
     QColor statusColor_;
-    QColor primaryColor_;
-    QColor accentColor_;
     CameraInfo cameraInfo_;
     static constexpr int ANIMATION_DURATION = 250; // ms
     static constexpr int CARD_MIN_WIDTH = 0;

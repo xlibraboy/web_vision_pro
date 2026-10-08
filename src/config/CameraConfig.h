@@ -7,6 +7,14 @@
 /**
  * Theme color tokens for the current UI preset.
  * All widgets should use these instead of hardcoded hex values.
+ *
+ * Roles:
+ *   bg/surface -> canvas, raised panels, cards, chart areas
+ *   text/muted/disabled -> primary, secondary, disabled foregrounds
+ *   border/btnBg/btnHover/handle/sliderBg -> chrome and controls
+ *   primary/focus -> accent and keyboard focus
+ *   ok/warn/critical/info -> semantic status, deliberately preset-independent
+ *   onStatus -> ink for text drawn on a solid status fill
  */
 struct ThemeColors {
     QString bg;        // Main window background
@@ -17,6 +25,15 @@ struct ThemeColors {
     QString sliderBg;  // Slider filled portion
     QString handle;    // Slider handle color
     QString text;      // Primary text color
+    QString surface;   // Raised panel / card / table-header / chart background
+    QString muted;     // Secondary text: timestamps, hints, meta, captions
+    QString disabled;  // Disabled foreground (labels, controls)
+    QString focus;     // Keyboard focus ring / focused border
+    QString ok;        // Success / healthy / online / running
+    QString warn;      // Caution / degraded / stale / staged
+    QString critical;  // Error / fault / danger / destructive
+    QString info;      // Informational / emulated / simulated
+    QString onStatus;  // Text drawn on a solid ok/warn/critical/info fill
 };
 
 struct LiveViewCardStyle {

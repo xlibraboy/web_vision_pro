@@ -1,4 +1,5 @@
 #include "MachineGroupsPanel.h"
+#include "../../config/CameraConfig.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -8,7 +9,9 @@
 #include <QFont>
 
 namespace {
-const char kMutedLabelStyle[] = "color: #8B949E; font-size: 12px;";
+QString mutedLabelStyle() {
+    return QString("color: %1; font-size: 12px;").arg(CameraConfig::getThemeColors().muted);
+}
 }
 
 MachineGroupsPanel::MachineGroupsPanel(QWidget* parent) : QWidget(parent) {
@@ -23,14 +26,14 @@ MachineGroupsPanel::MachineGroupsPanel(QWidget* parent) : QWidget(parent) {
         "group on its Camera Card; an OPC UA trigger records the sections picked "
         "in its Records column.", this);
     hintLabel->setWordWrap(true);
-    hintLabel->setStyleSheet(kMutedLabelStyle);
+    hintLabel->setStyleSheet(mutedLabelStyle());
     header->addWidget(hintLabel, 1);
 
     summaryLabel_ = new QLabel(this);
     QFont summaryFont = summaryLabel_->font();
     summaryFont.setBold(true);
     summaryLabel_->setFont(summaryFont);
-    summaryLabel_->setStyleSheet(kMutedLabelStyle);
+    summaryLabel_->setStyleSheet(mutedLabelStyle());
     summaryLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     header->addWidget(summaryLabel_);
     layout->addLayout(header);

@@ -12,6 +12,7 @@
 
 AnalysisVideoWidget::AnalysisVideoWidget(int cameraId, const QString& title, QWidget *parent)
     : QWidget(parent), cameraId_(cameraId), title_(title), timestamp_("00:00:00.000") {
+    markerColor_ = QColor(CameraConfig::getThemeColors().primary);
     
     setMinimumSize(160, 120);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -255,7 +256,9 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     const QColor surfaceColor = lightSurface ? QColor("#F2F2F2") : QColor(Qt::black);
     const QColor titleTextColor = lightSurface ? QColor("#111111") : QColor(Qt::white);
     const QColor titleBarColor = lightSurface ? QColor(255, 255, 255, 210) : QColor(0, 0, 0, 180);
-    const QColor timestampTextColor = lightSurface ? QColor(tc.primary) : QColor(0, 255, 0);
+    // HUD readout follows the ok token; the light playback surface keeps the
+    // theme accent (ok green on white would drop below the label contrast bar).
+    const QColor timestampTextColor = lightSurface ? QColor(tc.primary) : QColor(tc.ok);
     const QColor timestampBarColor = lightSurface ? QColor(255, 255, 255, 210) : QColor(0, 0, 0, 180);
     
     // Draw background
@@ -385,7 +388,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         // (mouse events still go to the widget / marker tools).
         if (syncIndicatorVisible_) {
             const QPoint pos = normalizedToWidgetPoint(syncIndicatorPos_);
-            const QColor syncColor(0, 255, 120);
+            const QColor syncColor(tc.ok);
             QPen crossPen(syncColor, 2);
             crossPen.setStyle(Qt::DashLine);
             painter.setPen(crossPen);

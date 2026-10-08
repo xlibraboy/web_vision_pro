@@ -24,7 +24,9 @@ protected:
 private:
     void advance();
 
-    QColor color_ = QColor(QStringLiteral("#4FC3F7"));
+    // Invalid until the constructor resolves the theme accent; setColor()
+    // overrides it for local accents.
+    QColor color_;
     int angle_ = 0;
     QTimer timer_;
 };

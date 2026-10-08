@@ -222,8 +222,10 @@ void LiveDashboard::updateCameraPtpStatus(int cameraId, const CameraManager::Ptp
 }
 
 void LiveDashboard::updateStatus(double fps, bool recording) {
+    const QString recordingText = QString("<font color='%1'>RECORDING</font>")
+        .arg(CameraConfig::getThemeColors().critical);
     QString status = QString("Status: %1 | FPS: %2").arg(
-        recording ? "<font color='red'>RECORDING</font>" : "Monitoring").arg(fps, 0, 'f', 1);
+        recording ? recordingText : "Monitoring").arg(fps, 0, 'f', 1);
     statusLabel_->setText(status);
 }
 

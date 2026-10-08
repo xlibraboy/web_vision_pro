@@ -1,13 +1,20 @@
 #include "IconManager.h"
+#include "../../config/CameraConfig.h"
 #include <QBuffer>
 #include <QByteArray>
+
+namespace {
+ThemeColors theme() {
+    return CameraConfig::getThemeColors();
+}
+}  // namespace
 
 IconManager& IconManager::instance() {
     static IconManager instance;
     return instance;
 }
 
-IconManager::IconManager() : primaryColor_("#E3E3E3"), accentColor_("#00E5FF") {
+IconManager::IconManager() {
     initializeIcons();
 }
 
@@ -208,9 +215,14 @@ void IconManager::initializeIcons() {
 
 QPixmap IconManager::renderSvg(const QString& svgData, int size,
                                const QColor& primary, const QColor& secondary) {
+    // Invalid colors mean "use the theme role": text for the primary plane,
+    // accent for the secondary plane. Resolved per render so a theme switch
+    // is picked up by the next icon request.
+    const QColor primaryResolved = primary.isValid() ? primary : QColor(theme().text);
+    const QColor secondaryResolved = secondary.isValid() ? secondary : QColor(theme().primary);
     QString processedSvg = svgData;
-    processedSvg.replace("{primary}", primary.name());
-    processedSvg.replace("{secondary}", secondary.name());
+    processedSvg.replace("{primary}", primaryResolved.name());
+    processedSvg.replace("{secondary}", secondaryResolved.name());
 
     QSvgRenderer renderer(processedSvg.toUtf8());
     QPixmap pixmap(size, size);
@@ -256,89 +268,91 @@ QPixmap IconManager::getPixmap(const QString& name, int size,
     return renderSvg(iconData_[name], size, primaryColor, secondaryColor);
 }
 
-// Predefined icon getters
+// Predefined icon getters. Colors resolve from the active theme on every
+// request: invalid QColor arguments fall back to text (primary) and accent
+// (secondary) so icons follow the theme without a separate refresh call.
 QIcon IconManager::camera(int size) {
-    return getIcon(Icons::CAMERA, size, primaryColor_, accentColor_);
+    return getIcon(Icons::CAMERA, size);
 }
 
 QIcon IconManager::cameraOff(int size) {
-    return getIcon(Icons::CAMERA_OFF, size, primaryColor_, QColor("#888888"));
+    return getIcon(Icons::CAMERA_OFF, size, QColor(), QColor(theme().muted));
 }
 
 QIcon IconManager::edit(int size) {
-    return getIcon(Icons::EDIT, size, primaryColor_, accentColor_);
+    return getIcon(Icons::EDIT, size);
 }
 
 QIcon IconManager::trash(int size) {
-    return getIcon(Icons::TRASH, size, primaryColor_, QColor("#FF5A5A"));
+    return getIcon(Icons::TRASH, size, QColor(), QColor(theme().critical));
 }
 
 QIcon IconManager::check(int size) {
-    return getIcon(Icons::CHECK, size, primaryColor_, QColor("#4CAF50"));
+    return getIcon(Icons::CHECK, size, QColor(), QColor(theme().ok));
 }
 
 QIcon IconManager::warning(int size) {
-    return getIcon(Icons::WARNING, size, primaryColor_, QColor("#E0A800"));
+    return getIcon(Icons::WARNING, size, QColor(), QColor(theme().warn));
 }
 
 QIcon IconManager::error(int size) {
-    return getIcon(Icons::ERROR, size, primaryColor_, QColor("#FF5A5A"));
+    return getIcon(Icons::ERROR, size, QColor(), QColor(theme().critical));
 }
 
 QIcon IconManager::info(int size) {
-    return getIcon(Icons::INFO, size, primaryColor_, accentColor_);
+    return getIcon(Icons::INFO, size, QColor(), QColor(theme().info));
 }
 
 QIcon IconManager::network(int size) {
-    return getIcon(Icons::NETWORK, size, primaryColor_, accentColor_);
+    return getIcon(Icons::NETWORK, size);
 }
 
 QIcon IconManager::settings(int size) {
-    return getIcon(Icons::SETTINGS, size, primaryColor_, accentColor_);
+    return getIcon(Icons::SETTINGS, size);
 }
 
 QIcon IconManager::expand(int size) {
-    return getIcon(Icons::EXPAND, size, primaryColor_, accentColor_);
+    return getIcon(Icons::EXPAND, size);
 }
 
 QIcon IconManager::collapse(int size) {
-    return getIcon(Icons::COLLAPSE, size, primaryColor_, accentColor_);
+    return getIcon(Icons::COLLAPSE, size);
 }
 
 QIcon IconManager::refresh(int size) {
-    return getIcon(Icons::REFRESH, size, primaryColor_, accentColor_);
+    return getIcon(Icons::REFRESH, size);
 }
 
 QIcon IconManager::add(int size) {
-    return getIcon(Icons::ADD, size, primaryColor_, QColor("#4CAF50"));
+    return getIcon(Icons::ADD, size);
 }
 
 QIcon IconManager::save(int size) {
-    return getIcon(Icons::SAVE, size, primaryColor_, accentColor_);
+    return getIcon(Icons::SAVE, size);
 }
 
 QIcon IconManager::close(int size) {
-    return getIcon(Icons::CLOSE, size, primaryColor_, QColor("#FF5A5A"));
+    return getIcon(Icons::CLOSE, size, QColor(), QColor(theme().critical));
 }
 
 QIcon IconManager::ipAddress(int size) {
-    return getIcon(Icons::IP_ADDRESS, size, primaryColor_, accentColor_);
+    return getIcon(Icons::IP_ADDRESS, size);
 }
 
 QIcon IconManager::macAddress(int size) {
-    return getIcon(Icons::MAC_ADDRESS, size, primaryColor_, accentColor_);
+    return getIcon(Icons::MAC_ADDRESS, size);
 }
 
 QIcon IconManager::speed(int size) {
-    return getIcon(Icons::SPEED, size, primaryColor_, accentColor_);
+    return getIcon(Icons::SPEED, size);
 }
 
 QIcon IconManager::location(int size) {
-    return getIcon(Icons::LOCATION, size, primaryColor_, accentColor_);
+    return getIcon(Icons::LOCATION, size);
 }
 
 QIcon IconManager::thermometer(int size) {
-    return getIcon(Icons::THERMOMETER, size, primaryColor_, accentColor_);
+    return getIcon(Icons::THERMOMETER, size);
 }
 
 // Status-aware icons
@@ -356,9 +370,4 @@ QIcon IconManager::statusError(int size) {
 
 QIcon IconManager::statusOffline(int size) {
     return cameraOff(size);
-}
-
-void IconManager::setThemeColors(const QColor& primary, const QColor& accent) {
-    primaryColor_ = primary;
-    accentColor_ = accent;
 }

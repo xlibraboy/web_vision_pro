@@ -186,39 +186,54 @@ ThemeColors CameraConfig::getThemeColors() {
 
 ThemeColors CameraConfig::getThemeColors(int themePreset) {
     ThemeColors c;
+    // Semantic status colors are deliberately preset-independent: alarm and
+    // health colors must stay stable for an operator who switches themes.
+    // Values are OKLCH-derived, verified with APCA (>=54 on every preset
+    // background and raised surface) and simulated for deuteranopia /
+    // protanopia / tritanopia (every pair >= 10 OKLab*100 apart).
+    c.ok = "#64ECAC"; c.warn = "#FFC51F"; c.critical = "#FF8470"; c.info = "#70ABFD";
+    c.onStatus = "#10171F";  // ink for text on a solid status fill
     switch(themePreset) {
         case 1: // Classic Dark - Blue
             c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
             c.primary = "#0078D4"; c.sliderBg = "#0A84FF"; c.handle = "#FFFFFF"; c.text = "#E3E3E3";
+            c.surface = "#232629"; c.muted = "#B6B7B8"; c.disabled = "#838486"; c.focus = "#0078D4";
             break;
         case 2: // High Contrast - Orange
             c.bg = "#121212"; c.border = "#333333"; c.btnBg = "#1E1E1E"; c.btnHover = "#2D2D2D";
             c.primary = "#FF9900"; c.sliderBg = "#FF9900"; c.handle = "#FFFFFF"; c.text = "#FFFFFF";
+            c.surface = "#1B1B1B"; c.muted = "#C9C9C9"; c.disabled = "#8C8C8C"; c.focus = "#FF9900";
             break;
         case 3: // Warning State - Yellow
             c.bg = "#1A1A1A"; c.border = "#403D00"; c.btnBg = "#2B2A20"; c.btnHover = "#3D3A20";
             c.primary = "#FFD700"; c.sliderBg = "#FFCC00"; c.handle = "#000000"; c.text = "#FFD700";
+            c.surface = "#232323"; c.muted = "#CBAD24"; c.disabled = "#917D2C"; c.focus = "#FFD700";
             break;
         case 4: // Precision - Green
             c.bg = "#101815"; c.border = "#203028"; c.btnBg = "#1A2620"; c.btnHover = "#283C32";
             c.primary = "#00FF66"; c.sliderBg = "#00CC44"; c.handle = "#FFFFFF"; c.text = "#E8F0EA";
+            c.surface = "#19211E"; c.muted = "#B7BFBA"; c.disabled = "#808883"; c.focus = "#00FF66";
             break;
         case 5: // Visionary - Purple
             c.bg = "#161020"; c.border = "#271E38"; c.btnBg = "#1D152C"; c.btnHover = "#2E2142";
             c.primary = "#9D00FF"; c.sliderBg = "#B233FF"; c.handle = "#FFFFFF"; c.text = "#E6D9F2";
+            c.surface = "#1F1929"; c.muted = "#B7ACC3"; c.disabled = "#82788E"; c.focus = "#9D00FF";
             break;
         case 6: // Alert - Deep Red
             c.bg = "#1A0F0F"; c.border = "#331818"; c.btnBg = "#241313"; c.btnHover = "#3D1F1F";
             c.primary = "#FF2A2A"; c.sliderBg = "#FF4040"; c.handle = "#FFFFFF"; c.text = "#F2E6E6";
+            c.surface = "#231717"; c.muted = "#C2B5B5"; c.disabled = "#8B7E7E"; c.focus = "#FF2A2A";
             break;
         case 7: // Contrast Mono - Black & White
             c.bg = "#111111"; c.border = "#555555"; c.btnBg = "#1A1A1A"; c.btnHover = "#333333";
             c.primary = "#FFFFFF"; c.sliderBg = "#CCCCCC"; c.handle = "#FFFFFF"; c.text = "#FFFFFF";
+            c.surface = "#1A1A1A"; c.muted = "#C9C9C9"; c.disabled = "#8B8B8B"; c.focus = "#FFFFFF";
             break;
         case 0: // Industrial Dark - Cyan
         default:
             c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
             c.primary = "#00E5FF"; c.sliderBg = "#0A84FF"; c.handle = "#FFFFFF"; c.text = "#E3E3E3";
+            c.surface = "#232629"; c.muted = "#B6B7B8"; c.disabled = "#838486"; c.focus = "#00E5FF";
             break;
     }
     return c;

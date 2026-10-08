@@ -320,8 +320,8 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         tempStatus_ == TempStatus::Error) {
 
         QColor badgeColor = (tempStatus_ == TempStatus::Error)
-                            ? QColor("#ff4444")  // Red for Error
-                            : QColor("#ff9900"); // Orange for Critical
+                            ? QColor(tc.critical)  // Error
+                            : QColor(tc.warn);     // Critical
 
         QString tempStr = (tempValue_ >= 0)
                           ? QString("%1°C").arg(tempValue_, 0, 'f', 0)
@@ -345,7 +345,7 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         painter.drawRoundedRect(badgeRect, 3, 3);
 
         // Badge text
-        painter.setPen(Qt::white);
+        painter.setPen(QColor(tc.onStatus));
         painter.drawText(badgeRect, Qt::AlignCenter, tempStr);
     }
 
@@ -358,20 +358,20 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         QColor ptpColor;
         if (!ptpEnabled_ || ptpState_.isEmpty()) {
             ptpText = "PTP OFF";
-            ptpColor = QColor(140, 140, 140);
+            ptpColor = QColor(tc.muted);
         } else if (ptpState_ == QLatin1String("Slave")) {
             ptpText = "PTP SLAVE";
-            ptpColor = QColor("#2EA043");
+            ptpColor = QColor(tc.ok);
         } else if (ptpState_ == QLatin1String("Master")) {
             ptpText = "PTP MASTER";
-            ptpColor = QColor("#58A6FF");
+            ptpColor = QColor(tc.info);
         } else if (ptpState_ == QLatin1String("Faulty")
                    || ptpState_ == QLatin1String("Disabled")) {
             ptpText = (ptpState_ == QLatin1String("Faulty")) ? "PTP FAULT" : "PTP OFF";
-            ptpColor = (ptpState_ == QLatin1String("Faulty")) ? QColor("#ff4444") : QColor(140, 140, 140);
+            ptpColor = (ptpState_ == QLatin1String("Faulty")) ? QColor(tc.critical) : QColor(tc.muted);
         } else {
             ptpText = "PTP SYNC";  // Initializing / Listening / Passive / ...
-            ptpColor = QColor("#ff9900");
+            ptpColor = QColor(tc.warn);
         }
 
         QFont ptpFont = painter.font();
@@ -389,7 +389,7 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         painter.setBrush(ptpColor);
         painter.setPen(Qt::NoPen);
         painter.drawRoundedRect(ptpBadgeRect, 3, 3);
-        painter.setPen(Qt::white);
+        painter.setPen(QColor(tc.onStatus));
         painter.drawText(ptpBadgeRect, Qt::AlignCenter, ptpText);
     }
 }

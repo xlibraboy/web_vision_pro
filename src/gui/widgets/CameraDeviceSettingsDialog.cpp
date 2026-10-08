@@ -47,6 +47,11 @@ struct DlgPalette {
     QString hover;       // hover background
     QString scroll;      // scrollbar handle
     QString scrollHover; // scrollbar handle hover
+    QString ok;          // success / running / healthy
+    QString warn;        // caution / staged / stopped
+    QString critical;    // error / offline / fault
+    QString info;        // informational / emulated
+    QString onStatus;    // ink for text on a solid status fill
 };
 
 DlgPalette dlgPalette() {
@@ -56,13 +61,18 @@ DlgPalette dlgPalette() {
     p.panel = tc.btnBg;
     p.border = tc.border;
     p.text = tc.text;
-    p.muted = toRgba(tc.text, 155);
-    p.disabled = toRgba(tc.text, 105);
+    p.muted = tc.muted;
+    p.disabled = tc.disabled;
     p.accent = tc.primary;
     p.accentSoft = toRgba(tc.primary, 26);
     p.hover = tc.btnHover;
     p.scroll = toRgba(tc.text, 70);
     p.scrollHover = toRgba(tc.text, 110);
+    p.ok = tc.ok;
+    p.warn = tc.warn;
+    p.critical = tc.critical;
+    p.info = tc.info;
+    p.onStatus = tc.onStatus;
     return p;
 }
 
@@ -211,31 +221,35 @@ QString comboStyle()    { return fieldStyle("QComboBox"); }
 QString spinStyle()     { return fieldStyle("QSpinBox"); }
 QString doubleSpinStyle(){ return fieldStyle("QDoubleSpinBox"); }
 QFrame* buildCallout(QWidget* parent) {
+    const DlgPalette p = dlgPalette();
     QFrame* callout = new QFrame(parent);
-    callout->setStyleSheet(
-        "QFrame { background-color: rgba(210, 153, 34, 0.12); border: 1px solid rgba(224, 168, 0, 0.35); "
-        "border-radius: 8px; }");
+    callout->setStyleSheet(QString(
+        "QFrame { background-color: %1; border: 1px solid %2; "
+        "border-radius: 8px; }").arg(toRgba(p.warn, 31), toRgba(p.warn, 89)));
     QHBoxLayout* lay = new QHBoxLayout(callout);
     lay->setContentsMargins(12, 8, 12, 8);
     lay->setSpacing(10);
     QLabel* icon = new QLabel(callout);
     icon->setPixmap(IconManager::instance().warning(16).pixmap(16, 16));
-    icon->setStyleSheet(
-        "QLabel { background-color: rgba(224, 168, 0, 0.20); border: 1px solid rgba(224, 168, 0, 0.30); "
+    icon->setStyleSheet(QString(
+        "QLabel { background-color: %1; border: 1px solid %2; "
         "border-radius: 12px; padding: 4px; min-width: 22px; min-height: 22px; "
-        "qproperty-alignment: AlignCenter; }");
+        "qproperty-alignment: AlignCenter; }").arg(toRgba(p.warn, 51), toRgba(p.warn, 77)));
     icon->setFixedSize(28, 28);
     QLabel* text = new QLabel("Changes staged \u2014 stop the camera to apply.", callout);
-    text->setStyleSheet(
-        "color: #F0C040; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;");
+    text->setStyleSheet(QString(
+        "color: %1; font-size: 12px; font-weight: 500; background: transparent; padding-top: 1px;").arg(p.warn));
     QPushButton* stopApply = new QPushButton("Stop and Apply", callout);
-    stopApply->setStyleSheet(
-        "QPushButton { background: rgba(224, 168, 0, 0.15); color: #F0C040; border: 1px solid rgba(224, 168, 0, 0.35); "
+    stopApply->setStyleSheet(QString(
+        "QPushButton { background: %1; color: %2; border: 1px solid %3; "
         "border-radius: 5px; padding: 5px 12px; font-size: 11px; font-weight: 600; "
         "transition: all 0.15s ease; }"
-        "QPushButton:hover { background: rgba(224, 168, 0, 0.30); border: 1px solid rgba(240, 192, 64, 0.7); "
-        "color: #FFD866; padding: 5px 14px; }"
-        "QPushButton:pressed { background: rgba(224, 168, 0, 0.40); border: 1px solid #E0A800; padding: 5px 12px; }");
+        "QPushButton:hover { background: %4; border: 1px solid %5; "
+        "color: %6; padding: 5px 14px; }"
+        "QPushButton:pressed { background: %7; border: 1px solid %8; padding: 5px 12px; }")
+        .arg(toRgba(p.warn, 38), p.warn, toRgba(p.warn, 89),
+             toRgba(p.warn, 77), toRgba(p.warn, 179), QColor(p.warn).lighter(115).name(),
+             toRgba(p.warn, 102), p.warn));
     lay->addWidget(icon);
     lay->addWidget(text, 1);
     lay->addWidget(stopApply);
@@ -445,11 +459,12 @@ void CameraDeviceSettingsDialog::setupUi() {
         QString("QPushButton { background: transparent; color: %1; } QPushButton:hover { border-color: %2; }")
             .arg(pal.text, pal.muted));
     applyStagedBtn_->setStyleSheet(buttonBase +
-        QString("QPushButton { background: %1; color: #E0A800; } QPushButton:hover { border-color: #E0A800; }"
-                "QPushButton:disabled { color: %2; border-color: %3; }")
-            .arg(pal.panel, pal.disabled, pal.border));
+        QString("QPushButton { background: %1; color: %2; } QPushButton:hover { border-color: %2; }"
+                "QPushButton:disabled { color: %3; border-color: %4; }")
+            .arg(pal.panel, pal.warn, pal.disabled, pal.border));
     applyBtn_->setStyleSheet(buttonBase +
-        "QPushButton { background: #238636; color: white; } QPushButton:hover { background: #2EA043; }");
+        QString("QPushButton { background: %1; color: %2; } QPushButton:hover { background: %3; }")
+            .arg(pal.ok, pal.onStatus, QColor(pal.ok).darker(112).name()));
 
     buildDetailPages();
     navList_->setCurrentRow(0);
@@ -732,9 +747,10 @@ void CameraDeviceSettingsDialog::buildDetailPages() {
         QString("QCheckBox { color: %1; font-size: 12px; spacing: 8px; }"
                 "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid %2; background: %3; }"
                 "QCheckBox::indicator:hover { border-color: %4; background: %1; }"
-                "QCheckBox::indicator:checked { background: #238636; border-color: #2EA043; image: url(none); }"
-                "QCheckBox::indicator:checked:hover { background: #2EA043; border-color: #3FBF5F; }")
-            .arg(palDetail.text, palDetail.border, palDetail.bg, palDetail.muted));
+                "QCheckBox::indicator:checked { background: %5; border-color: %5; image: url(none); }"
+                "QCheckBox::indicator:checked:hover { background: %6; border-color: %6; }")
+            .arg(palDetail.text, palDetail.border, palDetail.bg, palDetail.muted,
+                 palDetail.ok, QColor(palDetail.ok).darker(112).name()));
     chunkGroupLayout->addWidget(chunkModeActiveCheck_);
     QLabel* chunkHelp = new QLabel("Choose which chunk items should be included in the payload.", chunkGroup);
     chunkHelp->setWordWrap(true);
@@ -880,7 +896,7 @@ void CameraDeviceSettingsDialog::updateStagedBadges() {
         pm.fill(Qt::transparent);
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(QColor("#E0A800"));
+        p.setBrush(QColor(CameraConfig::getThemeColors().warn));
         p.setPen(Qt::NoPen);
         p.drawEllipse(1, 1, 8, 8);
         return pm;
@@ -1153,6 +1169,7 @@ void CameraDeviceSettingsDialog::refreshLiveDeviceInfo() {
 }
 
 void CameraDeviceSettingsDialog::updateSidebarStatus() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     const bool reachable = isCameraReachable(cameraManager_, cameraIndex_, currentInfo_);
     const bool connected = cameraManager_ && (cameraManager_->isCameraConnected(cameraIndex_) || cameraManager_->isCameraOpen(cameraIndex_));
     const bool running = connected && cameraManager_->isCameraRunning(cameraIndex_);
@@ -1173,16 +1190,16 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     QString chipColor;
     if (!reachable) {
         chipText = "Offline";
-        chipColor = "#FF5A5A";
+        chipColor = tc.critical;
     } else if (running) {
         chipText = "Running";
-        chipColor = "#2EA043";
+        chipColor = tc.ok;
     } else if (connected) {
         chipText = "Stopped";
-        chipColor = "#E0A800";
+        chipColor = tc.warn;
     } else {
         chipText = "Online";
-        chipColor = "#E0A800";
+        chipColor = tc.warn;
     }
     statusChipLabel_->setText(chipText);
     statusChipLabel_->setStyleSheet(
@@ -1191,7 +1208,7 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
 
     // Card left-border accent reflects live state
     const DlgPalette pal = dlgPalette();
-    QString cardAccent = !reachable ? "#FF5A5A" : (running ? "#2EA043" : "#E0A800");
+    QString cardAccent = !reachable ? pal.critical : (running ? pal.ok : pal.warn);
     statusCard_->setStyleSheet(
         QString("QFrame { background-color: %1; border: 1px solid %2; border-radius: 8px; "
                 "border-left: 4px solid %3; }").arg(pal.panel, pal.border, cardAccent));
@@ -1209,7 +1226,7 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         QString("<span style='color:%1;'>Model</span>  "
                 "<span style='color:%2;'>%3</span>")
             .arg(pal.muted,
-                 modelOk ? pal.text : "#FF5A5A",
+                 modelOk ? pal.text : pal.critical,
                  modelOk ? modelValue.toHtmlEscaped() : "Not Connected"));
 
     // IP row with label · value
@@ -1224,13 +1241,13 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
         QString("<span style='color:%1;'>IP</span>  "
                 "<span style='color:%2; font-family: SF Mono, Monaco, monospace;'>%3</span>")
             .arg(pal.muted,
-                 ipOk ? pal.text : "#FF5A5A",
+                 ipOk ? pal.text : pal.critical,
                  ipOk ? ipValue.toHtmlEscaped() : "Offline"));
 
     // Temperature row — show dash when sensor not reporting
     double temp = currentInfo_.temperature;
     if (temp > 0.0) {
-        QString tempColor = temp > 50.0 ? "#FF5A5A" : pal.text;
+        QString tempColor = temp > 50.0 ? pal.critical : pal.text;
         statusTempLabel_->setText(
             QString("<span style='color:%1;'>Temp</span>  "
                     "<span style='color:%2;'>%3°C</span>")
@@ -1265,16 +1282,16 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
             const QString off = ptp.offsetFromMasterNs >= 0
                 ? QString(" · %1").arg(ptpOffsetText(ptp.offsetFromMasterNs)) : QString();
             ptpText = QString("Slave%1").arg(off);
-            ptpColor = "#2EA043";
+            ptpColor = pal.ok;
         } else if (ptp.state == QLatin1String("Master")) {
             ptpText = "Master";
-            ptpColor = "#58A6FF";
+            ptpColor = pal.info;
         } else if (ptp.state == QLatin1String("Faulty")) {
             ptpText = "Fault";
-            ptpColor = "#FF5A5A";
+            ptpColor = pal.critical;
         } else {
             ptpText = "Syncing…";  // Initializing / Listening / Pre_Master / Passive / Uncalibrated
-            ptpColor = "#E0A800";
+            ptpColor = pal.warn;
         }
         statusPtpLabel_->setText(
             QString("<span style='color:%1;'>PTP</span>  "
@@ -1308,17 +1325,17 @@ void CameraDeviceSettingsDialog::updateSidebarStatus() {
     if (running) {
         runStateBtn_->setStyleSheet(
             QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-                    "color: #2EA043; border: 1px solid #2EA043; background: rgba(46, 160, 67, 0.12); }"
-                    "QPushButton:hover { background: rgba(46, 160, 67, 0.22); border-color: #3FBF5F; }"
+                    "color: %3; border: 1px solid %3; background: %4; }"
+                    "QPushButton:hover { background: %5; border-color: %3; }"
                     "QPushButton:disabled { color: %1; border: 1px solid %2; }")
-                .arg(pal.disabled, pal.border));
+                .arg(pal.disabled, pal.border, pal.ok, toRgba(pal.ok, 31), toRgba(pal.ok, 56)));
     } else {
         runStateBtn_->setStyleSheet(
             QString("QPushButton { border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; margin-top: 8px; "
-                    "color: #E0A800; border: 1px solid #E0A800; background: transparent; }"
-                    "QPushButton:hover { background: rgba(224, 168, 0, 0.10); border-color: #F0B800; }"
+                    "color: %3; border: 1px solid %3; background: transparent; }"
+                    "QPushButton:hover { background: %4; border-color: %3; }"
                     "QPushButton:disabled { color: %1; border: 1px solid %2; }")
-                .arg(pal.disabled, pal.border));
+                .arg(pal.disabled, pal.border, pal.warn, toRgba(pal.warn, 26)));
     }
 }
 

@@ -28,17 +28,14 @@ public:
     explicit NetworkSummaryHeader(QWidget* parent = nullptr);
     ~NetworkSummaryHeader() override;
 
-    // Status update methods
+    // Status update methods. An invalid color resolves to the ok token.
     void setNetworkStatus(const QString& status, const QColor& color);
     void setCameraCounts(int total, int online, int warning, int error, int offline);
     void setLinkSpeedMbps(int mbps);
-    void updateSummary(const QString& summary, const QColor& color = QColor("#4CAF50"));
+    void updateSummary(const QString& summary, const QColor& color = QColor());
 
     // Getters for button connections
     QPushButton* refreshButton() const { return refreshBtn_; }
-
-    // Theme
-    void applyTheme(const QColor& primaryColor, const QColor& accentColor);
 
 signals:
     void refreshRequested();
@@ -94,8 +91,5 @@ private:
     bool isRefreshing_;
 
     // Styling
-    QColor primaryColor_;
-    QColor accentColor_;
-    QColor statusColor_;
     QGraphicsDropShadowEffect* shadowEffect_;
 };

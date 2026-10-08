@@ -988,11 +988,11 @@ void DetailView::buildRoiControls() {
         updateRoiStatus();
         updateRoiFinishState();
     };
-    roiOverlay_->onScratchChanged = [this](int count) {
+    roiOverlay_->onScratchChanged = [this, tc](int count) {
         updateRoiFinishState();
         if (roiStatusLabel_ && roiOverlay_ && roiOverlay_->isDrawing()) {
-            roiStatusLabel_->setStyleSheet("QLabel { color: #81C784; font-size: 11px;"
-                                           " font-weight: 600; }");
+            roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px;"
+                                                   " font-weight: 600; }").arg(tc.ok));
             if (count < 3) {
                 roiStatusLabel_->setText(QString("Drawing: click to add points"
                                                   " (%1 so far) — right-click"
@@ -1150,17 +1150,18 @@ void DetailView::refreshRoiOverlay() {
 }
 
 void DetailView::updateRoiStatus() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     if (!roiStatusLabel_) {
         return;
     }
     if (roiNorm_.size() < 3) {
         roiStatusLabel_->setText("No inspection region — analysis is PAUSED. "
                                  "Draw the area to analyze or use Whole Frame.");
-        roiStatusLabel_->setStyleSheet("QLabel { color: #FFB74D; font-size: 11px; font-weight: 600; }");
+        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; }").arg(tc.warn));
     } else {
         roiStatusLabel_->setText(QString("Region: %1 points — analysis runs inside it.")
                                      .arg(roiNorm_.size()));
-        roiStatusLabel_->setStyleSheet("QLabel { color: #81C784; font-size: 11px; font-weight: 600; }");
+        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; }").arg(tc.ok));
     }
 }
 
@@ -1579,6 +1580,7 @@ void DetailView::clearCamera() {
 }
 
 void DetailView::updateTemperature(double temp) {
+    const ThemeColors tc = CameraConfig::getThemeColors();
     if (!lblTemp_) return;
 
     TempStatus::Status status = TempStatus::classify(temp);
@@ -1589,11 +1591,11 @@ void DetailView::updateTemperature(double temp) {
     switch (status) {
         case TempStatus::Error:
             text  = QString("⛔ %1 °C  ERROR").arg(temp, 0, 'f', 1);
-            color = "#ff4444";
+            color = tc.critical;
             break;
         case TempStatus::Critical:
             text  = QString("⚠ %1 °C  CRITICAL").arg(temp, 0, 'f', 1);
-            color = "#ff9900";
+            color = tc.warn;
             break;
         case TempStatus::Ok:
             text  = QString("%1 °C").arg(temp, 0, 'f', 1);
@@ -1601,7 +1603,7 @@ void DetailView::updateTemperature(double temp) {
             break;
         default:  // Unknown / N/A
             text  = "N/A";
-            color = "#888888";
+            color = tc.disabled;
             break;
     }
 
@@ -1778,7 +1780,8 @@ QString DetailView::fpsMismatchStyle(double fps) {
     // exposure time eating into the frame period) — healthy stays default.
     if (fps < 0 || acquisitionFps_ <= 0.0) return QString();
     const bool limited = fps < 0.9 * acquisitionFps_;
-    return limited ? QStringLiteral("QLabel { color: #FFB74D; font-weight: 600; }")
+    return limited ? QStringLiteral("QLabel { color: %1; font-weight: 600; }")
+                         .arg(CameraConfig::getThemeColors().warn)
                    : QString();
 }
 

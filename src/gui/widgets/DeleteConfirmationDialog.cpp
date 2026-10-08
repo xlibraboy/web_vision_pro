@@ -148,10 +148,10 @@ void DeleteConfirmationDialog::setupUI() {
 
     confirmBtn_ = new QPushButton("Delete", contentFrame_);
     confirmBtn_->setCursor(Qt::PointingHandCursor);
-    confirmBtn_->setStyleSheet(
+    confirmBtn_->setStyleSheet(QString(
         "QPushButton { "
-        "  background-color: #DA3633; "
-        "  color: white; "
+        "  background-color: %1; "
+        "  color: %2; "
         "  border: none; "
         "  border-radius: 8px; "
         "  padding: 12px 24px; "
@@ -159,12 +159,14 @@ void DeleteConfirmationDialog::setupUI() {
         "  font-weight: 600; "
         "} "
         "QPushButton:hover { "
-        "  background-color: #F85149; "
+        "  background-color: %3; "
         "} "
         "QPushButton:pressed { "
-        "  background-color: #DA3633; "
+        "  background-color: %4; "
         "}"
-    );
+    ).arg(tc.critical, tc.onStatus,
+          QColor(tc.critical).lighter(110).name(),
+          QColor(tc.critical).darker(110).name()));
     connect(confirmBtn_, &QPushButton::clicked, this, &DeleteConfirmationDialog::onConfirmClicked);
     buttonsLayout_->addWidget(confirmBtn_);
 

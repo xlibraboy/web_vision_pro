@@ -868,13 +868,19 @@ void MachineLayoutPanel::Canvas::updateCursorHits() {
 }
 
 QColor MachineLayoutPanel::groupColor(int group) {
+    // Machine-section identity colors. OKLCH-derived and simulated for
+    // deuteranopia / protanopia / tritanopia: unlike the previous palette the
+    // amber pair (Wire / Press Part) is split by hue AND lightness, and every
+    // pair stays >= 10 OKLab*100 apart in every simulation. Position on the
+    // ruler plus the legend label remain the primary encoding; color is the
+    // fast second channel.
     switch (group) {
-    case CameraGroup::kWire: return QColor(230, 200, 70);
-    case CameraGroup::kPressPart: return QColor(255, 153, 0);
-    case CameraGroup::kPreDryer: return QColor(10, 132, 255);
-    case CameraGroup::kAfterDryer: return QColor(0, 204, 68);
-    case CameraGroup::kCalenderReel: return QColor(178, 51, 255);
-    default: return QColor(138, 138, 138);
+    case CameraGroup::kWire: return QColor("#FCD84C");
+    case CameraGroup::kPressPart: return QColor("#D55400");
+    case CameraGroup::kPreDryer: return QColor("#5C9DFB");
+    case CameraGroup::kAfterDryer: return QColor("#00D5AA");
+    case CameraGroup::kCalenderReel: return QColor("#D46FBF");
+    default: return QColor("#6E7173");
     }
 }
 
@@ -1117,7 +1123,7 @@ void MachineLayoutPanel::Canvas::drawSectionBar(QPainter& p, const ThemeColors& 
         } else {
             p.fillRect(cursor, barTop, segW, barHeight, col);
             if (segW >= minSegWidth) {
-                p.setPen(QColor("#0E1116"));
+                p.setPen(QColor(tc.onStatus));
                 QFont f = p.font(); f.setPixelSize(10); p.setFont(f);
                 p.drawText(QRect(cursor, barTop, segW, barHeight),
                            Qt::AlignCenter, CameraGroup::name(r.group).toUpper());
@@ -1192,7 +1198,7 @@ void MachineLayoutPanel::Canvas::drawPositionCursor(QPainter& p, const ThemeColo
     pillX = std::max(leftMargin, std::min(pillX, width() - leftMargin - pillW));
 
     p.setPen(QPen(QColor(tc.primary), 1));
-    p.setBrush(QColor("#1C2128"));
+    p.setBrush(QColor(tc.surface));
     p.drawRoundedRect(QRect(pillX, 0, pillW, pillH), 3, 3);
     p.setPen(QColor(tc.primary));
     p.drawText(QRect(pillX, 0, pillW, pillH), Qt::AlignCenter, text);
@@ -1270,7 +1276,7 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     QFont sideLabelFont = painter.font();
     sideLabelFont.setPixelSize(9);
     painter.setFont(sideLabelFont);
-    painter.setPen(QColor(QStringLiteral("#8B949E")));
+    painter.setPen(QColor(tc.muted));
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         painter.drawText(leftMargin, rows[f].upperTop + 11, QStringLiteral("DRIVE SIDE"));     // upper sub-row
         painter.drawText(leftMargin, rows[f].lowerTop + 11, QStringLiteral("OPERATOR SIDE"));  // lower sub-row
@@ -1355,7 +1361,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         // selection is active.
         const bool glow = (i == hoveredCamera_ || i == cursorHitCamera_);
         QColor brushCol = cam.hasPosition ? col : QColor(col.red(), col.green(), col.blue(), 90);
-        QPen markerPen = QPen(glow ? Qt::white : QColor(tc.border), 1.5);
+        QPen markerPen = QPen(glow ? QColor(tc.text) : QColor(tc.border), 1.5);
         if (selectedCamera_ >= 0) {
             if (i == selectedCamera_) {
                 markerPen = QPen(QColor(tc.primary), 2);  // accent border
@@ -1384,7 +1390,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
-        painter.setPen(glow ? Qt::white : QColor(tc.text));
+        painter.setPen(glow ? QColor(tc.text) : QColor(tc.text));
         painter.drawText(QRect(0, -8, 30, 16), Qt::AlignLeft | Qt::AlignVCenter,
                          QString::number(cam.id));
         painter.restore();
@@ -1445,7 +1451,7 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
         // selection is active.
         QBrush fill(def.color);
         QPen diamondPen = QPen((i == hoveredDefect_ || i == cursorHitDefect_)
-                                   ? Qt::white : QColor(tc.border), 1.5);
+                                   ? QColor(tc.text) : QColor(tc.border), 1.5);
         if (ok) {
             fill = QBrush(Qt::NoBrush);
             QColor hairline = def.color;
@@ -1530,7 +1536,7 @@ void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const Theme
         // Selection dims every trigger but the selected one; hover highlights.
         QColor fill = trig.color;
         QPen pinPen = QPen((i == hoveredTrigger_ || i == cursorHitTrigger_)
-                               ? Qt::white : QColor(tc.border), 1.5);
+                               ? QColor(tc.text) : QColor(tc.border), 1.5);
         if (selectedTrigger_ >= 0) {
             if (i == selectedTrigger_) {
                 pinPen = QPen(QColor(tc.primary), 2);  // accent border
@@ -1566,7 +1572,7 @@ void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const T
         painter.setPen(QPen(QColor(255, 255, 255, 36), 1, Qt::DashLine));
         painter.drawLine(x, 36, x, yCenter);
 
-        const QColor outlineCol = glow ? Qt::white : QColor("#9AA4AF");
+        const QColor outlineCol = glow ? QColor(tc.text) : QColor(tc.muted);
         painter.setPen(QPen(outlineCol, 1.5, Qt::DashLine));
         painter.setBrush(Qt::NoBrush);
         if (r.operatorSide) {
@@ -1585,7 +1591,7 @@ void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const T
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
-        painter.setPen(glow ? Qt::white : QColor("#9AA4AF"));
+        painter.setPen(glow ? QColor(tc.text) : QColor(tc.muted));
         painter.drawText(QRect(0, -8, 30, 16), Qt::AlignLeft | Qt::AlignVCenter,
                          QString::number(r.id));
         painter.restore();
@@ -1604,7 +1610,7 @@ void MachineLayoutPanel::Canvas::drawReferenceTriggers(QPainter& painter, const 
         const RefPoint& r = ref.triggers[i];
         const int x = static_cast<int>(owner_->mmToX(r.mm));
         const bool glow = (i == hoveredRefTrigger_ || i == cursorHitRefTrigger_);
-        painter.setPen(QPen(glow ? Qt::white : QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.setPen(QPen(glow ? QColor(tc.text) : QColor(tc.muted), 1.5, Qt::DashLine));
         painter.drawLine(x, axisY, x, axisY + 7);  // stem below the axis
         painter.setBrush(Qt::NoBrush);
         painter.drawEllipse(QRect(x - 4, axisY - 10, 8, 8));  // hollow sensor head
@@ -1634,8 +1640,10 @@ void MachineLayoutPanel::Canvas::drawReferenceStrip(QPainter& painter, const The
         const RefPoint& r = ref.speedInputs[i];
         const int x = static_cast<int>(owner_->mmToX(r.mm));
         const bool glow = (i == hoveredRefSpeed_);
-        painter.setPen(QPen(glow ? Qt::white : QColor("#00E5FF"), 1.5));
-        painter.setBrush(QColor(0, 229, 255, 70));
+        painter.setPen(QPen(glow ? QColor(tc.text) : QColor(tc.primary), 1.5));
+        QColor speedFill(tc.primary);
+        speedFill.setAlpha(70);
+        painter.setBrush(speedFill);
         painter.drawEllipse(QRect(x - 4, axisY - 13, 8, 8));
         painter.setBrush(Qt::NoBrush);
     }
@@ -1643,7 +1651,7 @@ void MachineLayoutPanel::Canvas::drawReferenceStrip(QPainter& painter, const The
         const RefPoint& r = ref.webBreaks[i];
         const int x = static_cast<int>(owner_->mmToX(r.mm));
         const bool glow = (i == hoveredRefBreak_);
-        painter.setPen(QPen(glow ? Qt::white : QColor("#FF5A5A"), 1.6));
+        painter.setPen(QPen(glow ? QColor(tc.text) : QColor(tc.critical), 1.6));
         painter.drawLine(x - 5, axisY + 4, x + 5, axisY + 14);
         painter.drawLine(x - 5, axisY + 14, x + 5, axisY + 4);
     }
@@ -1682,7 +1690,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     // Rounded rect swatch = DRIVE
     const int swX = leftMargin + 110;
     painter.setPen(QPen(QColor(tc.border), 1));
-    painter.setBrush(QColor("#8B949E"));
+    painter.setBrush(QColor(tc.muted));
     painter.drawRoundedRect(QRect(swX, sideY - 9, 12, 12), 3, 3);
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
@@ -1692,7 +1700,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     // Triangle swatch = OPERATOR
     const int opX = swX + driveW + 28;
     painter.setPen(QPen(QColor(tc.border), 1));
-    painter.setBrush(QColor("#8B949E"));
+    painter.setBrush(QColor(tc.muted));
     QPainterPath tri;
     tri.moveTo(opX + 6, sideY - 9);
     tri.lineTo(opX + 12, sideY + 3);
@@ -1711,7 +1719,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     // sensor pin = trigger record
     painter.setPen(QPen(QColor(tc.border), 1));
     painter.drawLine(trigX + 6, trigY, trigX + 6, trigY + 6);
-    painter.setBrush(QColor("#8B949E"));
+    painter.setBrush(QColor(tc.muted));
     painter.drawEllipse(QRect(trigX + 2, trigY - 9, 8, 8));
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(tc.text));
@@ -1720,7 +1728,7 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
     const int diaX = trigX + 16
         + painter.fontMetrics().horizontalAdvance(QStringLiteral("SENSOR PIN (sheetbreak trigger)")) + 30;
     painter.setPen(QPen(QColor(tc.border), 1));
-    painter.setBrush(QColor("#8B949E"));
+    painter.setBrush(QColor(tc.muted));
     QPainterPath dia;
     dia.moveTo(diaX + 6, trigY - 9);
     dia.lineTo(diaX + 12, trigY - 3);
@@ -1740,29 +1748,31 @@ void MachineLayoutPanel::Canvas::drawLegends(QPainter& painter, const ThemeColor
         painter.drawText(leftMargin, refY, QStringLiteral("%1:").arg(owner_->refSet_.name.toUpper()));
         const int refX = leftMargin + 110;
         // hollow square = reference camera
-        painter.setPen(QPen(QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.setPen(QPen(QColor(tc.muted), 1.5, Qt::DashLine));
         painter.setBrush(Qt::NoBrush);
         painter.drawRoundedRect(QRect(refX, refY - 9, 12, 12), 3, 3);
         painter.setPen(QColor(tc.text));
         painter.drawText(refX + 18, refY, QStringLiteral("CAM"));
         int rx = refX + 18 + painter.fontMetrics().horizontalAdvance(QStringLiteral("CAM")) + 26;
         // cyan dot = speed input
-        painter.setPen(QPen(QColor("#00E5FF"), 1.5));
-        painter.setBrush(QColor(0, 229, 255, 70));
+        painter.setPen(QPen(QColor(tc.primary), 1.5));
+        QColor speedFill(tc.primary);
+        speedFill.setAlpha(70);
+        painter.setBrush(speedFill);
         painter.drawEllipse(QRect(rx, refY - 8, 8, 8));
         painter.setBrush(Qt::NoBrush);
         painter.setPen(QColor(tc.text));
         painter.drawText(rx + 14, refY, QStringLiteral("SPEED IN"));
         rx += 14 + painter.fontMetrics().horizontalAdvance(QStringLiteral("SPEED IN")) + 26;
         // red × = web break
-        painter.setPen(QPen(QColor("#FF5A5A"), 1.6));
+        painter.setPen(QPen(QColor(tc.critical), 1.6));
         painter.drawLine(rx + 4, refY - 8, rx + 12, refY);
         painter.drawLine(rx + 4, refY, rx + 12, refY - 8);
         painter.setPen(QColor(tc.text));
         painter.drawText(rx + 18, refY, QStringLiteral("WEB BREAK"));
         rx += 18 + painter.fontMetrics().horizontalAdvance(QStringLiteral("WEB BREAK")) + 26;
         // dashed pin = trigger record
-        painter.setPen(QPen(QColor("#9AA4AF"), 1.5, Qt::DashLine));
+        painter.setPen(QPen(QColor(tc.muted), 1.5, Qt::DashLine));
         painter.drawLine(rx + 4, refY, rx + 4, refY + 6);
         painter.drawEllipse(QRect(rx + 1, refY - 9, 8, 8));
         painter.setPen(QColor(tc.text));
@@ -1885,7 +1895,7 @@ void MachineLayoutPanel::Canvas::drawZoomIndicator(QPainter& p, const ThemeColor
     const int ph = 16;
     const int x = width() - pw - 12;
     p.setPen(QPen(QColor(tc.primary), 1));
-    p.setBrush(QColor("#1C2128"));
+    p.setBrush(QColor(tc.surface));
     p.drawRoundedRect(QRect(x, 8, pw, ph), 3, 3);
     p.setPen(QColor(tc.primary));
     p.drawText(QRect(x, 8, pw, ph), Qt::AlignCenter, text);
