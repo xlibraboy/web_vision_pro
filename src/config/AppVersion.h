@@ -6,5 +6,5 @@
  * CHANGELOG.md.
  */
 namespace AppVersion {
-constexpr const char* kNumber = "1.1.0";
+constexpr const char* kNumber = "1.2.0";
 }

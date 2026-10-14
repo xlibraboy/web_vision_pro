@@ -13,8 +13,16 @@ here.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-14
+
+### Added
+
+- Native Ubuntu 22.04 package (.deb) published on GitHub Releases: `sudo apt install ./papervision_<version>_amd64.deb` installs, the same command with a newer file upgrades in place, `sudo apt remove papervision` uninstalls (settings and recordings are kept). Ubuntu 20.04 keeps using the Docker image.
+- The event list now adopts existing recordings whose stored paths point at a previous storage root (e.g. after moving from the Docker `/app/data` volume to a native install).
+
 ### Changed
 
+- Configuration and event storage paths resolve per environment now: `PAPERVISION_CONFIG_DIR` / `PAPERVISION_DATA_DIR` overrides, `/app/data` inside Docker, XDG directories (`~/.config`, `~/.local/share`) on a native install; camera parameter files moved next to the recordings.
 - Analysis View event log: an OPC UA trigger now shows only the sensor name in the Reason column (no more "OPC UA:" prefix).
 
 ## [1.1.0] - 2026-09-19
