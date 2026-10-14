@@ -13,3 +13,7 @@ docker-*.sh
 docker-image-manager.sh
 *.md
 resources.qrc
+
+# Local vendor archives (served over HTTP during the build, not copied into the image)
+.docker/*.deb
+.docker/*.tar.gz

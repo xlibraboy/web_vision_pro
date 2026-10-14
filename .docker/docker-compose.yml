@@ -7,8 +7,11 @@ services:
       context: ..
       dockerfile: .docker/Dockerfile
       args:
-        PYLON_DEB_URL: ${PYLON_DEB_URL:?export PYLON_DEB_URL to the pylon SDK deb download URL}
-        PYLON_MPEG4_DEB_URL: ${PYLON_MPEG4_DEB_URL:?export PYLON_MPEG4_DEB_URL to the MPEG-4 deb download URL}
+        PYLON_DEB_URL: ${PYLON_DEB_URL:-}
+        PYLON_MPEG4_DEB_URL: ${PYLON_MPEG4_DEB_URL:-}
+      # Lets the build reach an archive server on the host (Linux builds).
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
     container_name: paper_vision_node
     privileged: true  # Required for hardware access (cameras)
     network_mode: "host" # Required for GigE cameras discovery

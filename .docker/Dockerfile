@@ -78,21 +78,37 @@ RUN git clone --depth 1 --branch v1.5.4 https://github.com/open62541/open62541.g
 
 
 # Pylon Installation
-# The pylon debs are large vendor installers and are not tracked in git.
-# Fetch them at build time:
+# The pylon SDK is a large vendor installer and is not tracked in git.
+# Fetch it at build time:
 #   docker build --build-arg PYLON_DEB_URL=<url> --build-arg PYLON_MPEG4_DEB_URL=<url> ...
+# PYLON_DEB_URL may point at the Debian package or at the SDK tarball
+# (pylon_*_x86_64.tar.gz); a tarball is extracted into /opt/pylon as described
+# in the pylon INSTALL guide.
 ARG PYLON_DEB_URL
 RUN test -n "$PYLON_DEB_URL" || { echo "ERROR: PYLON_DEB_URL build-arg is required"; exit 1; } && \
-    wget -q -O /tmp/pylon.deb "$PYLON_DEB_URL" && \
-    (dpkg -i /tmp/pylon.deb || apt-get install -f -y) && \
-    rm /tmp/pylon.deb
+    case "$PYLON_DEB_URL" in \
+        *.tar.gz|*.tgz) \
+            wget -q -O /tmp/pylon.tar.gz "$PYLON_DEB_URL" && \
+            mkdir -p /opt/pylon && \
+            tar -C /opt/pylon -xzf /tmp/pylon.tar.gz && \
+            chmod 755 /opt/pylon && \
+            rm /tmp/pylon.tar.gz ;; \
+        *) \
+            wget -q -O /tmp/pylon.deb "$PYLON_DEB_URL" && \
+            (dpkg -i /tmp/pylon.deb || apt-get install -f -y) && \
+            rm /tmp/pylon.deb ;; \
+    esac
 
-# Pylon Supplementary Package (MPEG-4)
+# Pylon Supplementary Package (MPEG-4) - optional, enables MP4 export via
+# CVideoWriter. Skipped with a note when PYLON_MPEG4_DEB_URL is not set.
 ARG PYLON_MPEG4_DEB_URL
-RUN test -n "$PYLON_MPEG4_DEB_URL" || { echo "ERROR: PYLON_MPEG4_DEB_URL build-arg is required"; exit 1; } && \
-    wget -q -O /tmp/pylon-mpeg4.deb "$PYLON_MPEG4_DEB_URL" && \
-    (dpkg -i /tmp/pylon-mpeg4.deb || apt-get install -f -y) && \
-    rm /tmp/pylon-mpeg4.deb
+RUN if [ -n "$PYLON_MPEG4_DEB_URL" ]; then \
+        wget -q -O /tmp/pylon-mpeg4.deb "$PYLON_MPEG4_DEB_URL" && \
+        (dpkg -i /tmp/pylon-mpeg4.deb || apt-get install -f -y) && \
+        rm /tmp/pylon-mpeg4.deb; \
+    else \
+        echo "NOTE: PYLON_MPEG4_DEB_URL not set - skipping MPEG-4 package (MP4 export disabled)"; \
+    fi
 
 WORKDIR /app
 
