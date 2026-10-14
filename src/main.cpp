@@ -9,6 +9,7 @@
 #include <QLocalSocket>
 #include <QObject>
 #include <pylon/PylonIncludes.h>
+#include "config/AppPaths.h"
 #include "gui/MainWindow.h"
 
 #include <execinfo.h>
@@ -62,16 +63,17 @@ int main(int argc, char *argv[]) {
         Pylon::PylonAutoInitTerm autoInitTerm;
         QApplication app(argc, argv);
 
-        // Persist QSettings inside the mounted data volume: the container's
-        // home directory is wiped whenever the container is recreated, which
-        // silently reset System Configuration to defaults. /app/data survives
-        // recreation (same volume the event files live on).
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, "/app/data/config");
+        // Persist QSettings where AppPaths says: inside the mounted data
+        // volume in the container (the container home directory is wiped
+        // whenever the container is recreated, which silently reset System
+        // Configuration to defaults), or the XDG config directory natively.
+        const QString settingsBaseDir = AppPaths::configBaseDir();
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsBaseDir);
         QSettings::setDefaultFormat(QSettings::IniFormat);
         {
             // One-time migration from the old container-home location.
             QDir oldSettingsDir(QDir::homePath() + "/.config/PaperVision");
-            QDir newSettingsDir("/app/data/config/PaperVision");
+            QDir newSettingsDir(settingsBaseDir + "/PaperVision");
             if (oldSettingsDir.exists() && !newSettingsDir.exists()) {
                 newSettingsDir.mkpath(".");
                 const QFileInfoList legacy = oldSettingsDir.entryInfoList(

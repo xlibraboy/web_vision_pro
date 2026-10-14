@@ -16,6 +16,10 @@ Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
+build-deb/
+
+# Native packaging output (packaging/build-deb.sh)
+packaging/out/
 
 # IDEs
 .vscode/

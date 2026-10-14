@@ -127,7 +127,7 @@ def main():
         "triggerSource": "simulation",
         "triggerTagName": "",
         "triggerTagNodeId": "",
-        "videoPath": "/app/data/" + BIN_NAME,
+        "videoPath": os.path.abspath(os.path.join(OUT_DIR, BIN_NAME)),
         "width": W,
     }
     with open(os.path.join(OUT_DIR, f"event_{TS}.json"), "w") as jf:

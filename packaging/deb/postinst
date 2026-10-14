@@ -1,0 +1,23 @@
+#!/bin/sh
+# Debian postinst maintainer script.
+#
+# Never fails: a missing pylon runtime only means the application cannot start
+# yet, and a failing postinst would leave dpkg half-configured.
+set -e
+
+if [ ! -d /opt/pylon ]; then
+    cat >&2 <<'EOF'
+papervision: Basler pylon was not found in /opt/pylon.
+papervision: The application needs the Basler pylon 6.2 runtime; install it
+papervision: before launching 'papervision' (see /usr/share/doc/papervision/INSTALL.md).
+EOF
+fi
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t /usr/share/icons/hicolor || true
+fi
+
+exit 0

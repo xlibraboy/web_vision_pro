@@ -34,6 +34,22 @@ Before rebuilding the image, ask the user whether to refresh system packages (a 
 
 Never force `--no-cache` / a fresh `apt-get update` without asking first.
 
+## Packaging / release (.deb)
+
+Deployment guide: [docs/installation.md](docs/installation.md).
+
+- Target is **Ubuntu 22.04 (jammy), amd64**, built on jammy (CI runner or `ubuntu:22.04` container) with
+  `packaging/build-deb.sh` — it needs `PYLON_DEB_URL` (repo secret in CI) because the build links against the
+  Basler pylon SDK. Ubuntu 20.04 stays Docker-only: its Qt 5.12 lacks the OPC UA API the app uses.
+- Release flow: bump `AppVersion::kNumber`, move the CHANGELOG entries under `## [x.y.z] - date`, commit,
+  push tag `vX.Y.Z`. `.github/workflows/release-deb.yml` builds the package (with tests) and attaches the
+  `.deb` + checksums to the GitHub Release. Tag and `AppVersion::kNumber` must match.
+- The package bundles QtOpcUa + open62541 under `/opt/papervision` (Ubuntu does not package QtOpcUa; the
+  plugin must be built against the target distro's Qt patch version). Basler pylon is a vendor prerequisite
+  and must never be redistributed inside the package.
+- Filesystem roots go through `src/config/AppPaths` (override env -> Docker `/app/data` -> XDG); keep it
+  that way instead of adding new absolute paths.
+
 ## Conventions
 
 - C++17, CMake 3.10+, Qt5, OpenCV 4.x, Pylon 6.x

@@ -121,7 +121,7 @@ def generate_event(outdir, speed, fps, positions, trigger, frames, width, height
     json_path = os.path.join(outdir, f"event_{ts}.json")
     meta = {
         "timestamp": ts,
-        "videoPath": f"/app/data/event_{ts}_cam1.bin",
+        "videoPath": os.path.abspath(os.path.join(outdir, f"event_{ts}_cam1.bin")),
         "triggerIndex": trigger,
         "totalFrames": frames,
         "fps": fps,

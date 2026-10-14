@@ -42,6 +42,7 @@ src/gui/widgets/AnalysisVideoWidget.cpp
 src/gui/widgets/EventDashboard.cpp
 src/gui/ConfigDialog.cpp
 src/config/CameraConfig.cpp
+src/config/AppPaths.cpp
 src/communication/OpcUaClientService.cpp
 src/gui/widgets/ToggleSwitch.cpp
 src/gui/widgets/IconManager.cpp
@@ -175,4 +176,110 @@ if(BUILD_TESTING)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
+endif()
+
+# ---------------------------------------------------------------------------
+# Native packaging - Debian .deb for Ubuntu 22.04 (jammy)
+#
+# Off by default, so the Docker image keeps building without install rules.
+# packaging/build-deb.sh (also used by the release workflow) enables it and
+# CPack turns the rules below into papervision_<version>_amd64.deb.
+#
+# QtOpcUa and open62541 are not in the Ubuntu archive, so the package bundles
+# the copies built on the packaging host (Qt plugins reject build-version
+# mismatches, hence the target-distro build). Basler pylon stays a documented
+# vendor prerequisite: it is proprietary and is never redistributed here.
+# ---------------------------------------------------------------------------
+option(PAPERVISION_PACKAGING "Create install rules and CPack .deb configuration" OFF)
+
+if(PAPERVISION_PACKAGING)
+    # The payload mixes absolute roots (/opt/papervision, /usr), so the
+    # install prefix must be the filesystem root.
+    if(NOT CMAKE_INSTALL_PREFIX STREQUAL "/")
+        message(FATAL_ERROR
+            "PAPERVISION_PACKAGING installs into /opt/papervision and /usr - "
+            "configure with -DCMAKE_INSTALL_PREFIX=/ (packaging/build-deb.sh does this)")
+    endif()
+
+    set(PAPERVISION_QTOPUCA_LIB_DIR "/usr/lib/x86_64-linux-gnu" CACHE PATH
+        "Directory holding the built libQt5OpcUa shared library")
+    set(PAPERVISION_QTOPUCA_PLUGIN_DIR "/usr/lib/x86_64-linux-gnu/qt5/plugins/opcua" CACHE PATH
+        "Directory holding the built QtOpcUa open62541 backend plugin")
+    set(PAPERVISION_OPEN62541_LIB_DIR "/usr/local/lib" CACHE PATH
+        "Directory holding the built libopen62541 shared library")
+
+    install(TARGETS PaperVision_App RUNTIME DESTINATION opt/papervision/bin)
+    # Fallback for direct invocations; the /usr/bin/papervision launcher also
+    # exports these paths (needed for the Qt plugin directory).
+    set_target_properties(PaperVision_App PROPERTIES
+        INSTALL_RPATH "/opt/papervision/lib;/opt/pylon/lib")
+
+    # The globs pick up the versioned library together with its SONAME links;
+    # CPack keeps them as symlinks in the payload. Fail loudly when the bundled
+    # libraries were not built.
+    file(GLOB QTOPUCA_LIBS "${PAPERVISION_QTOPUCA_LIB_DIR}/libQt5OpcUa.so.5*")
+    if(NOT QTOPUCA_LIBS)
+        message(FATAL_ERROR
+            "libQt5OpcUa.so.5* not found in ${PAPERVISION_QTOPUCA_LIB_DIR} - build qtopcua first")
+    endif()
+    install(FILES ${QTOPUCA_LIBS} DESTINATION opt/papervision/lib)
+
+    file(GLOB OPEN62541_LIBS "${PAPERVISION_OPEN62541_LIB_DIR}/libopen62541.so.1*")
+    if(NOT OPEN62541_LIBS)
+        message(FATAL_ERROR
+            "libopen62541.so.1* not found in ${PAPERVISION_OPEN62541_LIB_DIR} - build open62541 first")
+    endif()
+    install(FILES ${OPEN62541_LIBS} DESTINATION opt/papervision/lib)
+
+    # The plugin file name has changed across QtOpcUa releases
+    # (libqtopen62541backend.so, libopen62541_backend.so), so take whatever the
+    # built backend provides.
+    file(GLOB OPCUA_BACKEND_PLUGINS "${PAPERVISION_QTOPUCA_PLUGIN_DIR}/*.so")
+    if(NOT OPCUA_BACKEND_PLUGINS)
+        message(FATAL_ERROR
+            "no QtOpcUa backend plugin (*.so) found in ${PAPERVISION_QTOPUCA_PLUGIN_DIR} - build qtopcua first")
+    endif()
+    install(FILES ${OPCUA_BACKEND_PLUGINS} DESTINATION opt/papervision/plugins/opcua)
+
+    install(PROGRAMS packaging/deb/papervision-wrapper.sh DESTINATION usr/bin RENAME papervision)
+    install(FILES packaging/deb/papervision.desktop DESTINATION usr/share/applications)
+    install(FILES packaging/deb/papervision.svg DESTINATION usr/share/icons/hicolor/scalable/apps)
+    install(FILES packaging/deb/99-papervision.conf DESTINATION usr/lib/sysctl.d)
+    install(PROGRAMS packaging/deb/setup-network.sh DESTINATION usr/lib/papervision)
+    install(FILES packaging/deb/copyright DESTINATION usr/share/doc/papervision)
+    install(FILES docs/installation.md DESTINATION usr/share/doc/papervision RENAME INSTALL.md)
+
+    # --- CPack ---
+    file(STRINGS "${CMAKE_SOURCE_DIR}/src/config/AppVersion.h" _app_version_line
+         REGEX "kNumber")
+    string(REGEX MATCH "\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ignored "${_app_version_line}")
+    set(PAPERVISION_VERSION "${CMAKE_MATCH_1}")
+
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_PACKAGE_NAME "papervision")
+    set(CPACK_PACKAGE_VENDOR "PaperVision")
+    set(CPACK_PACKAGE_CONTACT "PaperVision maintainers <xlibraboy@users.noreply.github.com>")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+        "Paper machine surface inspection: live Basler GigE camera monitoring and event review")
+    set(CPACK_PACKAGE_VERSION "${PAPERVISION_VERSION}")
+    set(CPACK_DEBIAN_PACKAGE_VERSION "${PAPERVISION_VERSION}-1")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "science")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/xlibraboy/web_vision_pro")
+    # Explicit runtime dependencies (mirrors the known-good Docker image, with
+    # jammy package names). Keep in sync with .docker/Dockerfile; the release
+    # checklist verifies them with dpkg-shlibdeps before publishing.
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5core5a, libqt5gui5, libqt5widgets5, libqt5network5, libqt5concurrent5, libqt5svg5, libopencv-core4.5d, libopencv-imgproc4.5d, libopencv-imgcodecs4.5d, libopencv-videoio4.5d, libx11-6, libgl1, libxkbcommon-x11-0, libxcb1, libxcb-xinerama0, libxcb-keysyms1, libxcb-icccm4, libxcb-image0, libxcb-shm0, libxcb-util1, libxcb-render-util0, libxcb-randr0, libxcb-shape0, libxcb-sync1, libxcb-xfixes0, libxcb-xinput0, fonts-noto-core")
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/packaging/deb/postinst;${CMAKE_SOURCE_DIR}/packaging/deb/postrm")
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION TRUE)
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    # Payload paths start at the filesystem root (see the prefix check above).
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+    # Keep the symbol table: the fatal-signal handler prints backtraces that
+    # must stay resolvable in the field.
+    set(CPACK_STRIP_FILES FALSE)
+
+    include(CPack)
 endif()

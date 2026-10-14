@@ -1,5 +1,6 @@
 #include "CameraManager.h"
 #include "../config/CameraConfig.h"
+#include "../config/AppPaths.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -1868,12 +1869,7 @@ bool CameraManager::saveParameters(int configArrayIndex) {
     if (configArrayIndex < (int)cameraIndexToConfigId_.size() && cameraIndexToConfigId_[configArrayIndex] > 0) {
         configId = cameraIndexToConfigId_[configArrayIndex];
     }
-    std::string pfsDir = "/etc/papervision/cameras";
-    // Ensure directory exists
-    {
-        QDir dir(QString::fromStdString(pfsDir));
-        if (!dir.exists()) dir.mkpath(".");
-    }
+    const std::string pfsDir = AppPaths::cameraParamsDir().toStdString();
     std::string filename = pfsDir + "/camera_" + std::to_string(configId) + ".pfs";
 
     bool result = false;
@@ -1894,7 +1890,8 @@ bool CameraManager::loadParameters(int configArrayIndex) {
         return false;
     }
     int configId = configArrayIndex + 1;
-    std::string filename = "/etc/papervision/cameras/camera_" + std::to_string(configId) + ".pfs";
+    const std::string pfsDir = AppPaths::cameraParamsDir().toStdString();
+    std::string filename = pfsDir + "/camera_" + std::to_string(configId) + ".pfs";
 
     bool result = false;
     try {
@@ -1910,11 +1907,7 @@ bool CameraManager::loadParameters(int configArrayIndex) {
 void CameraManager::saveParametersForAll(const std::vector<CameraInfo>& cameras) {
     std::lock_guard<std::mutex> lock(cameraParamsMutex_);
     
-    std::string pfsDir = "/etc/papervision/cameras";
-    {
-        QDir dir(QString::fromStdString(pfsDir));
-        if (!dir.exists()) dir.mkpath(".");
-    }
+    const std::string pfsDir = AppPaths::cameraParamsDir().toStdString();
     
     // CFeaturePersistence::Save only reads the NodeMap — safe to call while grabbing,
     // no need to StopGrabbing which would block the UI thread.

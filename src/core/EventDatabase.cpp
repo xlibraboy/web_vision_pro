@@ -41,7 +41,17 @@ void EventDatabase::scanDirectory() {
         try {
             EventInfo event = loadMetadata(fileInfo.absoluteFilePath());
             
-            // Verify video file exists
+            // Verify the video file exists. Metadata written by an earlier
+            // deployment can point at a different storage root (e.g. the
+            // Docker /app/data volume); adopt a same-named file from the
+            // current storage directory before giving up on the event.
+            if (!QFile::exists(event.videoPath)) {
+                const QString relocated = QDir(dataPath_).filePath(
+                    QFileInfo(event.videoPath).fileName());
+                if (QFile::exists(relocated)) {
+                    event.videoPath = relocated;
+                }
+            }
             if (QFile::exists(event.videoPath)) {
                 events_[event.timestamp] = event;
             } else {

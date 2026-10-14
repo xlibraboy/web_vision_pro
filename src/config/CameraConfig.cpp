@@ -2,8 +2,8 @@
 #include <QString>
 #include <QStringList>
 #include <QDir>
-#include <QCoreApplication>
 #include <QSettings>
+#include "AppPaths.h"
 #include <algorithm>
 #include <cstdlib>
 
@@ -17,11 +17,7 @@ bool isLegacyCameraIp(const QString& ip, int id) {
 }
 
 QString defaultEventStoragePath() {
-    QDir baseDir(QCoreApplication::applicationDirPath());
-    if (baseDir.dirName() == "build") {
-        baseDir.cdUp();
-    }
-    return QDir::cleanPath(baseDir.filePath("data"));
+    return QDir::cleanPath(AppPaths::dataDir());
 }
 std::vector<OpcUaTriggerTagSettings> defaultOpcUaTriggerTags() {
     // Planned sheet-break sensors from docs/machine-reference.md: names and the
