@@ -43,6 +43,10 @@ public:
     void switchView(ViewMode mode);
     void raiseAndActivate();
 
+    // Body of Help > About (static so the regression suite can check that the
+    // version line reports the pylon runtime actually in use).
+    static QString aboutText();
+
 signals:
     // Signal to bridge non-Qt thread to Qt thread
     void frameReady(int cameraId, const cv::Mat& frame);

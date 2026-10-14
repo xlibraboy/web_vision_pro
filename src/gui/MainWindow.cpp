@@ -6,6 +6,7 @@
 #include "ConfigDialog.h"
 #include "../communication/OpcUaClientService.h"
 #include "../core/EventDatabase.h"
+#include <pylon/PylonVersionInfo.h>
 #include <cstdlib>
 #include <QToolBar>
 #include <QStatusBar>
@@ -1691,12 +1692,16 @@ void MainWindow::promptCustomLayout() {
     }
 }
 
+QString MainWindow::aboutText() {
+    return QString("PaperVision System v%1\n\n"
+                   "Industrial Vision System for Paper Machine Monitoring.\n"
+                   "Built with Qt 5, OpenCV 4, and Basler Pylon 6.\n"
+                   "Pylon runtime: %2")
+        .arg(AppVersion::kNumber, Pylon::VersionInfo::getVersionString());
+}
+
 void MainWindow::showAbout() {
-    QMessageBox::about(this, "About PaperVision",
-                       QString("PaperVision System v%1\n\n"
-                               "Industrial Vision System for Paper Machine Monitoring.\n"
-                               "Built with Qt 5, OpenCV 4, and Basler Pylon 6.")
-                           .arg(AppVersion::kNumber));
+    QMessageBox::about(this, "About PaperVision", aboutText());
 }
 
 void MainWindow::showDocs() {

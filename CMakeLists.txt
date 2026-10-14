@@ -149,6 +149,7 @@ if(BUILD_TESTING)
         tests/AccessibilitySummary.h
         tests/UiTypeScaleDefaults.h
         tests/OpcUaSpeedAnchorValidation.h
+        tests/AboutDialogTest.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -162,6 +163,7 @@ if(BUILD_TESTING)
         tests/AccessibilitySummary.cpp
         tests/UiTypeScaleDefaults.cpp
         tests/OpcUaSpeedAnchorValidation.cpp
+        tests/AboutDialogTest.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -187,10 +189,11 @@ if(BUILD_TESTING)
     add_test(NAME accessibility_summaries COMMAND PaperVision_RegressionTest a11y)
     add_test(NAME ui_type_scale COMMAND PaperVision_RegressionTest type)
     add_test(NAME opcua_speed_anchor_validation COMMAND PaperVision_RegressionTest anchors)
+    add_test(NAME about_pylon_version COMMAND PaperVision_RegressionTest about)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         defect_severity_classification accessibility_summaries ui_type_scale
-        opcua_speed_anchor_validation
+        opcua_speed_anchor_validation about_pylon_version
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 
