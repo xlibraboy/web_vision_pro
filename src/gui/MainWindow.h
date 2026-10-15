@@ -25,7 +25,6 @@
 
 class ConfigDialog;
 class OpcUaClientService;
-class QToolButton;
 
 
 class MainWindow : public QMainWindow {
@@ -76,13 +75,14 @@ private:
     QPushButton* triggerBtn_;
     QPushButton* snapshotBtn_;
     QPushButton* pauseBtn_;
-    QLabel* adminStatusLabel_ = nullptr;
+    // Administrator session control: a clickable status pill in the bottom
+    // right (login/logout). Text, tint and tooltip follow the admin state.
+    QPushButton* adminStatusButton_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
     // Live capture readout (FPS + recording state) in the status bar, so the
     // most basic monitor facts are visible from every view.
     QLabel* liveStatusLabel_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
-    QToolButton* adminLoginButton_ = nullptr;  // top-right, on the main tab bar row
     QTimer  diskBadgeTimer_;
     QAction* customLayoutAction_;
     QAction* configAction_;
@@ -114,10 +114,6 @@ private:
     std::unique_ptr<ImageBuffer> imageBuffer_;
     std::unique_ptr<DefectDetector> defectDetector_;
 
-    // Size + style the tab-bar admin Login/Logout button (QToolButton, the
-    // widget Qt expects in corner slots; geometry in code so it never clips,
-    // colors via a minimal direct stylesheet).
-    void styleAdminLoginButton();
     std::unique_ptr<VideoEncoder> videoEncoder_;
     std::unique_ptr<OpcUaClientService> opcUaClientService_;
 

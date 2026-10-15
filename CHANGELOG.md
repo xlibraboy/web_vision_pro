@@ -28,6 +28,7 @@ here.
 - Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
 - Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
 - Typography: the base UI font is Noto Sans at the body step, and the Analysis HUD/timestamp mono text no longer names an unavailable font (Noto Sans Mono, DejaVu Sans Mono fallback).
+- Administrator login/logout is now a clickable pill in the status-bar badge cluster (Admin: Off / Admin: On, with a padlock icon) next to the emulation and low-disk badges; the old tab-bar Login/Logout button is gone, and the pill follows the selected theme with hover and keyboard-focus states.
 
 ### Fixed
 

@@ -34,7 +34,6 @@
 #include <QLineEdit>
 #include <QScreen>
 #include <QStyle>
-#include <QToolButton>
 #include <QToolTip>
 #include <QVBoxLayout>
 #include <QWindow>
@@ -910,28 +909,6 @@ void MainWindow::setupUi() {
     aboutAction_ = helpMenu->addAction("About");
     connect(aboutAction_, &QAction::triggered, this, &MainWindow::showAbout);
 
-    // Administrator Login/Logout anchored to the far right of the main tab
-    // bar row (same line as the "Live View | Analysis View" tabs), so it is
-    // visible and reachable from every view. Text follows admin state via
-    // updateAdminStatusIndicator().
-    // Geometry is computed in code (styleAdminLoginButton), NOT from QSS
-    // padding: corner widgets are sized from the sizeHint at insertion, so
-    // stylesheet-driven metric changes left the widget stale and clipped
-    // the text ("Logout" rendered as ".ogou").
-    // QToolButton + autoRaise: the widget type Qt natively expects in
-    // corner/toolbar slots — correct small-size rendering, no raised-button
-    // chrome, and no stylesheet-driven geometry drift (the earlier QPushButton
-    // attempts clipped inside the corner widget).
-    adminLoginButton_ = new QToolButton(this);
-    adminLoginButton_->setObjectName("adminLoginButton");
-    adminLoginButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    adminLoginButton_->setAutoRaise(true);
-    adminLoginButton_->setCursor(Qt::PointingHandCursor);
-    adminLoginButton_->setToolTip("Admin Login");
-    connect(adminLoginButton_, &QToolButton::clicked, this, &MainWindow::toggleAdmin);
-    styleAdminLoginButton();
-    mainTabWidget_->setCornerWidget(adminLoginButton_, Qt::TopRightCorner);
-
     // Live capture status: FPS + recording state as a permanent status-bar
     // readout, so "is it running, and at what rate" is answered from every
     // view (the command-bar strip shares the bar with the other badges).
@@ -966,9 +943,17 @@ void MainWindow::setupUi() {
     diskBadgeTimer_.start(15000);
     refreshDiskBadge();
 
-    adminStatusLabel_ = new QLabel(this);
-    adminStatusLabel_->setObjectName("adminStatusLabel");
-    statusBar()->addPermanentWidget(adminStatusLabel_);
+    // Administrator login/logout: the single admin affordance, a clickable
+    // pill in the bottom-right status cluster (the former tab-bar corner
+    // button was removed — it duplicated this state and read as stray text
+    // on the tab-bar row). ToggleAdmin drives the state; the pill text,
+    // tooltip and tint follow it in updateAdminStatusIndicator().
+    adminStatusButton_ = new QPushButton(this);
+    adminStatusButton_->setObjectName("adminStatusButton");
+    adminStatusButton_->setFlat(true);
+    adminStatusButton_->setCursor(Qt::PointingHandCursor);
+    connect(adminStatusButton_, &QPushButton::clicked, this, &MainWindow::toggleAdmin);
+    statusBar()->addPermanentWidget(adminStatusButton_);
     updateAdminStatusIndicator();
 
     // Initial Status
@@ -1388,77 +1373,50 @@ bool MainWindow::promptAdminLogin() {
 }
 
 // ---------------------------------------------------------------------------
-// styleAdminLoginButton — size + style the tab-bar admin pill (top-right
-// corner widget of the main tab widget). Geometry comes from the font in
-// code, colors from a direct widget stylesheet (which also overrides the
-// global stylesheet and survives theme swaps untouched). Size covers both
-// labels so the Login<->Logout swap never needs re-layout.
+// updateAdminStatusIndicator — keep the status-bar admin pill in step with the
+// session state: label, tooltip, padlock tint, and the [adminActive] property
+// that drives the pill's colors (see the QSS in applyGlobalTheme). Safe to
+// call repeatedly; the icon is a code-drawn pixmap, not a stylesheet image, so
+// it is re-tinted here on every state and theme change.
 // ---------------------------------------------------------------------------
-void MainWindow::styleAdminLoginButton() {
-    if (!adminLoginButton_) {
+void MainWindow::updateAdminStatusIndicator() {
+    if (!adminStatusButton_) {
         return;
     }
-    const ThemeColors tc = CameraConfig::getThemeColors();
 
-    QFont f = adminLoginButton_->font();
-    f.setPointSizeF(8.0);
-    f.setBold(true);
-    adminLoginButton_->setFont(f);
-    const QFontMetrics fm(f);
-    const int textW = qMax(fm.horizontalAdvance(QStringLiteral("Login")),
-                           fm.horizontalAdvance(QStringLiteral("Logout")));
-    // Icon (10) + gap (4) + text + slack — sized for both labels so the
-    // Login<->Logout swap never clips or re-layouts the corner widget.
-    constexpr int kIconSz = 10;
-    adminLoginButton_->setIconSize(QSize(kIconSz, kIconSz));
-    adminLoginButton_->setFixedSize(kIconSz + 4 + textW + 14, 18);
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    adminStatusButton_->setText(isAdmin_ ? "Admin: On" : "Admin: Off");
+    adminStatusButton_->setToolTip(isAdmin_ ? "Administrator mode enabled — click to log out"
+                                            : "Administrator mode disabled — click to log in");
+    // State-aware accessible name: the terse pill text alone ("Admin: Off")
+    // does not say what activating the button does.
+    adminStatusButton_->setAccessibleName(isAdmin_ ? "Administrator mode enabled, log out"
+                                                   : "Administrator mode disabled, log in");
 
     // Padlock icon (shackle + body) drawn in code like the other programmatic
     // icons of this app; tinted to the state color so it follows the
     // logged-in accent swap.
-    const QColor iconColor(isAdmin_ ? QColor(tc.primary) : QColor(tc.text));
+    constexpr int kIconSz = 12;
+    const QColor iconColor(isAdmin_ ? QColor(tc.primary) : QColor(tc.muted));
     QPixmap pm(kIconSz, kIconSz);
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    QPen shacklePen(iconColor, 1.4);
+    QPen shacklePen(iconColor, 1.6);
     shacklePen.setCapStyle(Qt::RoundCap);
     p.setPen(shacklePen);
     p.setBrush(Qt::NoBrush);
-    p.drawArc(QRectF(2.7, 0.8, 4.6, 5.2), 0, 180 * 16);
+    p.drawArc(QRectF(3.6, 3.2, 4.8, 4.6), 0, 180 * 16);
     p.setPen(Qt::NoPen);
     p.setBrush(iconColor);
-    p.drawRoundedRect(QRectF(1.8, 4.6, 6.4, 4.8), 1.2, 1.2);
+    p.drawRoundedRect(QRectF(2.0, 5.5, 8.0, 5.5), 1.4, 1.4);
     p.end();
-    adminLoginButton_->setIcon(QIcon(pm));
+    adminStatusButton_->setIconSize(QSize(kIconSz, kIconSz));
+    adminStatusButton_->setIcon(QIcon(pm));
 
-    adminLoginButton_->setProperty("logged-in", isAdmin_);
-    // Minimal color-only stylesheet: autoRaise keeps the native flat look;
-    // QSS only tints text and adds a soft hover fill.
-    adminLoginButton_->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: none; color: %1; font-weight: bold; }"
-        "QToolButton:hover { background: %2; border-radius: 4px; }"
-        "QToolButton:pressed { background: %3; color: %4; }"
-        "QToolButton[logged-in=\"true\"] { color: %3; }"
-    ).arg(tc.text, tc.btnBg, tc.primary, tc.bg));
-}
-
-void MainWindow::updateAdminStatusIndicator() {
-    if (adminLoginButton_) {
-        adminLoginButton_->setText(isAdmin_ ? "Logout" : "Login");
-        adminLoginButton_->setToolTip(isAdmin_ ? "Logout Administrator" : "Admin Login");
-        // Restyle (also flips the [logged-in] state); safe to call repeatedly.
-        styleAdminLoginButton();
-    }
-    if (!adminStatusLabel_) {
-        return;
-    }
-
-    adminStatusLabel_->setText(isAdmin_ ? "Admin: On" : "Admin: Off");
-    adminStatusLabel_->setToolTip(isAdmin_ ? "Administrator mode enabled" : "Administrator mode disabled");
-    adminStatusLabel_->setProperty("adminActive", isAdmin_);
-    adminStatusLabel_->style()->unpolish(adminStatusLabel_);
-    adminStatusLabel_->style()->polish(adminStatusLabel_);
+    adminStatusButton_->setProperty("adminActive", isAdmin_);
+    adminStatusButton_->style()->unpolish(adminStatusButton_);
+    adminStatusButton_->style()->polish(adminStatusButton_);
 }
 
 void MainWindow::openRecordingSettings() {
@@ -1877,6 +1835,10 @@ void MainWindow::applyGlobalTheme() {
     };
     const QString disabledColor = tc.disabled;
     const QString infoColor = tc.info;
+    const QString mutedColor = tc.muted;
+    // Admin pill washes: the accent tint marks an active admin session.
+    const QString adminWash = tint(tc.primary, 0.16);
+    const QString adminHoverWash = tint(tc.primary, 0.30);
     const QString warnColor = tc.warn;
     const QString criticalColor = tc.critical;
     const QString focusColor = tc.focus;
@@ -1891,8 +1853,17 @@ void MainWindow::applyGlobalTheme() {
         "QMainWindow, QDialog { background-color: %1; color: %8; }"
         "QMainWindow QWidget, QDialog QWidget { background-color: %1; color: %8; }"
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: %10; }"
-        "QLabel#adminStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
-        "QLabel#adminStatusLabel[adminActive='true'] { color: %5; }"
+        // Administrator session pill (status bar, clickable): quiet neutral
+        // while logged out, accent-tinted while an admin session is active —
+        // the same pill language as the emulation and low-disk badges.
+        "QPushButton#adminStatusButton { background-color: %3; color: %20; "
+        "  border: 1px solid %2; border-radius: 10px; padding: 3px 12px; "
+        "  font-weight: bold; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
+        "QPushButton#adminStatusButton:hover { background-color: %4; color: %8; border-color: %5; }"
+        "QPushButton#adminStatusButton:focus { border: 1px solid %18; }"
+        "QPushButton#adminStatusButton[adminActive='true'] { background-color: %21; "
+        "  color: %5; border: 1px solid %5; }"
+        "QPushButton#adminStatusButton[adminActive='true']:hover { background-color: %22; }"
         // Live capture readout (status bar): FPS for every view, red while an
         // event recording is in progress.
         "QLabel#liveStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
@@ -1971,7 +1942,7 @@ void MainWindow::applyGlobalTheme() {
           checkedHoverColor)
      .arg(disabledColor, infoColor, emulationWash, diskWash, diskHoverWash, diskCriticalWash,
           diskCriticalHoverWash, warnColor, focusColor)
-     .arg(criticalColor);
+     .arg(criticalColor, mutedColor, adminWash, adminHoverWash);
 
     qApp->setStyleSheet(globalStyle);
 
@@ -1989,4 +1960,8 @@ void MainWindow::applyGlobalTheme() {
     if (detailView_) detailView_->updateTheme();
     if (analysisView_) analysisView_->updateTheme();
     if (liveViewWindow_) liveViewWindow_->updateTheme();
+
+    // The admin pill's padlock is a code-drawn pixmap, so re-tint it for the
+    // new theme (its colors otherwise follow the stylesheet automatically).
+    updateAdminStatusIndicator();
 }
