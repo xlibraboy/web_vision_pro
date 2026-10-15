@@ -214,6 +214,16 @@ void ThemePresetConsistency::glyphAssetsAreTintedFromTheTheme()
 
     // A different ink is a different glyph: presets never share one rendering.
     QVERIFY(IconManager::themedAssetFile(asset, QColor("#00FF66")) != themedFile);
+
+    // The path goes into an `image: url(...)` rule, so it must drop into a
+    // stylesheet cleanly and still load: a broken path would leave every spin
+    // box without its steppers.
+    QWidget host;
+    host.setStyleSheet(QStringLiteral(
+        "QSpinBox::up-arrow { image: url(%1); width: 8px; height: 8px; }").arg(themedFile));
+    const QString applied = host.styleSheet();
+    QVERIFY2(applied.contains(themedFile), qPrintable(applied));
+    QVERIFY2(!QPixmap(themedFile).isNull(), qPrintable(themedFile));
 }
 
 void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
