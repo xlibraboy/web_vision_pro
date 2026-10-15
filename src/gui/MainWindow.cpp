@@ -88,6 +88,26 @@ bool systemCapsLockOn() {
 #endif
 }
 
+// Draws the administrator padlock (shackle + body) on a 12x12 grid, tinted by
+// the caller; used by the status-bar admin pill, whose icon follows the
+// logged-in accent swap and needs an ink variant for the pressed fill.
+QPixmap makePadlockPixmap(const QColor& color, int size) {
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.scale(size / 12.0, size / 12.0);
+    QPen shacklePen(color, 1.6);
+    shacklePen.setCapStyle(Qt::RoundCap);
+    p.setPen(shacklePen);
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(QRectF(3.6, 3.2, 4.8, 4.6), 0, 180 * 16);
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    p.drawRoundedRect(QRectF(2.0, 5.5, 8.0, 5.5), 1.4, 1.4);
+    return pm;
+}
+
 // Draws a simple eye icon for the password visibility toggle.
 QIcon makeEyeIcon(bool visible, const QColor& color) {
     QPixmap pm(16, 16);
@@ -953,6 +973,11 @@ void MainWindow::setupUi() {
     adminStatusButton_->setFlat(true);
     adminStatusButton_->setCursor(Qt::PointingHandCursor);
     connect(adminStatusButton_, &QPushButton::clicked, this, &MainWindow::toggleAdmin);
+    // The pill fills with the accent while held down, so the padlock (a
+    // code-drawn pixmap — QSS recolors text and fill, never a pixmap) swaps
+    // to the pill's ink color for the duration of the press.
+    connect(adminStatusButton_, &QPushButton::pressed, this, [this]() { updateAdminButtonIcon(true); });
+    connect(adminStatusButton_, &QPushButton::released, this, [this]() { updateAdminButtonIcon(false); });
     statusBar()->addPermanentWidget(adminStatusButton_);
     updateAdminStatusIndicator();
 
@@ -1393,30 +1418,26 @@ void MainWindow::updateAdminStatusIndicator() {
     adminStatusButton_->setAccessibleName(isAdmin_ ? "Administrator mode enabled, log out"
                                                    : "Administrator mode disabled, log in");
 
-    // Padlock icon (shackle + body) drawn in code like the other programmatic
-    // icons of this app; tinted to the state color so it follows the
-    // logged-in accent swap.
-    constexpr int kIconSz = 12;
-    const QColor iconColor(isAdmin_ ? QColor(tc.primary) : QColor(tc.muted));
-    QPixmap pm(kIconSz, kIconSz);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    QPen shacklePen(iconColor, 1.6);
-    shacklePen.setCapStyle(Qt::RoundCap);
-    p.setPen(shacklePen);
-    p.setBrush(Qt::NoBrush);
-    p.drawArc(QRectF(3.6, 3.2, 4.8, 4.6), 0, 180 * 16);
-    p.setPen(Qt::NoPen);
-    p.setBrush(iconColor);
-    p.drawRoundedRect(QRectF(2.0, 5.5, 8.0, 5.5), 1.4, 1.4);
-    p.end();
-    adminStatusButton_->setIconSize(QSize(kIconSz, kIconSz));
-    adminStatusButton_->setIcon(QIcon(pm));
+    // Padlock drawn in code like the app's other programmatic icons; tinted
+    // per state (ink while pressed, accent logged in, muted logged out).
+    updateAdminButtonIcon(adminStatusButton_->isDown());
 
     adminStatusButton_->setProperty("adminActive", isAdmin_);
     adminStatusButton_->style()->unpolish(adminStatusButton_);
     adminStatusButton_->style()->polish(adminStatusButton_);
+}
+
+void MainWindow::updateAdminButtonIcon(bool pressed) {
+    if (!adminStatusButton_) {
+        return;
+    }
+
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    constexpr int kIconSz = 12;
+    const QColor tint = pressed ? QColor(tc.bg)
+                                : (isAdmin_ ? QColor(tc.primary) : QColor(tc.muted));
+    adminStatusButton_->setIconSize(QSize(kIconSz, kIconSz));
+    adminStatusButton_->setIcon(QIcon(makePadlockPixmap(tint, kIconSz)));
 }
 
 void MainWindow::openRecordingSettings() {
@@ -1861,9 +1882,14 @@ void MainWindow::applyGlobalTheme() {
         "  font-weight: bold; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
         "QPushButton#adminStatusButton:hover { background-color: %4; color: %8; border-color: %5; }"
         "QPushButton#adminStatusButton:focus { border: 1px solid %18; }"
+        // The pressed rules must follow the hover rules: a click is always
+        // also a hover, and the accent-ID selectors tie on specificity, so
+        // rule order is what lets the press fill win.
+        "QPushButton#adminStatusButton:pressed { background-color: %5; color: %1; border-color: %5; }"
         "QPushButton#adminStatusButton[adminActive='true'] { background-color: %21; "
         "  color: %5; border: 1px solid %5; }"
         "QPushButton#adminStatusButton[adminActive='true']:hover { background-color: %22; }"
+        "QPushButton#adminStatusButton[adminActive='true']:pressed { background-color: %5; color: %1; }"
         // Live capture readout (status bar): FPS for every view, red while an
         // event recording is in progress.
         "QLabel#liveStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"

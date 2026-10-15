@@ -61,6 +61,10 @@ private:
     void ensureConfigTab();
     void updateConfigTabAccess();
     void updateAdminStatusIndicator();
+    // Re-tint the admin pill's padlock: ink while the button is held down
+    // (the press fill is the accent itself), otherwise the state tint.
+    // Code-drawn pixmaps do not follow the stylesheet's state rules.
+    void updateAdminButtonIcon(bool pressed);
     void refreshDiskBadge();
     void openRecordingSettings();
 
