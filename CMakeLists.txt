@@ -150,6 +150,7 @@ if(BUILD_TESTING)
         tests/UiTypeScaleDefaults.h
         tests/OpcUaSpeedAnchorValidation.h
         tests/AboutDialogTest.h
+        tests/ThemePresetConsistency.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -164,6 +165,7 @@ if(BUILD_TESTING)
         tests/UiTypeScaleDefaults.cpp
         tests/OpcUaSpeedAnchorValidation.cpp
         tests/AboutDialogTest.cpp
+        tests/ThemePresetConsistency.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -190,10 +192,12 @@ if(BUILD_TESTING)
     add_test(NAME ui_type_scale COMMAND PaperVision_RegressionTest type)
     add_test(NAME opcua_speed_anchor_validation COMMAND PaperVision_RegressionTest anchors)
     add_test(NAME about_pylon_version COMMAND PaperVision_RegressionTest about)
+    add_test(NAME theme_preset_consistency COMMAND PaperVision_RegressionTest theme)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         defect_severity_classification accessibility_summaries ui_type_scale
         opcua_speed_anchor_validation about_pylon_version
+        theme_preset_consistency
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 

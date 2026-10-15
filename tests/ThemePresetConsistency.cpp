@@ -1,0 +1,290 @@
+#include "ThemePresetConsistency.h"
+
+#include "config/CameraConfig.h"
+#include "gui/ConfigDialog.h"
+#include "gui/widgets/CameraCard.h"
+#include "gui/widgets/ChangelogDialog.h"
+#include "gui/widgets/DocsDialog.h"
+#include "gui/widgets/IconManager.h"
+
+#include <QDir>
+#include <QFile>
+#include <QImage>
+#include <QMap>
+#include <QPixmap>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <QtTest>
+
+namespace {
+
+constexpr int kPresetCount = 8;
+
+QStringList tokenValues(const ThemeColors& tc) {
+    return {tc.bg, tc.border, tc.btnBg, tc.btnHover, tc.primary, tc.sliderBg,
+            tc.handle, tc.text, tc.surface, tc.muted, tc.disabled, tc.focus,
+            tc.ok, tc.warn, tc.critical, tc.info, tc.onStatus};
+}
+
+// Colors that identify one preset: they appear in that preset's tokens and in
+// no other preset's. Anything still painted in them after a switch is stale.
+QStringList exclusiveColors(int preset) {
+    const QStringList mine = tokenValues(CameraConfig::getThemeColors(preset));
+    QStringList exclusive;
+    for (const QString& value : mine) {
+        bool sharedWithAnotherPreset = false;
+        for (int other = 0; other < kPresetCount; ++other) {
+            if (other == preset) {
+                continue;
+            }
+            if (tokenValues(CameraConfig::getThemeColors(other)).contains(value)) {
+                sharedWithAnotherPreset = true;
+                break;
+            }
+        }
+        // Pure black/white are scrims, shadows and ink-on-video surfaces:
+        // intentionally preset-independent, so they identify nothing.
+        const QString lowered = value.toLower();
+        if (!sharedWithAnotherPreset && lowered != "#000000" && lowered != "#ffffff") {
+            exclusive.append(lowered);
+        }
+    }
+    exclusive.removeDuplicates();
+    return exclusive;
+}
+
+// Stylesheets spell colors as "#rrggbb" or as "rgba(r, g, b, a)"; a stale value
+// is a hit in either spelling.
+QStringList colorSpellings(const QString& hex) {
+    const QColor c(hex);
+    return {hex.toLower(),
+            QString("rgba(%1, %2, %3,").arg(c.red()).arg(c.green()).arg(c.blue()),
+            QString("rgb(%1, %2, %3)").arg(c.red()).arg(c.green()).arg(c.blue())};
+}
+
+// Stylesheet of the widget itself plus every descendant, tagged with the widget
+// they belong to so a stale color names its owner.
+QVector<QPair<QWidget*, QString>> stylesheetsIn(QWidget& root) {
+    QVector<QPair<QWidget*, QString>> styles;
+    const auto append = [&styles](QWidget* widget) {
+        const QString sheet = widget->styleSheet();
+        if (!sheet.isEmpty()) {
+            styles.append({widget, sheet});
+        }
+    };
+    append(&root);
+    for (QWidget* child : root.findChildren<QWidget*>()) {
+        append(child);
+    }
+    return styles;
+}
+
+// First stale color found in any of the sheets, named for the failure message.
+QString staleColorIn(const QVector<QPair<QWidget*, QString>>& stylesheets, int activePreset) {
+    for (int other = 0; other < kPresetCount; ++other) {
+        if (other == activePreset) {
+            continue;
+        }
+        for (const QString& color : exclusiveColors(other)) {
+            for (const QString& spelling : colorSpellings(color)) {
+                for (const auto& [widget, sheet] : stylesheets) {
+                    if (sheet.contains(spelling, Qt::CaseInsensitive)) {
+                        QString chain;
+                        for (QWidget* w = widget; w; w = w->parentWidget()) {
+                            chain += QStringLiteral("/%1").arg(w->metaObject()->className());
+                        }
+                        return QStringLiteral("%1 in %2 [%3] (preset %4)")
+                            .arg(color, chain, sheet.left(60), QString::number(other));
+                    }
+                }
+            }
+        }
+    }
+    return QString();
+}
+
+QString artifactPath(const QString& name) {
+    return QDir(QCoreApplication::applicationDirPath()).filePath(name);
+}
+
+} // namespace
+
+void ThemePresetConsistency::previewOverrideDrivesTheEffectiveTheme()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    CameraConfig::clearThemePreview();
+    CameraConfig::setThemePreset(0);
+
+    // Picking a preset in the dropdown must reach every getThemeColors() caller
+    // before anything is saved - that is what makes the selector feel live.
+    CameraConfig::setThemePreview(5);
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(5).primary);
+    QCOMPARE(CameraConfig::getThemeColors().bg, CameraConfig::getThemeColors(5).bg);
+
+    // Abandoning the pick restores the saved preset.
+    CameraConfig::clearThemePreview();
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(0).primary);
+    QCOMPARE(CameraConfig::getThemePreset(), 0);
+}
+
+void ThemePresetConsistency::configDialogReThemesWhenThePresetChanges()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    CameraConfig::clearThemePreview();
+    CameraConfig::setThemePreset(0);
+
+    ConfigDialog dialog(nullptr);
+    dialog.resize(1200, 800);
+    dialog.show();
+    QCoreApplication::processEvents();
+
+    const QPixmap cyanLook = dialog.grab();
+    QVERIFY2(!cyanLook.isNull() && cyanLook.width() > 0, "the config dialog must render");
+    QVERIFY2(cyanLook.save(artifactPath(QStringLiteral("theme-0-config-dialog.png"))),
+             "the preset-0 preview must be saved for review");
+
+    // This is the dialog that holds the dropdown: it used to keep the theme it
+    // was built with for the whole session.
+    CameraConfig::setThemePreview(4);
+    dialog.updateTheme();
+    QCoreApplication::processEvents();
+
+    const QPixmap greenLook = dialog.grab();
+    QVERIFY2(greenLook.save(artifactPath(QStringLiteral("theme-4-config-dialog.png"))),
+             "the preset-4 preview must be saved for review");
+    QVERIFY2(cyanLook.toImage() != greenLook.toImage(),
+             "switching the preset must visibly re-theme the System Configuration dialog");
+
+    const QString stale = staleColorIn(stylesheetsIn(dialog), 4);
+    QVERIFY2(stale.isEmpty(), qPrintable(QStringLiteral(
+                 "the dialog still paints a previous preset's color: %1").arg(stale)));
+
+    // A preset picked but never saved is abandoned, not left applied.
+    CameraConfig::clearThemePreview();
+    dialog.updateTheme();
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(0).primary);
+
+    dialog.hide();
+}
+
+void ThemePresetConsistency::glyphAssetsAreTintedFromTheTheme()
+{
+    // The shipped arrows carry one flat fill (#E3E3E3). A stylesheet cannot
+    // recolor them, so they are re-rendered in the theme's ink instead: on a
+    // preset whose text is not grey, the glyph must not stay the shipped grey.
+    const QString asset = QStringLiteral(":/assets/icons/arrow_up.svg");
+    const QColor ink("#FFD700");
+
+    const QString themedFile = IconManager::themedAssetFile(asset, ink);
+    QVERIFY2(themedFile != asset,
+             "the arrow must be re-rendered for the theme, not taken from the fixed asset");
+    QVERIFY(QFile::exists(themedFile));
+
+    const QImage glyph(themedFile);
+    QVERIFY(!glyph.isNull());
+
+    QMap<QRgb, int> coverage;
+    for (int y = 0; y < glyph.height(); ++y) {
+        for (int x = 0; x < glyph.width(); ++x) {
+            const QRgb pixel = glyph.pixel(x, y);
+            if (qAlpha(pixel) > 0) {
+                coverage[pixel] += 1;
+            }
+        }
+    }
+    QVERIFY2(!coverage.isEmpty(), "the re-rendered arrow must not be blank");
+
+    QRgb dominant = 0;
+    int best = 0;
+    for (auto it = coverage.constBegin(); it != coverage.constEnd(); ++it) {
+        if (it.value() > best) {
+            best = it.value();
+            dominant = it.key();
+        }
+    }
+    QCOMPARE(QColor(dominant).name(), ink.name());
+
+    // A different ink is a different glyph: presets never share one rendering.
+    QVERIFY(IconManager::themedAssetFile(asset, QColor("#00FF66")) != themedFile);
+}
+
+void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    CameraConfig::setThemePreset(0);
+
+    for (int preset = 0; preset < kPresetCount; ++preset) {
+        CameraConfig::setThemePreview(preset);
+        const ThemeColors tc = CameraConfig::getThemeColors(preset);
+
+        // Panels that own local stylesheets and outlive a theme change.
+        ConfigDialog dialog(nullptr);
+        DocsDialog docs;
+        ChangelogDialog changelog;
+        CameraCard card(CameraInfo{}, nullptr);
+
+        dialog.resize(1200, 800);
+        dialog.show();
+        docs.resize(900, 600);
+        docs.show();
+        changelog.resize(900, 600);
+        changelog.show();
+        QCoreApplication::processEvents();
+
+        dialog.updateTheme();
+        docs.updateTheme();
+        changelog.updateTheme();
+        card.updateTheme();
+
+        const QVector<QPair<QString, QWidget*>> surfaces = {
+            {QStringLiteral("config-dialog"), &dialog},
+            {QStringLiteral("docs-dialog"), &docs},
+            {QStringLiteral("changelog-dialog"), &changelog},
+            {QStringLiteral("camera-card"), &card},
+        };
+
+        for (const auto& [name, surface] : surfaces) {
+            const QString stale = staleColorIn(stylesheetsIn(*surface), preset);
+            QVERIFY2(stale.isEmpty(), qPrintable(QStringLiteral(
+                         "%1 paints a previous preset's color on preset %2: %3")
+                         .arg(name).arg(preset).arg(stale)));
+        }
+
+        // Visual artifacts per preset for review (chrome, not video surfaces).
+        QVERIFY2(dialog.grab().save(artifactPath(
+                     QStringLiteral("theme-%1-config-dialog.png").arg(preset))),
+                 "the dialog preview must be saved for review");
+        QVERIFY2(docs.grab().save(artifactPath(
+                     QStringLiteral("theme-%1-docs.png").arg(preset))),
+                 "the docs preview must be saved for review");
+
+        // Spot-check that the preset actually reached the chrome.
+        const QVector<QPair<QWidget*, QString>> dialogSheets = stylesheetsIn(dialog);
+        QString chrome;
+        for (const auto& [widget, sheet] : dialogSheets) {
+            chrome += sheet;
+        }
+        QVERIFY2(chrome.contains(tc.bg, Qt::CaseInsensitive)
+                     || chrome.contains(tc.primary, Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("preset %1 token missing from the dialog chrome")
+                                .arg(preset)));
+
+        docs.hide();
+        changelog.hide();
+        dialog.hide();
+    }
+
+    CameraConfig::clearThemePreview();
+}
