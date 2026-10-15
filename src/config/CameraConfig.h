@@ -200,7 +200,16 @@ public:
     static int getThemePreset();
     static void setThemePreset(int themeIndex);
 
-    // Returns the full set of color tokens for the current theme preset.
+    // Live preview of a preset the operator has picked but not saved yet (the
+    // Color Theme dropdown). While a preview is set every getThemeColors()
+    // caller - including widgets that resolve colors at paint time - shows the
+    // candidate preset; saving or abandoning clears it (see clearThemePreview).
+    static void setThemePreview(int themePreset);
+    static void clearThemePreview();
+    static int getThemePreview(); // -1 when no preview is active
+
+    // Returns the full set of color tokens for the effective theme: the preview
+    // preset when one is active, otherwise the saved preset.
     static ThemeColors getThemeColors();
     static ThemeColors getThemeColors(int themePreset);
 

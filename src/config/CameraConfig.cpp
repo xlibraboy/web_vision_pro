@@ -9,6 +9,13 @@
 #include <cstdlib>
 
 namespace {
+// Preset picked in the Color Theme dropdown that has not been saved yet;
+// -1 means "no preview, use the saved preset".
+int& themePreviewPreset() {
+    static int preset = -1;
+    return preset;
+}
+
 QString defaultCameraIp(int id) {
     return QString("172.20.2.%1").arg(id);
 }
@@ -181,8 +188,21 @@ void CameraConfig::setThemePreset(int themeIndex) {
     settings.setValue("ThemePreset", themeIndex);
 }
 
+void CameraConfig::setThemePreview(int themePreset) {
+    themePreviewPreset() = themePreset;
+}
+
+void CameraConfig::clearThemePreview() {
+    themePreviewPreset() = -1;
+}
+
+int CameraConfig::getThemePreview() {
+    return themePreviewPreset();
+}
+
 ThemeColors CameraConfig::getThemeColors() {
-    return getThemeColors(getThemePreset());
+    const int preview = getThemePreview();
+    return getThemeColors(preview >= 0 ? preview : getThemePreset());
 }
 
 ThemeColors CameraConfig::getThemeColors(int themePreset) {
