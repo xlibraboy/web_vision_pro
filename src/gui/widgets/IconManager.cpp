@@ -2,6 +2,11 @@
 #include "../../config/CameraConfig.h"
 #include <QBuffer>
 #include <QByteArray>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
+#include <QStandardPaths>
 
 namespace {
 ThemeColors theme() {
@@ -258,6 +263,47 @@ QIcon IconManager::getIcon(const QString& name, int size,
     icon.addPixmap(disabledPixmap, QIcon::Disabled, QIcon::Off);
 
     return icon;
+}
+
+QPixmap IconManager::themedAssetPixmap(const QString& assetPath, const QColor& color, int size) {
+    QFile asset(assetPath);
+    if (!asset.open(QIODevice::ReadOnly)) {
+        return QPixmap();
+    }
+
+    QString svg = QString::fromUtf8(asset.readAll());
+    static const QRegularExpression fillPattern(QStringLiteral("fill=\"#[0-9A-Fa-f]{6}\""));
+    svg.replace(fillPattern, QStringLiteral("fill=\"%1\"").arg(color.name()));
+
+    QSvgRenderer renderer(svg.toUtf8());
+    if (!renderer.isValid()) {
+        return QPixmap();
+    }
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    renderer.render(&painter);
+    painter.end();
+    return pixmap;
+}
+
+QString IconManager::themedAssetFile(const QString& assetPath, const QColor& color) {
+    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    if (cacheDir.isEmpty() || !QDir().mkpath(cacheDir)) {
+        return assetPath;
+    }
+    const QString cachedPath = QDir(cacheDir).filePath(
+        QStringLiteral("%1-%2.png").arg(QFileInfo(assetPath).completeBaseName(), color.name().mid(1)));
+    if (QFile::exists(cachedPath)) {
+        return cachedPath;
+    }
+
+    // Twice the stylesheet size so the glyph stays crisp when scaled down.
+    const QPixmap pixmap = themedAssetPixmap(assetPath, color, 16);
+    if (pixmap.isNull()) {
+        return assetPath;
+    }
+    return pixmap.save(cachedPath) ? cachedPath : assetPath;
 }
 
 QPixmap IconManager::getPixmap(const QString& name, int size,

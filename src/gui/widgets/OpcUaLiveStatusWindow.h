@@ -16,11 +16,18 @@ class OpcUaLiveStatusWindow : public QWidget {
 public:
     explicit OpcUaLiveStatusWindow(QWidget* parent = nullptr);
 
+    // Re-applies every preset-derived color (window background, captions, table
+    // and header, empty-state hint). The live per-tag colors are re-derived by
+    // updateStatus() on the next status snapshot.
+    void updateTheme();
+
 public slots:
     void updateStatus(const OpcUaRuntimeStatus& status);
 
 private:
+    QLabel* clientCaption_ = nullptr;
     QLabel* clientLabel_ = nullptr;
+    QLabel* speedCaption_ = nullptr;
     QLabel* speedLabel_ = nullptr;
     QLabel* emptyLabel_ = nullptr;
     QTableWidget* table_ = nullptr;

@@ -13,6 +13,7 @@
 #include "../processing/EventSignalScanner.h"
 #include "widgets/EventDashboard.h"
 #include "widgets/CircularSpinner.h"
+#include "widgets/IconManager.h"
 #include <QApplication>
 #include <QCursor>
 #include <QVBoxLayout>
@@ -2325,8 +2326,6 @@ void AnalysisView::setupMainArea() {
     // Thumbnails is the base track shown by default; all the others are
     // "friends" that may join it. At most ONE friend can be active at a time,
     // and nothing else renders until Thumbnails is enabled.
-    const QColor accentBg(QColor(tc.primary).darker(150));
-    const QColor accentBorder(tc.primary);
     for (int i = 0; i < 5; ++i) {
         trackChecks_[i] = new QCheckBox(QString::fromUtf8(trackNames[i]), tracksPanel_);
         trackChecks_[i]->setChecked(i == 4); // only THUMBNAILS by default
@@ -2337,13 +2336,7 @@ void AnalysisView::setupMainArea() {
             trackChecks_[i]->setObjectName("baseTrackCheck");
             trackChecks_[i]->setToolTip(
                 QStringLiteral("Base track — always available."));
-            trackChecks_[i]->setStyleSheet(QString(
-                "QCheckBox#baseTrackCheck { background-color: %1;"
-                " border: 1px solid %2; border-radius: 5px;"
-                " padding: 2px 4px; color: %3; }"
-                "QCheckBox#baseTrackCheck:hover { background-color: %4; }")
-                .arg(accentBg.name(), accentBorder.name(), tc.text,
-                     QColor(tc.primary).darker(125).name()));
+            applyBaseTrackChipStyle();
         }
         connect(trackChecks_[i], &QCheckBox::toggled, this,
                 [this, i](bool checked) { onTrackCheckToggled(i, checked); });
@@ -2676,7 +2669,10 @@ void AnalysisView::setupPlaybackControls() {
     // Helper macro for creating SVG buttons
     auto createSvgButton = [&](const QString& iconName, const QString& tooltip) -> QPushButton* {
         QPushButton* btn = new QPushButton(playbackPanel_);
-        btn->setIcon(QIcon(":/assets/icons/" + iconName));
+        // Remember which asset this button shows (Play swaps to Pause at
+        // runtime) so its glyph can be re-tinted with the theme.
+        btn->setProperty("glyphAsset", iconName);
+        applyPlaybackGlyphTheme(btn);
         btn->setIconSize(QSize(18, 18));
         btn->setFixedSize(28, 28);
         btn->setToolTip(tooltip);
@@ -2816,12 +2812,9 @@ void AnalysisView::setupPlaybackControls() {
     connect(resetOffsetsButton_, &QPushButton::clicked, this, &AnalysisView::clearCameraOffsets);
     alignRow->addWidget(resetOffsetsButton_);
 
-    // Same palette+font approach as the value label so this label's tooltip
-    // keeps the standard look (it has a tooltip with alignment details).
+    // Ink comes from applyToolsPanelTheme() (through the palette, so this
+    // label's tooltip keeps the standard look).
     alignStatusLabel_ = new QLabel("—", playbackPanel_);
-    QPalette alignPal = alignStatusLabel_->palette();
-    alignPal.setColor(QPalette::WindowText, QColor(tc.text));
-    alignStatusLabel_->setPalette(alignPal);
     QFont alignFont = alignStatusLabel_->font();
     alignFont.setPixelSize(UiTypeScale::kMeta);
     alignStatusLabel_->setFont(alignFont);
@@ -3925,7 +3918,8 @@ void AnalysisView::setPlaybackPlaying(bool playing) {
     isPlaying_ = playing;
 
     if (playPauseButton_) {
-        playPauseButton_->setIcon(QIcon(playing ? ":/assets/icons/Pause.svg" : ":/assets/icons/Play.svg"));
+        playPauseButton_->setProperty("glyphAsset", playing ? "Pause.svg" : "Play.svg");
+        applyPlaybackGlyphTheme(playPauseButton_);
         playPauseButton_->setStyleSheet(makePlaybackIconButtonStyle(CameraConfig::getThemeColors(), playing));
     }
 
@@ -5102,11 +5096,19 @@ void AnalysisView::updateTheme() {
         toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     }
     applyToolsPanelTheme();
+    for (QPushButton* glyphButton : {playPauseButton_, beginButton_, prevButton_, resetButton_,
+                                     nextButton_, endButton_}) {
+        applyPlaybackGlyphTheme(glyphButton);
+    }
 
     // The event dashboard paints its own canvas: hand it the active theme so
     // its plot area, curves, and markers follow theme switches too.
     if (detailDashboard_) {
         detailDashboard_->applyTheme(tc);
+    }
+    if (tracksSpinner_) {
+        // The spinner is code-drawn and caches its accent.
+        tracksSpinner_->setColor(QColor(tc.primary));
     }
 
     // Re-apply the current delete-mode state (the segment itself is always
@@ -5467,6 +5469,33 @@ void AnalysisView::restyleTracksEdgeTab() {
     tracksEdgeTab_->setIconSize(pm.size());
 }
 
+void AnalysisView::applyPlaybackGlyphTheme(QPushButton* button) {
+    if (!button) {
+        return;
+    }
+    const QString asset = button->property("glyphAsset").toString();
+    if (asset.isEmpty()) {
+        return;
+    }
+    const QPixmap glyph = IconManager::themedAssetPixmap(
+        QStringLiteral(":/assets/icons/") + asset, QColor(CameraConfig::getThemeColors().text), 18);
+    button->setIcon(glyph.isNull() ? QIcon(QStringLiteral(":/assets/icons/") + asset) : QIcon(glyph));
+}
+
+void AnalysisView::applyBaseTrackChipStyle() {
+    if (!trackChecks_[4]) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    trackChecks_[4]->setStyleSheet(QString(
+        "QCheckBox#baseTrackCheck { background-color: %1;"
+        " border: 1px solid %2; border-radius: 5px;"
+        " padding: 2px 4px; color: %3; }"
+        "QCheckBox#baseTrackCheck:hover { background-color: %4; }")
+        .arg(QColor(tc.primary).darker(150).name(), tc.primary, tc.text,
+             QColor(tc.primary).darker(125).name()));
+}
+
 void AnalysisView::applyToolsPanelTheme() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     if (rightToolsPanel_) {
@@ -5491,6 +5520,14 @@ void AnalysisView::applyToolsPanelTheme() {
             "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: bold; }"
             "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }")
             .arg(tc.bg, tc.border, tc.text));
+        applyBaseTrackChipStyle();
+    }
+    if (alignStatusLabel_) {
+        // Set through the palette (not a stylesheet) so its tooltip keeps the
+        // standard look.
+        QPalette alignPal = alignStatusLabel_->palette();
+        alignPal.setColor(QPalette::WindowText, QColor(tc.text));
+        alignStatusLabel_->setPalette(alignPal);
     }
     if (dashLoadingLabel_) {
         // Text-only load status (no bar) — keep the label readable in both
@@ -7401,7 +7438,11 @@ void AnalysisView::refreshDiagTable() {
             diagTable_->setItem(row, 1,  makeItem(info.name));
             for (int col = 2; col <= 14; ++col)
                 diagTable_->setItem(row, col, makeNA());
-            applyRowColors(row, QColor(55, 55, 55, 140), QColor(tc.border));
+            // Same washed row treatment as the live rows, in the muted token so
+            // a disabled camera reads as "not reporting" on every theme.
+            QColor disabledWash(tc.muted);
+            disabledWash.setAlpha(60);
+            applyRowColors(row, disabledWash, QColor(tc.border));
             clearDropHistory(row);
             continue;
         }

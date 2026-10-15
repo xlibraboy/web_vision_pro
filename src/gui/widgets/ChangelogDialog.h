@@ -4,6 +4,7 @@
 #include <QList>
 #include <QString>
 
+class QLabel;
 class QListWidget;
 class QTextBrowser;
 
@@ -19,6 +20,9 @@ class ChangelogDialog : public QDialog {
 public:
     explicit ChangelogDialog(QWidget* parent = nullptr);
 
+    // Re-applies every preset-derived color (header, browser document, list).
+    void updateTheme();
+
 private:
     struct VersionSection {
         QString title;
@@ -32,6 +36,7 @@ private:
     // browser is themed for: "### ", "- ", **bold**, `code`, [text](url).
     static QString markdownToHtml(const QString& markdown);
 
+    QLabel* headerLabel_ = nullptr;
     QListWidget* versionList_ = nullptr;
     QTextBrowser* contentBrowser_ = nullptr;
 };

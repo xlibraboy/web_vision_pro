@@ -49,16 +49,13 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
     resize(760, 600);
     setMinimumSize(560, 400);
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(8);
 
-    auto* header = new QLabel(
+    headerLabel_ = new QLabel(
         QString("<b>PaperVision</b> v%1 \u2014 release history").arg(AppVersion::kNumber), this);
-    header->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";").arg(tc.text));
-    layout->addWidget(header);
+    layout->addWidget(headerLabel_);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
     layout->addWidget(splitter, 1);
@@ -71,27 +68,7 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
     contentBrowser_ = new QTextBrowser(splitter);
     contentBrowser_->setOpenExternalLinks(true);
     contentBrowser_->setOpenLinks(true);
-    contentBrowser_->document()->setDefaultStyleSheet(QString(
-        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; }"
-        "h3 { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; margin-top: 14px; }"
-        "p  { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
-        "li { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; margin-bottom: 3px; }"
-        "code { color: %1; background-color: %4; padding: 1px 4px; border-radius: 3px; }"
-        "b  { color: %3; }"
-        "a  { color: %1; }"
-    ).arg(tc.primary, tc.border, tc.text, tc.btnBg));
-    contentBrowser_->setStyleSheet(QString(
-        "QTextBrowser { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; padding: 10px; }").arg(tc.bg, tc.text, tc.border));
     contentBrowser_->setFrameShape(QFrame::NoFrame);
-
-    // Soft selection: accent at ~40% opacity over the dark surface, matching
-    // the documentation dialog.
-    QColor selectionTint = QColor(tc.primary);
-    selectionTint.setAlpha(102);
-    const QString selectionTintCss = QString("rgba(%1, %2, %3, %4)")
-        .arg(selectionTint.red()).arg(selectionTint.green())
-        .arg(selectionTint.blue()).arg(selectionTint.alpha());
 
     splitter->addWidget(versionList_);
     splitter->addWidget(contentBrowser_);
@@ -99,17 +76,7 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({190, 570});
 
-    setStyleSheet(QString(
-        "QDialog { background-color: %1; }"
-        "QLabel { color: %2; }"
-        "QListWidget#changelogVersionList { background-color: %4; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; padding: 4px; }"
-        "QListWidget#changelogVersionList::item { padding: 7px 8px; border-radius: 3px; }"
-        "QListWidget#changelogVersionList::item:selected { background-color: %5; color: %6; }"
-        "QListWidget#changelogVersionList::item:hover:!selected { background-color: %7; }"
-    ).arg(tc.bg, tc.text, tc.border, tc.btnBg, selectionTintCss,
-          tc.text,
-          tc.btnHover));
+    updateTheme();
 
     connect(versionList_, &QListWidget::currentRowChanged,
             this, [this](int row) {
@@ -138,6 +105,52 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
         versionList_->setCurrentRow(0);  // newest release, as listed in the file
     } else {
         contentBrowser_->setHtml(QStringLiteral("<p>No release notes yet.</p>"));
+    }
+}
+
+void ChangelogDialog::updateTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    headerLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";").arg(tc.text));
+
+    contentBrowser_->document()->setDefaultStyleSheet(QString(
+        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; }"
+        "h3 { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; margin-top: 14px; }"
+        "p  { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
+        "li { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; margin-bottom: 3px; }"
+        "code { color: %1; background-color: %4; padding: 1px 4px; border-radius: 3px; }"
+        "b  { color: %3; }"
+        "a  { color: %1; }"
+    ).arg(tc.primary, tc.border, tc.text, tc.btnBg));
+    contentBrowser_->setStyleSheet(QString(
+        "QTextBrowser { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; padding: 10px; }").arg(tc.bg, tc.text, tc.border));
+
+    // Soft selection: accent at ~40% opacity over the dark surface, matching
+    // the documentation dialog.
+    QColor selectionTint = QColor(tc.primary);
+    selectionTint.setAlpha(102);
+    const QString selectionTintCss = QString("rgba(%1, %2, %3, %4)")
+        .arg(selectionTint.red()).arg(selectionTint.green())
+        .arg(selectionTint.blue()).arg(selectionTint.alpha());
+
+    setStyleSheet(QString(
+        "QDialog { background-color: %1; }"
+        "QLabel { color: %2; }"
+        "QListWidget#changelogVersionList { background-color: %4; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; padding: 4px; }"
+        "QListWidget#changelogVersionList::item { padding: 7px 8px; border-radius: 3px; }"
+        "QListWidget#changelogVersionList::item:selected { background-color: %5; color: %6; }"
+        "QListWidget#changelogVersionList::item:hover:!selected { background-color: %7; }"
+    ).arg(tc.bg, tc.text, tc.border, tc.btnBg, selectionTintCss,
+          tc.text,
+          tc.btnHover));
+
+    // A document's default stylesheet only styles the HTML set after it, so
+    // re-render the visible release to bring the notes onto the new tokens.
+    const int row = versionList_->currentRow();
+    if (row >= 0 && row < versionList_->count()) {
+        contentBrowser_->setHtml(versionList_->item(row)->data(Qt::UserRole).toString());
     }
 }
 

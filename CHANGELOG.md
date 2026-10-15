@@ -24,6 +24,7 @@ here.
 
 ### Changed
 
+- The Color Theme picker now applies the theme the moment a preset is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved preset.
 - Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
 - Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
 - Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
@@ -33,6 +34,9 @@ here.
 
 ### Fixed
 
+- Switching the theme now reaches every panel that is kept open for the session: the System Configuration dialog and its camera cards, the network summary, the machine-layout header, the IP list and machine-group panels, the OPC UA live-status window, the Help dialogs, and the Analysis View spinner, marker ink and track chip previously kept the theme they were built with until restart.
+- The remaining hardcoded colors now follow the theme: camera-card hover washes (they stayed default cyan/red on every preset), disabled-camera rows in the diagnostics table, machine-layout lane fills and its hollow-marker warning, the machine-layout reference guide line, the administrator login eye icon, and the System Configuration tab label.
+- Spin-box steppers and the Analysis View playback and marker glyphs are re-rendered in the theme's ink instead of the fixed grey they shipped with.
 - Theme presets now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected preset.
 - Status text and badges meet stronger contrast targets (the previous critical red measured well below the readability bar on the default theme).
 - The low-disk status-bar badge keeps a visible keyboard focus ring instead of erasing it.

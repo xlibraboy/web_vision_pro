@@ -296,8 +296,35 @@ namespace {
         return candidates;
     }
 
-    void stylePrimaryActionButton(QPushButton* button, const ThemeColors& tc) {
-        button->setStyleSheet(QString(
+    QString tinted(const QString& hex, double alpha) {
+        const QColor c(hex);
+        return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
+    }
+
+    // Raised-surface wash. Every preset is dark today, so the faint "lift" on
+    // panes, cards and hovered controls is a tint of the text token instead of a
+    // fixed white, which would be invisible on a light preset.
+    QString raisedWash(const ThemeColors& tc, double alpha) {
+        return tinted(tc.text, alpha);
+    }
+
+    QString pillStyle(const ThemeColors& tc, bool active) {
+        if (active) {
+            return QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; } "
+                "QPushButton:hover { background-color: %3; } "
+                "QPushButton:pressed { background-color: %1; }"
+            ).arg(tc.primary, tc.bg, tc.text);
+        }
+        return QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 600; } "
+            "QPushButton:hover { border-color: %4; } "
+            "QPushButton:pressed { background-color: %4; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    }
+
+    QString primaryActionButtonStyle(const ThemeColors& tc) {
+        return QString(
             "QPushButton { "
             "  background-color: %1; "
             "  color: %2; "
@@ -313,7 +340,115 @@ namespace {
             "QPushButton:pressed { "
             "  background-color: %1; "
             "}"
-        ).arg(tc.primary, tc.bg, tc.btnHover));
+        ).arg(tc.primary, tc.bg, tc.btnHover);
+    }
+
+    QString sectionGroupStyle(const ThemeColors& tc) {
+        return QString(
+            "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+            "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+        ).arg(tc.primary, tc.border);
+    }
+
+    // Every spin box in the dialog shares this one style.
+    QString spinFieldStyle(const ThemeColors& tc) {
+        return QString(
+            "QSpinBox { "
+            "  background-color: %1; "
+            "  border: 1px solid %2; "
+            "  border-radius: 6px; "
+            "  padding: 6px 10px; "
+            "  color: %3; "
+            "  min-width: 100px; "
+            "} "
+            "QSpinBox:hover { border-color: %4; } "
+            "QSpinBox:focus { border-color: %4; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    }
+
+    QString browseButtonStyle(const ThemeColors& tc) {
+        return QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; } "
+            "QPushButton:hover { border-color: %4; background-color: %5; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary, raisedWash(tc, 0.04));
+    }
+
+    QString opcUaLineEditStyle(const ThemeColors& tc) {
+        return QString(
+            "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; } "
+            "QLineEdit:hover { border-color: %4; } "
+            "QLineEdit:focus { border-color: %4; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    }
+
+    QString opcUaComboStyle(const ThemeColors& tc) {
+        return QString(
+            "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; min-width: 120px; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; width: 20px; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    }
+
+    // Compact combo variant for the trigger grid so the extra Sim column stays tight.
+    QString opcUaGridComboStyle(const ThemeColors& tc) {
+        return QString(
+            "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 8px; min-width: 64px; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; width: 16px; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    }
+
+    // Unit combo (editable): the grid combo plus a transparent inner line edit,
+    // so typing a custom unit keeps the dark combo chrome.
+    QString opcUaUnitComboStyle(const ThemeColors& tc) {
+        return opcUaGridComboStyle(tc) + QString(
+            "QComboBox QLineEdit { background: transparent; border: none; color: %1; padding: 0; }"
+        ).arg(tc.text);
+    }
+
+    // Compact push-hold trigger button style for the grid.
+    QString opcUaTriggerBtnStyle(const ThemeColors& tc) {
+        return QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 14px; font-weight: 600; } "
+            "QPushButton:hover { border-color: %4; } "
+            "QPushButton:pressed { background-color: %4; color: %2; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    }
+
+    QString uiSectionGroupStyle(const ThemeColors& tc) {
+        return QString(
+            "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+            "background-color: %3; border-radius: 10px; margin-top: 12px; padding: 12px 10px 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 6px; top: 2px; }"
+        ).arg(tc.primary, tc.border, raisedWash(tc, 0.02));
+    }
+
+    QString settingsCardStyle(const ThemeColors& tc) {
+        return QString(
+            "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 10px; margin-top: 8px; "
+            "background-color: %3; padding: 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+        ).arg(tc.primary, tc.border, raisedWash(tc, 0.02));
+    }
+
+    QString secondaryActionButtonStyle(const ThemeColors& tc) {
+        return QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 14px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; } "
+            "QPushButton:hover { border-color: %4; background-color: %5; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary, raisedWash(tc, 0.04));
+    }
+
+    QString themeComboStyle(const ThemeColors& tc) {
+        return QString(
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 8px; } "
+            "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; selection-background-color: %5; padding: 4px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary, tc.bg);
     }
 }
 
@@ -764,6 +899,7 @@ void ConfigDialog::showEvent(QShowEvent* event) {
 }
 
 void ConfigDialog::hideEvent(QHideEvent* event) {
+    discardUnsavedThemePreview();
     if (networkRefreshTimer_) {
         networkRefreshTimer_->stop();
     }
@@ -815,13 +951,9 @@ ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     ipConfiguratorPanel_->refresh();
 
     loadSettings();
-    liveViewGridTitlePresets_.updateStyles();
-    liveViewDetailTitlePresets_.updateStyles();
-    liveViewDetailSectionPresets_.updateStyles();
-    analysisVideoTitlePresets_.updateStyles();
-    analysisTimestampPresets_.updateStyles();
-    analysisTabPresets_.updateStyles();
-    analysisMetadataPresets_.updateStyles();
+    // loadSettings() restores the preference values the pills and previews are
+    // styled from, so re-apply the theme once they are in place.
+    updateTheme();
     setupUiModificationTracking();
 
     // Periodically re-scan GigE devices while the config tab is visible so the
@@ -864,22 +996,7 @@ void ConfigDialog::setupUI() {
 
     ThemeColors tc = CameraConfig::getThemeColors();
 
-    auto createPillStyle = [&tc](bool active) {
-        if (active) {
-            return QString(
-                "QPushButton { background-color: %1; color: %2; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; } "
-                "QPushButton:hover { background-color: %3; } "
-                "QPushButton:pressed { background-color: %1; }"
-            ).arg(tc.primary, tc.bg, tc.text);
-        }
-        return QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 6px; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 600; } "
-            "QPushButton:hover { border-color: %4; } "
-            "QPushButton:pressed { background-color: %4; }"
-        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
-    };
-
-    auto createTypographyRow = [this, &tc, &createPillStyle](QWidget* parent, QComboBox* fontCombo, QSpinBox* sizeSpin,
+    auto createTypographyRow = [this, &tc](QWidget* parent, QComboBox* fontCombo, QSpinBox* sizeSpin,
             const QString& tooltip, int presetS, int presetM, int presetL, PresetButtonGroup& presets) {
         const QString formattedTooltip = settingsTooltip(tooltip);
         QWidget* row = new QWidget(parent);
@@ -901,14 +1018,10 @@ void ConfigDialog::setupUI() {
         presetsLayout->addStretch();
         rowLayout->addLayout(presetsLayout);
 
-        const QString inactiveStyle = createPillStyle(false);
-
         presets.targetSpin = sizeSpin;
         presets.presetS = presetS;
         presets.presetM = presetM;
         presets.presetL = presetL;
-        presets.inactiveStyle = inactiveStyle;
-        presets.activeStyle = createPillStyle(true);
 
         const auto addPill = [row, presetsLayout, sizeSpin, &presets](const QString& label, int preset) {
             QPushButton* btn = new QPushButton(label, row);
@@ -927,7 +1040,7 @@ void ConfigDialog::setupUI() {
         presets.btnL = addPill("L", presetL);
 
         QObject::connect(sizeSpin, QOverload<int>::of(&QSpinBox::valueChanged), [&presets]() {
-            presets.updateStyles();
+            presets.updateStyles(CameraConfig::getThemeColors());
         });
 
         return row;
@@ -941,7 +1054,8 @@ void ConfigDialog::setupUI() {
     sidebar->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     sidebar->setTextElideMode(Qt::ElideNone);
     sidebar->setFixedWidth(kSidebarMinWidth);
-    sidebar->setStyleSheet(QString(
+    registerThemed(sidebar, [](const ThemeColors& tc) {
+        return QString(
         "QListWidget { "
         "  background-color: %1; "
         "  border: 1px solid %2; "
@@ -962,7 +1076,8 @@ void ConfigDialog::setupUI() {
         "QListWidget::item:hover:!selected { "
         "  background-color: %4; "
         "}"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary);
+    });
 
     QStackedWidget* stackedWidget = new QStackedWidget(this);
     stackedWidget->setStyleSheet("QStackedWidget { background: transparent; }");
@@ -993,7 +1108,8 @@ void ConfigDialog::setupUI() {
     cameraScrollArea_ = new QScrollArea(this);
     cameraScrollArea_->setWidgetResizable(true);
     cameraScrollArea_->setFrameShape(QFrame::NoFrame);
-    cameraScrollArea_->setStyleSheet(QString(
+    registerThemed(cameraScrollArea_, [](const ThemeColors& tc) {
+        return QString(
         "QScrollArea { border: none; background: transparent; } "
         "QScrollBar:vertical { "
         "  background-color: %1; "
@@ -1011,7 +1127,8 @@ void ConfigDialog::setupUI() {
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
         "  height: 0px; "
         "}"
-    ).arg(tc.bg, tc.btnBg, tc.primary));
+    ).arg(tc.bg, tc.btnBg, tc.primary);
+    });
 
     cameraScrollWidget_ = new QWidget();
     cameraListLayout_ = new QGridLayout(cameraScrollWidget_);
@@ -1024,13 +1141,15 @@ void ConfigDialog::setupUI() {
 
     QTabWidget* cameraSubTabs = new QTabWidget(camSetupGroup);
     cameraSubTabs->setDocumentMode(true);
-    cameraSubTabs->setStyleSheet(QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+    registerThemed(cameraSubTabs, [](const ThemeColors& tc) {
+        return QString(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
         "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
+        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %3; } "
         "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary));
+    ).arg(tc.border, tc.btnBg, tc.text, tc.primary);
+    });
 
     // Tab 1: Camera Cards (existing scroll area + save button)
     QWidget* cameraCardsPage = new QWidget(cameraSubTabs);
@@ -1045,7 +1164,7 @@ void ConfigDialog::setupUI() {
     cameraSaveBtn_ = new QPushButton("Save Camera Configuration", cameraCardsPage);
     cameraSaveBtn_->setIcon(IconManager::instance().save(16));
     cameraSaveBtn_->setDefault(true);
-    stylePrimaryActionButton(cameraSaveBtn_, tc);
+    registerThemed(cameraSaveBtn_, primaryActionButtonStyle);
     connect(cameraSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveCameraConfiguration);
     cameraActionsLayout->addWidget(cameraSaveBtn_);
     cameraCardsPageLayout->addLayout(cameraActionsLayout);
@@ -1092,15 +1211,9 @@ void ConfigDialog::setupUI() {
     bufferLayout->setSpacing(kSectionSpacing);
     bufferLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
 
-    const QString sectionStyle = QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    ).arg(tc.primary, tc.border);
-
     auto createSectionForm = [&](const QString& title) {
         QGroupBox* group = new QGroupBox(title, bufferGroup);
-        group->setStyleSheet(sectionStyle);
+        registerThemed(group, sectionGroupStyle);
         QFormLayout* form = new QFormLayout(group);
         form->setSpacing(kControlSpacing);
         form->setContentsMargins(14, 18, 14, 14);
@@ -1116,32 +1229,20 @@ void ConfigDialog::setupUI() {
     globalFpsSpin_ = new QSpinBox(bufferGroup);
     globalFpsSpin_->setRange(1, 200);
     globalFpsSpin_->setSuffix(" fps");
-    globalFpsSpin_->setStyleSheet(QString(
-        "QSpinBox { "
-        "  background-color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 6px; "
-        "  padding: 6px 10px; "
-        "  color: %3; "
-        "  min-width: 100px; "
-        "} "
-        "QSpinBox:hover { border-color: %4; } "
-        "QSpinBox:focus { border-color: %4; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
     recordingForm->addRow("Fallback FPS:", globalFpsSpin_);
 
     // Pre-Trigger
     preTriggerSpin_ = new QSpinBox(bufferGroup);
     preTriggerSpin_->setRange(1, 60);
     preTriggerSpin_->setSuffix(" sec");
-    preTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(preTriggerSpin_, spinFieldStyle);
     recordingForm->addRow("Pre-Trigger Buffer:", preTriggerSpin_);
 
     // Post-Trigger
     postTriggerSpin_ = new QSpinBox(bufferGroup);
     postTriggerSpin_->setRange(1, 60);
     postTriggerSpin_->setSuffix(" sec");
-    postTriggerSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(postTriggerSpin_, spinFieldStyle);
     recordingForm->addRow("Post-Trigger Recording:", postTriggerSpin_);
 
     // Frame-count estimate: (pre + post) seconds × fallback FPS. Above 600
@@ -1149,8 +1250,10 @@ void ConfigDialog::setupUI() {
     // cap); the DETAIL strip still shows every frame around the playhead.
     recordingInfoLabel_ = new QLabel(bufferGroup);
     recordingInfoLabel_->setWordWrap(true);
-    recordingInfoLabel_->setStyleSheet(QString(
-        "QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text));
+    registerThemed(recordingInfoLabel_, [](const ThemeColors& tc) {
+        return QString(
+        "QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text);
+    });
     recordingForm->addRow(recordingInfoLabel_);
     connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &ConfigDialog::updateRecordingInfoLabel);
@@ -1168,7 +1271,8 @@ void ConfigDialog::setupUI() {
     cameraSourceCombo_ = new QComboBox(bufferGroup);
     cameraSourceCombo_->addItem("Real Cameras (hardware)", static_cast<int>(CameraConfig::CameraSource::RealCamera));
     cameraSourceCombo_->addItem("Emulated Cameras (no hardware)", static_cast<int>(CameraConfig::CameraSource::Emulation));
-    cameraSourceCombo_->setStyleSheet(QString(
+    registerThemed(cameraSourceCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { "
         "  background-color: %1; "
         "  border: 1px solid %2; "
@@ -1180,7 +1284,8 @@ void ConfigDialog::setupUI() {
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; width: 22px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     cameraModeForm->addRow("Camera Source:", cameraSourceCombo_);
 
     QLabel* cameraModeNote = new QLabel(
@@ -1190,7 +1295,9 @@ void ConfigDialog::setupUI() {
         "switch applies when the camera system is (re)started, e.g. saving this "
         "page or toggling the Server button in the Analysis View.", bufferGroup);
     cameraModeNote->setWordWrap(true);
-    cameraModeNote->setStyleSheet(QString("color: %1; padding-top: 4px;").arg(tc.text));
+    registerThemed(cameraModeNote, [](const ThemeColors& tc) {
+        return QString("color: %1; padding-top: 4px;").arg(tc.text);
+    });
     cameraModeForm->addRow("", cameraModeNote);
 
     QFormLayout* retentionForm = createSectionForm("Record Storage");
@@ -1198,7 +1305,7 @@ void ConfigDialog::setupUI() {
     eventRetentionSpin_ = new QSpinBox(bufferGroup);
     eventRetentionSpin_->setRange(1, 10000);
     eventRetentionSpin_->setSuffix(" records");
-    eventRetentionSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(eventRetentionSpin_, spinFieldStyle);
     retentionForm->addRow("Keep Recent Records:", eventRetentionSpin_);
 
     // Event storage folder (moved here from UI Preferences; saved with recording settings)
@@ -1209,16 +1316,15 @@ void ConfigDialog::setupUI() {
 
     eventStoragePathEdit_ = new QLineEdit(eventStorageRowWidget);
     eventStoragePathEdit_->setReadOnly(true);
-    eventStoragePathEdit_->setStyleSheet(QString(
+    registerThemed(eventStoragePathEdit_, [](const ThemeColors& tc) {
+        return QString(
         "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-    ).arg(tc.btnBg, tc.text, tc.border));
+    ).arg(tc.btnBg, tc.text, tc.border);
+    });
     eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
 
     browseEventStorageBtn_ = new QPushButton("Browse", eventStorageRowWidget);
-    browseEventStorageBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; } "
-        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+    registerThemed(browseEventStorageBtn_, browseButtonStyle);
     browseEventStorageBtn_->setToolTip("Choose a different folder for event storage.");
     connect(browseEventStorageBtn_, &QPushButton::clicked, this, [this]() {
         const QString selectedDir = QFileDialog::getExistingDirectory(
@@ -1232,7 +1338,7 @@ void ConfigDialog::setupUI() {
     eventStorageRowLayout->addWidget(browseEventStorageBtn_);
 
     resetEventStorageBtn_ = new QPushButton("Default", eventStorageRowWidget);
-    resetEventStorageBtn_->setStyleSheet(browseEventStorageBtn_->styleSheet());
+    registerThemed(resetEventStorageBtn_, browseButtonStyle);
     resetEventStorageBtn_->setToolTip("Restore the default event storage path.");
     connect(resetEventStorageBtn_, &QPushButton::clicked, this, [this]() {
         if (eventStoragePathEdit_) {
@@ -1247,15 +1353,19 @@ void ConfigDialog::setupUI() {
 
     QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", bufferGroup);
     eventStorageNote->setWordWrap(true);
-    eventStorageNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-style: italic;").arg(tc.text));
+    registerThemed(eventStorageNote, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-style: italic;").arg(tc.text);
+    });
     retentionForm->addRow("", eventStorageNote);
 
     // Live storage statistics for the configured event folder.
     storageStatsLabel_ = new QLabel(bufferGroup);
     storageStatsLabel_->setWordWrap(true);
-    storageStatsLabel_->setStyleSheet(QString(
+    registerThemed(storageStatsLabel_, [](const ThemeColors& tc) {
+        return QString(
         "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-top: 4px;"
-    ).arg(tc.text));
+    ).arg(tc.text);
+    });
     retentionForm->addRow("Storage:", storageStatsLabel_);
 
     // Configurable low-disk warning threshold (percent of volume free).
@@ -1263,7 +1373,7 @@ void ConfigDialog::setupUI() {
     lowDiskThresholdSpin_->setRange(1, 99);
     lowDiskThresholdSpin_->setSuffix(" %");
     lowDiskThresholdSpin_->setValue(CameraConfig::getLowDiskWarningPct());
-    lowDiskThresholdSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(lowDiskThresholdSpin_, spinFieldStyle);
     lowDiskThresholdSpin_->setToolTip(
         "When free space drops below this percentage of the storage volume, "
         "the Storage row turns amber (red below half of this value).");
@@ -1289,9 +1399,11 @@ void ConfigDialog::setupUI() {
 
     // Unsaved-changes indicator for the Recording & Triggers page.
     recordingUnsavedIndicator_ = new QLabel(bufferGroup);
-    recordingUnsavedIndicator_->setStyleSheet(QString(
+    registerThemed(recordingUnsavedIndicator_, [](const ThemeColors& tc) {
+        return QString(
         "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
-    ).arg(tc.warn));
+    ).arg(tc.warn);
+    });
     recordingUnsavedIndicator_->setText("");
     recordingUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
     recordingActionsLayout->addWidget(recordingUnsavedIndicator_, 0, Qt::AlignVCenter);
@@ -1299,7 +1411,7 @@ void ConfigDialog::setupUI() {
 
     recordingSaveBtn_ = new QPushButton("Save Recording Settings", bufferGroup);
     recordingSaveBtn_->setIcon(IconManager::instance().save(16));
-    stylePrimaryActionButton(recordingSaveBtn_, tc);
+    registerThemed(recordingSaveBtn_, primaryActionButtonStyle);
     connect(recordingSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveRecordingSettings);
     recordingActionsLayout->addWidget(recordingSaveBtn_);
     bufferLayout->addLayout(recordingActionsLayout);
@@ -1314,7 +1426,8 @@ void ConfigDialog::setupUI() {
     QScrollArea* opcUaScrollArea = new QScrollArea(this);
     opcUaScrollArea->setWidgetResizable(true);
     opcUaScrollArea->setFrameShape(QFrame::NoFrame);
-    opcUaScrollArea->setStyleSheet(QString(
+    registerThemed(opcUaScrollArea, [](const ThemeColors& tc) {
+        return QString(
         "QScrollArea { border: none; background: transparent; } "
         "QScrollBar:vertical { "
         "  background-color: %1; "
@@ -1332,41 +1445,12 @@ void ConfigDialog::setupUI() {
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
         "  height: 0px; "
         "}"
-    ).arg(tc.bg, tc.btnBg, tc.primary));
+    ).arg(tc.bg, tc.btnBg, tc.primary);
+    });
     QWidget* opcUaGroup = new QWidget(opcUaScrollArea);
     QVBoxLayout* opcUaLayout = new QVBoxLayout(opcUaGroup);
     opcUaLayout->setSpacing(kSectionSpacing);
     opcUaLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-
-    const QString opcUaLineEditStyle = QString(
-        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; } "
-        "QLineEdit:hover { border-color: %4; } "
-        "QLineEdit:focus { border-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
-    const QString opcUaComboStyle = QString(
-        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; min-width: 120px; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; width: 20px; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
-    // Compact combo variant for the trigger grid so the extra Sim column stays tight.
-    const QString opcUaGridComboStyle = QString(
-        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 8px; min-width: 64px; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; width: 16px; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
-    // Unit combo (editable): the grid combo plus a transparent inner line edit,
-    // so typing a custom unit keeps the dark combo chrome.
-    const QString opcUaUnitComboStyle = opcUaGridComboStyle + QString(
-        "QComboBox QLineEdit { background: transparent; border: none; color: %1; padding: 0; }"
-    ).arg(tc.text);
-    // Compact push-hold trigger button style for the grid.
-    const QString opcUaTriggerBtnStyle = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 14px; font-weight: 600; } "
-        "QPushButton:hover { border-color: %4; } "
-        "QPushButton:pressed { background-color: %4; color: %2; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
 
     auto createOpcUaForm = [&](QGroupBox* group) {
         QFormLayout* form = new QFormLayout(group);
@@ -1378,25 +1462,31 @@ void ConfigDialog::setupUI() {
     };
 
     QLabel* opcUaHeaderLabel = new QLabel("OPC UA Client", opcUaGroup);
-    opcUaHeaderLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;").arg(tc.primary));
+    registerThemed(opcUaHeaderLabel, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;").arg(tc.primary);
+    });
     opcUaLayout->addWidget(opcUaHeaderLabel);
 
     QLabel* opcUaDescriptionLabel = new QLabel(
         "Connect to external boolean trigger tags and a machine speed tag for event synchronization.",
         opcUaGroup);
     opcUaDescriptionLabel->setWordWrap(true);
-    opcUaDescriptionLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
+    registerThemed(opcUaDescriptionLabel, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
+    });
     opcUaLayout->addWidget(opcUaDescriptionLabel);
 
     QTabWidget* opcUaTabs = new QTabWidget(opcUaGroup);
     opcUaTabs->setDocumentMode(true);
-    opcUaTabs->setStyleSheet(QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+    registerThemed(opcUaTabs, [](const ThemeColors& tc) {
+        return QString(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
         "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
+        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
         "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text));
+    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
+    });
     opcUaLayout->addWidget(opcUaTabs, 1);
 
     QWidget* opcUaConnectionTab = new QWidget(opcUaTabs);
@@ -1405,16 +1495,18 @@ void ConfigDialog::setupUI() {
     opcUaConnectionTabLayout->setSpacing(10);
 
     QGroupBox* opcUaConnectionGroup = new QGroupBox("Connection", opcUaConnectionTab);
-    opcUaConnectionGroup->setStyleSheet(sectionStyle);
+    registerThemed(opcUaConnectionGroup, sectionGroupStyle);
     QFormLayout* opcUaConnectionForm = createOpcUaForm(opcUaConnectionGroup);
 
     opcUaEnabledCheck_ = new QCheckBox("Enable OPC UA client", opcUaConnectionGroup);
-    opcUaEnabledCheck_->setStyleSheet(QString("color: %1;").arg(tc.text));
+    registerThemed(opcUaEnabledCheck_, [](const ThemeColors& tc) {
+        return QString("color: %1;").arg(tc.text);
+    });
     opcUaConnectionForm->addRow("Client:", opcUaEnabledCheck_);
 
     opcUaEndpointEdit_ = new QLineEdit(opcUaConnectionGroup);
     opcUaEndpointEdit_->setPlaceholderText("opc.tcp://127.0.0.1:4840");
-    opcUaEndpointEdit_->setStyleSheet(opcUaLineEditStyle);
+    registerThemed(opcUaEndpointEdit_, opcUaLineEditStyle);
     opcUaConnectionForm->addRow("Endpoint URL:", opcUaEndpointEdit_);
     QWidget* opcUaEndpointActions = new QWidget(opcUaConnectionGroup);
     QHBoxLayout* opcUaEndpointActionsLayout = new QHBoxLayout(opcUaEndpointActions);
@@ -1423,11 +1515,13 @@ void ConfigDialog::setupUI() {
 
     opcUaDiscoveryStatusLabel_ = new QLabel("Checking for discoverable OPC UA servers...", opcUaEndpointActions);
     opcUaDiscoveryStatusLabel_->setWordWrap(true);
-    opcUaDiscoveryStatusLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
+    registerThemed(opcUaDiscoveryStatusLabel_, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
+    });
     opcUaEndpointActionsLayout->addWidget(opcUaDiscoveryStatusLabel_, 1);
 
     opcUaDetectEndpointBtn_ = new QPushButton("Detect Server", opcUaEndpointActions);
-    stylePrimaryActionButton(opcUaDetectEndpointBtn_, tc);
+    registerThemed(opcUaDetectEndpointBtn_, primaryActionButtonStyle);
     opcUaDetectEndpointBtn_->setIcon(IconManager::instance().refresh(16));
     connect(opcUaDetectEndpointBtn_, &QPushButton::clicked, this, [this]() {
         refreshOpcUaEndpointDiscovery(false, true);
@@ -1439,33 +1533,33 @@ void ConfigDialog::setupUI() {
     opcUaPublishIntervalSpin_ = new QSpinBox(opcUaConnectionGroup);
     opcUaPublishIntervalSpin_->setRange(50, 10000);
     opcUaPublishIntervalSpin_->setSuffix(" ms");
-    opcUaPublishIntervalSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(opcUaPublishIntervalSpin_, spinFieldStyle);
     opcUaConnectionForm->addRow("Publish Interval:", opcUaPublishIntervalSpin_);
 
     opcUaReconnectIntervalSpin_ = new QSpinBox(opcUaConnectionGroup);
     opcUaReconnectIntervalSpin_->setRange(250, 60000);
     opcUaReconnectIntervalSpin_->setSuffix(" ms");
-    opcUaReconnectIntervalSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(opcUaReconnectIntervalSpin_, spinFieldStyle);
     opcUaConnectionForm->addRow("Reconnect Delay:", opcUaReconnectIntervalSpin_);
     opcUaConnectionTabLayout->addWidget(opcUaConnectionGroup);
 
     QGroupBox* opcUaAuthGroup = new QGroupBox("Authentication", opcUaConnectionTab);
-    opcUaAuthGroup->setStyleSheet(sectionStyle);
+    registerThemed(opcUaAuthGroup, sectionGroupStyle);
     QFormLayout* opcUaAuthForm = createOpcUaForm(opcUaAuthGroup);
 
     opcUaAuthModeCombo_ = new QComboBox(opcUaAuthGroup);
-    opcUaAuthModeCombo_->setStyleSheet(opcUaComboStyle);
+    registerThemed(opcUaAuthModeCombo_, opcUaComboStyle);
     opcUaAuthModeCombo_->addItem("Anonymous", false);
     opcUaAuthModeCombo_->addItem("Username / Password", true);
     opcUaAuthForm->addRow("Mode:", opcUaAuthModeCombo_);
 
     opcUaUsernameEdit_ = new QLineEdit(opcUaAuthGroup);
-    opcUaUsernameEdit_->setStyleSheet(opcUaLineEditStyle);
+    registerThemed(opcUaUsernameEdit_, opcUaLineEditStyle);
     opcUaAuthForm->addRow("Username:", opcUaUsernameEdit_);
 
     opcUaPasswordEdit_ = new QLineEdit(opcUaAuthGroup);
     opcUaPasswordEdit_->setEchoMode(QLineEdit::Password);
-    opcUaPasswordEdit_->setStyleSheet(opcUaLineEditStyle);
+    registerThemed(opcUaPasswordEdit_, opcUaLineEditStyle);
     opcUaAuthForm->addRow("Password:", opcUaPasswordEdit_);
 
     connect(opcUaAuthModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
@@ -1487,7 +1581,7 @@ void ConfigDialog::setupUI() {
     opcUaTriggerTabLayout->setSpacing(10);
 
     QGroupBox* opcUaTriggerGroup = new QGroupBox("Trigger Tags", opcUaTriggerTab);
-    opcUaTriggerGroup->setStyleSheet(sectionStyle);
+    registerThemed(opcUaTriggerGroup, sectionGroupStyle);
     QVBoxLayout* opcUaTriggerLayout = new QVBoxLayout(opcUaTriggerGroup);
     opcUaTriggerLayout->setContentsMargins(14, 18, 14, 14);
     opcUaTriggerLayout->setSpacing(8);
@@ -1496,7 +1590,9 @@ void ConfigDialog::setupUI() {
         "Each enabled tag fires a recording while it is held active (push-hold), or for Live tags when the server value reads True. Set the sensor Position (mm) to align every camera's window to when the defect passes it (uses the machine speed).",
         opcUaTriggerGroup);
     opcUaTriggerNote->setWordWrap(true);
-    opcUaTriggerNote->setStyleSheet(QString("color: %1;").arg(tc.text));
+    registerThemed(opcUaTriggerNote, [](const ThemeColors& tc) {
+        return QString("color: %1;").arg(tc.text);
+    });
     opcUaTriggerLayout->addWidget(opcUaTriggerNote);
 
     QGridLayout* opcUaTriggerGrid = new QGridLayout();
@@ -1527,28 +1623,30 @@ void ConfigDialog::setupUI() {
     for (int i = 0; i < kOpcUaTriggerSlots; ++i) {
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
         row.enabledCheck = new QCheckBox(opcUaTriggerGroup);
-        row.enabledCheck->setStyleSheet(QString("color: %1;").arg(tc.text));
+        registerThemed(row.enabledCheck, [](const ThemeColors& tc) {
+        return QString("color: %1;").arg(tc.text);
+    });
         opcUaTriggerGrid->addWidget(row.enabledCheck, i + 1, 0, Qt::AlignCenter);
 
         row.nameEdit = new QLineEdit(opcUaTriggerGroup);
         row.nameEdit->setPlaceholderText(QString("Trigger %1").arg(i + 1));
-        row.nameEdit->setStyleSheet(opcUaLineEditStyle);
+        registerThemed(row.nameEdit, opcUaLineEditStyle);
         opcUaTriggerGrid->addWidget(row.nameEdit, i + 1, 1);
 
         row.nodeIdEdit = new QLineEdit(opcUaTriggerGroup);
         row.nodeIdEdit->setPlaceholderText("ns=2;s=Line.Trigger");
-        row.nodeIdEdit->setStyleSheet(opcUaLineEditStyle);
+        registerThemed(row.nodeIdEdit, opcUaLineEditStyle);
         opcUaTriggerGrid->addWidget(row.nodeIdEdit, i + 1, 2);
 
         row.simulatedCombo = new QComboBox(opcUaTriggerGroup);
-        row.simulatedCombo->setStyleSheet(opcUaGridComboStyle);
+        registerThemed(row.simulatedCombo, opcUaGridComboStyle);
         row.simulatedCombo->addItem("Live", false);
         row.simulatedCombo->addItem("Simulated", true);
         row.simulatedCombo->setToolTip("Simulated: fires only from the push-hold button (no OPC UA server subscription). Live: fires when the tag reads True, plus the button as a manual override.");
         opcUaTriggerGrid->addWidget(row.simulatedCombo, i + 1, 3);
 
         row.groupCombo = new QComboBox(opcUaTriggerGroup);
-        row.groupCombo->setStyleSheet(opcUaGridComboStyle);
+        registerThemed(row.groupCombo, opcUaGridComboStyle);
         row.groupCombo->addItem("All", CameraGroup::kUnassigned);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kWire), CameraGroup::kWire);
         row.groupCombo->addItem(CameraGroup::name(CameraGroup::kPressPart), CameraGroup::kPressPart);
@@ -1561,14 +1659,15 @@ void ConfigDialog::setupUI() {
         // Sections this trigger records. A button + checkable popup keeps the
         // grid narrow while the selection stays visible in this row.
         row.recordGroupsBtn = new QPushButton(opcUaTriggerGroup);
-        row.recordGroupsBtn->setStyleSheet(opcUaTriggerBtnStyle);
+        registerThemed(row.recordGroupsBtn, opcUaTriggerBtnStyle);
         row.recordGroupsBtn->setCursor(Qt::PointingHandCursor);
         row.recordGroupsBtn->setMinimumWidth(120);
         QMenu* recordGroupsMenu = new QMenu(row.recordGroupsBtn);
-        recordGroupsMenu->setStyleSheet(
-            QString("QMenu { background-color: %1; color: %2; border: 1px solid %3; } "
+        registerThemed(recordGroupsMenu, [](const ThemeColors& tc) {
+        return QString("QMenu { background-color: %1; color: %2; border: 1px solid %3; } "
                     "QMenu::item:selected { color: %4; }")
-                .arg(tc.btnBg, tc.text, tc.border, tc.primary));
+                .arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    });
         row.recordGroupActions.clear();
         row.recordGroups.clear();
         for (int group = 0; group < CameraGroup::kCount; ++group) {
@@ -1607,12 +1706,12 @@ void ConfigDialog::setupUI() {
         row.positionMmSpin = new QSpinBox(opcUaTriggerGroup);
         row.positionMmSpin->setRange(0, 500000);
         row.positionMmSpin->setSuffix(" mm");
-        row.positionMmSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.positionMmSpin, spinFieldStyle);
         row.positionMmSpin->setToolTip("Machine position (mm) of the trigger sensor. When set (> 0), every camera's recording window is centered on when the defect passes it (uses the machine speed). 0 = no spatial alignment.");
         opcUaTriggerGrid->addWidget(row.positionMmSpin, i + 1, 6);
 
         row.manualTriggerBtn = new QPushButton("Hold", opcUaTriggerGroup);
-        row.manualTriggerBtn->setStyleSheet(opcUaTriggerBtnStyle);
+        registerThemed(row.manualTriggerBtn, opcUaTriggerBtnStyle);
         row.manualTriggerBtn->setCursor(Qt::PointingHandCursor);
         row.manualTriggerBtn->setToolTip("Push-hold: press and hold to fire this trigger repeatedly (every Repeat ms). Release to stop.");
         connect(row.manualTriggerBtn, &QPushButton::pressed, this, [this, i]() {
@@ -1641,7 +1740,7 @@ void ConfigDialog::setupUI() {
         row.minimumIntervalSpin = new QSpinBox(opcUaTriggerGroup);
         row.minimumIntervalSpin->setRange(0, 60000);
         row.minimumIntervalSpin->setSuffix(" ms");
-        row.minimumIntervalSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.minimumIntervalSpin, spinFieldStyle);
         row.minimumIntervalSpin->setToolTip("Push-hold repeat interval: while held, fires every N ms (0 = as fast as possible).");
         opcUaTriggerGrid->addWidget(row.minimumIntervalSpin, i + 1, 8);
     }
@@ -1656,7 +1755,7 @@ void ConfigDialog::setupUI() {
     opcUaSpeedTabLayout->setSpacing(10);
 
     QGroupBox* opcUaSpeedGroup = new QGroupBox("Machine Speed Tags", opcUaSpeedTab);
-    opcUaSpeedGroup->setStyleSheet(sectionStyle);
+    registerThemed(opcUaSpeedGroup, sectionGroupStyle);
     QVBoxLayout* opcUaSpeedGroupLayout = new QVBoxLayout(opcUaSpeedGroup);
     opcUaSpeedGroupLayout->setContentsMargins(14, 18, 14, 14);
     opcUaSpeedGroupLayout->setSpacing(8);
@@ -1668,7 +1767,9 @@ void ConfigDialog::setupUI() {
         "A single anchor behaves like the legacy one-speed setup.",
         opcUaSpeedGroup);
     opcUaSpeedNote->setWordWrap(true);
-    opcUaSpeedNote->setStyleSheet(QString("color: %1;").arg(tc.text));
+    registerThemed(opcUaSpeedNote, [](const ThemeColors& tc) {
+        return QString("color: %1;").arg(tc.text);
+    });
     opcUaSpeedGroupLayout->addWidget(opcUaSpeedNote);
 
     const int sc = 0;
@@ -1697,21 +1798,23 @@ void ConfigDialog::setupUI() {
     for (int i = 0; i < kOpcUaSpeedSlots; ++i) {
         OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
         row.enabledCheck = new QCheckBox(opcUaSpeedGroup);
-        row.enabledCheck->setStyleSheet(QString("color: %1;").arg(tc.text));
+        registerThemed(row.enabledCheck, [](const ThemeColors& tc) {
+        return QString("color: %1;").arg(tc.text);
+    });
         opcUaSpeedGrid->addWidget(row.enabledCheck, i + 1, sc, Qt::AlignCenter);
 
         row.nameEdit = new QLineEdit(opcUaSpeedGroup);
         row.nameEdit->setPlaceholderText(QString("Speed %1").arg(i + 1));
-        row.nameEdit->setStyleSheet(opcUaLineEditStyle);
+        registerThemed(row.nameEdit, opcUaLineEditStyle);
         opcUaSpeedGrid->addWidget(row.nameEdit, i + 1, sc + 1);
 
         row.nodeIdEdit = new QLineEdit(opcUaSpeedGroup);
         row.nodeIdEdit->setPlaceholderText("ns=2;s=Line.Speed");
-        row.nodeIdEdit->setStyleSheet(opcUaLineEditStyle);
+        registerThemed(row.nodeIdEdit, opcUaLineEditStyle);
         opcUaSpeedGrid->addWidget(row.nodeIdEdit, i + 1, sc + 2);
 
         row.simulatedCombo = new QComboBox(opcUaSpeedGroup);
-        row.simulatedCombo->setStyleSheet(opcUaGridComboStyle);
+        registerThemed(row.simulatedCombo, opcUaGridComboStyle);
         row.simulatedCombo->addItem("Live", false);
         row.simulatedCombo->addItem("Sim", true);
         row.simulatedCombo->setToolTip("Simulated: reports a fixed value without subscribing to the OPC UA server.");
@@ -1721,7 +1824,7 @@ void ConfigDialog::setupUI() {
         row.simulatedValueSpin->setDecimals(4);
         row.simulatedValueSpin->setRange(-100000.0, 100000.0);
         row.simulatedValueSpin->setSingleStep(1.0);
-        row.simulatedValueSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.simulatedValueSpin, spinFieldStyle);
         row.simulatedValueSpin->setEnabled(false);
         row.simulatedValueSpin->setToolTip("Fixed raw value reported while simulated (before Scale/Offset are applied).");
         opcUaSpeedGrid->addWidget(row.simulatedValueSpin, i + 1, sc + 4);
@@ -1729,7 +1832,7 @@ void ConfigDialog::setupUI() {
         row.positionMmSpin = new QSpinBox(opcUaSpeedGroup);
         row.positionMmSpin->setRange(0, 500000);
         row.positionMmSpin->setSuffix(" mm");
-        row.positionMmSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.positionMmSpin, spinFieldStyle);
         row.positionMmSpin->setToolTip("Machine position (mm) of the drive this tag reports. 0 = position unknown (treated as a global speed).");
         opcUaSpeedGrid->addWidget(row.positionMmSpin, i + 1, sc + 5);
 
@@ -1737,14 +1840,14 @@ void ConfigDialog::setupUI() {
         row.scaleSpin->setDecimals(4);
         row.scaleSpin->setRange(-100000.0, 100000.0);
         row.scaleSpin->setSingleStep(0.1);
-        row.scaleSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.scaleSpin, spinFieldStyle);
         opcUaSpeedGrid->addWidget(row.scaleSpin, i + 1, sc + 6);
 
         row.offsetSpin = new QDoubleSpinBox(opcUaSpeedGroup);
         row.offsetSpin->setDecimals(4);
         row.offsetSpin->setRange(-100000.0, 100000.0);
         row.offsetSpin->setSingleStep(0.1);
-        row.offsetSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.offsetSpin, spinFieldStyle);
         opcUaSpeedGrid->addWidget(row.offsetSpin, i + 1, sc + 7);
 
         // Editable so a project-specific unit stays possible, but the common
@@ -1755,14 +1858,14 @@ void ConfigDialog::setupUI() {
         row.unitCombo->setInsertPolicy(QComboBox::NoInsert);
         row.unitCombo->addItems({QStringLiteral("m/min"), QStringLiteral("m/s"),
                                  QStringLiteral("ft/min"), QStringLiteral("%")});
-        row.unitCombo->setStyleSheet(opcUaUnitComboStyle);
+        registerThemed(row.unitCombo, opcUaUnitComboStyle);
         row.unitCombo->setToolTip("Unit shown with this anchor's speed (display only).");
         opcUaSpeedGrid->addWidget(row.unitCombo, i + 1, sc + 8);
 
         row.staleTimeoutSpin = new QSpinBox(opcUaSpeedGroup);
         row.staleTimeoutSpin->setRange(100, 60000);
         row.staleTimeoutSpin->setSuffix(" ms");
-        row.staleTimeoutSpin->setStyleSheet(globalFpsSpin_->styleSheet());
+        registerThemed(row.staleTimeoutSpin, spinFieldStyle);
         opcUaSpeedGrid->addWidget(row.staleTimeoutSpin, i + 1, sc + 9);
 
         connect(row.simulatedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i]() {
@@ -1808,7 +1911,7 @@ void ConfigDialog::setupUI() {
     opcUaSpeedDirForm->setHorizontalSpacing(kSectionSpacing);
     opcUaSpeedDirForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
     opcUaPositionDirectionCombo_ = new QComboBox(opcUaSpeedDirRow);
-    opcUaPositionDirectionCombo_->setStyleSheet(opcUaComboStyle);
+    registerThemed(opcUaPositionDirectionCombo_, opcUaComboStyle);
     opcUaPositionDirectionCombo_->addItem("Increase position with time", 1);
     opcUaPositionDirectionCombo_->addItem("Decrease position with time", -1);
     opcUaSpeedDirForm->addRow("Position Direction:", opcUaPositionDirectionCombo_);
@@ -1828,7 +1931,7 @@ void ConfigDialog::setupUI() {
     opcUaStatusTabLayout->setSpacing(10);
 
     QGroupBox* opcUaStatusGroup = new QGroupBox("Live Status", opcUaStatusTab);
-    opcUaStatusGroup->setStyleSheet(sectionStyle);
+    registerThemed(opcUaStatusGroup, sectionGroupStyle);
     QVBoxLayout* opcUaStatusLayout = new QVBoxLayout(opcUaStatusGroup);
     opcUaStatusLayout->setContentsMargins(14, 18, 14, 14);
     opcUaStatusLayout->setSpacing(8);
@@ -1839,15 +1942,23 @@ void ConfigDialog::setupUI() {
     opcUaStatusForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     QLabel* opcUaStatusClientCaption = new QLabel("Client:", opcUaStatusGroup);
-    opcUaStatusClientCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
+    registerThemed(opcUaStatusClientCaption, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
+    });
     opcUaStatusClientLabel_ = new QLabel("○ Idle (OPC UA disabled)", opcUaStatusGroup);
-    opcUaStatusClientLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted));
+    registerThemed(opcUaStatusClientLabel_, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted);
+    });
     opcUaStatusForm->addRow(opcUaStatusClientCaption, opcUaStatusClientLabel_);
 
     QLabel* opcUaStatusSpeedCaption = new QLabel("Speed:", opcUaStatusGroup);
-    opcUaStatusSpeedCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
+    registerThemed(opcUaStatusSpeedCaption, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
+    });
     opcUaStatusSpeedLabel_ = new QLabel("—", opcUaStatusGroup);
-    opcUaStatusSpeedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
+    registerThemed(opcUaStatusSpeedLabel_, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted);
+    });
     opcUaStatusForm->addRow(opcUaStatusSpeedCaption, opcUaStatusSpeedLabel_);
 
     opcUaStatusLayout->addLayout(opcUaStatusForm);
@@ -1861,11 +1972,13 @@ void ConfigDialog::setupUI() {
     opcUaStatusTable_->setFocusPolicy(Qt::NoFocus);
     opcUaStatusTable_->setShowGrid(false);
     opcUaStatusTable_->setAlternatingRowColors(false);
-    opcUaStatusTable_->setStyleSheet(QString(
+    registerThemed(opcUaStatusTable_, [](const ThemeColors& tc) {
+        return QString(
         "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QTableWidget::item { padding: 4px 8px; border: none; } "
         "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-    ).arg(tc.text, tc.primary, tc.border));
+    ).arg(tc.text, tc.primary, tc.border);
+    });
     QHeaderView* opcUaStatusHeader = opcUaStatusTable_->horizontalHeader();
     opcUaStatusHeader->setSectionResizeMode(0, QHeaderView::Stretch);
     opcUaStatusHeader->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -1889,17 +2002,19 @@ void ConfigDialog::setupUI() {
     // tab (or outside System Configuration entirely).
     QPushButton* opcUaLiveStatusWindowBtn = new QPushButton("Open Live Status Window", opcUaGroup);
     opcUaLiveStatusWindowBtn->setToolTip("Show the live OPC UA client state, machine speed and tag values in a separate window, so they stay visible while you work elsewhere.");
-    opcUaLiveStatusWindowBtn->setStyleSheet(QString(
+    registerThemed(opcUaLiveStatusWindowBtn, [](const ThemeColors& tc) {
+        return QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
-        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
+        "QPushButton:hover { border-color: %4; background-color: " + raisedWash(tc, 0.04) + "; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    });
     connect(opcUaLiveStatusWindowBtn, &QPushButton::clicked,
             this, &ConfigDialog::showOpcUaLiveStatusWindow);
     opcUaActionsLayout->addWidget(opcUaLiveStatusWindowBtn);
 
     opcUaSaveBtn_ = new QPushButton("Save OPC UA Settings", opcUaGroup);
     opcUaSaveBtn_->setIcon(IconManager::instance().save(16));
-    stylePrimaryActionButton(opcUaSaveBtn_, tc);
+    registerThemed(opcUaSaveBtn_, primaryActionButtonStyle);
     connect(opcUaSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveOpcUaSettings);
     opcUaActionsLayout->addWidget(opcUaSaveBtn_);
     opcUaLayout->addLayout(opcUaActionsLayout);
@@ -1921,17 +2036,21 @@ void ConfigDialog::setupUI() {
 
     // Header section
     QLabel* uiHeaderLabel = new QLabel("UI Preferences", uiGroup);
-    uiHeaderLabel->setStyleSheet(QString(
+    registerThemed(uiHeaderLabel, [](const ThemeColors& tc) {
+        return QString(
         "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;"
-    ).arg(tc.primary));
+    ).arg(tc.primary);
+    });
     uiPageLayout->addWidget(uiHeaderLabel);
 
     QLabel* uiDescriptionLabel = new QLabel(
         "Customize theme and screen typography.", uiGroup);
     uiDescriptionLabel->setWordWrap(true);
-    uiDescriptionLabel->setStyleSheet(QString(
+    registerThemed(uiDescriptionLabel, [](const ThemeColors& tc) {
+        return QString(
         "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;"
-    ).arg(tc.text));
+    ).arg(tc.text);
+    });
     uiPageLayout->addWidget(uiDescriptionLabel);
 
     // Separator line
@@ -1939,9 +2058,11 @@ void ConfigDialog::setupUI() {
     uiSeparator->setFrameShape(QFrame::HLine);
     uiSeparator->setFrameShadow(QFrame::Plain);
     uiSeparator->setFixedHeight(1);
-    uiSeparator->setStyleSheet(QString(
+    registerThemed(uiSeparator, [](const ThemeColors& tc) {
+        return QString(
         "background-color: %1; border: none;"
-    ).arg(tc.border));
+    ).arg(tc.border);
+    });
     uiPageLayout->addWidget(uiSeparator);
 
     QWidget* uiPanel = new QWidget(uiGroup);
@@ -1954,16 +2075,10 @@ void ConfigDialog::setupUI() {
     uiPanelLayout->setRowStretch(0, 0);
     uiPanelLayout->setRowStretch(1, 1);
 
-    const QString uiSectionStyle = QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "background-color: rgba(255, 255, 255, 0.02); border-radius: 10px; margin-top: 12px; padding: 12px 10px 7px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 6px; top: 2px; }"
-    ).arg(tc.primary, tc.border);
-
     int uiSectionIndex = 0;
     auto createUiSectionForm = [&](const QString& title) {
         QGroupBox* group = new QGroupBox(title, uiPanel);
-        group->setStyleSheet(uiSectionStyle);
+        registerThemed(group, uiSectionGroupStyle);
         QFormLayout* form = new QFormLayout(group);
         form->setSpacing(6);
         form->setHorizontalSpacing(10);
@@ -1980,13 +2095,15 @@ void ConfigDialog::setupUI() {
 
     QTabWidget* uiDetailTabs = new QTabWidget(uiPanel);
     uiDetailTabs->setDocumentMode(true);
-    uiDetailTabs->setStyleSheet(QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: rgba(255, 255, 255, 0.01); padding: 2px; } "
+    registerThemed(uiDetailTabs, [](const ThemeColors& tc) {
+        return QString(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
         "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: rgba(255, 255, 255, 0.04); margin-bottom: -1px; } "
+        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
         "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
         "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text));
+    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
+    });
     uiPanelLayout->addWidget(uiDetailTabs, 1, 0, 1, 2);
 
     QWidget* liveViewTab = new QWidget(uiDetailTabs);
@@ -2002,7 +2119,9 @@ void ConfigDialog::setupUI() {
     liveViewTabLayout->addStretch(1);
 
     QLabel* liveViewSectionTitle = new QLabel("Live View", liveViewGroup);
-    liveViewSectionTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    registerThemed(liveViewSectionTitle, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
+    });
     liveViewGroupLayout->addWidget(liveViewSectionTitle);
 
     QWidget* liveViewContent = new QWidget(liveViewGroup);
@@ -2019,14 +2138,8 @@ void ConfigDialog::setupUI() {
     liveViewSettingsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     liveViewContentLayout_->addWidget(liveViewSettingsPanel, 5, Qt::AlignTop);
 
-    const QString settingsCardStyle = QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; border-radius: 10px; margin-top: 8px; "
-        "background-color: rgba(255, 255, 255, 0.02); padding: 10px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-    ).arg(tc.primary, tc.border);
-
     QGroupBox* liveSettingsCard = new QGroupBox("Live View Appearance", liveViewSettingsPanel);
-    liveSettingsCard->setStyleSheet(settingsCardStyle);
+    registerThemed(liveSettingsCard, settingsCardStyle);
     QVBoxLayout* liveSettingsCardLayout = new QVBoxLayout(liveSettingsCard);
     liveSettingsCardLayout->setContentsMargins(12, 16, 12, 12);
     liveSettingsCardLayout->setSpacing(10);
@@ -2049,7 +2162,9 @@ void ConfigDialog::setupUI() {
         labelLayout->setSpacing(0);
 
         QLabel* titleLabel = new QLabel(title, labelWidget);
-        titleLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;").arg(tc.text));
+        registerThemed(titleLabel, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;").arg(tc.text);
+    });
         titleLabel->setToolTip(formattedTooltip);
         labelLayout->addWidget(titleLabel);
         labelWidget->setToolTip(formattedTooltip);
@@ -2058,19 +2173,9 @@ void ConfigDialog::setupUI() {
     };
 
     // Theme selection dropdown
-    themeGridWidget_ = nullptr;
-    themeGridLayout_ = nullptr;
-    themeButtonGroup_ = nullptr;
-
     QComboBox* themeCombo = new QComboBox(uiGroup);
     themeCombo_ = themeCombo;
-    themeCombo->setStyleSheet(QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 8px; } "
-        "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; selection-background-color: %5; padding: 4px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary, tc.bg));
+    registerThemed(themeCombo, themeComboStyle);
     QLabel* themeLabel = new QLabel("Color Theme:", uiGroup);
     themeLabel->setToolTip("Select a color theme for the application.");
 
@@ -2109,42 +2214,24 @@ void ConfigDialog::setupUI() {
     selectedThemeIndex_ = CameraConfig::getThemePreset();
     themeCombo->setCurrentIndex(selectedThemeIndex_);
 
-    // Store null in themeCards_ since we no longer use card buttons
-    for (int i = 0; i < 8; ++i) {
-        themeCards_[i] = nullptr;
-    }
-
-    connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, themeCombo](int index) {
+    connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, themeCombo](int) {
         this->selectedThemeIndex_ = themeCombo->currentData().toInt();
-        // Update combo text color to match selected theme
-        const ThemeColors selectedColors = CameraConfig::getThemeColors(this->selectedThemeIndex_);
-        themeCombo->setStyleSheet(QString(
-            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
-            "QComboBox:hover { border-color: %4; } "
-            "QComboBox:focus { border-color: %4; } "
-            "QComboBox::drop-down { border: none; padding-right: 8px; } "
-            "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %5; selection-background-color: %6; padding: 4px; }"
-        ).arg(selectedColors.btnBg, selectedColors.border, selectedColors.primary, selectedColors.primary, selectedColors.text, selectedColors.bg));
+        // Show the picked preset app-wide straight away; MainWindow re-applies
+        // the theme from the preview override. Save/Apply persists it, leaving
+        // the page unsaved reverts to the saved preset.
+        CameraConfig::setThemePreview(this->selectedThemeIndex_);
+        themePreviewPending_ = true;
+        emit this->themePreviewRequested(this->selectedThemeIndex_);
         emit this->themeSelectionChanged();
     });
-
-    // Apply initial theme color to combo
-    {
-        const ThemeColors initColors = CameraConfig::getThemeColors(selectedThemeIndex_);
-        themeCombo->setStyleSheet(QString(
-            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 12px; color: %3; min-width: 220px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
-            "QComboBox:hover { border-color: %4; } "
-            "QComboBox:focus { border-color: %4; } "
-            "QComboBox::drop-down { border: none; padding-right: 8px; } "
-            "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %5; selection-background-color: %6; padding: 4px; }"
-        ).arg(initColors.btnBg, initColors.border, initColors.primary, initColors.primary, initColors.text, initColors.bg));
-    }
 
     themeForm->addRow(themeLabel, themeCombo);
 
     QLabel* liveViewDescription = new QLabel("Tune card surface, title, and section typography.", uiGroup);
     liveViewDescription->setWordWrap(true);
-    liveViewDescription->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text));
+    registerThemed(liveViewDescription, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
+    });
     liveSettingsCardLayout->addWidget(liveViewDescription);
 
     liveViewBackgroundStyleCombo_ = new QComboBox(uiGroup);
@@ -2152,12 +2239,14 @@ void ConfigDialog::setupUI() {
     liveViewBackgroundStyleCombo_->addItem("White", "white");
     liveViewBackgroundStyleCombo_->addItem("Textured Mesh", "textured_mesh");
     liveViewBackgroundStyleCombo_->addItem("White Textured Mesh", "white_textured_mesh");
-    liveViewBackgroundStyleCombo_->setStyleSheet(QString(
+    registerThemed(liveViewBackgroundStyleCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     liveViewBackgroundStyleCombo_->setFixedWidth(160);
     liveViewForm->addRow(
         createLiveViewRowLabel("Card Surface", "Background for the card body."),
@@ -2165,17 +2254,19 @@ void ConfigDialog::setupUI() {
 
     liveViewGridTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewGridTitleFontCombo_);
-    liveViewGridTitleFontCombo_->setStyleSheet(QString(
+    registerThemed(liveViewGridTitleFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
 
     liveViewGridTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewGridTitleSizeSpin_->setRange(10, 40);
     liveViewGridTitleSizeSpin_->setSuffix(" px");
-    liveViewGridTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(liveViewGridTitleSizeSpin_, spinFieldStyle);
     liveViewGridTitleSizeSpin_->setFixedWidth(100);
     liveViewGridTitleSizeSpin_->setFixedWidth(72);
 
@@ -2185,17 +2276,19 @@ void ConfigDialog::setupUI() {
 
     liveViewDetailTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailTitleFontCombo_);
-    liveViewDetailTitleFontCombo_->setStyleSheet(QString(
+    registerThemed(liveViewDetailTitleFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
 
     liveViewDetailTitleSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailTitleSizeSpin_->setRange(10, 40);
     liveViewDetailTitleSizeSpin_->setSuffix(" px");
-    liveViewDetailTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(liveViewDetailTitleSizeSpin_, spinFieldStyle);
     
     liveViewDetailTitleSizeSpin_->setFixedWidth(72);
 
@@ -2205,17 +2298,19 @@ void ConfigDialog::setupUI() {
 
     liveViewDetailSectionFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(liveViewDetailSectionFontCombo_);
-    liveViewDetailSectionFontCombo_->setStyleSheet(QString(
+    registerThemed(liveViewDetailSectionFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
 
     liveViewDetailSectionSizeSpin_ = new QSpinBox(uiGroup);
     liveViewDetailSectionSizeSpin_->setRange(9, 32);
     liveViewDetailSectionSizeSpin_->setSuffix(" px");
-    liveViewDetailSectionSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(liveViewDetailSectionSizeSpin_, spinFieldStyle);
 
     liveViewDetailSectionSizeSpin_->setFixedWidth(72);
 
@@ -2239,7 +2334,9 @@ void ConfigDialog::setupUI() {
     analysisViewTabLayout->addStretch(1);
 
     QLabel* analysisViewSectionTitle = new QLabel("Analysis View", analysisViewGroup);
-    analysisViewSectionTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary));
+    registerThemed(analysisViewSectionTitle, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
+    });
     analysisViewGroupLayout->addWidget(analysisViewSectionTitle);
 
     QWidget* analysisViewContent = new QWidget(analysisViewGroup);
@@ -2256,7 +2353,7 @@ void ConfigDialog::setupUI() {
     analysisViewContentLayout_->addWidget(analysisSettingsPanel, 4, Qt::AlignTop);
 
     QGroupBox* analysisSettingsCard = new QGroupBox("Analysis View Appearance", analysisSettingsPanel);
-    analysisSettingsCard->setStyleSheet(settingsCardStyle);
+    registerThemed(analysisSettingsCard, settingsCardStyle);
     QVBoxLayout* analysisSettingsCardLayout = new QVBoxLayout(analysisSettingsCard);
     analysisSettingsCardLayout->setContentsMargins(12, 16, 12, 12);
     analysisSettingsCardLayout->setSpacing(10);
@@ -2264,7 +2361,9 @@ void ConfigDialog::setupUI() {
 
     QLabel* analysisViewDescription = new QLabel("Tune video titles, timestamps, tabs, and playback surface.", uiGroup);
     analysisViewDescription->setWordWrap(true);
-    analysisViewDescription->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text));
+    registerThemed(analysisViewDescription, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
+    });
     analysisSettingsCardLayout->addWidget(analysisViewDescription);
 
     QFormLayout* analysisViewForm = new QFormLayout();
@@ -2276,16 +2375,18 @@ void ConfigDialog::setupUI() {
 
     analysisVideoTitleFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisVideoTitleFontCombo_);
-    analysisVideoTitleFontCombo_->setStyleSheet(QString(
+    registerThemed(analysisVideoTitleFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisVideoTitleSizeSpin_ = new QSpinBox(uiGroup);
     analysisVideoTitleSizeSpin_->setRange(8, 24);
     analysisVideoTitleSizeSpin_->setSuffix(" px");
-    analysisVideoTitleSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(analysisVideoTitleSizeSpin_, spinFieldStyle);
     analysisVideoTitleSizeSpin_->setFixedWidth(72);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Video Title", "Title overlay on analysis video tiles."),
@@ -2293,16 +2394,18 @@ void ConfigDialog::setupUI() {
 
     analysisTimestampFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTimestampFontCombo_);
-    analysisTimestampFontCombo_->setStyleSheet(QString(
+    registerThemed(analysisTimestampFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisTimestampSizeSpin_ = new QSpinBox(uiGroup);
     analysisTimestampSizeSpin_->setRange(7, 20);
     analysisTimestampSizeSpin_->setSuffix(" px");
-    analysisTimestampSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(analysisTimestampSizeSpin_, spinFieldStyle);
     analysisTimestampSizeSpin_->setFixedWidth(72);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Timestamp", "Timecode shown on the analysis video footer."),
@@ -2310,16 +2413,18 @@ void ConfigDialog::setupUI() {
 
     analysisTabFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisTabFontCombo_);
-    analysisTabFontCombo_->setStyleSheet(QString(
+    registerThemed(analysisTabFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisTabSizeSpin_ = new QSpinBox(uiGroup);
     analysisTabSizeSpin_->setRange(10, 24);
     analysisTabSizeSpin_->setSuffix(" px");
-    analysisTabSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(analysisTabSizeSpin_, spinFieldStyle);
     analysisTabSizeSpin_->setFixedWidth(72);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Tab Label", "Tabs and playback label typography."),
@@ -2328,12 +2433,14 @@ void ConfigDialog::setupUI() {
     analysisPlaybackSurfaceCombo_ = new QComboBox(uiGroup);
     analysisPlaybackSurfaceCombo_->addItem("Dark", "dark");
     analysisPlaybackSurfaceCombo_->addItem("Light", "light");
-    analysisPlaybackSurfaceCombo_->setStyleSheet(QString(
+    registerThemed(analysisPlaybackSurfaceCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisPlaybackSurfaceCombo_->setFixedWidth(160);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface."),
@@ -2347,12 +2454,14 @@ void ConfigDialog::setupUI() {
     analysisDefaultMetadataCombo_->addItem("Frame Counter Only", "framecounter");
     analysisDefaultMetadataCombo_->addItem("Real Time Only", "realtime");
     analysisDefaultMetadataCombo_->addItem("Relative Frame Only", "relative");
-    analysisDefaultMetadataCombo_->setStyleSheet(QString(
+    registerThemed(analysisDefaultMetadataCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisDefaultMetadataCombo_->setFixedWidth(200);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Default Metadata", "Metadata overlay shown by default when an event is opened in Analysis View."),
@@ -2360,16 +2469,18 @@ void ConfigDialog::setupUI() {
 
     analysisMetadataFontCombo_ = new QComboBox(uiGroup);
     populateCuratedFontCombo(analysisMetadataFontCombo_);
-    analysisMetadataFontCombo_->setStyleSheet(QString(
+    registerThemed(analysisMetadataFontCombo_, [](const ThemeColors& tc) {
+        return QString(
         "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
         "QComboBox:hover { border-color: %4; } "
         "QComboBox:focus { border-color: %4; } "
         "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary));
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    });
     analysisMetadataSizeSpin_ = new QSpinBox(uiGroup);
     analysisMetadataSizeSpin_->setRange(7, 20);
     analysisMetadataSizeSpin_->setSuffix(" px");
-    analysisMetadataSizeSpin_->setStyleSheet(globalFpsSpin_->styleSheet());
+    registerThemed(analysisMetadataSizeSpin_, spinFieldStyle);
     analysisMetadataSizeSpin_->setFixedWidth(72);
     analysisViewForm->addRow(
         createLiveViewRowLabel("Metadata Font", "Typography for the metadata side of the analysis frame HUD."),
@@ -2382,14 +2493,9 @@ void ConfigDialog::setupUI() {
     liveViewActionsLayout->setContentsMargins(0, 6, 0, 0);
     liveViewActionsLayout->addStretch();
 
-    const QString secondaryActionButtonStyle = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 14px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; } "
-        "QPushButton:hover { border-color: %4; background-color: rgba(255, 255, 255, 0.04); }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
-
     liveViewResetBtn_ = new QPushButton("Reset Live View", uiGroup);
     liveViewResetBtn_->setToolTip("Restore all Live View card settings to defaults.");
-    liveViewResetBtn_->setStyleSheet(secondaryActionButtonStyle);
+    registerThemed(liveViewResetBtn_, secondaryActionButtonStyle);
     connect(liveViewResetBtn_, &QPushButton::clicked, this, &ConfigDialog::resetLiveViewCardSettings);
     liveViewActionsLayout->addWidget(liveViewResetBtn_);
     liveSettingsCardLayout->addLayout(liveViewActionsLayout);
@@ -2399,12 +2505,12 @@ void ConfigDialog::setupUI() {
     analysisActionsLayout->addStretch();
     analysisResetBtn_ = new QPushButton("Reset Analysis View", uiGroup);
     analysisResetBtn_->setToolTip("Restore all Analysis View settings to defaults.");
-    analysisResetBtn_->setStyleSheet(secondaryActionButtonStyle);
+    registerThemed(analysisResetBtn_, secondaryActionButtonStyle);
     connect(analysisResetBtn_, &QPushButton::clicked, this, &ConfigDialog::resetAnalysisViewSettings);
     analysisActionsLayout->addWidget(analysisResetBtn_);
     analysisSettingsCardLayout->addLayout(analysisActionsLayout);
 
-    auto refreshTypographyPreviews = [this]() {
+    refreshTypographyPreviews_ = [this]() {
         if (!liveViewDetailPreviewWidget_ ||
             !liveViewCardPreviewFrame_ ||
             !liveViewCardPreviewTitleLabel_ ||
@@ -2413,8 +2519,9 @@ void ConfigDialog::setupUI() {
             return;
         }
 
-        const int selectedThemePreset = selectedThemeIndex_;
-        const ThemeColors previewThemeColors = CameraConfig::getThemeColors(selectedThemePreset);
+        // The effective theme: the pick in the dropdown while it is being
+        // previewed, otherwise the saved preset.
+        const ThemeColors previewThemeColors = CameraConfig::getThemeColors();
         const QString backgroundStyle = normalizeLiveViewBackgroundStyle(liveViewBackgroundStyleCombo_->currentData().toString());
         const QBrush surfaceBrush = liveViewBackgroundBrush(backgroundStyle);
         const QColor themeBorderColor(previewThemeColors.border);
@@ -2490,23 +2597,24 @@ void ConfigDialog::setupUI() {
         liveViewCardPreviewFrame_->update();
     };
 
-    connect(liveViewGridTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews);
-    connect(liveViewGridTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews);
-    connect(liveViewDetailTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews);
-    connect(liveViewDetailTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews);
-    connect(liveViewDetailSectionFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews);
-    connect(liveViewDetailSectionSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews);
-    connect(liveViewBackgroundStyleCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews);
-    connect(this, &ConfigDialog::themeSelectionChanged, this, refreshTypographyPreviews);
+    connect(liveViewGridTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews_);
+    connect(liveViewGridTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews_);
+    connect(liveViewDetailTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews_);
+    connect(liveViewDetailTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews_);
+    connect(liveViewDetailSectionFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews_);
+    connect(liveViewDetailSectionSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshTypographyPreviews_);
+    connect(liveViewBackgroundStyleCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshTypographyPreviews_);
+    connect(this, &ConfigDialog::themeSelectionChanged, this, refreshTypographyPreviews_);
 
-    auto refreshAnalysisPreview = [this]() {
+    refreshAnalysisPreview_ = [this]() {
         if (!analysisPreviewVideoWidget_ || !analysisPreviewFrame_ || !analysisPreviewSectionLabel_ ||
             !analysisPreviewTabLabel_ || !analysisPreviewFrameLabel_) {
             return;
         }
 
-        const int selectedThemePreset = selectedThemeIndex_;
-        const ThemeColors previewThemeColors = CameraConfig::getThemeColors(selectedThemePreset);
+        // The effective theme: the pick in the dropdown while it is being
+        // previewed, otherwise the saved preset.
+        const ThemeColors previewThemeColors = CameraConfig::getThemeColors();
         AnalysisViewStyle style = CameraConfig::getDefaultAnalysisViewStyle();
         style.videoTitleFontFamily = currentCuratedFontFamily(analysisVideoTitleFontCombo_);
         style.videoTitleFontSize = analysisVideoTitleSizeSpin_->value();
@@ -2556,25 +2664,27 @@ void ConfigDialog::setupUI() {
         ).arg(textColor.name(), playbackSurface.name(), borderColor.name()));
     };
 
-    connect(analysisVideoTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisVideoTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
-    connect(analysisTimestampFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisTimestampSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
-    connect(analysisTabFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisTabSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
-    connect(analysisPlaybackSurfaceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisDefaultMetadataCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisMetadataFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview);
-    connect(analysisMetadataSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview);
-    connect(this, &ConfigDialog::themeSelectionChanged, this, refreshAnalysisPreview);
+    connect(analysisVideoTitleFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisVideoTitleSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview_);
+    connect(analysisTimestampFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisTimestampSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview_);
+    connect(analysisTabFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisTabSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview_);
+    connect(analysisPlaybackSurfaceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisDefaultMetadataCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisMetadataFontCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refreshAnalysisPreview_);
+    connect(analysisMetadataSizeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this, refreshAnalysisPreview_);
+    connect(this, &ConfigDialog::themeSelectionChanged, this, refreshAnalysisPreview_);
 
     QFrame* livePreviewContainer = new QFrame(liveViewGroup);
     livePreviewContainer_ = livePreviewContainer;
     livePreviewContainer->setFrameShape(QFrame::NoFrame);
     livePreviewContainer->setObjectName("livePreviewContainer");
-    livePreviewContainer->setStyleSheet(QString(
+    registerThemed(livePreviewContainer, [](const ThemeColors& tc) {
+        return QString(
         "QFrame#livePreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
-    ).arg(tc.btnBg, tc.border));
+    ).arg(tc.btnBg, tc.border);
+    });
     livePreviewContainer->setMinimumWidth(360);
     livePreviewContainer->setMaximumWidth(390);
     livePreviewContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
@@ -2583,12 +2693,16 @@ void ConfigDialog::setupUI() {
     livePreviewPageLayout->setSpacing(8);
 
     QLabel* previewTitle = new QLabel("Detail Card Preview", livePreviewContainer);
-    previewTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
+    registerThemed(previewTitle, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
+    });
     livePreviewPageLayout->addWidget(previewTitle);
 
     QLabel* previewNote = new QLabel("The preview uses the current detail title and section styling with representative live card data.", livePreviewContainer);
     previewNote->setWordWrap(true);
-    previewNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text));
+    registerThemed(previewNote, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
+    });
     livePreviewPageLayout->addWidget(previewNote);
 
     liveViewCardPreviewFrame_ = new QFrame(livePreviewContainer);
@@ -2659,9 +2773,11 @@ void ConfigDialog::setupUI() {
     analysisPreviewContainer_ = analysisPreviewContainer;
     analysisPreviewContainer->setFrameShape(QFrame::NoFrame);
     analysisPreviewContainer->setObjectName("analysisPreviewContainer");
-    analysisPreviewContainer->setStyleSheet(QString(
+    registerThemed(analysisPreviewContainer, [](const ThemeColors& tc) {
+        return QString(
         "QFrame#analysisPreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
-    ).arg(tc.btnBg, tc.border));
+    ).arg(tc.btnBg, tc.border);
+    });
     analysisPreviewContainer->setMinimumWidth(360);
     analysisPreviewContainer->setMaximumWidth(390);
     analysisPreviewContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
@@ -2670,12 +2786,16 @@ void ConfigDialog::setupUI() {
     analysisPreviewPageLayout->setSpacing(8);
 
     QLabel* analysisPreviewTitle = new QLabel("Analysis Preview", analysisPreviewContainer);
-    analysisPreviewTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary));
+    registerThemed(analysisPreviewTitle, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
+    });
     analysisPreviewPageLayout->addWidget(analysisPreviewTitle);
 
     QLabel* analysisPreviewNote = new QLabel("The preview uses the current title and timestamp styling with representative analysis card data.", analysisPreviewContainer);
     analysisPreviewNote->setWordWrap(true);
-    analysisPreviewNote->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text));
+    registerThemed(analysisPreviewNote, [](const ThemeColors& tc) {
+        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
+    });
     analysisPreviewPageLayout->addWidget(analysisPreviewNote);
 
     // Two-row layout: header row + video row
@@ -2713,8 +2833,8 @@ void ConfigDialog::setupUI() {
     uiDetailTabs->addTab(liveViewTab, "Live View");
     uiDetailTabs->addTab(analysisViewTab, "Analysis View");
 
-    refreshTypographyPreviews();
-    refreshAnalysisPreview();
+    refreshTypographyPreviews_();
+    refreshAnalysisPreview_();
 
     uiPageLayout->addWidget(uiPanel, 1);
 
@@ -2722,18 +2842,22 @@ void ConfigDialog::setupUI() {
     uiActionsSeparator->setFrameShape(QFrame::HLine);
     uiActionsSeparator->setFrameShadow(QFrame::Plain);
     uiActionsSeparator->setFixedHeight(1);
-    uiActionsSeparator->setStyleSheet(QString(
+    registerThemed(uiActionsSeparator, [](const ThemeColors& tc) {
+        return QString(
         "background-color: %1; border: none;"
-    ).arg(tc.border));
+    ).arg(tc.border);
+    });
     uiPageLayout->addWidget(uiActionsSeparator);
 
     QVBoxLayout* uiActionsLayout = new QVBoxLayout();
     uiActionsLayout->setSpacing(6);
 
     uiUnsavedIndicator_ = new QLabel(uiGroup);
-    uiUnsavedIndicator_->setStyleSheet(QString(
+    registerThemed(uiUnsavedIndicator_, [](const ThemeColors& tc) {
+        return QString(
         "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
-    ).arg(tc.warn));
+    ).arg(tc.warn);
+    });
     uiUnsavedIndicator_->setText("");
     uiUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
     uiActionsLayout->addWidget(uiUnsavedIndicator_, 0, Qt::AlignRight);
@@ -2744,7 +2868,7 @@ void ConfigDialog::setupUI() {
 
     uiApplyBtn_ = new QPushButton("Apply Now", uiGroup);
     uiApplyBtn_->setToolTip("Apply changes without closing this section.");
-    uiApplyBtn_->setStyleSheet(secondaryActionButtonStyle);
+    registerThemed(uiApplyBtn_, secondaryActionButtonStyle);
     uiApplyBtn_->setEnabled(false);
     connect(uiApplyBtn_, &QPushButton::clicked, this, &ConfigDialog::applyUiSettings);
     uiActionButtonsLayout->addWidget(uiApplyBtn_);
@@ -2752,7 +2876,7 @@ void ConfigDialog::setupUI() {
     uiSaveBtn_ = new QPushButton("Save", uiGroup);
     uiSaveBtn_->setToolTip("Save all UI preferences and apply changes.");
     uiSaveBtn_->setIcon(IconManager::instance().save(16));
-    stylePrimaryActionButton(uiSaveBtn_, tc);
+    registerThemed(uiSaveBtn_, primaryActionButtonStyle);
     connect(uiSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveUiSettings);
     uiActionButtonsLayout->addWidget(uiSaveBtn_);
     uiActionsLayout->addLayout(uiActionButtonsLayout);
@@ -2760,6 +2884,7 @@ void ConfigDialog::setupUI() {
 
     QListWidgetItem* uiGroupItem = new QListWidgetItem(IconManager::instance().settings(20), "UI Preferences");
     sidebar->addItem(uiGroupItem);
+    uiPreferencesPageRow_ = sidebar->row(uiGroupItem);
     stackedWidget->addWidget(uiGroup);
 
     // Diagnostics Tab
@@ -2769,11 +2894,13 @@ void ConfigDialog::setupUI() {
     diagnosticsLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
 
     QGroupBox* diagLogsGroup = new QGroupBox("Connection Diagnostics", diagnosticsGroup);
-    diagLogsGroup->setStyleSheet(QString(
+    registerThemed(diagLogsGroup, [](const ThemeColors& tc) {
+        return QString(
         "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
         "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    ).arg(tc.primary, tc.border));
+    ).arg(tc.primary, tc.border);
+    });
     
     QVBoxLayout* diagLogsLayout = new QVBoxLayout(diagLogsGroup);
     diagLogsLayout->setSpacing(kControlSpacing);
@@ -2781,7 +2908,8 @@ void ConfigDialog::setupUI() {
     
     connectionLogsBrowser_ = new QTextEdit(diagLogsGroup);
     connectionLogsBrowser_->setReadOnly(true);
-    connectionLogsBrowser_->setStyleSheet(QString(
+    registerThemed(connectionLogsBrowser_, [](const ThemeColors& tc) {
+        return QString(
         "QTextEdit { "
         "  background-color: %1; "
         "  border: 1px solid %2; "
@@ -2791,7 +2919,8 @@ void ConfigDialog::setupUI() {
         "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
         "  padding: 8px; "
         "}"
-    ).arg(tc.bg, tc.border, tc.text));
+    ).arg(tc.bg, tc.border, tc.text);
+    });
     diagLogsLayout->addWidget(connectionLogsBrowser_);
     
     QHBoxLayout* diagBtnsLayout = new QHBoxLayout();
@@ -2799,7 +2928,8 @@ void ConfigDialog::setupUI() {
     
     QPushButton* diagRefreshBtn = new QPushButton("Refresh Network", diagLogsGroup);
     diagRefreshBtn->setIcon(IconManager::instance().refresh(16));
-    diagRefreshBtn->setStyleSheet(QString(
+    registerThemed(diagRefreshBtn, [](const ThemeColors& tc) {
+        return QString(
         "QPushButton { "
         "  background-color: %1; "
         "  color: %2; "
@@ -2810,15 +2940,14 @@ void ConfigDialog::setupUI() {
         "  font-weight: 500; "
         "} "
         "QPushButton:hover { background-color: %3; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover));
+    ).arg(tc.primary, tc.bg, tc.btnHover);
+    });
     connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
     
     QPushButton* diagClearBtn = new QPushButton("Clear Logs", diagLogsGroup);
     diagClearBtn->setIcon(IconManager::instance().trash(16));
-    const QColor clearHover(tc.critical);
-    const QString clearHoverWash = QString("rgba(%1, %2, %3, 0.12)")
-        .arg(clearHover.red()).arg(clearHover.green()).arg(clearHover.blue());
-    diagClearBtn->setStyleSheet(QString(
+    registerThemed(diagClearBtn, [](const ThemeColors& tc) {
+        return QString(
         "QPushButton { "
         "  background-color: transparent; "
         "  color: %1; "
@@ -2829,7 +2958,8 @@ void ConfigDialog::setupUI() {
         "  font-weight: 500; "
         "} "
         "QPushButton:hover { background-color: %3; border-color: %4; color: %4; }"
-    ).arg(tc.text, tc.border, clearHoverWash, tc.critical));
+    ).arg(tc.text, tc.border, tinted(tc.critical, 0.12), tc.critical);
+    });
     connect(diagClearBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
     
     diagBtnsLayout->addWidget(diagRefreshBtn);
@@ -2853,13 +2983,83 @@ void ConfigDialog::setupUI() {
     mainLayout->addLayout(contentLayout, 1);
     
     connect(sidebar, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex);
-    connect(sidebar, &QListWidget::currentRowChanged, this, [this]() {
+    connect(sidebar, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row != uiPreferencesPageRow_) {
+            discardUnsavedThemePreview();
+        }
         relayoutUiPreferencePanels();
     });
     sidebar->setCurrentRow(0);
 
     // Initialize logs
     onRefreshLogsClicked();
+
+    // Every theme-derived style is applied from one place (applyThemeStyles),
+    // so following the Color Theme dropdown needs a single updateTheme() call.
+    updateTheme();
+}
+
+void ConfigDialog::PresetButtonGroup::updateStyles(const ThemeColors& tc) {
+    const int val = targetSpin->value();
+    if (btnS) btnS->setStyleSheet(pillStyle(tc, val == presetS));
+    if (btnM) btnM->setStyleSheet(pillStyle(tc, val == presetM));
+    if (btnL) btnL->setStyleSheet(pillStyle(tc, val == presetL));
+}
+
+void ConfigDialog::registerThemed(QWidget* widget, std::function<QString(const ThemeColors&)> build) {
+    themedStyles_.emplace_back(widget, std::move(build));
+    themedStyles_.back().first->setStyleSheet(themedStyles_.back().second(CameraConfig::getThemeColors()));
+}
+
+void ConfigDialog::discardUnsavedThemePreview() {
+    if (!themePreviewPending_) {
+        return;
+    }
+    themePreviewPending_ = false;
+
+    CameraConfig::clearThemePreview();
+    selectedThemeIndex_ = CameraConfig::getThemePreset();
+    if (themeCombo_) {
+        // The combo shows the theme in force, so the abandoned pick is not left
+        // looking applied. Blocked: re-picking must not re-arm the preview.
+        const QSignalBlocker blocker(themeCombo_);
+        themeCombo_->setCurrentIndex(selectedThemeIndex_);
+    }
+    emit themePreviewRequested(selectedThemeIndex_);
+}
+
+void ConfigDialog::applyThemeStyles() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    for (const auto& [widget, build] : themedStyles_) {
+        widget->setStyleSheet(build(tc));
+    }
+}
+
+void ConfigDialog::updateTheme() {
+    applyThemeStyles();
+
+    liveViewGridTitlePresets_.updateStyles(CameraConfig::getThemeColors());
+    liveViewDetailTitlePresets_.updateStyles(CameraConfig::getThemeColors());
+    liveViewDetailSectionPresets_.updateStyles(CameraConfig::getThemeColors());
+    analysisVideoTitlePresets_.updateStyles(CameraConfig::getThemeColors());
+    analysisTimestampPresets_.updateStyles(CameraConfig::getThemeColors());
+    analysisTabPresets_.updateStyles(CameraConfig::getThemeColors());
+    analysisMetadataPresets_.updateStyles(CameraConfig::getThemeColors());
+
+    // Panels below the dialog keep their own stylesheets.
+    if (networkSummaryHeader_) networkSummaryHeader_->updateTheme();
+    for (CameraCard* card : cameraCards_) {
+        if (card) card->updateTheme();
+    }
+    if (machineLayoutPanel_) machineLayoutPanel_->updateTheme();
+    if (machineGroupsPanel_) machineGroupsPanel_->updateTheme();
+    if (fixedIpListPanel_) fixedIpListPanel_->updateTheme();
+    if (opcUaLiveStatusWindow_) opcUaLiveStatusWindow_->updateTheme();
+
+    updateOpcUaSpeedAnchorNote();
+
+    if (refreshTypographyPreviews_) refreshTypographyPreviews_();
+    if (refreshAnalysisPreview_) refreshAnalysisPreview_();
 }
 
 void ConfigDialog::loadSettings() {
@@ -3030,24 +3230,11 @@ void ConfigDialog::loadSettings() {
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
     refreshStorageStats();
     selectedThemeIndex_ = CameraConfig::getThemePreset();
-    const int savedThemeIdx = selectedThemeIndex_;
     if (themeCombo_) {
-        themeCombo_->setCurrentIndex(savedThemeIdx);
-    }
-    for (int i = 0; i < 8; ++i) {
-        if (themeCards_[i]) {
-            const ThemeColors c = CameraConfig::getThemeColors(i);
-            if (i == savedThemeIdx) {
-                themeCards_[i]->setStyleSheet(QString(
-                    "QPushButton { background-color: rgba(255, 255, 255, 0.06); border: 2px solid %1; border-radius: 10px; padding: 0px; }"
-                ).arg(c.primary));
-            } else {
-                themeCards_[i]->setStyleSheet(QString(
-                    "QPushButton { background-color: rgba(255, 255, 255, 0.02); border: 1px solid %1; border-radius: 10px; padding: 0px; }"
-                    "QPushButton:hover { border: 1.5px solid %2; background-color: rgba(255, 255, 255, 0.05); }"
-                ).arg(c.border, c.primary));
-            }
-        }
+        // Restoring the saved preset is not a pick: without this the dropdown
+        // would arm a preview of it and override a preview already showing.
+        const QSignalBlocker blocker(themeCombo_);
+        themeCombo_->setCurrentIndex(selectedThemeIndex_);
     }
     const LiveViewCardStyle liveViewStyle = CameraConfig::getLiveViewCardStyle();
     selectCuratedFont(liveViewGridTitleFontCombo_, liveViewStyle.gridTitleFontFamily);
@@ -3209,7 +3396,6 @@ void ConfigDialog::relayoutUiPreferencePanels() {
     }
     const bool stackLivePreview = availableWidth < 1040;
     const bool stackAnalysisPreview = availableWidth < 1040;
-    const int themeGridWidth = themeGridWidget_ ? themeGridWidget_->width() : availableWidth;
 
     if (liveViewContentLayout_) {
         liveViewContentLayout_->setDirection(stackLivePreview ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
@@ -3243,40 +3429,6 @@ void ConfigDialog::relayoutUiPreferencePanels() {
         analysisPreviewContainer_->setMinimumWidth(analysisPreviewMinWidth);
         analysisPreviewContainer_->setMaximumWidth(analysisPreviewMaxWidth);
         analysisPreviewContainer_->setSizePolicy(analysisPreviewHorizontalPolicy, QSizePolicy::Maximum);
-    }
-
-    if (themeGridLayout_) {
-        while (QLayoutItem* item = themeGridLayout_->takeAt(0)) {
-            delete item;
-        }
-
-        int columnCount = 4;
-        if (themeGridWidth < 300) {
-            columnCount = 2;
-        } else if (themeGridWidth < 450) {
-            columnCount = 3;
-        }
-
-        for (int i = 0; i < columnCount; ++i) {
-            themeGridLayout_->setColumnStretch(i, 1);
-            themeGridLayout_->setColumnMinimumWidth(i, 0);
-        }
-
-        for (int i = columnCount; i < 4; ++i) {
-            themeGridLayout_->setColumnStretch(i, 0);
-            themeGridLayout_->setColumnMinimumWidth(i, 0);
-        }
-
-        for (int index = 0; index < 8; ++index) {
-            QPushButton* card = qobject_cast<QPushButton*>(themeCards_[index]);
-            if (!card) {
-                continue;
-            }
-
-            const int row = index / columnCount;
-            const int column = index % columnCount;
-            themeGridLayout_->addWidget(card, row, column);
-        }
     }
 
     updateGeometry();
@@ -3760,6 +3912,9 @@ void ConfigDialog::saveUiSettings() {
     qInfo() << "[ConfigDialog] UI save requested";
 
     CameraConfig::setThemePreset(selectedThemeIndex_);
+    // The pick is saved now: it is the preset, not a preview of one.
+    CameraConfig::clearThemePreview();
+    themePreviewPending_ = false;
     CameraConfig::setLiveViewCardStyle({
         currentCuratedFontFamily(liveViewGridTitleFontCombo_),
         liveViewGridTitleSizeSpin_->value(),
@@ -3792,6 +3947,9 @@ void ConfigDialog::applyUiSettings() {
     qInfo() << "[ConfigDialog] UI apply requested";
 
     CameraConfig::setThemePreset(selectedThemeIndex_);
+    // The pick is saved now: it is the preset, not a preview of one.
+    CameraConfig::clearThemePreview();
+    themePreviewPending_ = false;
     CameraConfig::setLiveViewCardStyle({
         currentCuratedFontFamily(liveViewGridTitleFontCombo_),
         liveViewGridTitleSizeSpin_->value(),
@@ -3970,6 +4128,9 @@ void ConfigDialog::resetAnalysisViewSettings() {
 
 void ConfigDialog::setAdminMode(bool isAdmin) {
     isAdminMode_ = isAdmin;
+    if (!isAdmin) {
+        discardUnsavedThemePreview();
+    }
 
     // Global settings
     if (networkSummaryHeader_) {
@@ -4018,9 +4179,6 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     eventStoragePathEdit_->setEnabled(isAdmin);
     browseEventStorageBtn_->setEnabled(isAdmin);
     resetEventStorageBtn_->setEnabled(isAdmin);
-    for (int i = 0; i < 8; ++i) {
-        if (themeCards_[i]) themeCards_[i]->setEnabled(isAdmin);
-    }
     if (themeCombo_) themeCombo_->setEnabled(isAdmin);
     if (liveViewBackgroundStyleCombo_) liveViewBackgroundStyleCombo_->setEnabled(isAdmin);
     if (liveViewGridTitleFontCombo_) liveViewGridTitleFontCombo_->setEnabled(isAdmin);

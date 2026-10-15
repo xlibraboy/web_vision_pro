@@ -28,6 +28,10 @@ public:
     explicit NetworkSummaryHeader(QWidget* parent = nullptr);
     ~NetworkSummaryHeader() override;
 
+    // Re-applies every theme-derived style after a preset change; the
+    // constructor calls it too, so the style strings live in one place.
+    void updateTheme();
+
     // Status update methods. An invalid color resolves to the ok token.
     void setNetworkStatus(const QString& status, const QColor& color);
     void setCameraCounts(int total, int online, int warning, int error, int offline);
@@ -57,6 +61,8 @@ private:
     void updateElevation(bool hovered);
     void updateStatusIndicators();
     void animateRefreshButton();
+    void applyStatusLabelStyle();
+    void refreshLinkIndicator();
 
     // Layouts
     QVBoxLayout* mainLayout_;
@@ -89,6 +95,12 @@ private:
     int errorCount_;
     int offlineCount_;
     bool isRefreshing_;
+
+    // Last values updateTheme() needs to re-derive the preset-dependent
+    // styles: the status ink (invalid until setNetworkStatus() is called)
+    // and the link badge speed (<= 0 renders "Link: --").
+    QColor statusColor_;
+    int linkSpeedMbps_;
 
     // Styling
     QGraphicsDropShadowEffect* shadowEffect_;

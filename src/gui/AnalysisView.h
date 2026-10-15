@@ -272,6 +272,12 @@ private:
     void positionToolsPanel();
     void restyleToolsEdgeTab();
     void applyToolsPanelTheme();
+    // Accent chip marking Thumbnails as the base track (the only track that is
+    // always available); re-applied with the theme.
+    void applyBaseTrackChipStyle();
+    // The playback glyphs come from fixed-fill SVG assets, so re-render the
+    // one this button shows in the theme's ink.
+    void applyPlaybackGlyphTheme(QPushButton* button);
     // Show/hide transition (fade + slide).
     void animateToolsPanelShow();
     void animateToolsPanelHide();

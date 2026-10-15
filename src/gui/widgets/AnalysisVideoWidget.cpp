@@ -13,8 +13,6 @@
 
 AnalysisVideoWidget::AnalysisVideoWidget(int cameraId, const QString& title, QWidget *parent)
     : QWidget(parent), cameraId_(cameraId), title_(title), timestamp_("00:00:00.000") {
-    markerColor_ = QColor(CameraConfig::getThemeColors().primary);
-    
     setMinimumSize(160, 120);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     // Take focus on click so unhandled keys (e.g. Left/Right step, Space
@@ -225,6 +223,11 @@ QPoint AnalysisVideoWidget::normalizedToWidgetPoint(const QPointF& point) const 
                   drawRect.top() + static_cast<int>(point.y() * drawRect.height()));
 }
 
+QColor AnalysisVideoWidget::markerColor() const {
+    const ThemeColors tc = hasPreviewThemeOverride_ ? previewThemeOverride_ : CameraConfig::getThemeColors();
+    return QColor(tc.primary);
+}
+
 QPointF AnalysisVideoWidget::widgetToNormalizedPoint(const QPoint& point) const {
     const QRect drawRect = imageDrawRect_.isValid() ? imageDrawRect_ : rect();
     const double w = std::max(1, drawRect.width());
@@ -378,9 +381,9 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
                 QVector<QPoint> previewPoints;
                 previewPoints.append(markerStart_);
                 previewPoints.append(markerEnd_);
-                drawMarker(markerShape_, previewPoints, markerColor_);
+                drawMarker(markerShape_, previewPoints, markerColor());
             } else {
-                drawMarker(markerShape_, currentMarkerDisplayPoints(), markerColor_);
+                drawMarker(markerShape_, currentMarkerDisplayPoints(), markerColor());
             }
         }
 
@@ -500,7 +503,7 @@ void AnalysisVideoWidget::mousePressEvent(QMouseEvent* event) {
             lastStrokePoint_ = event->pos();
             QPainter overlayPainter(&markerStrokeOverlay_);
             overlayPainter.setRenderHint(QPainter::Antialiasing);
-            QPen pen(markerColor_, 3);
+            QPen pen(markerColor(), 3);
             pen.setCapStyle(Qt::RoundCap);
             pen.setJoinStyle(Qt::RoundJoin);
             overlayPainter.setPen(pen);
@@ -533,7 +536,7 @@ void AnalysisVideoWidget::mouseMoveEvent(QMouseEvent* event) {
             if (!markerStrokeOverlay_.isNull()) {
                 QPainter overlayPainter(&markerStrokeOverlay_);
                 overlayPainter.setRenderHint(QPainter::Antialiasing);
-                QPen pen(markerColor_, 3);
+                QPen pen(markerColor(), 3);
                 pen.setCapStyle(Qt::RoundCap);
                 pen.setJoinStyle(Qt::RoundJoin);
                 overlayPainter.setPen(pen);

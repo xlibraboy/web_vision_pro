@@ -64,46 +64,28 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     setMinimumHeight(520);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
 
-    // Header: defect event picker
+    // Header: defect event picker. The chrome styles are applied by
+    // updateTheme() at the end of the constructor, so a preset change reaches
+    // the header without rebuilding the panel.
     auto* header = new QWidget(this);
     auto* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(10, 6, 10, 0);
     headerLayout->setSpacing(8);
-    auto* label = new QLabel(QStringLiteral("DEFECTS FROM EVENT:"), header);
-    label->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 400;").arg(tc.text));
+    eventLabel_ = new QLabel(QStringLiteral("DEFECTS FROM EVENT:"), header);
     eventCombo_ = new QComboBox(header);
-    eventCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; min-width: 220px; }"
-        "QComboBox:hover { border-color: %4; }"
-        "QComboBox::drop-down { border: none; width: 22px; }"
-        "QComboBox QAbstractItemView { background-color: %1; color: %2;"
-        " selection-background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
-    headerLayout->addWidget(label);
+    headerLayout->addWidget(eventLabel_);
     headerLayout->addWidget(eventCombo_);
 
     // Reference data overlay: a read-only reference set (not wired to the
     // system) the operator can overlay to compare the live configuration
     // against a known machine layout (see buildReferenceSet).
-    auto* refLabel = new QLabel(QStringLiteral("REFERENCE DATA:"), header);
-    refLabel->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 400;").arg(tc.text));
-    headerLayout->addWidget(refLabel);
+    refLabel_ = new QLabel(QStringLiteral("REFERENCE DATA:"), header);
+    headerLayout->addWidget(refLabel_);
     refCombo_ = new QComboBox(header);
-    refCombo_->setStyleSheet(QString(
-        "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; min-width: 120px; }"
-        "QComboBox:hover { border-color: %4; }"
-        "QComboBox::drop-down { border: none; width: 22px; }"
-        "QComboBox QAbstractItemView { background-color: %1; color: %2;"
-        " selection-background-color: %4; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary));
     refCombo_->addItem(QStringLiteral("OFF"), 0);
     refCombo_->addItem(QStringLiteral("Reference 1"), 1);
     refCombo_->addItem(QStringLiteral("Reference 2"), 2);
@@ -114,17 +96,9 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     // Zoom controls: − / + step the shared mm scale around the view center
     // (same 2x-per-notch step as the mouse wheel), Reset view restores the
     // full fit. − / + are always enabled; Reset view only while zoomed.
-    const QString zoomBtnStyle = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 0; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }"
-        "QPushButton:hover { border-color: %4; }"
-        "QPushButton:disabled { color: %5; border-color: %3; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name());
-
     zoomOutBtn_ = new QPushButton(tr("−"), header);
     zoomOutBtn_->setToolTip(tr("Zoom out (mouse wheel out)"));
     zoomOutBtn_->setFixedSize(28, 28);
-    zoomOutBtn_->setStyleSheet(zoomBtnStyle);
     connect(zoomOutBtn_, &QPushButton::clicked, this, [this] {
         zoomAt((minMm_ + maxMm_) / 2.0, 0.5);
     });
@@ -133,7 +107,6 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
     zoomInBtn_ = new QPushButton(tr("+"), header);
     zoomInBtn_->setToolTip(tr("Zoom in (mouse wheel in)"));
     zoomInBtn_->setFixedSize(28, 28);
-    zoomInBtn_->setStyleSheet(zoomBtnStyle);
     connect(zoomInBtn_, &QPushButton::clicked, this, [this] {
         zoomAt((minMm_ + maxMm_) / 2.0, 2.0);
     });
@@ -141,12 +114,6 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
 
     // Reset view (enabled only while zoomed in)
     resetZoomBtn_ = new QPushButton(tr("Reset view"), header);
-    resetZoomBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; padding: 4px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-        "QPushButton:hover { border-color: %4; }"
-        "QPushButton:disabled { color: %5; border-color: %3; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, QColor(tc.text).lighter(155).name()));
     resetZoomBtn_->setEnabled(false);  // always visible, enabled only while zoomed
     connect(resetZoomBtn_, &QPushButton::clicked, this, [this] { resetZoom(); });
     headerLayout->addWidget(resetZoomBtn_);
@@ -174,6 +141,65 @@ MachineLayoutPanel::MachineLayoutPanel(QWidget* parent)
         resetZoom();
         refresh();
     });
+
+    updateTheme();  // single source of truth for the header chrome styles
+}
+
+void MachineLayoutPanel::updateTheme() {
+    // The header chrome is restyled from scratch here, never at construction
+    // only: the panel outlives a preset change, and its labels, combos and
+    // zoom buttons would otherwise keep the colors of the theme it was built
+    // under.
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    const QString captionStyle = QString(
+        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 400;"
+    ).arg(tc.text);
+    if (eventLabel_) eventLabel_->setStyleSheet(captionStyle);
+    if (refLabel_) refLabel_->setStyleSheet(captionStyle);
+
+    // Disabled control ink: the text token lifted toward the background, the
+    // derivation the chrome has always used — kept so a disabled zoom button
+    // still reads the same as it did before the styles moved here.
+    const QString disabledInk = QColor(tc.text).lighter(155).name();
+
+    // Both header combos share one rule set; only the collapsed width differs.
+    const auto comboStyle = [&tc](int minWidthPx) {
+        return QString(
+            "QComboBox { background-color: %1; color: %2; border: 1px solid %3;"
+            " border-radius: 6px; padding: 4px 8px; font-size: "
+            + UiTypeScale::px(UiTypeScale::kMeta) + "; min-width: "
+            + QString::number(minWidthPx) + "px; }"
+            "QComboBox:hover { border-color: %4; }"
+            "QComboBox::drop-down { border: none; width: 22px; }"
+            "QComboBox QAbstractItemView { background-color: %1; color: %2;"
+            " selection-background-color: %4; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+    };
+    if (eventCombo_) eventCombo_->setStyleSheet(comboStyle(220));
+    if (refCombo_) refCombo_->setStyleSheet(comboStyle(120));
+
+    const QString zoomBtnStyle = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 0; font-size: "
+        + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }"
+        "QPushButton:hover { border-color: %4; }"
+        "QPushButton:disabled { color: %5; border-color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, disabledInk);
+    if (zoomOutBtn_) zoomOutBtn_->setStyleSheet(zoomBtnStyle);
+    if (zoomInBtn_) zoomInBtn_->setStyleSheet(zoomBtnStyle);
+
+    const QString resetBtnStyle = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 4px 10px; font-size: "
+        + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QPushButton:hover { border-color: %4; }"
+        "QPushButton:disabled { color: %5; border-color: %3; }"
+    ).arg(tc.btnBg, tc.text, tc.border, tc.primary, disabledInk);
+    if (resetZoomBtn_) resetZoomBtn_->setStyleSheet(resetBtnStyle);
+
+    // The canvas re-reads the theme on every paint; it only needs a repaint.
+    if (canvas_) canvas_->update();
 }
 
 void MachineLayoutPanel::setCameras(const std::vector<CameraInfo>& cameras) {
@@ -1347,9 +1373,13 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     }
 
     // Sub-row background fills — must precede the axis-line draw so the line
-    // sits cleanly on top of the tints.
-    const QColor opTint(0x2A, 0x32, 0x39);     // lower sub-row (operator side)
-    const QColor driveTint(0x1F, 0x24, 0x29);  // upper sub-row (drive side)
+    // sits cleanly on top of the tints. Both are lifted from theme tokens
+    // (drive from the canvas background, operator from the raised panel tone)
+    // so the two sub-rows stay distinguishable on any preset — the fixed
+    // #2A3239 / #1F2429 pair was picked under one dark palette and kept its
+    // blue-gray tint on every other one.
+    const QColor opTint = QColor(tc.btnBg).lighter(120);  // lower sub-row (operator side)
+    const QColor driveTint = QColor(tc.bg).lighter(120);  // upper sub-row (drive side)
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         painter.fillRect(leftMargin, rows[f].upperTop,
                          width() - 2 * leftMargin,
@@ -1489,7 +1519,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
         painter.save();
         painter.translate(x, yCenter - 12);
         painter.rotate(-90);
-        painter.setPen(glow ? QColor(tc.text) : QColor(tc.text));
+        painter.setPen(QColor(tc.text));
         painter.drawText(QRect(0, -8, 30, 16), Qt::AlignLeft | Qt::AlignVCenter,
                          QString::number(cam.id));
         painter.restore();
@@ -1497,7 +1527,7 @@ void MachineLayoutPanel::Canvas::drawCameraMarkers(QPainter& painter, const Them
     const int lane3AxisY = floorAxisY_[CameraFloor::kCount - 1];
     for (const CameraMark& c : cameras) {
         if (!c.hasPosition) {
-            painter.setPen(QColor(255, 90, 90));
+            painter.setPen(QColor(tc.critical));  // warning ink, follows the preset
             painter.drawText(QRect(leftMargin, lane3AxisY + 26, width() - 2 * leftMargin, 14),
                              Qt::AlignLeft | Qt::AlignVCenter,
                              "Hollow left-edge markers = cameras without a machine position "
@@ -1668,7 +1698,11 @@ void MachineLayoutPanel::Canvas::drawReferenceCameras(QPainter& painter, const T
         const bool glow = (i == hoveredRefCam_ || i == cursorHitRefCam_);
 
         // Faint dashed guide from the section-bar bottom down to the marker.
-        painter.setPen(QPen(QColor(255, 255, 255, 36), 1, Qt::DashLine));
+        // Token-derived rather than a fixed white so it stays a faint guide on
+        // a light preset: the text ink at ~14% alpha (36/255, as before).
+        QColor guideInk = QColor(tc.text);
+        guideInk.setAlpha(36);
+        painter.setPen(QPen(guideInk, 1, Qt::DashLine));
         painter.drawLine(x, 36, x, yCenter);
 
         const QColor outlineCol = glow ? QColor(tc.text) : QColor(tc.muted);

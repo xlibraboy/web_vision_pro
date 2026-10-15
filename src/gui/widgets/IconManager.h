@@ -83,6 +83,13 @@ public:
     QIcon statusError(int size = 20);
     QIcon statusOffline(int size = 20);
 
+    // The shipped SVG assets carry a fixed fill, which neither a stylesheet nor
+    // a plain QIcon can recolor. This renders a themed copy: as a pixmap for
+    // icons, or as a cached file path for `image: url(...)` rules. Both fall
+    // back to the asset itself when it cannot be re-rendered.
+    static QPixmap themedAssetPixmap(const QString& assetPath, const QColor& color, int size);
+    static QString themedAssetFile(const QString& assetPath, const QColor& color);
+
 private:
     IconManager();
     ~IconManager() = default;

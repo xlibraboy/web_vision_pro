@@ -24,16 +24,13 @@ DocsDialog::DocsDialog(QWidget* parent)
     resize(920, 660);
     setMinimumSize(640, 420);
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(8);
 
-    auto* header = new QLabel(
+    headerLabel_ = new QLabel(
         "<b>PaperVision</b> — industrial vision system for paper machine inspection", this);
-    header->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";").arg(tc.text));
-    layout->addWidget(header);
+    layout->addWidget(headerLabel_);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
     layout->addWidget(splitter, 1);
@@ -46,30 +43,7 @@ DocsDialog::DocsDialog(QWidget* parent)
     contentBrowser_ = new QTextBrowser(splitter);
     contentBrowser_->setOpenExternalLinks(true);
     contentBrowser_->setOpenLinks(true);
-    contentBrowser_->document()->setDefaultStyleSheet(QString(
-        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; }"
-        "h3 { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; margin-top: 14px; }"
-        "p  { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
-        "li { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; margin-bottom: 3px; }"
-        "code { color: %1; background-color: %4; padding: 1px 4px; border-radius: 3px; }"
-        "pre { color: %3; background-color: %4; padding: 8px; border-radius: 4px;"
-              " border: 1px solid %2; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";"
-              " font-family: " + UiTypeScale::monoFamilyCss() + "; }"
-        "b  { color: %3; }"
-        "a  { color: %1; }"
-    ).arg(tc.primary, tc.border, tc.text, tc.btnBg));
-    contentBrowser_->setStyleSheet(QString(
-        "QTextBrowser { background-color: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; padding: 10px; }").arg(tc.bg, tc.text, tc.border));
     contentBrowser_->setFrameShape(QFrame::NoFrame);
-
-    // Soft selection: accent at ~40% opacity over the dark surface keeps the row
-    // clearly highlighted without the loud solid fill.
-    QColor selectionTint = QColor(tc.primary);
-    selectionTint.setAlpha(102);
-    const QString selectionTintCss = QString("rgba(%1, %2, %3, %4)")
-        .arg(selectionTint.red()).arg(selectionTint.green())
-        .arg(selectionTint.blue()).arg(selectionTint.alpha());
 
     splitter->addWidget(sectionList_);
     splitter->addWidget(contentBrowser_);
@@ -77,17 +51,7 @@ DocsDialog::DocsDialog(QWidget* parent)
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({190, 700});
 
-    setStyleSheet(QString(
-        "QDialog { background-color: %1; }"
-        "QLabel { color: %2; }"
-        "QListWidget#docsSectionList { background-color: %4; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; padding: 4px; }"
-        "QListWidget#docsSectionList::item { padding: 7px 8px; border-radius: 3px; }"
-        "QListWidget#docsSectionList::item:selected { background-color: %5; color: %6; }"
-        "QListWidget#docsSectionList::item:hover:!selected { background-color: %7; }"
-    ).arg(tc.bg, tc.text, tc.border, tc.btnBg, selectionTintCss,
-          tc.text,
-          tc.btnHover));
+    updateTheme();
 
     // ── Section 1: How the app works ──
     addSection(QStringLiteral("How the App Works"), sectionHtml(
@@ -457,6 +421,55 @@ DocsDialog::DocsDialog(QWidget* parent)
         }
     });
     sectionList_->setCurrentRow(0);  // loads the first section
+}
+
+void DocsDialog::updateTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    headerLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + ";").arg(tc.text));
+
+    contentBrowser_->document()->setDefaultStyleSheet(QString(
+        "h2 { color: %1; border-bottom: 1px solid %2; padding-bottom: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; }"
+        "h3 { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; margin-top: 14px; }"
+        "p  { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
+        "li { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; margin-bottom: 3px; }"
+        "code { color: %1; background-color: %4; padding: 1px 4px; border-radius: 3px; }"
+        "pre { color: %3; background-color: %4; padding: 8px; border-radius: 4px;"
+              " border: 1px solid %2; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";"
+              " font-family: " + UiTypeScale::monoFamilyCss() + "; }"
+        "b  { color: %3; }"
+        "a  { color: %1; }"
+    ).arg(tc.primary, tc.border, tc.text, tc.btnBg));
+    contentBrowser_->setStyleSheet(QString(
+        "QTextBrowser { background-color: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; padding: 10px; }").arg(tc.bg, tc.text, tc.border));
+
+    // Soft selection: accent at ~40% opacity over the dark surface keeps the row
+    // clearly highlighted without the loud solid fill.
+    QColor selectionTint = QColor(tc.primary);
+    selectionTint.setAlpha(102);
+    const QString selectionTintCss = QString("rgba(%1, %2, %3, %4)")
+        .arg(selectionTint.red()).arg(selectionTint.green())
+        .arg(selectionTint.blue()).arg(selectionTint.alpha());
+
+    setStyleSheet(QString(
+        "QDialog { background-color: %1; }"
+        "QLabel { color: %2; }"
+        "QListWidget#docsSectionList { background-color: %4; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; padding: 4px; }"
+        "QListWidget#docsSectionList::item { padding: 7px 8px; border-radius: 3px; }"
+        "QListWidget#docsSectionList::item:selected { background-color: %5; color: %6; }"
+        "QListWidget#docsSectionList::item:hover:!selected { background-color: %7; }"
+    ).arg(tc.bg, tc.text, tc.border, tc.btnBg, selectionTintCss,
+          tc.text,
+          tc.btnHover));
+
+    // A document's default stylesheet only styles the HTML set after it, so
+    // re-render the visible section to bring the body onto the new tokens.
+    const int row = sectionList_->currentRow();
+    if (row >= 0 && row < sectionList_->count()) {
+        contentBrowser_->setHtml(sectionList_->item(row)->data(Qt::UserRole).toString());
+    }
 }
 
 void DocsDialog::addSection(const QString& title, const QString& html) {

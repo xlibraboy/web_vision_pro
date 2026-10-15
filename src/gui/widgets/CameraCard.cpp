@@ -44,13 +44,13 @@ CameraCard::CameraCard(const CameraInfo& info, QWidget* parent)
     , isHovered_(false)
     , hasIssues_(false)
     , contentHeight_(0)
+    , statusTone_(StatusTone::Pending)
     , statusColor_(theme().disabled)
     , headerWidget_(nullptr) {
 
     setupUI(info);
     setupAnimations();
-    setupStyleSheet();
-    updateSmartState();
+    updateTheme();
 }
 
 QSize CameraCard::sizeHint() const {
@@ -106,7 +106,6 @@ void CameraCard::setupUI(const CameraInfo& info) {
 }
 
 void CameraCard::createHeader() {
-    const ThemeColors tc = CameraConfig::getThemeColors();
     headerLayout_ = new QHBoxLayout();
     headerLayout_->setSpacing(8);
     headerLayout_->setContentsMargins(12, 10, 12, 10);
@@ -122,11 +121,9 @@ void CameraCard::createHeader() {
     titleLayout->setContentsMargins(0, 0, 0, 0);
 
     cameraTitle_ = new QLabel(this);
-    cameraTitle_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;").arg(tc.text));
     titleLayout->addWidget(cameraTitle_);
 
     cameraMetaLabel_ = new QLabel(this);
-    cameraMetaLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; color: %1;").arg(tc.muted));
     cameraMetaLabel_->setWordWrap(true);
     titleLayout->addWidget(cameraMetaLabel_);
 
@@ -137,30 +134,18 @@ void CameraCard::createHeader() {
     actionLayout->setSpacing(6);
     actionLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Status label (pending state until setStatus() arrives with a token color)
+    // Status label (pending state until setStatus() arrives with a token
+    // color; the chip itself is styled by applyStatusStyle())
     statusLabel_ = new QLabel("Pending", this);
-    statusLabel_->setStyleSheet(QString(
-        "font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; padding: 3px 8px; "
-        "border-radius: 10px; background-color: %1; "
-        "color: %2;"
-    ).arg(tintStyle(tc.disabled, 0.2), tc.disabled));
     actionLayout->addWidget(statusLabel_, 0, Qt::AlignVCenter);
 
     editCheck_ = new QCheckBox("Edit", this);
-    editCheck_->setStyleSheet(QString(
-        "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; padding-left: 2px; }"
-        "QCheckBox::indicator { width: 14px; height: 14px; }"
-    ).arg(tc.text));
     connect(editCheck_, &QCheckBox::toggled, this, &CameraCard::editToggled);
     actionLayout->addWidget(editCheck_, 0, Qt::AlignVCenter);
 
     // Expand/collapse button
     expandButton_ = new QToolButton(this);
     expandButton_->setIcon(IconManager::instance().collapse(16));
-    expandButton_->setStyleSheet(
-        "QToolButton { background: transparent; border: none; padding: 4px; }"
-        "QToolButton:hover { background-color: rgba(0, 229, 255, 0.1); border-radius: 4px; }"
-    );
     connect(expandButton_, &QToolButton::clicked, this, [this]() {
         setExpanded(!isExpanded_);
     });
@@ -169,10 +154,6 @@ void CameraCard::createHeader() {
     // Remove button
     removeButton_ = new QToolButton(this);
     removeButton_->setIcon(IconManager::instance().trash(16));
-    removeButton_->setStyleSheet(
-        "QToolButton { background: transparent; border: none; padding: 4px; }"
-        "QToolButton:hover { background-color: rgba(255, 90, 90, 0.2); border-radius: 4px; }"
-    );
     connect(removeButton_, &QToolButton::clicked, this, &CameraCard::removeClicked);
     actionLayout->addWidget(removeButton_);
 
@@ -201,39 +182,13 @@ void CameraCard::updateHeader(const CameraInfo& info) {
 void CameraCard::createContent(const CameraInfo& info) {
     const int labelColumnMinWidth = 82;
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-
-    const QString groupStyle = QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    ).arg(tc.primary, tc.border);
-
-    const QString fieldStyle = QString(
-        "QComboBox, QLineEdit, QSpinBox { "
-        "background-color: %1; border: 1px solid %2; "
-        "border-radius: 6px; padding: 5px 7px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-        "QComboBox:hover, QLineEdit:hover { border-color: %4; }"
-        "QComboBox:focus, QLineEdit:focus { border-color: %4; }"
-        "QSpinBox { padding-right: 0; min-width: 72px; }"
-        "QLineEdit { min-width: 0; }"
-        "QComboBox { min-width: 0; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
-
-    const QString infoValueStyle = QString(
-        "QLabel { "
-        "  background-color: transparent; "
-        "  border: 1px solid %1; "
-        "  border-radius: 6px; "
-        "  padding: 5px 7px; "
-        "  color: %2; "
-        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; "
-        "}"
-    ).arg(tc.border, tc.text);
+    // Themed style strings live in updateTheme(); the widgets whose style is
+    // shared are recorded in the member lists there, so a preset change can
+    // re-apply them without touching per-widget variants.
 
     // Basic Info Group
     basicInfoGroup_ = new QGroupBox("Basic Info", contentWidget_);
-    basicInfoGroup_->setStyleSheet(groupStyle);
+    themedGroups_.append(basicInfoGroup_);
 
     basicFieldsLayout_ = new QGridLayout(basicInfoGroup_);
     basicFieldsLayout_->setHorizontalSpacing(10);
@@ -246,7 +201,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     // Helper lambda to add field
     auto addField = [&](QGroupBox* group, QGridLayout* layout, int& row, const QString& label, QWidget* widget) {
         QLabel* lbl = new QLabel(label, group);
-        lbl->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 500;").arg(tc.muted));
+        themedFieldLabels_.append(lbl);
         lbl->setMinimumWidth(labelColumnMinWidth);
         layout->addWidget(lbl, row, 0, Qt::AlignRight | Qt::AlignVCenter);
         layout->addWidget(widget, row, 1);
@@ -259,19 +214,19 @@ void CameraCard::createContent(const CameraInfo& info) {
     sourceCombo_->addItem("Real", 1);
     sourceCombo_->addItem("Disabled", 2);
     sourceCombo_->setCurrentIndex(sourceCombo_->findData(info.source));
-    sourceCombo_->setStyleSheet(fieldStyle);
+    themedFields_.append(sourceCombo_);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Source:", sourceCombo_);
     connect(sourceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &CameraCard::sourceChanged);
 
     // Name
     nameEdit_ = new QLineEdit(info.name, basicInfoGroup_);
-    nameEdit_->setStyleSheet(fieldStyle);
+    themedFields_.append(nameEdit_);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Name:", nameEdit_);
 
     // Location
     locationEdit_ = new QLineEdit(info.location, basicInfoGroup_);
-    locationEdit_->setStyleSheet(fieldStyle);
+    themedFields_.append(locationEdit_);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Location:", locationEdit_);
 
     // Side
@@ -279,7 +234,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     sideCombo_->addItem("DRIVE SIDE");
     sideCombo_->addItem("OPERATOR SIDE");
     sideCombo_->setCurrentText(info.side);
-    sideCombo_->setStyleSheet(fieldStyle);
+    themedFields_.append(sideCombo_);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Side:", sideCombo_);
 
     // Group (paper-machine section)
@@ -291,7 +246,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kAfterDryer), CameraGroup::kAfterDryer);
     groupCombo_->addItem(CameraGroup::name(CameraGroup::kCalenderReel), CameraGroup::kCalenderReel);
     groupCombo_->setCurrentIndex(groupCombo_->findData(info.group));
-    groupCombo_->setStyleSheet(fieldStyle);
+    themedFields_.append(groupCombo_);
     groupCombo_->setToolTip("Paper-machine section this camera belongs to. An OPC UA trigger records this camera only while its Records selection includes this section.");
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Group:", groupCombo_);
 
@@ -304,7 +259,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     if (floorCombo_->currentIndex() < 0) {
         floorCombo_->setCurrentIndex(0);
     }
-    floorCombo_->setStyleSheet(fieldStyle);
+    themedFields_.append(floorCombo_);
     floorCombo_->setToolTip("Machine floor this camera is mounted on. The Machine Layout panel paints one lane per floor.");
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Floor:", floorCombo_);
 
@@ -313,7 +268,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     positionSpin_->setRange(0, 500000);
     positionSpin_->setSuffix(" mm");
     positionSpin_->setValue(info.machinePosition);
-    positionSpin_->setStyleSheet(fieldStyle);
+    themedFields_.append(positionSpin_);
     addField(basicInfoGroup_, basicFieldsLayout_, basicRow, "Position:", positionSpin_);
 
     contentLayout_->addWidget(basicInfoGroup_);
@@ -322,7 +277,7 @@ void CameraCard::createContent(const CameraInfo& info) {
     // Focus: bind a camera (MAC) to this slot. IP/subnet/gateway editing lives in
     // the IpConfiguratorPanel; the card only shows assignment feedback.
     networkInfoGroup_ = new QGroupBox("Camera Assignment", contentWidget_);
-    networkInfoGroup_->setStyleSheet(groupStyle);
+    themedGroups_.append(networkInfoGroup_);
 
     networkFieldsLayout_ = new QGridLayout(networkInfoGroup_);
     networkFieldsLayout_->setHorizontalSpacing(10);
@@ -337,19 +292,19 @@ void CameraCard::createContent(const CameraInfo& info) {
     macCombo_->addItem("None / Auto");
     macCombo_->setEditable(true);
     macCombo_->setCurrentText(info.macAddress);
-    macCombo_->setStyleSheet(fieldStyle);
+    themedFields_.append(macCombo_);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "MAC Address:", macCombo_);
     connect(macCombo_, &QComboBox::currentTextChanged, this, &CameraCard::macChanged);
 
     // Configured IP (Read Only)
     ipLabel_ = new QLabel(info.ipAddress, networkInfoGroup_);
-    ipLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: " + UiTypeScale::monoFamilyCss() + "; color: %1; }").arg(tc.primary));
+    accentValueLabels_.append(ipLabel_);
     ipLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Configured IP:", ipLabel_);
 
     // Detected IP (Read Only)
     detectedIpLabel_ = new QLabel("Offline", networkInfoGroup_);
-    detectedIpLabel_->setStyleSheet(infoValueStyle + QString(" QLabel { font-family: " + UiTypeScale::monoFamilyCss() + "; color: %1; }").arg(tc.muted));
+    mutedValueLabels_.append(detectedIpLabel_);
     detectedIpLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     addField(networkInfoGroup_, networkFieldsLayout_, networkRow, "Detected IP:", detectedIpLabel_);
 
@@ -357,11 +312,6 @@ void CameraCard::createContent(const CameraInfo& info) {
 
     deviceSettingsBtn_ = new QPushButton("Device Settings...", contentWidget_);
     deviceSettingsBtn_->setIcon(IconManager::instance().settings(16));
-    deviceSettingsBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2; border-radius: 6px; padding: 7px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; }"
-        "QPushButton:hover { background-color: %3; border-color: %1; }"
-        "QPushButton:disabled { color: %4; border-color: %2; }"
-    ).arg(tc.primary, tc.border, tintStyle(tc.primary, 0.08), tc.disabled));
     connect(deviceSettingsBtn_, &QPushButton::clicked, this, &CameraCard::deviceSettingsClicked);
     contentLayout_->addWidget(deviceSettingsBtn_, 0, Qt::AlignLeft);
     contentLayout_->addStretch();
@@ -391,6 +341,88 @@ void CameraCard::setupAnimations() {
 
     // Group for expand/collapse
     expandAnimationGroup_ = new QParallelAnimationGroup(this);
+}
+
+void CameraCard::updateTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    setupStyleSheet();
+    applyStatusStyle();
+
+    cameraTitle_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;").arg(tc.text));
+    cameraMetaLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; color: %1;").arg(tc.muted));
+
+    editCheck_->setStyleSheet(QString(
+        "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; padding-left: 2px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; }"
+    ).arg(tc.text));
+
+    // Glyph hover washes follow the accent / destructive tokens; the fixed
+    // cyan and red literals they replace survived every other preset.
+    expandButton_->setStyleSheet(QString(
+        "QToolButton { background: transparent; border: none; padding: 4px; }"
+        "QToolButton:hover { background-color: %1; border-radius: 4px; }"
+    ).arg(tintStyle(tc.primary, 0.10)));
+    removeButton_->setStyleSheet(QString(
+        "QToolButton { background: transparent; border: none; padding: 4px; }"
+        "QToolButton:hover { background-color: %1; border-radius: 4px; }"
+    ).arg(tintStyle(tc.critical, 0.20)));
+
+    deviceSettingsBtn_->setStyleSheet(QString(
+        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2; border-radius: 6px; padding: 7px 12px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; }"
+        "QPushButton:hover { background-color: %3; border-color: %1; }"
+        "QPushButton:disabled { color: %4; border-color: %2; }"
+    ).arg(tc.primary, tc.border, tintStyle(tc.primary, 0.08), tc.disabled));
+
+    // Styles shared by several widgets are re-applied through the member
+    // lists: a class-wide sweep would clobber the per-widget variants.
+    const QString groupStyle = QString(
+        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+        "border-radius: 8px; margin-top: 6px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+    ).arg(tc.primary, tc.border);
+    for (QGroupBox* group : themedGroups_) {
+        group->setStyleSheet(groupStyle);
+    }
+
+    const QString fieldStyle = QString(
+        "QComboBox, QLineEdit, QSpinBox { "
+        "background-color: %1; border: 1px solid %2; "
+        "border-radius: 6px; padding: 5px 7px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QComboBox:hover, QLineEdit:hover { border-color: %4; }"
+        "QComboBox:focus, QLineEdit:focus { border-color: %4; }"
+        "QSpinBox { padding-right: 0; min-width: 72px; }"
+        "QLineEdit { min-width: 0; }"
+        "QComboBox { min-width: 0; }"
+    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+    for (QWidget* field : themedFields_) {
+        field->setStyleSheet(fieldStyle);
+    }
+
+    const QString fieldLabelStyle = QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 500;").arg(tc.muted);
+    for (QLabel* label : themedFieldLabels_) {
+        label->setStyleSheet(fieldLabelStyle);
+    }
+
+    // Value boxes share their chrome; only the ink differs, so the two lists
+    // keep the accent / secondary variants apart.
+    const QString infoValueStyle = QString(
+        "QLabel { "
+        "  background-color: transparent; "
+        "  border: 1px solid %1; "
+        "  border-radius: 6px; "
+        "  padding: 5px 7px; "
+        "  color: %2; "
+        "  font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; "
+        "}"
+    ).arg(tc.border, tc.text);
+    const QString monoInk = QString(" QLabel { font-family: " + UiTypeScale::monoFamilyCss() + "; color: %1; }");
+    for (QLabel* label : accentValueLabels_) {
+        label->setStyleSheet(infoValueStyle + monoInk.arg(tc.primary));
+    }
+    for (QLabel* label : mutedValueLabels_) {
+        label->setStyleSheet(infoValueStyle + monoInk.arg(tc.muted));
+    }
 }
 
 void CameraCard::setupStyleSheet() {
@@ -477,37 +509,77 @@ void CameraCard::setNetworkConfig(const QString& ip, const QString& mask, const 
     cameraInfo_.defaultGateway = gateway;
 }
 
-void CameraCard::setStatus(const QString& text, const QColor& color) {
-    statusLabel_->setText(text);
-    statusColor_ = color;
-
+// Resolve a status color back to the semantic token it came from, so a theme
+// change can re-derive the chip fill from the new preset's tokens.
+CameraCard::StatusTone CameraCard::toneForColor(const QColor& color) {
     const ThemeColors tc = CameraConfig::getThemeColors();
+    if (color == QColor(tc.ok)) return StatusTone::Ok;
+    if (color == QColor(tc.warn)) return StatusTone::Warn;
+    if (color == QColor(tc.critical)) return StatusTone::Critical;
+    if (color == QColor(tc.info)) return StatusTone::Info;
+    if (color == QColor(tc.muted)) return StatusTone::Muted;
+    return StatusTone::Custom;
+}
+
+void CameraCard::applyStatusStyle() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    if (statusTone_ == StatusTone::Pending) {
+        // Holding state until setStatus() arrives with a token color.
+        statusLabel_->setStyleSheet(QString(
+            "font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 500; padding: 3px 8px; "
+            "border-radius: 10px; background-color: %1; "
+            "color: %2;"
+        ).arg(tintStyle(tc.disabled, 0.2), tc.disabled));
+        cameraIcon_->setPixmap(IconManager::instance().camera(24).pixmap(24, 24));
+        updateSmartState();
+        return;
+    }
+
+    // Re-derive the fill from the token role: muted and disabled shades move
+    // with the preset, so the cached QColor would keep the old theme's shade.
+    switch (statusTone_) {
+        case StatusTone::Ok:       statusColor_ = QColor(tc.ok); break;
+        case StatusTone::Warn:     statusColor_ = QColor(tc.warn); break;
+        case StatusTone::Critical: statusColor_ = QColor(tc.critical); break;
+        case StatusTone::Info:     statusColor_ = QColor(tc.info); break;
+        case StatusTone::Muted:    statusColor_ = QColor(tc.muted); break;
+        case StatusTone::Custom:
+        case StatusTone::Pending:  break;
+    }
 
     // Update status label style: the status fill carries ink, not white
     // (white on the bright ok/warn fills never reached 3:1).
-    QString style = QString(
+    statusLabel_->setStyleSheet(QString(
         "font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; padding: 3px 10px; "
         "border-radius: 10px; background-color: %1; color: %2;"
-    ).arg(color.name()).arg(tc.onStatus);
-
-    statusLabel_->setStyleSheet(style);
+    ).arg(statusColor_.name()).arg(tc.onStatus));
 
     // Update camera icon color based on status - use getIcon for custom colors
-    if (color == QColor(tc.ok)) {
+    if (statusColor_ == QColor(tc.ok)) {
         cameraIcon_->setPixmap(IconManager::instance().getIcon(Icons::CAMERA, 24,
             QColor(tc.ok), QColor(tc.ok)).pixmap(24, 24));
-    } else if (color == QColor(tc.warn)) {
+    } else if (statusColor_ == QColor(tc.warn)) {
         cameraIcon_->setPixmap(IconManager::instance().getIcon(Icons::CAMERA, 24,
             QColor(tc.warn), QColor(tc.warn)).pixmap(24, 24));
-    } else if (color == QColor(tc.critical)) {
+    } else if (statusColor_ == QColor(tc.critical)) {
         cameraIcon_->setPixmap(IconManager::instance().getIcon(Icons::CAMERA, 24,
             QColor(tc.critical), QColor(tc.critical)).pixmap(24, 24));
     } else {
         cameraIcon_->setPixmap(IconManager::instance().camera(24).pixmap(24, 24));
     }
 
-    // Update smart state
     updateSmartState();
+}
+
+void CameraCard::setStatus(const QString& text, const QColor& color) {
+    statusLabel_->setText(text);
+    statusColor_ = color;
+
+    // Remember the token role, so updateTheme() re-derives the chip fill from
+    // the new preset instead of keeping this shade.
+    statusTone_ = toneForColor(color);
+    applyStatusStyle();
 
     const QString ipSummary = detectedIpLabel_ ? detectedIpLabel_->text() : QString("Offline");
     cameraMetaLabel_->setText(QString("%1 | %2 | %3 | %4 | %5 | %6")

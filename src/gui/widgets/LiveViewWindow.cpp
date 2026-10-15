@@ -129,5 +129,8 @@ void LiveViewWindow::refreshCameraLabels() {
 
 void LiveViewWindow::updateTheme() {
     grid_->updateTheme();
+    // The single-camera page captured its overlay font when it was entered, so
+    // re-apply it (a non-empty family is not re-resolved at paint time).
+    single_->setOverlayFont(liveViewTitleFont());
     single_->update();
 }

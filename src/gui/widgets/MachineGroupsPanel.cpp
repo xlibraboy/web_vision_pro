@@ -22,19 +22,17 @@ MachineGroupsPanel::MachineGroupsPanel(QWidget* parent) : QWidget(parent) {
 
     // Header row: title hint + per-group counts.
     auto* header = new QHBoxLayout();
-    auto* hintLabel = new QLabel(
+    hintLabel_ = new QLabel(
         "Camera groups - fixed paper-machine sections. Assign each camera to a "
         "group on its Camera Card; an OPC UA trigger records the sections picked "
         "in its Records column.", this);
-    hintLabel->setWordWrap(true);
-    hintLabel->setStyleSheet(mutedLabelStyle());
-    header->addWidget(hintLabel, 1);
+    hintLabel_->setWordWrap(true);
+    header->addWidget(hintLabel_, 1);
 
     summaryLabel_ = new QLabel(this);
     QFont summaryFont = summaryLabel_->font();
     summaryFont.setBold(true);
     summaryLabel_->setFont(summaryFont);
-    summaryLabel_->setStyleSheet(mutedLabelStyle());
     summaryLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     header->addWidget(summaryLabel_);
     layout->addLayout(header);
@@ -51,6 +49,14 @@ MachineGroupsPanel::MachineGroupsPanel(QWidget* parent) : QWidget(parent) {
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
     layout->addWidget(table_, 1);
+
+    updateTheme();
+}
+
+void MachineGroupsPanel::updateTheme() {
+    const QString mutedStyle = mutedLabelStyle();
+    hintLabel_->setStyleSheet(mutedStyle);
+    summaryLabel_->setStyleSheet(mutedStyle);
 }
 
 void MachineGroupsPanel::setCameras(const std::vector<CameraInfo>& cameras) {

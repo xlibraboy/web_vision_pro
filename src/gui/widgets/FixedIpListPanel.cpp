@@ -22,6 +22,18 @@ QString mutedLabelStyle() {
 QColor onlineColor() { return QColor(CameraConfig::getThemeColors().ok); }
 QColor emulatedColor() { return QColor(CameraConfig::getThemeColors().info); }
 QColor offlineColor() { return QColor(CameraConfig::getThemeColors().muted); }
+
+// Color of a Detected IP cell: a real IP means the camera is reachable (green);
+// "Offline", "Offline - no hardware", etc. stay muted gray; Emulated is info.
+QColor detectedIpColor(const QString& display) {
+    if (display == QLatin1String("Emulated")) {
+        return emulatedColor();
+    }
+    if (display.startsWith(QLatin1String("Offline"))) {
+        return offlineColor();
+    }
+    return onlineColor();
+}
 }
 
 FixedIpListPanel::FixedIpListPanel(QWidget* parent) : QWidget(parent) {
@@ -31,16 +43,14 @@ FixedIpListPanel::FixedIpListPanel(QWidget* parent) : QWidget(parent) {
 
     // Header row: title hint + total count (the camera-ID counting lives here).
     auto* header = new QHBoxLayout();
-    auto* hintLabel = new QLabel("Fixed IP registry - set once at initial install, read-only here.", this);
-    hintLabel->setWordWrap(true);
-    hintLabel->setStyleSheet(mutedLabelStyle());
-    header->addWidget(hintLabel, 1);
+    hintLabel_ = new QLabel("Fixed IP registry - set once at initial install, read-only here.", this);
+    hintLabel_->setWordWrap(true);
+    header->addWidget(hintLabel_, 1);
 
     countLabel_ = new QLabel(this);
     QFont countFont = countLabel_->font();
     countFont.setBold(true);
     countLabel_->setFont(countFont);
-    countLabel_->setStyleSheet(mutedLabelStyle());
     header->addWidget(countLabel_);
     layout->addLayout(header);
 
@@ -56,6 +66,21 @@ FixedIpListPanel::FixedIpListPanel(QWidget* parent) : QWidget(parent) {
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table_->verticalHeader()->setVisible(false);
     layout->addWidget(table_, 1);
+
+    updateTheme();
+}
+
+void FixedIpListPanel::updateTheme() {
+    const QString mutedStyle = mutedLabelStyle();
+    hintLabel_->setStyleSheet(mutedStyle);
+    countLabel_->setStyleSheet(mutedStyle);
+
+    // The Detected IP colors live in the items, so re-tint the rows on screen.
+    for (int row = 0; row < table_->rowCount(); ++row) {
+        if (QTableWidgetItem* item = table_->item(row, 3)) {
+            item->setForeground(detectedIpColor(item->text()));
+        }
+    }
 }
 
 void FixedIpListPanel::setCameras(const std::vector<CameraInfo>& cameras,
@@ -76,15 +101,7 @@ void FixedIpListPanel::setCameras(const std::vector<CameraInfo>& cameras,
             : QString();
         const QString display = detected.isEmpty() ? QStringLiteral("Offline") : detected;
         auto* detectedItem = new QTableWidgetItem(display);
-        QColor fg = offlineColor();
-        if (display == QLatin1String("Emulated")) {
-            fg = emulatedColor();
-        } else if (!display.startsWith(QLatin1String("Offline"))) {
-            // A real IP means the camera is reachable (green); "Offline",
-            // "Offline - no hardware", etc. stay muted gray.
-            fg = onlineColor();
-        }
-        detectedItem->setForeground(fg);
+        detectedItem->setForeground(detectedIpColor(display));
         QFont mono = detectedItem->font();
         mono.setFamily(QStringLiteral("SF Mono"));
         mono.setStyleHint(QFont::Monospace);

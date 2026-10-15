@@ -23,26 +23,19 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     setWindowTitle(QStringLiteral("OPC UA Live Status"));
     resize(560, 420);
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-    setStyleSheet(QStringLiteral("OpcUaLiveStatusWindow { background-color: %1; }").arg(tc.bg));
-
     QFormLayout* statusForm = new QFormLayout();
     statusForm->setSpacing(6);
     statusForm->setHorizontalSpacing(16);
     statusForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-    QLabel* clientCaption = new QLabel("Client:", this);
-    clientCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
+    clientCaption_ = new QLabel("Client:", this);
     clientLabel_ = new QLabel(QStringLiteral("○ Idle (OPC UA disabled)"), this);
     clientLabel_->setWordWrap(true);
-    clientLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted));
-    statusForm->addRow(clientCaption, clientLabel_);
+    statusForm->addRow(clientCaption_, clientLabel_);
 
-    QLabel* speedCaption = new QLabel("Speed:", this);
-    speedCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text));
+    speedCaption_ = new QLabel("Speed:", this);
     speedLabel_ = new QLabel(QStringLiteral("—"), this);
-    speedLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
-    statusForm->addRow(speedCaption, speedLabel_);
+    statusForm->addRow(speedCaption_, speedLabel_);
 
     table_ = new QTableWidget(0, kStatusColumns, this);
     table_->setHorizontalHeaderLabels(QStringList()
@@ -53,11 +46,6 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     table_->setFocusPolicy(Qt::NoFocus);
     table_->setShowGrid(false);
     table_->setAlternatingRowColors(false);
-    table_->setStyleSheet(QString(
-        "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTableWidget::item { padding: 4px 8px; border: none; } "
-        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-    ).arg(tc.text, tc.primary, tc.border));
     QHeaderView* header = table_->horizontalHeader();
     header->setSectionResizeMode(0, QHeaderView::Stretch);
     header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -69,7 +57,6 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
         "No tag values yet — waiting for the OPC UA tags to publish.", this);
     emptyLabel_->setAlignment(Qt::AlignCenter);
     emptyLabel_->setWordWrap(true);
-    emptyLabel_->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted));
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(14, 14, 14, 14);
@@ -77,6 +64,30 @@ OpcUaLiveStatusWindow::OpcUaLiveStatusWindow(QWidget* parent)
     rootLayout->addLayout(statusForm);
     rootLayout->addWidget(table_, 1);
     rootLayout->addWidget(emptyLabel_, 1);
+
+    updateTheme();
+}
+
+void OpcUaLiveStatusWindow::updateTheme() {
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const QString bodySize = UiTypeScale::px(UiTypeScale::kBody);
+
+    setStyleSheet(QStringLiteral("OpcUaLiveStatusWindow { background-color: %1; }").arg(tc.bg));
+
+    clientCaption_->setStyleSheet(QString("color: %1; font-size: " + bodySize + ";").arg(tc.text));
+    speedCaption_->setStyleSheet(QString("color: %1; font-size: " + bodySize + ";").arg(tc.text));
+
+    // Base state, replaced by the live colors on the next updateStatus().
+    clientLabel_->setStyleSheet(QString("color: %1; font-size: " + bodySize + "; font-weight: 600;").arg(tc.muted));
+    speedLabel_->setStyleSheet(QString("color: %1; font-size: " + bodySize + ";").arg(tc.muted));
+
+    table_->setStyleSheet(QString(
+        "QTableWidget { background: transparent; border: none; color: %1; font-size: " + bodySize + "; } "
+        "QTableWidget::item { padding: 4px 8px; border: none; } "
+        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+    ).arg(tc.text, tc.primary, tc.border));
+
+    emptyLabel_->setStyleSheet(QString("color: %1; font-size: " + bodySize + ";").arg(tc.muted));
 }
 
 void OpcUaLiveStatusWindow::updateStatus(const OpcUaRuntimeStatus& status) {

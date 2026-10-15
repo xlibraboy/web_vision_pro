@@ -28,7 +28,11 @@ public:
     // Repopulate the table from the current camera set (one row per camera).
     void setCameras(const std::vector<CameraInfo>& cameras);
 
+    // Re-applies the preset-derived hint and summary label colors.
+    void updateTheme();
+
 private:
     QTableWidget* table_ = nullptr;
+    QLabel* hintLabel_ = nullptr;
     QLabel* summaryLabel_ = nullptr;
 };

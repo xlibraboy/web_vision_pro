@@ -10,6 +10,7 @@
 #include "../CameraInfo.h"
 
 class QComboBox;
+class QLabel;
 class QPushButton;
 struct ThemeColors;  // full definition in config/CameraConfig.h
 
@@ -46,6 +47,12 @@ public:
     // CameraConfig instead.
     void setCameras(const std::vector<CameraInfo>& cameras);
     void refresh();
+
+    // Re-apply the header chrome (labels, event/reference combos, zoom buttons)
+    // to the active color preset and repaint the canvas, which re-reads the
+    // theme every paint. The constructor calls this too, so the header styles
+    // live in exactly one place.
+    void updateTheme();
 
     // Enable/disable the read-only reference overlay (REFERENCE DATA combo).
     void setReferenceOverlayEnabled(bool on);
@@ -263,6 +270,8 @@ private:
     int skippedNoSpeedEvents_ = 0;
 
     Canvas* canvas_ = nullptr;
+    QLabel* eventLabel_ = nullptr;  // "DEFECTS FROM EVENT:" header caption
+    QLabel* refLabel_ = nullptr;    // "REFERENCE DATA:" header caption
     QComboBox* eventCombo_ = nullptr;
     QPushButton* zoomOutBtn_ = nullptr;
     QPushButton* zoomInBtn_ = nullptr;

@@ -28,26 +28,10 @@ QString pillStyle(const QColor& color, double fillAlpha = 0.16, double borderAlp
         .arg(color.red()).arg(color.green()).arg(color.blue())
         .arg(fillAlpha).arg(color.name()).arg(borderAlpha);
 }
-}  // namespace
 
-NetworkSummaryHeader::NetworkSummaryHeader(QWidget* parent)
-    : QFrame(parent)
-    , totalCount_(0)
-    , onlineCount_(0)
-    , warningCount_(0)
-    , errorCount_(0)
-    , offlineCount_(0)
-    , isRefreshing_(false) {
-
-    setupUI();
-    setupStyleSheet();
-}
-
-NetworkSummaryHeader::~NetworkSummaryHeader() = default;
-
-void NetworkSummaryHeader::setupUI() {
-    const ThemeColors tc = theme();
-    const QString secondaryButtonStyle = QString(
+// Secondary action chrome: button-role background with an accent hover.
+QString secondaryButtonStyle(const ThemeColors& tc) {
+    return QString(
         "QPushButton { "
         "  background-color: %1; "
         "  color: %2; "
@@ -65,10 +49,12 @@ void NetworkSummaryHeader::setupUI() {
         "QPushButton:pressed { "
         "  background-color: %3; "
         "}").arg(tc.btnBg, tc.text, tc.border, tc.btnHover, tc.primary);
+}
 
-    // Primary action: the app-wide "go" fill (ok) with ink text, so it keeps
-    // the best contrast of any theme on any status fill.
-    const QString primaryButtonStyle = QString(
+// Primary action: the app-wide "go" fill (ok) with ink text, so it keeps
+// the best contrast of any theme on any status fill.
+QString primaryButtonStyle(const ThemeColors& tc) {
+    return QString(
         "QPushButton { "
         "  background-color: %1; "
         "  color: %2; "
@@ -85,6 +71,28 @@ void NetworkSummaryHeader::setupUI() {
         "QPushButton:pressed { "
         "  background-color: %4; "
         "}").arg(tc.ok, tc.onStatus, QColor(tc.ok).lighter(112).name(), QColor(tc.ok).darker(108).name());
+}
+}  // namespace
+
+NetworkSummaryHeader::NetworkSummaryHeader(QWidget* parent)
+    : QFrame(parent)
+    , totalCount_(0)
+    , onlineCount_(0)
+    , warningCount_(0)
+    , errorCount_(0)
+    , offlineCount_(0)
+    , isRefreshing_(false)
+    , statusColor_()
+    , linkSpeedMbps_(0) {
+
+    setupUI();
+    updateTheme();
+}
+
+NetworkSummaryHeader::~NetworkSummaryHeader() = default;
+
+void NetworkSummaryHeader::setupUI() {
+    const ThemeColors tc = theme();
 
     setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
     setMinimumHeight(112);
@@ -117,11 +125,9 @@ void NetworkSummaryHeader::setupUI() {
     titleLayout->setContentsMargins(0, 0, 0, 0);
 
     titleLabel_ = new QLabel("Network Status", this);
-    titleLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;").arg(tc.text));
     titleLayout->addWidget(titleLabel_);
 
     summaryLabel_ = new QLabel("Review camera connectivity and assignment before saving.", this);
-    summaryLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1;").arg(tc.muted));
     titleLayout->addWidget(summaryLabel_);
 
     headerLayout_->addWidget(titleBlock, 1);
@@ -135,7 +141,6 @@ void NetworkSummaryHeader::setupUI() {
     refreshBtn_ = new QPushButton("Refresh", this);
     refreshBtn_->setIcon(IconManager::instance().refresh(16));
     refreshBtn_->setCursor(Qt::PointingHandCursor);
-    refreshBtn_->setStyleSheet(secondaryButtonStyle);
     connect(refreshBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::refreshRequested);
     actionLayout->addWidget(refreshBtn_);
 
@@ -144,7 +149,6 @@ void NetworkSummaryHeader::setupUI() {
     addBtn_->setIcon(IconManager::instance().getIcon(Icons::ADD, 16,
                                                      QColor(tc.onStatus), QColor(tc.onStatus)));
     addBtn_->setCursor(Qt::PointingHandCursor);
-    addBtn_->setStyleSheet(primaryButtonStyle);
     connect(addBtn_, &QPushButton::clicked, this, &NetworkSummaryHeader::addCameraRequested);
     actionLayout->addWidget(addBtn_);
 
@@ -158,9 +162,6 @@ void NetworkSummaryHeader::setupUI() {
 
     // Status indicator
     statusLabel_ = new QLabel("Scanning network...", this);
-    statusLabel_->setStyleSheet(QString(
-        "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 500; color: %1;"
-    ).arg(tc.muted));
     statusLayout_->addWidget(statusLabel_, 1);
 
     statusLayout_->addSpacing(8);
@@ -171,25 +172,46 @@ void NetworkSummaryHeader::setupUI() {
     indicatorsLayout->setSpacing(8);
     indicatorsLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto createIndicator = [&](const QString& label, const QColor& color) -> QLabel* {
+    auto createIndicator = [&](const QString& label) -> QLabel* {
         QLabel* indicator = new QLabel(QString("%1: 0").arg(label), indicatorsWidget_);
-        indicator->setStyleSheet(pillStyle(color));
         indicatorsLayout->addWidget(indicator);
         return indicator;
     };
 
-    totalIndicator_ = createIndicator("Total", QColor(tc.text));
-    onlineIndicator_ = createIndicator("Online", QColor(tc.ok));
-    warningIndicator_ = createIndicator("Warning", QColor(tc.warn));
-    errorIndicator_ = createIndicator("Error", QColor(tc.critical));
-    offlineIndicator_ = createIndicator("Offline", QColor(tc.muted));
-    linkIndicator_ = createIndicator("Link", QColor(tc.muted));
+    totalIndicator_ = createIndicator("Total");
+    onlineIndicator_ = createIndicator("Online");
+    warningIndicator_ = createIndicator("Warning");
+    errorIndicator_ = createIndicator("Error");
+    offlineIndicator_ = createIndicator("Offline");
+    linkIndicator_ = createIndicator("Link");
     linkIndicator_->setText("Link: --");
     linkIndicator_->setToolTip("Negotiated speed of the vision NIC carrying the camera subnets. "
                                "Below 1 Gb/s, high-FPS streams drop frames.");
 
     statusLayout_->addWidget(indicatorsWidget_);
     mainLayout_->addLayout(statusLayout_);
+}
+
+void NetworkSummaryHeader::updateTheme() {
+    setupStyleSheet();
+
+    const ThemeColors tc = theme();
+
+    refreshBtn_->setStyleSheet(secondaryButtonStyle(tc));
+    addBtn_->setStyleSheet(primaryButtonStyle(tc));
+
+    titleLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;").arg(tc.text));
+    summaryLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1;").arg(tc.muted));
+    applyStatusLabelStyle();
+
+    // Count pills are one token color each; the link badge keeps its runtime
+    // state, so it refreshes through refreshLinkIndicator().
+    totalIndicator_->setStyleSheet(pillStyle(QColor(tc.text)));
+    onlineIndicator_->setStyleSheet(pillStyle(QColor(tc.ok)));
+    warningIndicator_->setStyleSheet(pillStyle(QColor(tc.warn)));
+    errorIndicator_->setStyleSheet(pillStyle(QColor(tc.critical)));
+    offlineIndicator_->setStyleSheet(pillStyle(QColor(tc.muted)));
+    refreshLinkIndicator();
 }
 
 void NetworkSummaryHeader::setupStyleSheet() {
@@ -206,11 +228,21 @@ void NetworkSummaryHeader::setupStyleSheet() {
 void NetworkSummaryHeader::setNetworkStatus(const QString& status, const QColor& color) {
     statusLabel_->setText(status);
 
-    const QColor resolved = color.isValid() ? color : QColor(theme().ok);
-    // Update status label color
+    // An invalid color resolves to the ok token; cache the resolved ink so
+    // updateTheme() can re-apply it after a preset change.
+    statusColor_ = color.isValid() ? color : QColor(theme().ok);
+    applyStatusLabelStyle();
+}
+
+void NetworkSummaryHeader::applyStatusLabelStyle() {
+    const ThemeColors tc = theme();
+
+    // A resolved status carries its own ink; the muted "Scanning network..."
+    // holding state (no setNetworkStatus() yet) stays lighter.
+    const bool hasStatus = statusColor_.isValid();
     statusLabel_->setStyleSheet(QString(
-        "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 600; color: %1;"
-    ).arg(resolved.name()));
+        "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: %1; color: %2;"
+    ).arg(hasStatus ? 600 : 500).arg(hasStatus ? statusColor_.name() : tc.muted));
 }
 
 void NetworkSummaryHeader::setCameraCounts(int total, int online, int warning, int error, int offline) {
@@ -229,20 +261,26 @@ void NetworkSummaryHeader::setCameraCounts(int total, int online, int warning, i
 }
 
 void NetworkSummaryHeader::setLinkSpeedMbps(int mbps) {
-    const ThemeColors tc = theme();
+    linkSpeedMbps_ = mbps;
+    refreshLinkIndicator();
+}
+
+void NetworkSummaryHeader::refreshLinkIndicator() {
     if (!linkIndicator_) {
         return;
     }
-    if (mbps <= 0) {
+
+    const ThemeColors tc = theme();
+    if (linkSpeedMbps_ <= 0) {
         linkIndicator_->setText("Link: --");
         linkIndicator_->setStyleSheet(pillStyle(QColor(tc.muted)));
         return;
     }
-    const QString text = (mbps >= 1000)
-        ? QString("Link: %1 Gb/s").arg(mbps / 1000.0, 0, 'f', mbps % 1000 == 0 ? 0 : 1)
-        : QString("Link: %1 Mb/s").arg(mbps);
-    const QColor color = (mbps >= 1000) ? QColor(tc.ok)
-                                        : QColor(tc.warn); // <1 Gb/s: warning
+    const QString text = (linkSpeedMbps_ >= 1000)
+        ? QString("Link: %1 Gb/s").arg(linkSpeedMbps_ / 1000.0, 0, 'f', linkSpeedMbps_ % 1000 == 0 ? 0 : 1)
+        : QString("Link: %1 Mb/s").arg(linkSpeedMbps_);
+    const QColor color = (linkSpeedMbps_ >= 1000) ? QColor(tc.ok)
+                                                  : QColor(tc.warn); // <1 Gb/s: warning
     linkIndicator_->setText(text);
     linkIndicator_->setStyleSheet(pillStyle(color));
 }

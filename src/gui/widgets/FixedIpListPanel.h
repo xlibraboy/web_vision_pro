@@ -35,7 +35,12 @@ public:
     void setCameras(const std::vector<CameraInfo>& cameras,
                     const std::vector<QString>& detectedIps);
 
+    // Re-applies the preset-derived label colors and re-tints the Detected IP
+    // column of the rows already on screen.
+    void updateTheme();
+
 private:
     QTableWidget* table_ = nullptr;
+    QLabel* hintLabel_ = nullptr;
     QLabel* countLabel_ = nullptr;
 };

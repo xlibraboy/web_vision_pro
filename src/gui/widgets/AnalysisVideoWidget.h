@@ -106,7 +106,6 @@ private:
     QPoint markerEnd_;
     QVector<QPoint> markerPenPoints_;
     QVector<QPointF> markerNormalizedPoints_;
-    QColor markerColor_;  // resolved from the theme accent in the constructor
     double zoomFactor_ = 1.0;
     int brightnessOffset_ = 0;
     QPointF panOffset_;
@@ -114,6 +113,9 @@ private:
     bool panning_ = false;
     QRect imageDrawRect_;
     QPoint normalizedToWidgetPoint(const QPointF& point) const;
+    // Marker ink: the accent of the theme the widget is currently showing
+    // (a preview override when the UI Preferences page is previewing one).
+    QColor markerColor() const;
     QPointF widgetToNormalizedPoint(const QPoint& point) const;
     QVector<QPoint> currentMarkerDisplayPoints() const;
     QLabel* titleLabel_;

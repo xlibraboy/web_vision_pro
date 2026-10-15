@@ -4,6 +4,7 @@
 #include "../config/UiTypeScale.h"
 #include "../config/AppVersion.h"
 #include "ConfigDialog.h"
+#include "widgets/IconManager.h"
 #include "../communication/OpcUaClientService.h"
 #include "../core/EventDatabase.h"
 #include <pylon/PylonVersionInfo.h>
@@ -195,7 +196,7 @@ public:
         passwordEdit_->setEchoMode(QLineEdit::Password);
         passwordEdit_->setPlaceholderText("Enter password...");
         passwordEdit_->setMinimumWidth(220);
-        const QColor fg = palette().color(QPalette::WindowText);
+        const QColor fg = QColor(CameraConfig::getThemeColors().text);
         toggleAction_ = passwordEdit_->addAction(makeEyeIcon(false, fg), QLineEdit::TrailingPosition);
         toggleAction_->setCheckable(true);
         toggleAction_->setToolTip("Show password");
@@ -1562,6 +1563,12 @@ void MainWindow::ensureConfigTab() {
             }
         });
 
+        // A preset picked in the Color Theme dropdown is shown app-wide at once
+        // (CameraConfig carries it as the preview override until Save/Apply).
+        connect(configWindow_, &ConfigDialog::themePreviewRequested, this, [this](int) {
+            applyGlobalTheme();
+        });
+
         connect(configWindow_, &ConfigDialog::cameraDeviceSettingsChanged, this,
                 [this](int cameraIndex, const CameraInfo& info) {
                     // The acquisition fps may have changed: resize the ring
@@ -1631,7 +1638,8 @@ void MainWindow::updateConfigTabAccess() {
     }
 
     mainTabWidget_->setTabEnabled(tabIndex, isAdmin_);
-    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? palette().color(QPalette::WindowText) : QColor(CameraConfig::getThemeColors().disabled));
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? QColor(tc.text) : QColor(tc.disabled));
     configWindow_->setAdminMode(isAdmin_);
 }
 
@@ -1874,6 +1882,17 @@ void MainWindow::applyGlobalTheme() {
     const QString diskCriticalWash = tint(tc.critical, 0.18);
     const QString diskCriticalHoverWash = tint(tc.critical, 0.34);
 
+    // The shipped arrow assets have a fixed fill; render them in this theme's
+    // ink so every spin box's steppers match the preset.
+    const QString spinArrowUp = IconManager::themedAssetFile(
+        QStringLiteral(":/assets/icons/arrow_up.svg"), QColor(textColor));
+    const QString spinArrowDown = IconManager::themedAssetFile(
+        QStringLiteral(":/assets/icons/arrow_down.svg"), QColor(textColor));
+    const QString spinArrowUpDisabled = IconManager::themedAssetFile(
+        QStringLiteral(":/assets/icons/arrow_up_disabled.svg"), QColor(disabledColor));
+    const QString spinArrowDownDisabled = IconManager::themedAssetFile(
+        QStringLiteral(":/assets/icons/arrow_down_disabled.svg"), QColor(disabledColor));
+
     QString globalStyle = QString(
         // Base Window & Widget backgrounds
         "QMainWindow, QDialog { background-color: %1; color: %8; }"
@@ -1960,10 +1979,10 @@ void MainWindow::applyGlobalTheme() {
         "QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 16px; border-left: 1px solid %2; border-top: 1px solid %2; background-color: %3; }"
         "QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover { background-color: %4; }"
         "QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background-color: %4; }"
-        "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url(:/assets/icons/arrow_up.svg); width: 8px; height: 8px; }"
-        "QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled { image: url(:/assets/icons/arrow_up_disabled.svg); }"
-        "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url(:/assets/icons/arrow_down.svg); width: 8px; height: 8px; }"
-        "QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled { image: url(:/assets/icons/arrow_down_disabled.svg); }"
+        "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url(" + spinArrowUp + "); width: 8px; height: 8px; }"
+        "QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled { image: url(" + spinArrowUpDisabled + "); }"
+        "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url(" + spinArrowDown + "); width: 8px; height: 8px; }"
+        "QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled { image: url(" + spinArrowDownDisabled + "); }"
         // Specific Overrides for Playback Panel to match theme instead of staying transparent
         "QWidget#playbackPanel QPushButton { background-color: %3; border: 1px solid %2; padding: 4px; border-radius: 4px; }"
         "QWidget#playbackPanel QPushButton:hover { background-color: %4; border-color: %5; }"
@@ -1991,6 +2010,13 @@ void MainWindow::applyGlobalTheme() {
     if (detailView_) detailView_->updateTheme();
     if (analysisView_) analysisView_->updateTheme();
     if (liveViewWindow_) liveViewWindow_->updateTheme();
+
+    // Widgets with locally-built stylesheets that outlive a single theme change:
+    // the configuration tab is created once and kept for the session, and both
+    // help dialogs are cached after their first opening.
+    if (configWindow_) configWindow_->updateTheme();
+    if (docsDialog_) docsDialog_->updateTheme();
+    if (changelogDialog_) changelogDialog_->updateTheme();
 
     // The admin pill's padlock is a code-drawn pixmap, so re-tint it for the
     // new theme (its colors otherwise follow the stylesheet automatically).

@@ -23,6 +23,9 @@
 #include "../config/CameraConfig.h"
 #include "../communication/OpcUaRuntimeStatus.h"
 #include <array>
+#include <functional>
+#include <utility>
+#include <vector>
 
 
 // Forward declarations for new widgets
@@ -60,6 +63,9 @@ public:
     // Switch the left sidebar to the Recording & Triggers page (used when the
     // operator clicks the low-disk badge in the status bar).
     void showRecordingSettingsPage();
+    // Re-apply every theme-derived style (page chrome, controls, the panels
+    // below and both previews) after the color theme preset changed.
+    void updateTheme();
 
     ~ConfigDialog() override;
 
@@ -67,6 +73,9 @@ signals:
     // True when camera configuration changed and acquisition should be restarted.
     void configUpdated(bool requiresCameraRestart);
     void themeSelectionChanged();
+    // A preset was picked in the Color Theme dropdown but not saved yet: the
+    // receiver should show it app-wide (see CameraConfig::setThemePreview).
+    void themePreviewRequested(int themePreset);
     void cameraDeviceSettingsChanged(int cameraIndex, const CameraInfo& info);
     // Manual push-hold trigger button: emitted while the operator holds a row's
     // button (true) and on release (false). Carries the row's live config so the
@@ -105,6 +114,17 @@ private slots:
 private:
     void setupUI();
     void loadSettings();
+    // Applies a theme-derived stylesheet now and remembers how to rebuild it, so
+    // updateTheme() can re-apply every one of them after a preset change.
+    void registerThemed(QWidget* widget, std::function<QString(const ThemeColors&)> build);
+    void applyThemeStyles();
+    // Drops a theme preview whose pick was never saved (leaving the UI
+    // Preferences page, hiding the dialog, or leaving admin mode).
+    void discardUnsavedThemePreview();
+    // Rebuild the Live View / Analysis preview panes from the preset currently
+    // picked in the Color Theme dropdown (which may not be saved yet).
+    std::function<void()> refreshTypographyPreviews_;
+    std::function<void()> refreshAnalysisPreview_;
     void setupUiModificationTracking();
     void createCameraWidgetBlock(const CameraInfo& cam);
     void refreshFixedIpList();
@@ -226,7 +246,6 @@ private:
 
     // New premium methods
     void setupPremiumUI();
-    void updateCameraCardStatuses();
     void updateNetworkSummary();
     void connectCameraCardSignals(CameraCard* card);
     CameraCard* findCameraCard(int cameraId) const;
@@ -244,12 +263,16 @@ private:
     QLabel* recordingInfoLabel_ = nullptr;
     QSpinBox* eventRetentionSpin_;
     QSpinBox* lowDiskThresholdSpin_ = nullptr;
-    QButtonGroup* themeButtonGroup_ = nullptr;
-    QPushButton* themeCards_[8] = {};
     int selectedThemeIndex_ = 0;
     QComboBox* themeCombo_ = nullptr;
-    QWidget* themeGridWidget_ = nullptr;
-    QGridLayout* themeGridLayout_ = nullptr;
+    // Sidebar row of the UI Preferences page (its theme pick is preview-only
+    // until saved, so leaving the page discards it).
+    int uiPreferencesPageRow_ = -1;
+    // True while the dropdown is previewing a pick that has not been saved.
+    bool themePreviewPending_ = false;
+    // Every widget whose stylesheet is built from theme tokens, paired with the
+    // builder that produces it; replayed by applyThemeStyles().
+    std::vector<std::pair<QWidget*, std::function<QString(const ThemeColors&)>>> themedStyles_;
     QComboBox* liveViewGridTitleFontCombo_ = nullptr;
     QSpinBox* liveViewGridTitleSizeSpin_ = nullptr;
     QComboBox* liveViewDetailTitleFontCombo_ = nullptr;
@@ -409,14 +432,9 @@ private:
         QPushButton* btnL = nullptr;
         QSpinBox* targetSpin = nullptr;
         int presetS = 0, presetM = 0, presetL = 0;
-        QString activeStyle;
-        QString inactiveStyle;
-        void updateStyles() {
-            const int val = targetSpin->value();
-            if (btnS) btnS->setStyleSheet(val == presetS ? activeStyle : inactiveStyle);
-            if (btnM) btnM->setStyleSheet(val == presetM ? activeStyle : inactiveStyle);
-            if (btnL) btnL->setStyleSheet(val == presetL ? activeStyle : inactiveStyle);
-        }
+        // Pills are re-styled from the current theme so the active/inactive
+        // pair always matches the selected preset.
+        void updateStyles(const ThemeColors& tc);
     };
 
     PresetButtonGroup liveViewGridTitlePresets_;

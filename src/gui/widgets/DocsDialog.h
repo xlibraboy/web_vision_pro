@@ -2,6 +2,7 @@
 
 #include <QDialog>
 
+class QLabel;
 class QListWidget;
 class QTextBrowser;
 
@@ -17,9 +18,13 @@ class DocsDialog : public QDialog {
 public:
     explicit DocsDialog(QWidget* parent = nullptr);
 
+    // Re-applies every preset-derived color (header, browser document, list).
+    void updateTheme();
+
 private:
     void addSection(const QString& title, const QString& html);
 
+    QLabel* headerLabel_ = nullptr;
     QListWidget* sectionList_ = nullptr;
     QTextBrowser* contentBrowser_ = nullptr;
 };

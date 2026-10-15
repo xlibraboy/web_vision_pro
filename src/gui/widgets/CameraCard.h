@@ -6,6 +6,7 @@
 #include <QPropertyAnimation>
 #include <QParallelAnimationGroup>
 #include <QGraphicsDropShadowEffect>
+#include <QList>
 #include <QSet>
 #include <vector>
 #include "../../config/CameraConfig.h"
@@ -78,6 +79,10 @@ public:
     void updateMacCombo(const std::vector<GigEDeviceInfo>& devices, const QString& current,
                         const QSet<QString>& reservedMacs);
 
+    // Re-applies every theme-derived style after a preset change; the
+    // constructor calls it too, so the style strings live in one place.
+    void updateTheme();
+
     // Animation
     void setExpanded(bool expanded, bool animate = true);
     bool isExpanded() const { return isExpanded_; }
@@ -110,7 +115,14 @@ private:
     void updateHeader(const CameraInfo& info);
     void createStatusIndicator();
     void updateElevation(bool hovered);
+    void applyStatusStyle();
     QString currentMacValue() const;
+
+    // Status chip role of the last setStatus() color. muted shifts between
+    // presets, so the chip fill is re-derived from the current tokens on a
+    // theme change; Custom keeps the exact color the caller passed.
+    enum class StatusTone { Pending, Ok, Warn, Critical, Info, Muted, Custom };
+    static StatusTone toneForColor(const QColor& color);
 
     // Animation properties
     int contentHeight() const { return contentHeight_; }
@@ -155,6 +167,15 @@ private:
     QComboBox* macCombo_;
     QPushButton* deviceSettingsBtn_;
 
+    // Widgets that share one themed stylesheet, re-applied by updateTheme().
+    // Kept explicit because a findChildren<>() sweep would clobber the
+    // deliberate per-widget variants (status chip, value labels, buttons).
+    QList<QGroupBox*> themedGroups_;
+    QList<QWidget*> themedFields_;
+    QList<QLabel*> themedFieldLabels_;
+    QList<QLabel*> accentValueLabels_;   // configured values: accent ink
+    QList<QLabel*> mutedValueLabels_;    // detected values: secondary ink
+
     // Data
     int cameraId_;
     bool isExpanded_;
@@ -169,6 +190,7 @@ private:
     QGraphicsDropShadowEffect* shadowEffect_;
 
     // Styling
+    StatusTone statusTone_;
     QColor statusColor_;
     CameraInfo cameraInfo_;
     static constexpr int ANIMATION_DURATION = 250; // ms
