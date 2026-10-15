@@ -1056,27 +1056,27 @@ void ConfigDialog::setupUI() {
     sidebar->setFixedWidth(kSidebarMinWidth);
     registerThemed(sidebar, [](const ThemeColors& tc) {
         return QString(
-        "QListWidget { "
-        "  background-color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 8px; "
-        "  outline: 0; "
-        "} "
-        "QListWidget::item { "
-        "  padding: 10px 12px; "
-        "  color: %3; "
-        "  font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; "
-        "  font-weight: 600; "
-        "  border-bottom: 1px solid %2; "
-        "} "
-        "QListWidget::item:selected { "
-        "  background-color: %4; "
-        "  border-left: 4px solid %5; "
-        "} "
-        "QListWidget::item:hover:!selected { "
-        "  background-color: %4; "
-        "}"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary);
+            "QListWidget { "
+            "  background-color: %1; "
+            "  border: 1px solid %2; "
+            "  border-radius: 8px; "
+            "  outline: 0; "
+            "} "
+            "QListWidget::item { "
+            "  padding: 10px 12px; "
+            "  color: %3; "
+            "  font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; "
+            "  font-weight: 600; "
+            "  border-bottom: 1px solid %2; "
+            "} "
+            "QListWidget::item:selected { "
+            "  background-color: %4; "
+            "  border-left: 4px solid %5; "
+            "} "
+            "QListWidget::item:hover:!selected { "
+            "  background-color: %4; "
+            "}"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.bg, tc.primary);
     });
 
     QStackedWidget* stackedWidget = new QStackedWidget(this);
@@ -1110,24 +1110,24 @@ void ConfigDialog::setupUI() {
     cameraScrollArea_->setFrameShape(QFrame::NoFrame);
     registerThemed(cameraScrollArea_, [](const ThemeColors& tc) {
         return QString(
-        "QScrollArea { border: none; background: transparent; } "
-        "QScrollBar:vertical { "
-        "  background-color: %1; "
-        "  width: 12px; "
-        "  border-radius: 6px; "
-        "} "
-        "QScrollBar::handle:vertical { "
-        "  background-color: %2; "
-        "  border-radius: 6px; "
-        "  min-height: 30px; "
-        "} "
-        "QScrollBar::handle:vertical:hover { "
-        "  background-color: %3; "
-        "} "
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
-        "  height: 0px; "
-        "}"
-    ).arg(tc.bg, tc.btnBg, tc.primary);
+            "QScrollArea { border: none; background: transparent; } "
+            "QScrollBar:vertical { "
+            "  background-color: %1; "
+            "  width: 12px; "
+            "  border-radius: 6px; "
+            "} "
+            "QScrollBar::handle:vertical { "
+            "  background-color: %2; "
+            "  border-radius: 6px; "
+            "  min-height: 30px; "
+            "} "
+            "QScrollBar::handle:vertical:hover { "
+            "  background-color: %3; "
+            "} "
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
+            "  height: 0px; "
+            "}"
+        ).arg(tc.bg, tc.btnBg, tc.primary);
     });
 
     cameraScrollWidget_ = new QWidget();
@@ -1143,12 +1143,12 @@ void ConfigDialog::setupUI() {
     cameraSubTabs->setDocumentMode(true);
     registerThemed(cameraSubTabs, [](const ThemeColors& tc) {
         return QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
-        "QTabBar::tab:!selected { margin-top: 3px; color: %3; } "
-        "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary);
+            "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
+            "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
+            "QTabBar::tab:!selected { margin-top: 3px; color: %3; } "
+            "QTabBar::tab:hover { color: %4; }"
+        ).arg(tc.border, tc.btnBg, tc.text, tc.primary);
     });
 
     // Tab 1: Camera Cards (existing scroll area + save button)
@@ -1252,7 +1252,7 @@ void ConfigDialog::setupUI() {
     recordingInfoLabel_->setWordWrap(true);
     registerThemed(recordingInfoLabel_, [](const ThemeColors& tc) {
         return QString(
-        "QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text);
+            "QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text);
     });
     recordingForm->addRow(recordingInfoLabel_);
     connect(globalFpsSpin_, QOverload<int>::of(&QSpinBox::valueChanged),
@@ -1273,18 +1273,18 @@ void ConfigDialog::setupUI() {
     cameraSourceCombo_->addItem("Emulated Cameras (no hardware)", static_cast<int>(CameraConfig::CameraSource::Emulation));
     registerThemed(cameraSourceCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { "
-        "  background-color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 6px; "
-        "  padding: 6px 10px; "
-        "  color: %3; "
-        "  min-width: 180px; "
-        "} "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; width: 22px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { "
+            "  background-color: %1; "
+            "  border: 1px solid %2; "
+            "  border-radius: 6px; "
+            "  padding: 6px 10px; "
+            "  color: %3; "
+            "  min-width: 180px; "
+            "} "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; width: 22px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     cameraModeForm->addRow("Camera Source:", cameraSourceCombo_);
 
@@ -1296,7 +1296,7 @@ void ConfigDialog::setupUI() {
         "page or toggling the Server button in the Analysis View.", bufferGroup);
     cameraModeNote->setWordWrap(true);
     registerThemed(cameraModeNote, [](const ThemeColors& tc) {
-        return QString("color: %1; padding-top: 4px;").arg(tc.text);
+            return QString("color: %1; padding-top: 4px;").arg(tc.text);
     });
     cameraModeForm->addRow("", cameraModeNote);
 
@@ -1318,8 +1318,8 @@ void ConfigDialog::setupUI() {
     eventStoragePathEdit_->setReadOnly(true);
     registerThemed(eventStoragePathEdit_, [](const ThemeColors& tc) {
         return QString(
-        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-    ).arg(tc.btnBg, tc.text, tc.border);
+            "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        ).arg(tc.btnBg, tc.text, tc.border);
     });
     eventStorageRowLayout->addWidget(eventStoragePathEdit_, 1);
 
@@ -1354,7 +1354,7 @@ void ConfigDialog::setupUI() {
     QLabel* eventStorageNote = new QLabel("Used by new recordings and historical event loading.", bufferGroup);
     eventStorageNote->setWordWrap(true);
     registerThemed(eventStorageNote, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-style: italic;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-style: italic;").arg(tc.text);
     });
     retentionForm->addRow("", eventStorageNote);
 
@@ -1363,8 +1363,8 @@ void ConfigDialog::setupUI() {
     storageStatsLabel_->setWordWrap(true);
     registerThemed(storageStatsLabel_, [](const ThemeColors& tc) {
         return QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-top: 4px;"
-    ).arg(tc.text);
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-top: 4px;"
+        ).arg(tc.text);
     });
     retentionForm->addRow("Storage:", storageStatsLabel_);
 
@@ -1401,8 +1401,8 @@ void ConfigDialog::setupUI() {
     recordingUnsavedIndicator_ = new QLabel(bufferGroup);
     registerThemed(recordingUnsavedIndicator_, [](const ThemeColors& tc) {
         return QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
-    ).arg(tc.warn);
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
+        ).arg(tc.warn);
     });
     recordingUnsavedIndicator_->setText("");
     recordingUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
@@ -1428,24 +1428,24 @@ void ConfigDialog::setupUI() {
     opcUaScrollArea->setFrameShape(QFrame::NoFrame);
     registerThemed(opcUaScrollArea, [](const ThemeColors& tc) {
         return QString(
-        "QScrollArea { border: none; background: transparent; } "
-        "QScrollBar:vertical { "
-        "  background-color: %1; "
-        "  width: 12px; "
-        "  border-radius: 6px; "
-        "} "
-        "QScrollBar::handle:vertical { "
-        "  background-color: %2; "
-        "  border-radius: 6px; "
-        "  min-height: 30px; "
-        "} "
-        "QScrollBar::handle:vertical:hover { "
-        "  background-color: %3; "
-        "} "
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
-        "  height: 0px; "
-        "}"
-    ).arg(tc.bg, tc.btnBg, tc.primary);
+            "QScrollArea { border: none; background: transparent; } "
+            "QScrollBar:vertical { "
+            "  background-color: %1; "
+            "  width: 12px; "
+            "  border-radius: 6px; "
+            "} "
+            "QScrollBar::handle:vertical { "
+            "  background-color: %2; "
+            "  border-radius: 6px; "
+            "  min-height: 30px; "
+            "} "
+            "QScrollBar::handle:vertical:hover { "
+            "  background-color: %3; "
+            "} "
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { "
+            "  height: 0px; "
+            "}"
+        ).arg(tc.bg, tc.btnBg, tc.primary);
     });
     QWidget* opcUaGroup = new QWidget(opcUaScrollArea);
     QVBoxLayout* opcUaLayout = new QVBoxLayout(opcUaGroup);
@@ -1463,7 +1463,7 @@ void ConfigDialog::setupUI() {
 
     QLabel* opcUaHeaderLabel = new QLabel("OPC UA Client", opcUaGroup);
     registerThemed(opcUaHeaderLabel, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;").arg(tc.primary);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;").arg(tc.primary);
     });
     opcUaLayout->addWidget(opcUaHeaderLabel);
 
@@ -1472,7 +1472,7 @@ void ConfigDialog::setupUI() {
         opcUaGroup);
     opcUaDescriptionLabel->setWordWrap(true);
     registerThemed(opcUaDescriptionLabel, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
     });
     opcUaLayout->addWidget(opcUaDescriptionLabel);
 
@@ -1480,12 +1480,12 @@ void ConfigDialog::setupUI() {
     opcUaTabs->setDocumentMode(true);
     registerThemed(opcUaTabs, [](const ThemeColors& tc) {
         return QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
-        "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
-        "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
+            "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
+            "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
+            "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
+            "QTabBar::tab:hover { color: %4; }"
+        ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
     });
     opcUaLayout->addWidget(opcUaTabs, 1);
 
@@ -1500,7 +1500,7 @@ void ConfigDialog::setupUI() {
 
     opcUaEnabledCheck_ = new QCheckBox("Enable OPC UA client", opcUaConnectionGroup);
     registerThemed(opcUaEnabledCheck_, [](const ThemeColors& tc) {
-        return QString("color: %1;").arg(tc.text);
+            return QString("color: %1;").arg(tc.text);
     });
     opcUaConnectionForm->addRow("Client:", opcUaEnabledCheck_);
 
@@ -1516,7 +1516,7 @@ void ConfigDialog::setupUI() {
     opcUaDiscoveryStatusLabel_ = new QLabel("Checking for discoverable OPC UA servers...", opcUaEndpointActions);
     opcUaDiscoveryStatusLabel_->setWordWrap(true);
     registerThemed(opcUaDiscoveryStatusLabel_, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text);
     });
     opcUaEndpointActionsLayout->addWidget(opcUaDiscoveryStatusLabel_, 1);
 
@@ -1591,7 +1591,7 @@ void ConfigDialog::setupUI() {
         opcUaTriggerGroup);
     opcUaTriggerNote->setWordWrap(true);
     registerThemed(opcUaTriggerNote, [](const ThemeColors& tc) {
-        return QString("color: %1;").arg(tc.text);
+            return QString("color: %1;").arg(tc.text);
     });
     opcUaTriggerLayout->addWidget(opcUaTriggerNote);
 
@@ -1624,7 +1624,7 @@ void ConfigDialog::setupUI() {
         OpcUaTriggerRowWidgets& row = opcUaTriggerRows_[static_cast<size_t>(i)];
         row.enabledCheck = new QCheckBox(opcUaTriggerGroup);
         registerThemed(row.enabledCheck, [](const ThemeColors& tc) {
-        return QString("color: %1;").arg(tc.text);
+            return QString("color: %1;").arg(tc.text);
     });
         opcUaTriggerGrid->addWidget(row.enabledCheck, i + 1, 0, Qt::AlignCenter);
 
@@ -1664,9 +1664,9 @@ void ConfigDialog::setupUI() {
         row.recordGroupsBtn->setMinimumWidth(120);
         QMenu* recordGroupsMenu = new QMenu(row.recordGroupsBtn);
         registerThemed(recordGroupsMenu, [](const ThemeColors& tc) {
-        return QString("QMenu { background-color: %1; color: %2; border: 1px solid %3; } "
-                    "QMenu::item:selected { color: %4; }")
-                .arg(tc.btnBg, tc.text, tc.border, tc.primary);
+            return QString("QMenu { background-color: %1; color: %2; border: 1px solid %3; } "
+                        "QMenu::item:selected { color: %4; }")
+                    .arg(tc.btnBg, tc.text, tc.border, tc.primary);
     });
         row.recordGroupActions.clear();
         row.recordGroups.clear();
@@ -1768,7 +1768,7 @@ void ConfigDialog::setupUI() {
         opcUaSpeedGroup);
     opcUaSpeedNote->setWordWrap(true);
     registerThemed(opcUaSpeedNote, [](const ThemeColors& tc) {
-        return QString("color: %1;").arg(tc.text);
+            return QString("color: %1;").arg(tc.text);
     });
     opcUaSpeedGroupLayout->addWidget(opcUaSpeedNote);
 
@@ -1799,7 +1799,7 @@ void ConfigDialog::setupUI() {
         OpcUaSpeedRowWidgets& row = opcUaSpeedRows_[static_cast<size_t>(i)];
         row.enabledCheck = new QCheckBox(opcUaSpeedGroup);
         registerThemed(row.enabledCheck, [](const ThemeColors& tc) {
-        return QString("color: %1;").arg(tc.text);
+            return QString("color: %1;").arg(tc.text);
     });
         opcUaSpeedGrid->addWidget(row.enabledCheck, i + 1, sc, Qt::AlignCenter);
 
@@ -1943,21 +1943,21 @@ void ConfigDialog::setupUI() {
 
     QLabel* opcUaStatusClientCaption = new QLabel("Client:", opcUaStatusGroup);
     registerThemed(opcUaStatusClientCaption, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
     });
     opcUaStatusClientLabel_ = new QLabel("○ Idle (OPC UA disabled)", opcUaStatusGroup);
     registerThemed(opcUaStatusClientLabel_, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600;").arg(tc.muted);
     });
     opcUaStatusForm->addRow(opcUaStatusClientCaption, opcUaStatusClientLabel_);
 
     QLabel* opcUaStatusSpeedCaption = new QLabel("Speed:", opcUaStatusGroup);
     registerThemed(opcUaStatusSpeedCaption, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.text);
     });
     opcUaStatusSpeedLabel_ = new QLabel("—", opcUaStatusGroup);
     registerThemed(opcUaStatusSpeedLabel_, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + ";").arg(tc.muted);
     });
     opcUaStatusForm->addRow(opcUaStatusSpeedCaption, opcUaStatusSpeedLabel_);
 
@@ -1974,10 +1974,10 @@ void ConfigDialog::setupUI() {
     opcUaStatusTable_->setAlternatingRowColors(false);
     registerThemed(opcUaStatusTable_, [](const ThemeColors& tc) {
         return QString(
-        "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTableWidget::item { padding: 4px 8px; border: none; } "
-        "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-    ).arg(tc.text, tc.primary, tc.border);
+            "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QTableWidget::item { padding: 4px 8px; border: none; } "
+            "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        ).arg(tc.text, tc.primary, tc.border);
     });
     QHeaderView* opcUaStatusHeader = opcUaStatusTable_->horizontalHeader();
     opcUaStatusHeader->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -2004,9 +2004,9 @@ void ConfigDialog::setupUI() {
     opcUaLiveStatusWindowBtn->setToolTip("Show the live OPC UA client state, machine speed and tag values in a separate window, so they stay visible while you work elsewhere.");
     registerThemed(opcUaLiveStatusWindowBtn, [](const ThemeColors& tc) {
         return QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
-        "QPushButton:hover { border-color: %4; background-color: " + raisedWash(tc, 0.04) + "; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px 16px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; } "
+            "QPushButton:hover { border-color: %4; background-color: " + raisedWash(tc, 0.04) + "; }"
+        ).arg(tc.btnBg, tc.text, tc.border, tc.primary);
     });
     connect(opcUaLiveStatusWindowBtn, &QPushButton::clicked,
             this, &ConfigDialog::showOpcUaLiveStatusWindow);
@@ -2038,8 +2038,8 @@ void ConfigDialog::setupUI() {
     QLabel* uiHeaderLabel = new QLabel("UI Preferences", uiGroup);
     registerThemed(uiHeaderLabel, [](const ThemeColors& tc) {
         return QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;"
-    ).arg(tc.primary);
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700;"
+        ).arg(tc.primary);
     });
     uiPageLayout->addWidget(uiHeaderLabel);
 
@@ -2048,8 +2048,8 @@ void ConfigDialog::setupUI() {
     uiDescriptionLabel->setWordWrap(true);
     registerThemed(uiDescriptionLabel, [](const ThemeColors& tc) {
         return QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;"
-    ).arg(tc.text);
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;"
+        ).arg(tc.text);
     });
     uiPageLayout->addWidget(uiDescriptionLabel);
 
@@ -2060,8 +2060,8 @@ void ConfigDialog::setupUI() {
     uiSeparator->setFixedHeight(1);
     registerThemed(uiSeparator, [](const ThemeColors& tc) {
         return QString(
-        "background-color: %1; border: none;"
-    ).arg(tc.border);
+            "background-color: %1; border: none;"
+        ).arg(tc.border);
     });
     uiPageLayout->addWidget(uiSeparator);
 
@@ -2097,12 +2097,12 @@ void ConfigDialog::setupUI() {
     uiDetailTabs->setDocumentMode(true);
     registerThemed(uiDetailTabs, [](const ThemeColors& tc) {
         return QString(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
-        "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
-        "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
-        "QTabBar::tab:hover { color: %4; }"
-    ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
+            "QTabWidget::pane { border: 1px solid %1; border-radius: 10px; top: -1px; background-color: " + raisedWash(tc, 0.01) + "; padding: 2px; } "
+            "QTabBar::tab { background-color: %2; color: %3; border: 1px solid %1; border-bottom: none; padding: 6px 14px; min-width: 110px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QTabBar::tab:selected { color: %4; background-color: " + raisedWash(tc, 0.04) + "; margin-bottom: -1px; } "
+            "QTabBar::tab:!selected { margin-top: 3px; color: %5; } "
+            "QTabBar::tab:hover { color: %4; }"
+        ).arg(tc.border, tc.btnBg, tc.text, tc.primary, tc.text);
     });
     uiPanelLayout->addWidget(uiDetailTabs, 1, 0, 1, 2);
 
@@ -2120,7 +2120,7 @@ void ConfigDialog::setupUI() {
 
     QLabel* liveViewSectionTitle = new QLabel("Live View", liveViewGroup);
     registerThemed(liveViewSectionTitle, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
     });
     liveViewGroupLayout->addWidget(liveViewSectionTitle);
 
@@ -2163,7 +2163,7 @@ void ConfigDialog::setupUI() {
 
         QLabel* titleLabel = new QLabel(title, labelWidget);
         registerThemed(titleLabel, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;").arg(tc.text);
     });
         titleLabel->setToolTip(formattedTooltip);
         labelLayout->addWidget(titleLabel);
@@ -2230,7 +2230,7 @@ void ConfigDialog::setupUI() {
     QLabel* liveViewDescription = new QLabel("Tune card surface, title, and section typography.", uiGroup);
     liveViewDescription->setWordWrap(true);
     registerThemed(liveViewDescription, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
     });
     liveSettingsCardLayout->addWidget(liveViewDescription);
 
@@ -2241,11 +2241,11 @@ void ConfigDialog::setupUI() {
     liveViewBackgroundStyleCombo_->addItem("White Textured Mesh", "white_textured_mesh");
     registerThemed(liveViewBackgroundStyleCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     liveViewBackgroundStyleCombo_->setFixedWidth(160);
     liveViewForm->addRow(
@@ -2256,11 +2256,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(liveViewGridTitleFontCombo_);
     registerThemed(liveViewGridTitleFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
 
     liveViewGridTitleSizeSpin_ = new QSpinBox(uiGroup);
@@ -2278,11 +2278,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(liveViewDetailTitleFontCombo_);
     registerThemed(liveViewDetailTitleFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
 
     liveViewDetailTitleSizeSpin_ = new QSpinBox(uiGroup);
@@ -2300,11 +2300,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(liveViewDetailSectionFontCombo_);
     registerThemed(liveViewDetailSectionFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
 
     liveViewDetailSectionSizeSpin_ = new QSpinBox(uiGroup);
@@ -2335,7 +2335,7 @@ void ConfigDialog::setupUI() {
 
     QLabel* analysisViewSectionTitle = new QLabel("Analysis View", analysisViewGroup);
     registerThemed(analysisViewSectionTitle, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; padding-bottom: 2px;").arg(tc.primary);
     });
     analysisViewGroupLayout->addWidget(analysisViewSectionTitle);
 
@@ -2362,7 +2362,7 @@ void ConfigDialog::setupUI() {
     QLabel* analysisViewDescription = new QLabel("Tune video titles, timestamps, tabs, and playback surface.", uiGroup);
     analysisViewDescription->setWordWrap(true);
     registerThemed(analysisViewDescription, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; padding-bottom: 2px;").arg(tc.text);
     });
     analysisSettingsCardLayout->addWidget(analysisViewDescription);
 
@@ -2377,11 +2377,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(analysisVideoTitleFontCombo_);
     registerThemed(analysisVideoTitleFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisVideoTitleSizeSpin_ = new QSpinBox(uiGroup);
     analysisVideoTitleSizeSpin_->setRange(8, 24);
@@ -2396,11 +2396,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(analysisTimestampFontCombo_);
     registerThemed(analysisTimestampFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisTimestampSizeSpin_ = new QSpinBox(uiGroup);
     analysisTimestampSizeSpin_->setRange(7, 20);
@@ -2415,11 +2415,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(analysisTabFontCombo_);
     registerThemed(analysisTabFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisTabSizeSpin_ = new QSpinBox(uiGroup);
     analysisTabSizeSpin_->setRange(10, 24);
@@ -2435,11 +2435,11 @@ void ConfigDialog::setupUI() {
     analysisPlaybackSurfaceCombo_->addItem("Light", "light");
     registerThemed(analysisPlaybackSurfaceCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisPlaybackSurfaceCombo_->setFixedWidth(160);
     analysisViewForm->addRow(
@@ -2456,11 +2456,11 @@ void ConfigDialog::setupUI() {
     analysisDefaultMetadataCombo_->addItem("Relative Frame Only", "relative");
     registerThemed(analysisDefaultMetadataCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisDefaultMetadataCombo_->setFixedWidth(200);
     analysisViewForm->addRow(
@@ -2471,11 +2471,11 @@ void ConfigDialog::setupUI() {
     populateCuratedFontCombo(analysisMetadataFontCombo_);
     registerThemed(analysisMetadataFontCombo_, [](const ThemeColors& tc) {
         return QString(
-        "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
-        "QComboBox:hover { border-color: %4; } "
-        "QComboBox:focus { border-color: %4; } "
-        "QComboBox::drop-down { border: none; padding-right: 6px; }"
-    ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
+            "QComboBox { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 5px 8px; color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; } "
+            "QComboBox:hover { border-color: %4; } "
+            "QComboBox:focus { border-color: %4; } "
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        ).arg(tc.btnBg, tc.border, tc.text, tc.primary);
     });
     analysisMetadataSizeSpin_ = new QSpinBox(uiGroup);
     analysisMetadataSizeSpin_->setRange(7, 20);
@@ -2682,8 +2682,8 @@ void ConfigDialog::setupUI() {
     livePreviewContainer->setObjectName("livePreviewContainer");
     registerThemed(livePreviewContainer, [](const ThemeColors& tc) {
         return QString(
-        "QFrame#livePreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
-    ).arg(tc.btnBg, tc.border);
+            "QFrame#livePreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
+        ).arg(tc.btnBg, tc.border);
     });
     livePreviewContainer->setMinimumWidth(360);
     livePreviewContainer->setMaximumWidth(390);
@@ -2694,14 +2694,14 @@ void ConfigDialog::setupUI() {
 
     QLabel* previewTitle = new QLabel("Detail Card Preview", livePreviewContainer);
     registerThemed(previewTitle, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
     });
     livePreviewPageLayout->addWidget(previewTitle);
 
     QLabel* previewNote = new QLabel("The preview uses the current detail title and section styling with representative live card data.", livePreviewContainer);
     previewNote->setWordWrap(true);
     registerThemed(previewNote, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
     });
     livePreviewPageLayout->addWidget(previewNote);
 
@@ -2775,8 +2775,8 @@ void ConfigDialog::setupUI() {
     analysisPreviewContainer->setObjectName("analysisPreviewContainer");
     registerThemed(analysisPreviewContainer, [](const ThemeColors& tc) {
         return QString(
-        "QFrame#analysisPreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
-    ).arg(tc.btnBg, tc.border);
+            "QFrame#analysisPreviewContainer { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
+        ).arg(tc.btnBg, tc.border);
     });
     analysisPreviewContainer->setMinimumWidth(360);
     analysisPreviewContainer->setMaximumWidth(390);
@@ -2787,14 +2787,14 @@ void ConfigDialog::setupUI() {
 
     QLabel* analysisPreviewTitle = new QLabel("Analysis Preview", analysisPreviewContainer);
     registerThemed(analysisPreviewTitle, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 700; background: transparent; border: none;").arg(tc.primary);
     });
     analysisPreviewPageLayout->addWidget(analysisPreviewTitle);
 
     QLabel* analysisPreviewNote = new QLabel("The preview uses the current title and timestamp styling with representative analysis card data.", analysisPreviewContainer);
     analysisPreviewNote->setWordWrap(true);
     registerThemed(analysisPreviewNote, [](const ThemeColors& tc) {
-        return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
+            return QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; background: transparent; border: none;").arg(tc.text);
     });
     analysisPreviewPageLayout->addWidget(analysisPreviewNote);
 
@@ -2844,8 +2844,8 @@ void ConfigDialog::setupUI() {
     uiActionsSeparator->setFixedHeight(1);
     registerThemed(uiActionsSeparator, [](const ThemeColors& tc) {
         return QString(
-        "background-color: %1; border: none;"
-    ).arg(tc.border);
+            "background-color: %1; border: none;"
+        ).arg(tc.border);
     });
     uiPageLayout->addWidget(uiActionsSeparator);
 
@@ -2855,8 +2855,8 @@ void ConfigDialog::setupUI() {
     uiUnsavedIndicator_ = new QLabel(uiGroup);
     registerThemed(uiUnsavedIndicator_, [](const ThemeColors& tc) {
         return QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
-    ).arg(tc.warn);
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600;"
+        ).arg(tc.warn);
     });
     uiUnsavedIndicator_->setText("");
     uiUnsavedIndicator_->setToolTip("You have unsaved changes in this section.");
@@ -2896,10 +2896,10 @@ void ConfigDialog::setupUI() {
     QGroupBox* diagLogsGroup = new QGroupBox("Connection Diagnostics", diagnosticsGroup);
     registerThemed(diagLogsGroup, [](const ThemeColors& tc) {
         return QString(
-        "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
-        "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-    ).arg(tc.primary, tc.border);
+            "QGroupBox { font-weight: 600; color: %1; border: 1px solid %2; "
+            "border-radius: 8px; margin-top: 8px; padding-top: 8px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+        ).arg(tc.primary, tc.border);
     });
     
     QVBoxLayout* diagLogsLayout = new QVBoxLayout(diagLogsGroup);
@@ -2910,16 +2910,16 @@ void ConfigDialog::setupUI() {
     connectionLogsBrowser_->setReadOnly(true);
     registerThemed(connectionLogsBrowser_, [](const ThemeColors& tc) {
         return QString(
-        "QTextEdit { "
-        "  background-color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 6px; "
-        "  color: %3; "
-        "  font-family: " + UiTypeScale::monoFamilyCss() + "; "
-        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
-        "  padding: 8px; "
-        "}"
-    ).arg(tc.bg, tc.border, tc.text);
+            "QTextEdit { "
+            "  background-color: %1; "
+            "  border: 1px solid %2; "
+            "  border-radius: 6px; "
+            "  color: %3; "
+            "  font-family: " + UiTypeScale::monoFamilyCss() + "; "
+            "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
+            "  padding: 8px; "
+            "}"
+        ).arg(tc.bg, tc.border, tc.text);
     });
     diagLogsLayout->addWidget(connectionLogsBrowser_);
     
@@ -2930,17 +2930,17 @@ void ConfigDialog::setupUI() {
     diagRefreshBtn->setIcon(IconManager::instance().refresh(16));
     registerThemed(diagRefreshBtn, [](const ThemeColors& tc) {
         return QString(
-        "QPushButton { "
-        "  background-color: %1; "
-        "  color: %2; "
-        "  border: none; "
-        "  border-radius: 6px; "
-        "  padding: 6px 12px; "
-        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { background-color: %3; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover);
+            "QPushButton { "
+            "  background-color: %1; "
+            "  color: %2; "
+            "  border: none; "
+            "  border-radius: 6px; "
+            "  padding: 6px 12px; "
+            "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
+            "  font-weight: 500; "
+            "} "
+            "QPushButton:hover { background-color: %3; }"
+        ).arg(tc.primary, tc.bg, tc.btnHover);
     });
     connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
     
@@ -2948,17 +2948,17 @@ void ConfigDialog::setupUI() {
     diagClearBtn->setIcon(IconManager::instance().trash(16));
     registerThemed(diagClearBtn, [](const ThemeColors& tc) {
         return QString(
-        "QPushButton { "
-        "  background-color: transparent; "
-        "  color: %1; "
-        "  border: 1px solid %2; "
-        "  border-radius: 6px; "
-        "  padding: 6px 12px; "
-        "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
-        "  font-weight: 500; "
-        "} "
-        "QPushButton:hover { background-color: %3; border-color: %4; color: %4; }"
-    ).arg(tc.text, tc.border, tinted(tc.critical, 0.12), tc.critical);
+            "QPushButton { "
+            "  background-color: transparent; "
+            "  color: %1; "
+            "  border: 1px solid %2; "
+            "  border-radius: 6px; "
+            "  padding: 6px 12px; "
+            "  font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; "
+            "  font-weight: 500; "
+            "} "
+            "QPushButton:hover { background-color: %3; border-color: %4; color: %4; }"
+        ).arg(tc.text, tc.border, tinted(tc.critical, 0.12), tc.critical);
     });
     connect(diagClearBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
     
