@@ -1162,7 +1162,7 @@ void ConfigDialog::setupUI() {
     cameraActionsLayout->addStretch();
 
     cameraSaveBtn_ = new QPushButton("Save Camera Configuration", cameraCardsPage);
-    cameraSaveBtn_->setIcon(IconManager::instance().save(16));
+    registerThemedIcon([this]() { cameraSaveBtn_->setIcon(IconManager::instance().save(16)); });
     cameraSaveBtn_->setDefault(true);
     registerThemed(cameraSaveBtn_, primaryActionButtonStyle);
     connect(cameraSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveCameraConfiguration);
@@ -1188,7 +1188,8 @@ void ConfigDialog::setupUI() {
 
     camSetupLayout->addWidget(cameraSubTabs, 1);
 
-    QListWidgetItem* camSetupItem = new QListWidgetItem(IconManager::instance().settings(20), "Camera Configuration");
+    QListWidgetItem* camSetupItem = new QListWidgetItem(QIcon(), "Camera Configuration");
+    registerThemedIcon([camSetupItem]() { camSetupItem->setIcon(IconManager::instance().settings(20)); });
     sidebar->addItem(camSetupItem);
     stackedWidget->addWidget(camSetupGroup);
 
@@ -1201,7 +1202,8 @@ void ConfigDialog::setupUI() {
     machineLayoutPageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
     machineLayoutPanel_ = new MachineLayoutPanel(machineLayoutGroup);
     machineLayoutPageLayout->addWidget(machineLayoutPanel_, 1);
-    QListWidgetItem* machineLayoutItem = new QListWidgetItem(IconManager::instance().settings(20), "Machine Layout");
+    QListWidgetItem* machineLayoutItem = new QListWidgetItem(QIcon(), "Machine Layout");
+    registerThemedIcon([machineLayoutItem]() { machineLayoutItem->setIcon(IconManager::instance().settings(20)); });
     sidebar->addItem(machineLayoutItem);
     stackedWidget->addWidget(machineLayoutGroup);
 
@@ -1410,13 +1412,14 @@ void ConfigDialog::setupUI() {
     recordingActionsLayout->addSpacing(8);
 
     recordingSaveBtn_ = new QPushButton("Save Recording Settings", bufferGroup);
-    recordingSaveBtn_->setIcon(IconManager::instance().save(16));
+    registerThemedIcon([this]() { recordingSaveBtn_->setIcon(IconManager::instance().save(16)); });
     registerThemed(recordingSaveBtn_, primaryActionButtonStyle);
     connect(recordingSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveRecordingSettings);
     recordingActionsLayout->addWidget(recordingSaveBtn_);
     bufferLayout->addLayout(recordingActionsLayout);
 
-    QListWidgetItem* globalGroupItem = new QListWidgetItem(IconManager::instance().warning(20), "Recording & Triggers");
+    QListWidgetItem* globalGroupItem = new QListWidgetItem(QIcon(), "Recording & Triggers");
+    registerThemedIcon([globalGroupItem]() { globalGroupItem->setIcon(IconManager::instance().warning(20)); });
     sidebar->addItem(globalGroupItem);
     stackedWidget->addWidget(bufferGroup);
 
@@ -1522,7 +1525,7 @@ void ConfigDialog::setupUI() {
 
     opcUaDetectEndpointBtn_ = new QPushButton("Detect Server", opcUaEndpointActions);
     registerThemed(opcUaDetectEndpointBtn_, primaryActionButtonStyle);
-    opcUaDetectEndpointBtn_->setIcon(IconManager::instance().refresh(16));
+    registerThemedIcon([this]() { opcUaDetectEndpointBtn_->setIcon(IconManager::instance().refresh(16)); });
     connect(opcUaDetectEndpointBtn_, &QPushButton::clicked, this, [this]() {
         refreshOpcUaEndpointDiscovery(false, true);
     });
@@ -2013,7 +2016,7 @@ void ConfigDialog::setupUI() {
     opcUaActionsLayout->addWidget(opcUaLiveStatusWindowBtn);
 
     opcUaSaveBtn_ = new QPushButton("Save OPC UA Settings", opcUaGroup);
-    opcUaSaveBtn_->setIcon(IconManager::instance().save(16));
+    registerThemedIcon([this]() { opcUaSaveBtn_->setIcon(IconManager::instance().save(16)); });
     registerThemed(opcUaSaveBtn_, primaryActionButtonStyle);
     connect(opcUaSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveOpcUaSettings);
     opcUaActionsLayout->addWidget(opcUaSaveBtn_);
@@ -2021,7 +2024,8 @@ void ConfigDialog::setupUI() {
 
     opcUaScrollArea->setWidget(opcUaGroup);
 
-    QListWidgetItem* opcUaItem = new QListWidgetItem(IconManager::instance().settings(20), "OPC UA");
+    QListWidgetItem* opcUaItem = new QListWidgetItem(QIcon(), "OPC UA");
+    registerThemedIcon([opcUaItem]() { opcUaItem->setIcon(IconManager::instance().settings(20)); });
     sidebar->addItem(opcUaItem);
     stackedWidget->addWidget(opcUaScrollArea);
 
@@ -2875,14 +2879,15 @@ void ConfigDialog::setupUI() {
 
     uiSaveBtn_ = new QPushButton("Save", uiGroup);
     uiSaveBtn_->setToolTip("Save all UI preferences and apply changes.");
-    uiSaveBtn_->setIcon(IconManager::instance().save(16));
+    registerThemedIcon([this]() { uiSaveBtn_->setIcon(IconManager::instance().save(16)); });
     registerThemed(uiSaveBtn_, primaryActionButtonStyle);
     connect(uiSaveBtn_, &QPushButton::clicked, this, &ConfigDialog::saveUiSettings);
     uiActionButtonsLayout->addWidget(uiSaveBtn_);
     uiActionsLayout->addLayout(uiActionButtonsLayout);
     uiPageLayout->addLayout(uiActionsLayout);
 
-    QListWidgetItem* uiGroupItem = new QListWidgetItem(IconManager::instance().settings(20), "UI Preferences");
+    QListWidgetItem* uiGroupItem = new QListWidgetItem(QIcon(), "UI Preferences");
+    registerThemedIcon([uiGroupItem]() { uiGroupItem->setIcon(IconManager::instance().settings(20)); });
     sidebar->addItem(uiGroupItem);
     uiPreferencesPageRow_ = sidebar->row(uiGroupItem);
     stackedWidget->addWidget(uiGroup);
@@ -2927,7 +2932,7 @@ void ConfigDialog::setupUI() {
     diagBtnsLayout->setSpacing(kControlSpacing);
     
     QPushButton* diagRefreshBtn = new QPushButton("Refresh Network", diagLogsGroup);
-    diagRefreshBtn->setIcon(IconManager::instance().refresh(16));
+    registerThemedIcon([diagRefreshBtn]() { diagRefreshBtn->setIcon(IconManager::instance().refresh(16)); });
     registerThemed(diagRefreshBtn, [](const ThemeColors& tc) {
         return QString(
             "QPushButton { "
@@ -2945,7 +2950,7 @@ void ConfigDialog::setupUI() {
     connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
     
     QPushButton* diagClearBtn = new QPushButton("Clear Logs", diagLogsGroup);
-    diagClearBtn->setIcon(IconManager::instance().trash(16));
+    registerThemedIcon([diagClearBtn]() { diagClearBtn->setIcon(IconManager::instance().trash(16)); });
     registerThemed(diagClearBtn, [](const ThemeColors& tc) {
         return QString(
             "QPushButton { "
@@ -2969,7 +2974,8 @@ void ConfigDialog::setupUI() {
     
     diagnosticsLayout->addWidget(diagLogsGroup);
     
-    QListWidgetItem* diagnosticsItem = new QListWidgetItem(IconManager::instance().info(20), "Diagnostics");
+    QListWidgetItem* diagnosticsItem = new QListWidgetItem(QIcon(), "Diagnostics");
+    registerThemedIcon([diagnosticsItem]() { diagnosticsItem->setIcon(IconManager::instance().info(20)); });
     sidebar->addItem(diagnosticsItem);
     stackedWidget->addWidget(diagnosticsGroup);
 
@@ -3028,10 +3034,18 @@ void ConfigDialog::discardUnsavedThemePreview() {
     emit themePreviewRequested(selectedThemeIndex_);
 }
 
+void ConfigDialog::registerThemedIcon(std::function<void()> apply) {
+    themedIcons_.push_back(std::move(apply));
+    themedIcons_.back()();
+}
+
 void ConfigDialog::applyThemeStyles() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     for (const auto& [widget, build] : themedStyles_) {
         widget->setStyleSheet(build(tc));
+    }
+    for (const auto& applyIcon : themedIcons_) {
+        applyIcon();
     }
 }
 

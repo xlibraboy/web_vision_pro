@@ -2021,4 +2021,8 @@ void MainWindow::applyGlobalTheme() {
     // The admin pill's padlock is a code-drawn pixmap, so re-tint it for the
     // new theme (its colors otherwise follow the stylesheet automatically).
     updateAdminStatusIndicator();
+
+    // The System Configuration tab carries a code-set ink (accent for an admin
+    // session, disabled otherwise) that the stylesheet does not own.
+    updateConfigTabAccess();
 }

@@ -212,6 +212,13 @@ void NetworkSummaryHeader::updateTheme() {
     errorIndicator_->setStyleSheet(pillStyle(QColor(tc.critical)));
     offlineIndicator_->setStyleSheet(pillStyle(QColor(tc.muted)));
     refreshLinkIndicator();
+
+    // Icons are rendered from the tokens on demand, not by the stylesheet, so
+    // they need their own re-render on a preset change.
+    networkIcon_->setPixmap(IconManager::instance().network(28).pixmap(28, 28));
+    refreshBtn_->setIcon(IconManager::instance().refresh(16));
+    addBtn_->setIcon(IconManager::instance().getIcon(Icons::ADD, 16,
+                                                     QColor(tc.onStatus), QColor(tc.onStatus)));
 }
 
 void NetworkSummaryHeader::setupStyleSheet() {

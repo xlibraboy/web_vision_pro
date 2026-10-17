@@ -117,6 +117,9 @@ private:
     // Applies a theme-derived stylesheet now and remembers how to rebuild it, so
     // updateTheme() can re-apply every one of them after a preset change.
     void registerThemed(QWidget* widget, std::function<QString(const ThemeColors&)> build);
+    // Icon twin of registerThemed(): duotone glyphs are rendered from the theme
+    // tokens when they are asked for, so a stylesheet re-apply cannot reach them.
+    void registerThemedIcon(std::function<void()> apply);
     void applyThemeStyles();
     // Drops a theme preview whose pick was never saved (leaving the UI
     // Preferences page, hiding the dialog, or leaving admin mode).
@@ -273,6 +276,9 @@ private:
     // Every widget whose stylesheet is built from theme tokens, paired with the
     // builder that produces it; replayed by applyThemeStyles().
     std::vector<std::pair<QWidget*, std::function<QString(const ThemeColors&)>>> themedStyles_;
+    // Re-renders of theme-tinted icons (nav rows, action buttons); replayed
+    // alongside themedStyles_ so a preset change reaches them too.
+    std::vector<std::function<void()>> themedIcons_;
     QComboBox* liveViewGridTitleFontCombo_ = nullptr;
     QSpinBox* liveViewGridTitleSizeSpin_ = nullptr;
     QComboBox* liveViewDetailTitleFontCombo_ = nullptr;

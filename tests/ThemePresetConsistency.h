@@ -13,4 +13,5 @@ private slots:
     void configDialogReThemesWhenThePresetChanges();
     void glyphAssetsAreTintedFromTheTheme();
     void noSurfaceKeepsAnotherPresetsColors();
+    void liveSwitchReTintsStylesheetsAndGlyphs();
 };

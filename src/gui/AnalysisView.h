@@ -278,6 +278,11 @@ private:
     // The playback glyphs come from fixed-fill SVG assets, so re-render the
     // one this button shows in the theme's ink.
     void applyPlaybackGlyphTheme(QPushButton* button);
+    // The permanent-storage expander arrow: a fixed-fill asset, so it is
+    // re-rendered in the theme ink for the current chevron direction.
+    void applyPermanentTableGlyph();
+    // Chrome of the once-built Diagnostic tab, re-applied on a preset change.
+    void applyDiagnosticTabTheme();
     // Show/hide transition (fade + slide).
     void animateToolsPanelShow();
     void animateToolsPanelHide();

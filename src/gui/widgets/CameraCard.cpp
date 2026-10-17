@@ -423,6 +423,15 @@ void CameraCard::updateTheme() {
     for (QLabel* label : mutedValueLabels_) {
         label->setStyleSheet(infoValueStyle + monoInk.arg(tc.muted));
     }
+
+    // Duotone glyphs are rendered from the tokens when they are asked for, so
+    // a stylesheet re-apply never touches them: re-render them here. The camera
+    // mark is covered by applyStatusStyle() above, which picks its ink from the
+    // preset's status tone.
+    expandButton_->setIcon(isExpanded_ ? IconManager::instance().collapse(16)
+                                       : IconManager::instance().expand(16));
+    removeButton_->setIcon(IconManager::instance().trash(16));
+    deviceSettingsBtn_->setIcon(IconManager::instance().settings(16));
 }
 
 void CameraCard::setupStyleSheet() {

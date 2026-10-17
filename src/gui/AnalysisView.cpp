@@ -1663,13 +1663,13 @@ void AnalysisView::setupLeftSidebar() {
     togglePermanentTableButton_ = new QPushButton("Show Permanent Storage", logGroup);
     togglePermanentTableButton_->setCheckable(true);
     togglePermanentTableButton_->setMinimumHeight(24);
-    togglePermanentTableButton_->setIcon(QIcon(":/assets/icons/arrow_down.svg"));
     togglePermanentTableButton_->setIconSize(QSize(12, 12));
+    applyPermanentTableGlyph();
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     connect(togglePermanentTableButton_, &QPushButton::toggled, this, [this](bool checked) {
         permanentSectionWidget_->setVisible(checked);
         togglePermanentTableButton_->setText(checked ? "Hide Permanent Storage" : "Show Permanent Storage");
-        togglePermanentTableButton_->setIcon(QIcon(checked ? ":/assets/icons/arrow_up.svg" : ":/assets/icons/arrow_down.svg"));
+        applyPermanentTableGlyph();
         permanentPaperBreakTable_->setSizePolicy(QSizePolicy::Expanding, checked ? QSizePolicy::Expanding : QSizePolicy::Preferred);
         updateLogTableReasonWidths(); // The now-visible permanent table needs its width.
         leftSidebar_->updateGeometry();
@@ -5089,6 +5089,7 @@ void AnalysisView::updateTheme() {
     }
     
     togglePermanentTableButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
+    applyPermanentTableGlyph();
     if (instantClearButton_) {
         instantClearButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     }
@@ -5114,6 +5115,18 @@ void AnalysisView::updateTheme() {
     // Re-apply the current delete-mode state (the segment itself is always
     // visible now, so drive it from the toggle instead of button visibility).
     setDeleteEnabled(enableDeleteCheck_ ? enableDeleteCheck_->isChecked() : false);
+
+    // Chrome that is built once and kept for the session: the metadata header
+    // separator, the dashboard loading label, the Diagnostic tab and the
+    // annotation dots on the playback slider.
+    if (headerToolsSeparator_) {
+        headerToolsSeparator_->setStyleSheet(QString("background-color: %1; border: none;").arg(tc.border));
+    }
+    if (dashLoadingLabel_) {
+        dashLoadingLabel_->setStyleSheet(QStringLiteral("background: transparent; color: %1;").arg(tc.text));
+    }
+    applyDiagnosticTabTheme();
+    updateAnnotationSliderMarkers();
 }
 
 void AnalysisView::setPlaybackPosition(double frame) {
@@ -5480,6 +5493,19 @@ void AnalysisView::applyPlaybackGlyphTheme(QPushButton* button) {
     const QPixmap glyph = IconManager::themedAssetPixmap(
         QStringLiteral(":/assets/icons/") + asset, QColor(CameraConfig::getThemeColors().text), 18);
     button->setIcon(glyph.isNull() ? QIcon(QStringLiteral(":/assets/icons/") + asset) : QIcon(glyph));
+}
+
+void AnalysisView::applyPermanentTableGlyph() {
+    if (!togglePermanentTableButton_) {
+        return;
+    }
+    const QString asset = togglePermanentTableButton_->isChecked()
+                              ? QStringLiteral("arrow_up.svg")
+                              : QStringLiteral("arrow_down.svg");
+    const QPixmap glyph = IconManager::themedAssetPixmap(
+        QStringLiteral(":/assets/icons/") + asset, QColor(CameraConfig::getThemeColors().text), 12);
+    togglePermanentTableButton_->setIcon(
+        glyph.isNull() ? QIcon(QStringLiteral(":/assets/icons/") + asset) : QIcon(glyph));
 }
 
 void AnalysisView::applyBaseTrackChipStyle() {
@@ -7284,29 +7310,18 @@ void AnalysisView::setupDiagnosticTab() {
     controlBar->setSpacing(8);
 
     auto* titleLabel = new QLabel("Camera Diagnostics", diagnosticTab_);
-    titleLabel->setStyleSheet(QString(
-        "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: bold;").arg(tc.primary));
+    // Re-styled by applyDiagnosticTabTheme() on every preset change.
+    titleLabel->setObjectName(QStringLiteral("analysisDiagnosticTitle"));
     titleLabel->setToolTip("Shows live camera health. RAM Frames are EventController ring-buffer frames currently held in host RAM. Drops/Stream Health are based on incomplete grabs. Basler guidance: tune Packet Size, Inter-Packet Delay, bandwidth, AOI, and exposure time if drops occur or resulting FPS falls below acquisition FPS.");
     controlBar->addWidget(titleLabel);
     controlBar->addStretch();
 
     diagAutoRefreshChk_ = new QCheckBox("Auto (3 s)", diagnosticTab_);
     diagAutoRefreshChk_->setChecked(true);
-    diagAutoRefreshChk_->setStyleSheet(QString(
-        "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
-        "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background: %3; }"
-        "QCheckBox::indicator:checked { background: %4; border-color: %4; }").arg(
-            tc.text, tc.border, tc.btnBg, tc.primary));
     controlBar->addWidget(diagAutoRefreshChk_);
 
     diagRefreshBtn_ = new QPushButton("Refresh", diagnosticTab_);
     diagRefreshBtn_->setFixedHeight(28);
-    diagRefreshBtn_->setStyleSheet(QString(
-        "QPushButton { background: %1; color: %2; border: none; border-radius: 6px;"
-        "  padding: 0 14px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; }"
-        "QPushButton:hover { background: %3; }"
-        "QPushButton:pressed { background: %4; }").arg(
-            tc.primary, tc.bg, tc.btnHover, tc.border));
     controlBar->addWidget(diagRefreshBtn_);
     rootLayout->addLayout(controlBar);
 
@@ -7347,9 +7362,6 @@ void AnalysisView::setupDiagnosticTab() {
     diagTable_->setColumnWidth(14, 90);  // Link
     diagTable_->horizontalHeader()->setSectionResizeMode(13, QHeaderView::Stretch); // Stream Health
 
-    // Stylesheet (re-use project table style)
-    diagTable_->setStyleSheet(makeTableStyle(tc, false));
-
     rootLayout->addWidget(diagTable_, 1);
 
     // --- Timer ---
@@ -7359,8 +7371,44 @@ void AnalysisView::setupDiagnosticTab() {
     connect(diagRefreshBtn_, &QPushButton::clicked, this, &AnalysisView::refreshDiagTable);
     connect(diagAutoRefreshChk_, &QCheckBox::toggled, this, &AnalysisView::onDiagAutoRefreshToggled);
 
+    applyDiagnosticTabTheme();
+
     // Auto-refresh starts when the Diagnostic tab becomes visible
     // (onTabChanged); polling a hidden table would only stall the GUI thread.
+}
+
+// The Diagnostic tab is built once and then kept, so its theme-derived chrome
+// (title, auto-refresh box, refresh button, health table) is re-applied from one
+// place on every preset change instead of only at construction.
+void AnalysisView::applyDiagnosticTabTheme() {
+    if (!diagnosticTab_) {
+        return;
+    }
+    const ThemeColors tc = CameraConfig::getThemeColors();
+
+    if (auto* title = diagnosticTab_->findChild<QLabel*>(QStringLiteral("analysisDiagnosticTitle"))) {
+        title->setStyleSheet(QString(
+            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: bold;").arg(tc.primary));
+    }
+    if (diagAutoRefreshChk_) {
+        diagAutoRefreshChk_->setStyleSheet(QString(
+            "QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %2; border-radius: 3px; background: %3; }"
+            "QCheckBox::indicator:checked { background: %4; border-color: %4; }").arg(
+                tc.text, tc.border, tc.btnBg, tc.primary));
+    }
+    if (diagRefreshBtn_) {
+        diagRefreshBtn_->setStyleSheet(QString(
+            "QPushButton { background: %1; color: %2; border: none; border-radius: 6px;"
+            "  padding: 0 14px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; }"
+            "QPushButton:hover { background: %3; }"
+            "QPushButton:pressed { background: %4; }").arg(
+                tc.primary, tc.bg, tc.btnHover, tc.border));
+    }
+    if (diagTable_) {
+        // Re-use project table style.
+        diagTable_->setStyleSheet(makeTableStyle(tc, false));
+    }
 }
 
 // ---------------------------------------------------------------------------

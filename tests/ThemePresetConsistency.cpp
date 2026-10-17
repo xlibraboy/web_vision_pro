@@ -1,18 +1,29 @@
 #include "ThemePresetConsistency.h"
 
 #include "config/CameraConfig.h"
+#include "gui/AnalysisView.h"
 #include "gui/ConfigDialog.h"
+#include "gui/DetailView.h"
+#include "gui/LiveDashboard.h"
 #include "gui/widgets/CameraCard.h"
 #include "gui/widgets/ChangelogDialog.h"
 #include "gui/widgets/DocsDialog.h"
 #include "gui/widgets/IconManager.h"
+#include "gui/widgets/LiveViewWindow.h"
+#include "gui/widgets/NetworkSummaryHeader.h"
+#include "gui/widgets/OpcUaLiveStatusWindow.h"
 
+#include <QAbstractButton>
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QLabel>
+#include <QListWidget>
 #include <QMap>
 #include <QPixmap>
+#include <QSet>
 #include <QSettings>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -79,6 +90,25 @@ QVector<QPair<QWidget*, QString>> stylesheetsIn(QWidget& root) {
     return styles;
 }
 
+// Names the offending widget (class, object name, button text) so a failure
+// points at the code that has to re-apply the style.
+QString describeWidget(QWidget* widget) {
+    QString description = widget->metaObject()->className();
+    if (!widget->objectName().isEmpty()) {
+        description += QStringLiteral("#%1").arg(widget->objectName());
+    }
+    if (auto* button = qobject_cast<QAbstractButton*>(widget)) {
+        if (!button->text().isEmpty()) {
+            description += QStringLiteral(" \"%1\"").arg(button->text());
+        }
+    }
+    QString chain;
+    for (QWidget* parent = widget->parentWidget(); parent; parent = parent->parentWidget()) {
+        chain += QStringLiteral("/%1").arg(parent->metaObject()->className());
+    }
+    return QStringLiteral("%1 [%2]").arg(description, chain);
+}
+
 // First stale color found in any of the sheets, named for the failure message.
 QString staleColorIn(const QVector<QPair<QWidget*, QString>>& stylesheets, int activePreset) {
     for (int other = 0; other < kPresetCount; ++other) {
@@ -89,13 +119,103 @@ QString staleColorIn(const QVector<QPair<QWidget*, QString>>& stylesheets, int a
             for (const QString& spelling : colorSpellings(color)) {
                 for (const auto& [widget, sheet] : stylesheets) {
                     if (sheet.contains(spelling, Qt::CaseInsensitive)) {
-                        QString chain;
-                        for (QWidget* w = widget; w; w = w->parentWidget()) {
-                            chain += QStringLiteral("/%1").arg(w->metaObject()->className());
-                        }
-                        return QStringLiteral("%1 in %2 [%3] (preset %4)")
-                            .arg(color, chain, sheet.left(60), QString::number(other));
+                        return QStringLiteral("%1 in %2 (preset %3)")
+                            .arg(color, describeWidget(widget), QString::number(other));
                     }
+                }
+            }
+        }
+    }
+    return QString();
+}
+
+// Icons and pixmaps are not stylesheets: a duotone glyph is rendered from the
+// theme tokens the moment it is asked for, so its ink is what a theme switch can
+// leave behind. Every button icon, sidebar/list row icon, tab icon and label
+// pixmap is collected with its opaque pixels.
+QVector<QPair<QString, QSet<QRgb>>> glyphsIn(QWidget& root) {
+    QVector<QPair<QString, QSet<QRgb>>> glyphs;
+
+    const auto addIcon = [&glyphs](const QString& owner, const QIcon& icon) {
+        if (icon.isNull()) {
+            return;
+        }
+        const QImage image = icon.pixmap(24, 24).toImage().convertToFormat(QImage::Format_ARGB32);
+        QSet<QRgb> pixels;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                const QRgb pixel = image.pixel(x, y);
+                if (qAlpha(pixel) >= 250) {
+                    pixels.insert(pixel & 0x00FFFFFF);
+                }
+            }
+        }
+        if (!pixels.isEmpty()) {
+            glyphs.append({owner, pixels});
+        }
+    };
+    const auto addPixmap = [&glyphs](const QString& owner, const QPixmap& pixmap) {
+        if (pixmap.isNull()) {
+            return;
+        }
+        const QImage image = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+        QSet<QRgb> pixels;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                const QRgb pixel = image.pixel(x, y);
+                if (qAlpha(pixel) >= 250) {
+                    pixels.insert(pixel & 0x00FFFFFF);
+                }
+            }
+        }
+        if (!pixels.isEmpty()) {
+            glyphs.append({owner, pixels});
+        }
+    };
+
+    for (QAbstractButton* button : root.findChildren<QAbstractButton*>()) {
+        addIcon(QStringLiteral("%1[button]").arg(button->metaObject()->className()), button->icon());
+    }
+    for (QLabel* label : root.findChildren<QLabel*>()) {
+        if (const QPixmap* pixmap = label->pixmap()) {
+            addPixmap(QStringLiteral("QLabel[label]"), *pixmap);
+        }
+    }
+    // Sidebar rows (the System Configuration nav) and tab labels carry their
+    // glyph in the model, not in a widget.
+    for (QListWidget* list : root.findChildren<QListWidget*>()) {
+        for (int row = 0; row < list->count(); ++row) {
+            addIcon(QStringLiteral("%1[%2]").arg(list->metaObject()->className(),
+                                                 list->item(row)->text()),
+                    list->item(row)->icon());
+        }
+    }
+    for (QTabWidget* tabs : root.findChildren<QTabWidget*>()) {
+        for (int index = 0; index < tabs->count(); ++index) {
+            addIcon(QStringLiteral("%1[%2]").arg(tabs->metaObject()->className(),
+                                                 tabs->tabText(index)),
+                    tabs->tabBar()->tabIcon(index));
+        }
+    }
+
+    return glyphs;
+}
+
+QString staleGlyphColorIn(QWidget& root, int activePreset) {
+    const QVector<QPair<QString, QSet<QRgb>>> glyphs = glyphsIn(root);
+    for (int other = 0; other < kPresetCount; ++other) {
+        if (other == activePreset) {
+            continue;
+        }
+        for (const QString& color : exclusiveColors(other)) {
+            const QColor target(color);
+            const QRgb wanted = (static_cast<QRgb>(target.red()) << 16)
+                              | (static_cast<QRgb>(target.green()) << 8)
+                              | static_cast<QRgb>(target.blue());
+            for (const auto& [owner, pixels] : glyphs) {
+                if (pixels.contains(wanted)) {
+                    return QStringLiteral("%1 is drawn in %2 (preset %3)")
+                        .arg(owner, color, QString::number(other));
                 }
             }
         }
@@ -297,4 +417,123 @@ void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
     }
 
     CameraConfig::clearThemePreview();
+}
+
+// The shape of one operator session: the surfaces are built once on the saved
+// preset and then live through a pick in the Color Theme dropdown, which the app
+// forwards to every updateTheme(). Stylesheets and glyphs both have to follow -
+// a duotone icon is rendered from the tokens when it is asked for, so it is not
+// covered by the stylesheet re-apply.
+void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    QTemporaryDir dataDir;
+    QVERIFY(dataDir.isValid());
+    CameraConfig::setEventStoragePath(dataDir.path());
+
+    CameraConfig::clearThemePreview();
+    CameraConfig::setThemePreset(0);
+
+    ConfigDialog dialog(nullptr);
+    DocsDialog docs;
+    ChangelogDialog changelog;
+    NetworkSummaryHeader header;
+    CameraCard card(CameraInfo{}, nullptr);
+    AnalysisView analysis(2);
+    DetailView detail;
+    LiveDashboard dashboard(2);
+    LiveViewWindow liveWindow;
+    OpcUaLiveStatusWindow opcUaStatus;
+
+    dialog.resize(1200, 800);
+    docs.resize(900, 600);
+    changelog.resize(900, 600);
+    header.resize(1200, 200);
+    card.resize(600, 200);
+    analysis.resize(1400, 900);
+    detail.resize(1200, 800);
+    dashboard.resize(1200, 800);
+    liveWindow.resize(1200, 800);
+    opcUaStatus.resize(900, 600);
+    dialog.show();
+    docs.show();
+    changelog.show();
+    header.show();
+    card.show();
+    analysis.show();
+    detail.show();
+    dashboard.show();
+    liveWindow.show();
+    opcUaStatus.show();
+    QCoreApplication::processEvents();
+
+    const QVector<QPair<QString, QWidget*>> surfaces = {
+        {QStringLiteral("config-dialog"), &dialog},
+        {QStringLiteral("docs-dialog"), &docs},
+        {QStringLiteral("changelog-dialog"), &changelog},
+        {QStringLiteral("network-summary-header"), &header},
+        {QStringLiteral("camera-card"), &card},
+        {QStringLiteral("analysis-view"), &analysis},
+        {QStringLiteral("detail-view"), &detail},
+        {QStringLiteral("live-dashboard"), &dashboard},
+        {QStringLiteral("live-view-window"), &liveWindow},
+        {QStringLiteral("opcua-live-status"), &opcUaStatus},
+    };
+
+    // Mono is the preset that leaves the least room for doubt: everything the
+    // switch still paints in a chromatic token names the preset it came from.
+    // Then back to the original, so a one-way refresh cannot pass either.
+    for (const int preset : {7, 0}) {
+        CameraConfig::setThemePreview(preset);
+
+        dialog.updateTheme();
+        docs.updateTheme();
+        changelog.updateTheme();
+        header.updateTheme();
+        card.updateTheme();
+        analysis.updateTheme();
+        detail.updateTheme();
+        dashboard.updateTheme();
+        liveWindow.updateTheme();
+        opcUaStatus.updateTheme();
+        QCoreApplication::processEvents();
+
+        for (const auto& [name, surface] : surfaces) {
+            const QString staleSheet = staleColorIn(stylesheetsIn(*surface), preset);
+            QVERIFY2(staleSheet.isEmpty(), qPrintable(QStringLiteral(
+                         "%1 keeps a previous preset's stylesheet color after the live "
+                         "switch to preset %2: %3").arg(name).arg(preset).arg(staleSheet)));
+
+            const QString staleGlyph = staleGlyphColorIn(*surface, preset);
+            QVERIFY2(staleGlyph.isEmpty(), qPrintable(QStringLiteral(
+                         "%1 keeps a previous preset's glyph ink after the live "
+                         "switch to preset %2: %3").arg(name).arg(preset).arg(staleGlyph)));
+        }
+
+        QVERIFY2(dialog.grab().save(artifactPath(
+                     QStringLiteral("live-switch-%1-config-dialog.png").arg(preset))),
+                 "the switched dialog must be saved for review");
+        QVERIFY2(analysis.grab().save(artifactPath(
+                     QStringLiteral("live-switch-%1-analysis-view.png").arg(preset))),
+                 "the switched analysis view must be saved for review");
+        QVERIFY2(detail.grab().save(artifactPath(
+                     QStringLiteral("live-switch-%1-detail-view.png").arg(preset))),
+                 "the switched detail view must be saved for review");
+    }
+
+    CameraConfig::clearThemePreview();
+    opcUaStatus.hide();
+    liveWindow.hide();
+    dashboard.hide();
+    detail.hide();
+    analysis.hide();
+    card.hide();
+    header.hide();
+    changelog.hide();
+    docs.hide();
+    dialog.hide();
 }

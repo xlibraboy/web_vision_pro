@@ -31,6 +31,27 @@ static QString toRgba(const QString& hex, int alpha) {
         .arg(static_cast<double>(alpha) / 255.0, 0, 'f', 2);
 }
 
+// The AOI / ROI chip panels build their buttons from the theme tokens, so both
+// the construction sites and updateTheme() come through here: a single builder
+// keeps the live preset and the built-once chrome from drifting apart.
+static QString chipToolButtonStyle(const ThemeColors& tc, const QString& padding) {
+    return QString(
+        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+        " padding: %7; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
+        "QToolButton:hover { background-color: %4; }"
+        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
+        .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
+             toRgba(tc.primary, 45), tc.primary, padding);
+}
+
+static QString chipPlainButtonStyle(const ThemeColors& tc, const QString& padding) {
+    return QString(
+        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
+        " border-radius: 6px; padding: %4; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        "QPushButton:hover { background-color: %3; }")
+        .arg(tc.primary, tc.border, toRgba(tc.btnHover, 255), padding);
+}
+
 // Sensor-context overlay drawn on the live video frame. The displayed image is
 // the AOI crop scaled to fit, so this widget draws the full-sensor outline
 // around it (positioned by the offsets) and tints the sensor area outside the
@@ -819,13 +840,7 @@ void DetailView::buildAoiOverlay() {
     aoiDrawBtn_->setCursor(Qt::PointingHandCursor);
     aoiDrawBtn_->setFocusPolicy(Qt::NoFocus);
     aoiDrawBtn_->setToolTip("Drag on the frame to define the AOI region, then Apply.");
-    aoiDrawBtn_->setStyleSheet(QString(
-        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-        " padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
-        "QToolButton:hover { background-color: %4; }"
-        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
-        .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
-             toRgba(tc.primary, 45), tc.primary));
+    aoiDrawBtn_->setStyleSheet(chipToolButtonStyle(tc, QStringLiteral("6px 10px")));
     connect(aoiDrawBtn_, &QToolButton::toggled, this, &DetailView::onAoiDrawToggled);
     aoiLayout->addWidget(aoiDrawBtn_);
 
@@ -914,24 +929,13 @@ void DetailView::buildRoiControls() {
     roiDrawBtn_->setToolTip("Click point-to-point on the frame; double-click"
                             " (or Enter / Finish) closes the region, right-click"
                             " removes the last point, Esc cancels.");
-    const QString toolStyle = QString(
-        "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-        " padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
-        "QToolButton:hover { background-color: %4; }"
-        "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
-        .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
-             toRgba(tc.primary, 45), tc.primary);
-    roiDrawBtn_->setStyleSheet(toolStyle);
+    roiDrawBtn_->setStyleSheet(chipToolButtonStyle(tc, QStringLiteral("4px 8px")));
     connect(roiDrawBtn_, &QToolButton::toggled, this, &DetailView::onRoiDrawToggled);
 
     roiWholeBtn_ = new QPushButton("Whole Frame", roiPanel_);
     roiWholeBtn_->setCursor(Qt::PointingHandCursor);
     roiWholeBtn_->setFocusPolicy(Qt::NoFocus);
-    roiWholeBtn_->setStyleSheet(QString(
-        "QPushButton { background-color: transparent; color: %1; border: 1px solid %2;"
-        " border-radius: 6px; padding: 4px 8px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
-        "QPushButton:hover { background-color: %3; }")
-        .arg(tc.primary, tc.border, toRgba(tc.btnHover, 255)));
+    roiWholeBtn_->setStyleSheet(chipPlainButtonStyle(tc, QStringLiteral("4px 8px")));
     connect(roiWholeBtn_, &QPushButton::clicked, this, &DetailView::onRoiWholeFrameClicked);
 
     roiClearBtn_ = new QPushButton("Clear", roiPanel_);
@@ -1824,13 +1828,7 @@ void DetailView::updateTheme() {
             updateAoiApplyState();
         }
         if (aoiDrawBtn_) {
-            aoiDrawBtn_->setStyleSheet(QString(
-                "QToolButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
-                " padding: 6px 10px; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }"
-                "QToolButton:hover { background-color: %4; }"
-                "QToolButton:checked { background-color: %5; color: %6; border-color: %5; }")
-                .arg(toRgba(tc.btnBg, 255), tc.text, tc.border, toRgba(tc.btnHover, 255),
-                     toRgba(tc.primary, 45), tc.primary));
+            aoiDrawBtn_->setStyleSheet(chipToolButtonStyle(tc, QStringLiteral("6px 10px")));
         }
         aoiChip_->setStyleSheet(aoiOverlayStyle(toRgba(tc.btnBg, 230)));
         aoiPanel_->setStyleSheet(QString(
@@ -1851,6 +1849,16 @@ void DetailView::updateTheme() {
                 "QLabel { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
                 "QCheckBox { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; spacing: 4px; }")
                 .arg(toRgba(rt.btnBg, 245), rt.border, rt.text));
+        }
+        // The ROI row is built once and kept: re-style its buttons here or the
+        // preset they were built with survives every theme change.
+        if (roiDrawBtn_) {
+            roiDrawBtn_->setStyleSheet(chipToolButtonStyle(rt, QStringLiteral("4px 8px")));
+        }
+        for (QPushButton* plain : {roiWholeBtn_, roiClearBtn_, roiFinishBtn_}) {
+            if (plain) {
+                plain->setStyleSheet(chipPlainButtonStyle(rt, QStringLiteral("4px 8px")));
+            }
         }
         if (roiOverlay_) {
             roiOverlay_->update();
