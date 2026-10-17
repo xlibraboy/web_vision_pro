@@ -2458,6 +2458,25 @@ void AnalysisView::updateTracksPanelLoadingState()
                 && signalScanner_->currentBinPath() == curPath));
     const bool thumbsLoading = thumbWatcher_ && thumbWatcher_->isRunning()
         && thumbCamPending_ == currentDashCam_;
+    const bool loading = thumbsLoading || scanPending;
+
+    // Status text of the phase in progress, with the running percentage when
+    // the scan reports one. Built BEFORE the height below is taken from it:
+    // every message here wraps onto more than one line at the panel's fixed
+    // width, and measuring the previous, shorter one left the status a single
+    // line tall.
+    QString status;
+    if (thumbsLoading) {
+        status = scanPending && dashProgressPercent_ >= 0
+            ? QStringLiteral("Preparing preview… %1%").arg(dashProgressPercent_)
+            : QStringLiteral("Preparing preview…");
+    } else if (scanPending) {
+        status = dashProgressPercent_ >= 0
+            ? QStringLiteral("Analyzing other tracks… %1%").arg(dashProgressPercent_)
+            : QStringLiteral("Analyzing other tracks…");
+    }
+
+    bool refit = false;
     // The BASE row (Thumbnails) appears as soon as its frames are ready (its
     // data is independent of the signal scan). The FRIEND rows stay hidden
     // until their signal analysis has finished — while it runs they are not
@@ -2466,33 +2485,53 @@ void AnalysisView::updateTracksPanelLoadingState()
         tracksBaseLoading_ = thumbsLoading;
         tracksScanLoading_ = scanPending;
         for (int i = 0; i < 4; ++i) {
-            if (trackChecks_[i]) trackChecks_[i]->setVisible(!thumbsLoading && !scanPending);
+            if (trackChecks_[i]) trackChecks_[i]->setVisible(!loading);
         }
         if (trackChecks_[4]) trackChecks_[4]->setVisible(!thumbsLoading);
-        if (thumbsLoading || scanPending) {
+        if (loading) {
             tracksSpinner_->start();
             tracksLoadingRow_->show();
         } else {
             tracksSpinner_->stop();
             tracksLoadingRow_->hide();
         }
-        // Content swapped: re-fit the panel to its new height. The top-left
-        // anchor is kept, so an open panel stays put (only its size changes).
-        tracksPanel_->adjustSize();
+        // Content swapped: the panel's height changes with it.
+        refit = true;
     }
     // Refresh the running percentage even when the state itself didn't flip.
-    if (tracksLoadLabel_) {
-        if (thumbsLoading) {
-            tracksLoadLabel_->setText(
-                scanPending && dashProgressPercent_ >= 0
-                    ? QStringLiteral("Preparing preview… %1%").arg(dashProgressPercent_)
-                    : QStringLiteral("Preparing preview…"));
-        } else if (scanPending) {
-            tracksLoadLabel_->setText(
-                dashProgressPercent_ >= 0
-                    ? QStringLiteral("Analyzing other tracks… %1%").arg(dashProgressPercent_)
-                    : QStringLiteral("Analyzing other tracks…"));
+    if (loading && tracksLoadLabel_ && tracksLoadLabel_->text() != status) {
+        tracksLoadLabel_->setText(status);
+        refit = true;
+    }
+    if (loading && tracksLoadLabel_) {
+        // The status wraps onto more than one line at the panel's fixed width,
+        // but a plain container hands the wrapped label the height of its
+        // one-line sizeHint: the label then paints its last line clipped, and
+        // the row (whose own sizeHint can still carry the wrapped text's height
+        // at a stale width) leaves the fitted panel with dead space below it.
+        // Measure the message at the width the row's layout gives the label —
+        // the panel's fixed width inside its own margins, without the spinner
+        // and the row's spacing — and give both that height.
+        const QMargins panelMargins = tracksPanel_->layout()->contentsMargins();
+        const int rowWidth = tracksPanel_->width() - panelMargins.left() - panelMargins.right();
+        const int labelWidth = rowWidth - tracksSpinner_->width()
+            - tracksLoadingRow_->layout()->spacing();
+        const int statusHeight = qMax(tracksSpinner_->height(),
+                                      qMax(tracksLoadLabel_->fontMetrics().height(),
+                                           tracksLoadLabel_->heightForWidth(labelWidth)));
+        if (tracksLoadLabel_->minimumHeight() != statusHeight) {
+            tracksLoadLabel_->setMinimumHeight(statusHeight);
+            refit = true;
         }
+        if (tracksLoadingRow_->minimumHeight() != statusHeight) {
+            tracksLoadingRow_->setFixedHeight(statusHeight);
+            refit = true;
+        }
+    }
+    if (refit) {
+        // Re-fit the panel to its new height. The top-left anchor is kept, so
+        // an open panel stays put (only its size changes).
+        tracksPanel_->adjustSize();
     }
 }
 
