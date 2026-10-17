@@ -31,6 +31,7 @@ namespace Icons {
     constexpr const char* SPEED = "speed";
     constexpr const char* LOCATION = "location";
     constexpr const char* THERMOMETER = "thermometer";
+    constexpr const char* USER = "user";
 }
 
 /**
@@ -76,6 +77,7 @@ public:
     QIcon speed(int size = 20);
     QIcon location(int size = 20);
     QIcon thermometer(int size = 20);
+    QIcon user(int size = 20);
 
     // Status-aware icons
     QIcon statusOk(int size = 20);

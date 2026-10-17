@@ -10,6 +10,7 @@
 #include "widgets/MachineGroupsPanel.h"
 #include "widgets/MachineLayoutPanel.h"
 #include "widgets/OpcUaLiveStatusWindow.h"
+#include "widgets/UserEditDialog.h"
 #include "widgets/IconManager.h"
 #include "../config/CameraConfig.h"
 #include "../config/UiTypeScale.h"
@@ -3009,6 +3010,105 @@ void ConfigDialog::setupUI() {
     sidebar->addItem(diagnosticsItem);
     stackedWidget->addWidget(diagnosticsGroup);
 
+    // ── Users page ──
+    // Sign-in accounts (Administrator only: the sidebar row is hidden for
+    // everyone else). Account changes apply immediately - security objects
+    // should not sit in a staged, unsaved state; the store enforces its own
+    // guards (unique name, last Administrator) and reports failures inline
+    // in the edit dialog.
+    QWidget* usersGroup = new QWidget(this);
+    QVBoxLayout* usersLayout = new QVBoxLayout(usersGroup);
+    usersLayout->setSpacing(kSectionSpacing);
+    usersLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+
+    QLabel* usersTitle = new QLabel("User Accounts", usersGroup);
+    registerThemed(usersTitle, [](const ThemeColors& tc) {
+        return QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;")
+            .arg(tc.primary);
+    });
+    usersLayout->addWidget(usersTitle);
+
+    QLabel* usersDescription = new QLabel(
+        "Accounts that can sign in from the status-bar pill. Engineers unlock camera tuning, the "
+        "Pause control, the live grid layouts, Instant Clear and a read-only System Configuration; "
+        "Administrators additionally manage accounts and events, save camera parameters and change "
+        "every setting.", usersGroup);
+    usersDescription->setWordWrap(true);
+    registerThemed(usersDescription, [](const ThemeColors& tc) {
+        return QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1;").arg(tc.muted);
+    });
+    usersLayout->addWidget(usersDescription);
+
+    QFrame* usersSeparator = new QFrame(usersGroup);
+    usersSeparator->setFrameShape(QFrame::HLine);
+    usersSeparator->setFrameShadow(QFrame::Plain);
+    registerThemed(usersSeparator, [](const ThemeColors& tc) {
+        return QString("QFrame { color: %1; background-color: %1; border: none; }").arg(tc.border);
+    });
+    usersLayout->addWidget(usersSeparator);
+
+    usersTable_ = new QTableWidget(0, 2, usersGroup);
+    usersTable_->setHorizontalHeaderLabels(QStringList() << "User" << "Role");
+    usersTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    usersTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    usersTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    usersTable_->verticalHeader()->setVisible(false);
+    usersTable_->setShowGrid(false);
+    usersTable_->setAlternatingRowColors(false);
+    registerThemed(usersTable_, [](const ThemeColors& tc) {
+        return QString(
+            "QTableWidget { background: transparent; border: none; color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; } "
+            "QTableWidget::item { padding: 4px 8px; border: none; } "
+            "QTableWidget::item:selected { background-color: %4; color: %1; } "
+            "QHeaderView::section { background: transparent; color: %2; border: none; border-bottom: 1px solid %3; padding: 4px 8px; font-weight: 600; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+        ).arg(tc.text, tc.primary, tc.border, tinted(tc.primary, 0.18));
+    });
+    QHeaderView* usersHeader = usersTable_->horizontalHeader();
+    usersHeader->setSectionResizeMode(0, QHeaderView::Stretch);
+    usersHeader->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    usersLayout->addWidget(usersTable_, 1);
+
+    QHBoxLayout* usersActionsLayout = new QHBoxLayout();
+    usersActionsLayout->setSpacing(kControlSpacing);
+
+    usersAddBtn_ = new QPushButton("Add User...", usersGroup);
+    registerThemedIcon([this]() { usersAddBtn_->setIcon(IconManager::instance().add(16)); });
+    registerThemed(usersAddBtn_, primaryActionButtonStyle);
+    connect(usersAddBtn_, &QPushButton::clicked, this, &ConfigDialog::onAddUserClicked);
+    usersActionsLayout->addWidget(usersAddBtn_);
+
+    usersEditBtn_ = new QPushButton("Edit...", usersGroup);
+    registerThemedIcon([this]() { usersEditBtn_->setIcon(IconManager::instance().edit(16)); });
+    registerThemed(usersEditBtn_, secondaryActionButtonStyle);
+    connect(usersEditBtn_, &QPushButton::clicked, this, &ConfigDialog::onEditUserClicked);
+    usersActionsLayout->addWidget(usersEditBtn_);
+
+    usersDeleteBtn_ = new QPushButton("Delete", usersGroup);
+    registerThemedIcon([this]() { usersDeleteBtn_->setIcon(IconManager::instance().trash(16)); });
+    registerThemed(usersDeleteBtn_, secondaryActionButtonStyle);
+    connect(usersDeleteBtn_, &QPushButton::clicked, this, &ConfigDialog::onDeleteUserClicked);
+    usersActionsLayout->addWidget(usersDeleteBtn_);
+
+    usersActionsLayout->addStretch();
+    usersLayout->addLayout(usersActionsLayout);
+
+    // Row selection gates the row actions; double-click edits the row.
+    connect(usersTable_, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const bool canAct = accessRole_ == AccessRole::Administrator && usersTable_->currentRow() >= 0;
+        if (usersEditBtn_) usersEditBtn_->setEnabled(canAct);
+        if (usersDeleteBtn_) usersDeleteBtn_->setEnabled(canAct);
+    });
+    connect(usersTable_, &QTableWidget::cellDoubleClicked, this, [this](int, int) {
+        onEditUserClicked();
+    });
+
+    usersSidebarItem_ = new QListWidgetItem(QIcon(), "Users");
+    registerThemedIcon([this]() { usersSidebarItem_->setIcon(IconManager::instance().user(20)); });
+    sidebar->addItem(usersSidebarItem_);
+    stackedWidget->addWidget(usersGroup);
+
+    refreshUsersTable();
+
     int widestSidebarLabel = 0;
     for (int i = 0; i < sidebar->count(); ++i) {
         const QListWidgetItem* item = sidebar->item(i);
@@ -4291,7 +4391,137 @@ void ConfigDialog::setAccessRole(AccessRole role) {
         opcUaDetectEndpointBtn_->setEnabled(isAdmin);
     }
 
+    // Users page: Administrator only. The sidebar row is hidden for everyone
+    // else (a visible-but-empty page would only invite confusion) and the
+    // actions follow the same gate.
+    if (usersSidebarItem_) {
+        usersSidebarItem_->setHidden(!isAdmin);
+    }
+    if (usersTable_) {
+        usersTable_->setEnabled(isAdmin);
+    }
+    const bool hasUserRow = usersTable_ && usersTable_->currentRow() >= 0;
+    if (usersAddBtn_) {
+        usersAddBtn_->setEnabled(isAdmin);
+    }
+    if (usersEditBtn_) {
+        usersEditBtn_->setEnabled(isAdmin && hasUserRow);
+    }
+    if (usersDeleteBtn_) {
+        usersDeleteBtn_->setEnabled(isAdmin && hasUserRow);
+    }
+
     if (ipConfiguratorPanel_) ipConfiguratorPanel_->setAccessRole(role);
+}
+
+void ConfigDialog::setSessionUser(const QString& username) {
+    if (sessionUser_ == username) {
+        return;
+    }
+    sessionUser_ = username;
+    refreshUsersTable();
+}
+
+void ConfigDialog::refreshUsersTable() {
+    if (!usersTable_) {
+        return;
+    }
+
+    const std::vector<UserAccount> accounts = UserStore::users();
+    usersTable_->setRowCount(static_cast<int>(accounts.size()));
+    for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+        const UserAccount& account = accounts[static_cast<size_t>(i)];
+
+        QString label = account.username;
+        if (!sessionUser_.isEmpty()
+            && account.username.compare(sessionUser_, Qt::CaseInsensitive) == 0) {
+            label += QStringLiteral("  (signed in)");
+        }
+
+        QTableWidgetItem* nameItem = new QTableWidgetItem(label);
+        nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        // The label carries the "(signed in)" marker, so the plain account
+        // name lives in the item data for the actions to read back.
+        nameItem->setData(Qt::UserRole, account.username);
+        usersTable_->setItem(i, 0, nameItem);
+
+        QTableWidgetItem* roleItem = new QTableWidgetItem(accessRoleName(account.role));
+        roleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        usersTable_->setItem(i, 1, roleItem);
+    }
+
+    const bool canAct = accessRole_ == AccessRole::Administrator && usersTable_->currentRow() >= 0;
+    if (usersEditBtn_) usersEditBtn_->setEnabled(canAct);
+    if (usersDeleteBtn_) usersDeleteBtn_->setEnabled(canAct);
+}
+
+void ConfigDialog::onAddUserClicked() {
+    UserEditDialog dialog(QString(), AccessRole::Engineer, /*isNew=*/true, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        refreshUsersTable();
+        emit userAccountsChanged();
+    }
+}
+
+void ConfigDialog::onEditUserClicked() {
+    const int row = usersTable_ ? usersTable_->currentRow() : -1;
+    if (row < 0) {
+        return;
+    }
+    const QString username = usersTable_->item(row, 0)->data(Qt::UserRole).toString();
+
+    AccessRole role = AccessRole::Engineer;
+    bool found = false;
+    for (const UserAccount& account : UserStore::users()) {
+        if (account.username == username) {
+            role = account.role;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        refreshUsersTable();
+        return;
+    }
+
+    UserEditDialog dialog(username, role, /*isNew=*/false, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        refreshUsersTable();
+        emit userAccountsChanged();
+    }
+}
+
+void ConfigDialog::onDeleteUserClicked() {
+    const int row = usersTable_ ? usersTable_->currentRow() : -1;
+    if (row < 0) {
+        return;
+    }
+    const QString username = usersTable_->item(row, 0)->data(Qt::UserRole).toString();
+
+    // Deleting the signed-in account would strand the session on an identity
+    // that no longer exists; sign out first.
+    if (!sessionUser_.isEmpty()
+        && username.compare(sessionUser_, Qt::CaseInsensitive) == 0) {
+        QMessageBox::warning(this, "Delete User",
+            QString("\"%1\" is signed in right now. Sign out before removing the account.")
+                .arg(username));
+        return;
+    }
+
+    DeleteConfirmationDialog confirm(QString("User \"%1\"").arg(username), this);
+    if (confirm.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    // The store refuses to remove the last Administrator; surface that reason.
+    QString error;
+    if (!UserStore::removeUser(username, &error)) {
+        QMessageBox::warning(this, "Delete User", error);
+        return;
+    }
+
+    refreshUsersTable();
+    emit userAccountsChanged();
 }
 
 void ConfigDialog::onRefreshLogsClicked() {

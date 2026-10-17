@@ -62,6 +62,7 @@ src/gui/widgets/DocsDialog.cpp
 src/gui/widgets/ChangelogDialog.cpp
 src/gui/widgets/CircularSpinner.cpp
 src/gui/widgets/AccessibleTextSummary.cpp
+src/gui/widgets/UserEditDialog.cpp
 )
 
 # Header files for Qt MOC
@@ -89,6 +90,7 @@ src/gui/widgets/OpcUaLiveStatusWindow.h
 src/gui/widgets/DocsDialog.h
 src/gui/widgets/ChangelogDialog.h
 src/gui/widgets/CircularSpinner.h
+src/gui/widgets/UserEditDialog.h
 src/communication/OpcUaClientService.h
 src/communication/OpcUaRuntimeStatus.h
 src/processing/EventSignalScanner.h

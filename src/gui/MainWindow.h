@@ -72,6 +72,9 @@ private:
     // Push the session role out to every gated surface: the status pill, the
     // pause button, the grid-layout menu, the views and the configuration tab.
     void applyRoleToUi();
+    // Re-read the signed-in account after a Users-page change: adopt a changed
+    // role live, or drop to Operator when the account is gone.
+    void syncSessionWithUserStore();
     void updateRoleStatusIndicator();
     // Re-tint the role pill's padlock: ink while the button is held down
     // (the press fill is the accent itself), otherwise the state tint.

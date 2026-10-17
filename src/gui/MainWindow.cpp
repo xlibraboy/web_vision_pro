@@ -1456,6 +1456,44 @@ void MainWindow::updatePauseButtonEnabled() {
 }
 
 // ---------------------------------------------------------------------------
+// syncSessionWithUserStore — the Users page can change the signed-in account
+// while it is in use (rename is impossible, but a role change or removal by
+// another administrator is not). Re-read it: adopt a changed role live, and
+// fall back to the Operator session when the account is gone.
+// ---------------------------------------------------------------------------
+void MainWindow::syncSessionWithUserStore() {
+    if (currentUser_.isEmpty()) {
+        return;
+    }
+
+    AccessRole updatedRole = AccessRole::Operator;
+    bool found = false;
+    for (const UserAccount& account : UserStore::users()) {
+        if (account.username.compare(currentUser_, Qt::CaseInsensitive) == 0) {
+            found = true;
+            updatedRole = account.role;
+            currentUser_ = account.username;
+            break;
+        }
+    }
+
+    if (!found) {
+        currentUser_.clear();
+        currentRole_ = AccessRole::Operator;
+        statusBar()->showMessage("Your account was removed — signed out to Operator mode.", 5000);
+        applyRoleToUi();
+        return;
+    }
+
+    if (updatedRole != currentRole_) {
+        currentRole_ = updatedRole;
+        statusBar()->showMessage(
+            QString("Your role is now %1.").arg(accessRoleName(currentRole_)), 5000);
+        applyRoleToUi();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // updateRoleStatusIndicator — keep the status-bar session pill in step with
 // the current role: label, tooltip, padlock tint, and the [roleElevated]
 // property that drives the pill's colors (see the QSS in applyGlobalTheme).
@@ -1640,6 +1678,12 @@ void MainWindow::ensureConfigTab() {
             applyGlobalTheme();
         });
 
+        // The Users page changed the account store: the signed-in session may
+        // be affected too (own role changed, or the account was removed).
+        connect(configWindow_, &ConfigDialog::userAccountsChanged, this, [this]() {
+            syncSessionWithUserStore();
+        });
+
         connect(configWindow_, &ConfigDialog::cameraDeviceSettingsChanged, this,
                 [this](int cameraIndex, const CameraInfo& info) {
                     // The acquisition fps may have changed: resize the ring
@@ -1714,6 +1758,7 @@ void MainWindow::updateConfigTabAccess() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     mainTabWidget_->tabBar()->setTabTextColor(tabIndex, canOpenConfig ? QColor(tc.text) : QColor(tc.disabled));
     configWindow_->setAccessRole(currentRole_);
+    configWindow_->setSessionUser(currentUser_);
 }
 
 void MainWindow::changeLayout(int rows, int cols) {
