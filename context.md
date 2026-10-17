@@ -140,7 +140,7 @@ src/
 ### Configuration
 - `CameraConfig` is the single source of truth for all settings
 - Camera config: ID, source (Emulated/Real/Disabled), name, location, IP, MAC, FPS, AOI, exposure, pixel format, chunk data
-- Theme: Light or Dark, or Follow system (the desktop colour scheme, see `SystemColorScheme`), plus S/M/L typography presets and per-view styling. All chrome colours come from `CameraConfig::getThemeColors()`; ink painted onto video comes from `getVideoOverlayColors()`, since video surfaces keep their own dark/light background.
+- Theme: Light or Dark, or Follow system (the desktop colour scheme, see `SystemColorScheme`), plus S/M/L typography presets and per-view styling. All chrome colours come from `CameraConfig::getThemeColors()`. The video surfaces (camera tiles, playback) default to their own "auto" style, which follows the theme's polarity, and the ink painted onto them comes from `getVideoOverlayColors()` so it matches whichever surface they show.
 - OPC UA settings: endpoint URL, auth, publish/reconnect intervals, trigger tags, speed tag
 - Event storage path configurable with validation
 - Config persisted via `CameraConfig` static methods

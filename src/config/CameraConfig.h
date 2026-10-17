@@ -76,6 +76,9 @@ struct LiveViewCardStyle {
     int detailTitleFontSize;
     QString detailSectionFontFamily;
     int detailSectionFontSize;
+    // "auto" follows the theme's polarity; "black" / "white" and the textured
+    // variants pin the surface whatever the theme does (see
+    // resolveLiveViewBackgroundStyle).
     QString backgroundStyle;
 };
 
@@ -86,6 +89,8 @@ struct AnalysisViewStyle {
     int timestampFontSize;
     QString tabFontFamily;
     int tabFontSize;
+    // "auto" follows the theme's polarity, "dark" / "light" pin it (see
+    // resolvePlaybackSurfaceStyle).
     QString playbackSurfaceStyle;
     // Default metadata overlay mode shown on analysis frames. Values match the
     // AnalysisView metadata combo data: none, standard, full, timestamp,
@@ -268,6 +273,14 @@ public:
     static AnalysisViewStyle getDefaultAnalysisViewStyle();
     static AnalysisViewStyle getAnalysisViewStyle();
     static void setAnalysisViewStyle(const AnalysisViewStyle& style);
+
+    // The video surfaces default to "auto", the plain surface that matches the
+    // theme's polarity (so a light theme gets light tiles, not a black hole in
+    // the middle of the window). These turn a stored style into the one that is
+    // painted: "auto" resolves against the theme in force - including a preview
+    // - and an explicit style passes through unchanged.
+    static QString resolveLiveViewBackgroundStyle(const QString& storedStyle);
+    static QString resolvePlaybackSurfaceStyle(const QString& storedStyle);
     // OPC UA client trigger/speed integration settings.
     static OpcUaSettings getDefaultOpcUaSettings();
     static OpcUaSettings getOpcUaSettings();

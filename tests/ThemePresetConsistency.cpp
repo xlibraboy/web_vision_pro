@@ -319,6 +319,60 @@ void ThemePresetConsistency::themeModesResolveAndMigrate()
     CameraConfig::setThemeMode(ThemeMode::System);
 }
 
+void ThemePresetConsistency::videoSurfacesFollowTheTheme()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    CameraConfig::clearThemePreview();
+
+    // Both video surfaces follow the theme by default: a black tile in the
+    // middle of a light window is the thing this default exists to prevent.
+    QCOMPARE(CameraConfig::getDefaultLiveViewCardStyle().backgroundStyle, QStringLiteral("auto"));
+    QCOMPARE(CameraConfig::getDefaultAnalysisViewStyle().playbackSurfaceStyle, QStringLiteral("auto"));
+
+    for (const ThemeMode theme : kThemes) {
+        CameraConfig::setThemePreview(theme);
+        const bool darkTheme = theme == ThemeMode::Dark;
+
+        QCOMPARE(CameraConfig::resolveLiveViewBackgroundStyle(QStringLiteral("auto")),
+                 darkTheme ? QStringLiteral("black") : QStringLiteral("white"));
+        QCOMPARE(CameraConfig::resolvePlaybackSurfaceStyle(QStringLiteral("auto")),
+                 darkTheme ? QStringLiteral("dark") : QStringLiteral("light"));
+
+        // An explicit surface is not touched by the theme.
+        QCOMPARE(CameraConfig::resolveLiveViewBackgroundStyle(QStringLiteral("white_textured_mesh")),
+                 QStringLiteral("white_textured_mesh"));
+        QCOMPARE(CameraConfig::resolvePlaybackSurfaceStyle(QStringLiteral("light")),
+                 QStringLiteral("light"));
+    }
+    CameraConfig::clearThemePreview();
+
+    // An installation that stored the old hardcoded default (Black / Dark) reads
+    // as Follow theme now: on the dark theme that is the very same surface, and
+    // it stops a leftover default from pinning the tiles black on the light one.
+    CameraConfig::setLiveViewCardStyle(CameraConfig::getDefaultLiveViewCardStyle());
+    CameraConfig::setAnalysisViewStyle(CameraConfig::getDefaultAnalysisViewStyle());
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
+        settings.setValue("LiveViewCard/BackgroundStyle", QStringLiteral("black"));
+        settings.setValue("AnalysisView/PlaybackSurfaceStyle", QStringLiteral("dark"));
+    }
+    QCOMPARE(CameraConfig::getLiveViewCardStyle().backgroundStyle, QStringLiteral("auto"));
+    QCOMPARE(CameraConfig::getAnalysisViewStyle().playbackSurfaceStyle, QStringLiteral("auto"));
+
+    // An explicit choice survives.
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
+        settings.setValue("LiveViewCard/BackgroundStyle", QStringLiteral("textured_mesh"));
+    }
+    QCOMPARE(CameraConfig::getLiveViewCardStyle().backgroundStyle, QStringLiteral("textured_mesh"));
+
+    CameraConfig::setThemeMode(ThemeMode::System);
+}
+
 void ThemePresetConsistency::configDialogReThemesWhenThePresetChanges()
 {
     QTemporaryDir settingsDir;

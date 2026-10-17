@@ -256,7 +256,10 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     painter.setRenderHint(QPainter::Antialiasing);
     const ThemeColors tc = hasPreviewThemeOverride_ ? previewThemeOverride_ : CameraConfig::getThemeColors();
     const AnalysisViewStyle style = hasPreviewStyleOverride_ ? previewStyleOverride_ : CameraConfig::getAnalysisViewStyle();
-    const bool lightSurface = style.playbackSurfaceStyle == "light";
+    // "auto" follows the theme polarity; an explicit surface is used as stored.
+    const QString surfaceStyle =
+        CameraConfig::resolvePlaybackSurfaceStyle(style.playbackSurfaceStyle);
+    const bool lightSurface = surfaceStyle == "light";
     // The playback surface - not the theme - decides the HUD ink, and the
     // backing bars follow the ink so neither polarity paints dark on dark.
     const OverlayColors overlay = CameraConfig::getVideoOverlayColors(lightSurface);

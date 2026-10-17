@@ -233,9 +233,11 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
     cachedTheme_ = hasPreviewThemeOverride_ ? previewThemeOverride_ : CameraConfig::getThemeColors();
     ThemeColors& tc = cachedTheme_;
     const LiveViewCardStyle cardStyle = CameraConfig::getLiveViewCardStyle();
-    const QString effectiveBackgroundStyle = hasPreviewBackgroundOverride_
-        ? previewBackgroundStyleOverride_
-        : cardStyle.backgroundStyle;
+    // "auto" follows the theme polarity, so the card surface goes light with the
+    // light theme; an explicit surface is used as it is.
+    const QString effectiveBackgroundStyle = CameraConfig::resolveLiveViewBackgroundStyle(
+        hasPreviewBackgroundOverride_ ? previewBackgroundStyleOverride_
+                                      : cardStyle.backgroundStyle);
     const bool lightBackground = usesLightBackground(effectiveBackgroundStyle);
     // The tile surface - not the theme - decides the overlay ink: a tile stays
     // dark or light per LiveViewCardStyle whatever the chrome is doing.

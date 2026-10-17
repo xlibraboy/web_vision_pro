@@ -314,6 +314,12 @@ LiveViewCardStyle CameraConfig::getLiveViewCardStyle() {
     style.detailSectionFontFamily = settings.value("LiveViewCard/DetailSectionFontFamily", style.detailTitleFontFamily).toString();
     style.detailSectionFontSize = settings.value("LiveViewCard/DetailSectionFontSize", style.detailSectionFontSize).toInt();
     style.backgroundStyle = settings.value("LiveViewCard/BackgroundStyle", style.backgroundStyle).toString();
+    // "black" was the surface the tiles always had, i.e. the dark theme's own
+    // polarity; it follows the theme now, which looks identical until the light
+    // theme is picked. An explicit White / Textured Mesh choice is kept.
+    if (style.backgroundStyle == QLatin1String("black")) {
+        style.backgroundStyle = QStringLiteral("auto");
+    }
     return style;
 }
 
@@ -325,8 +331,22 @@ LiveViewCardStyle CameraConfig::getDefaultLiveViewCardStyle() {
         UiTypeScale::kTitle,
         UiTypeScale::uiFamily(),
         UiTypeScale::kBody,
-        QStringLiteral("black")
+        QStringLiteral("auto")
     };
+}
+
+QString CameraConfig::resolveLiveViewBackgroundStyle(const QString& storedStyle) {
+    if (storedStyle != QLatin1String("auto")) {
+        return storedStyle;
+    }
+    return getThemeColors().isDark() ? QStringLiteral("black") : QStringLiteral("white");
+}
+
+QString CameraConfig::resolvePlaybackSurfaceStyle(const QString& storedStyle) {
+    if (storedStyle != QLatin1String("auto")) {
+        return storedStyle;
+    }
+    return getThemeColors().isDark() ? QStringLiteral("dark") : QStringLiteral("light");
 }
 
 void CameraConfig::setLiveViewCardStyle(const LiveViewCardStyle& style) {
@@ -350,6 +370,11 @@ AnalysisViewStyle CameraConfig::getAnalysisViewStyle() {
     style.tabFontFamily = settings.value("AnalysisView/TabFontFamily", style.tabFontFamily).toString();
     style.tabFontSize = settings.value("AnalysisView/TabFontSize", style.tabFontSize).toInt();
     style.playbackSurfaceStyle = settings.value("AnalysisView/PlaybackSurfaceStyle", style.playbackSurfaceStyle).toString();
+    // Same as the card surface: "dark" was the hardcoded default, so it follows
+    // the theme now; an explicit Light choice is kept.
+    if (style.playbackSurfaceStyle == QLatin1String("dark")) {
+        style.playbackSurfaceStyle = QStringLiteral("auto");
+    }
     style.defaultMetadataMode = settings.value("AnalysisView/DefaultMetadataMode", style.defaultMetadataMode).toString();
     style.defaultMetadataFontFamily = settings.value("AnalysisView/DefaultMetadataFontFamily", style.defaultMetadataFontFamily).toString();
     style.defaultMetadataFontSize = settings.value("AnalysisView/DefaultMetadataFontSize", style.defaultMetadataFontSize).toInt();
@@ -364,7 +389,7 @@ AnalysisViewStyle CameraConfig::getDefaultAnalysisViewStyle() {
         UiTypeScale::kOverlayMono,
         UiTypeScale::uiFamily(),
         UiTypeScale::kBody,
-        QStringLiteral("dark"),
+        QStringLiteral("auto"),
         QStringLiteral("realtime"),
         UiTypeScale::monoFamily(),
         UiTypeScale::kOverlayMono

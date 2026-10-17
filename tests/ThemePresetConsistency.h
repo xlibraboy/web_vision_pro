@@ -11,6 +11,7 @@ class ThemePresetConsistency : public QObject {
 private slots:
     void previewOverrideDrivesTheEffectiveTheme();
     void themeModesResolveAndMigrate();
+    void videoSurfacesFollowTheTheme();
     void configDialogReThemesWhenThePresetChanges();
     void glyphAssetsAreTintedFromTheTheme();
     void noSurfaceKeepsAnotherPresetsColors();

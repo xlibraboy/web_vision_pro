@@ -2259,6 +2259,7 @@ void ConfigDialog::setupUI() {
     liveSettingsCardLayout->addWidget(liveViewDescription);
 
     liveViewBackgroundStyleCombo_ = new QComboBox(uiGroup);
+    liveViewBackgroundStyleCombo_->addItem("Follow theme", "auto");
     liveViewBackgroundStyleCombo_->addItem("Black", "black");
     liveViewBackgroundStyleCombo_->addItem("White", "white");
     liveViewBackgroundStyleCombo_->addItem("Textured Mesh", "textured_mesh");
@@ -2273,7 +2274,7 @@ void ConfigDialog::setupUI() {
     });
     liveViewBackgroundStyleCombo_->setFixedWidth(160);
     liveViewForm->addRow(
-        createLiveViewRowLabel("Card Surface", "Background for the card body."),
+        createLiveViewRowLabel("Card Surface", "Background for the card body. Follow theme matches the app theme; Black and White pin it."),
         liveViewBackgroundStyleCombo_);
 
     liveViewGridTitleFontCombo_ = new QComboBox(uiGroup);
@@ -2455,6 +2456,7 @@ void ConfigDialog::setupUI() {
         createTypographyRow(analysisViewGroup, analysisTabFontCombo_, analysisTabSizeSpin_, "Tabs and playback label typography.", 10, 12, 16, analysisTabPresets_));
 
     analysisPlaybackSurfaceCombo_ = new QComboBox(uiGroup);
+    analysisPlaybackSurfaceCombo_->addItem("Follow theme", "auto");
     analysisPlaybackSurfaceCombo_->addItem("Dark", "dark");
     analysisPlaybackSurfaceCombo_->addItem("Light", "light");
     registerThemed(analysisPlaybackSurfaceCombo_, [](const ThemeColors& tc) {
@@ -2467,7 +2469,7 @@ void ConfigDialog::setupUI() {
     });
     analysisPlaybackSurfaceCombo_->setFixedWidth(160);
     analysisViewForm->addRow(
-        createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface."),
+        createLiveViewRowLabel("Playback Surface", "Background used by the analysis playback bar and video blank surface. Follow theme matches the app theme; Dark and Light pin it."),
         analysisPlaybackSurfaceCombo_);
 
     analysisDefaultMetadataCombo_ = new QComboBox(uiGroup);
@@ -2546,7 +2548,11 @@ void ConfigDialog::setupUI() {
         // The effective theme: the pick in the dropdown while it is being
         // previewed, otherwise the saved mode.
         const ThemeColors previewThemeColors = CameraConfig::getThemeColors();
-        const QString backgroundStyle = normalizeLiveViewBackgroundStyle(liveViewBackgroundStyleCombo_->currentData().toString());
+        // "Follow theme" is previewed against the theme in force (the pick in
+        // the dropdown while it is being previewed), so the sample card shows
+        // the surface the operator will actually get.
+        const QString backgroundStyle = CameraConfig::resolveLiveViewBackgroundStyle(
+            normalizeLiveViewBackgroundStyle(liveViewBackgroundStyleCombo_->currentData().toString()));
         const QBrush surfaceBrush = liveViewBackgroundBrush(backgroundStyle);
         const QColor themeBorderColor(previewThemeColors.border);
         const QColor themeTextColor(previewThemeColors.text);
@@ -2647,7 +2653,8 @@ void ConfigDialog::setupUI() {
         style.timestampFontSize = analysisTimestampSizeSpin_->value();
         style.tabFontFamily = currentCuratedFontFamily(analysisTabFontCombo_);
         style.tabFontSize = analysisTabSizeSpin_->value();
-        style.playbackSurfaceStyle = analysisPlaybackSurfaceCombo_->currentData().toString();
+        style.playbackSurfaceStyle = CameraConfig::resolvePlaybackSurfaceStyle(
+            analysisPlaybackSurfaceCombo_->currentData().toString());
         style.defaultMetadataMode = analysisDefaultMetadataCombo_->currentData().toString();
         style.defaultMetadataFontFamily = currentCuratedFontFamily(analysisMetadataFontCombo_);
         style.defaultMetadataFontSize = analysisMetadataSizeSpin_->value();

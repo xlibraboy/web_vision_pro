@@ -2523,7 +2523,8 @@ void AnalysisView::applyAnalysisViewStyle() {
 
     const ThemeColors tc = CameraConfig::getThemeColors();
     const AnalysisViewStyle style = CameraConfig::getAnalysisViewStyle();
-    const QString playbackSurface = analysisSurfaceColor(style.playbackSurfaceStyle);
+    const QString playbackSurface = analysisSurfaceColor(
+        CameraConfig::resolvePlaybackSurfaceStyle(style.playbackSurfaceStyle));
 
     tabWidget_->setStyleSheet(QString(
         "QTabWidget::pane { border: 1px solid %1; background: %2; }"

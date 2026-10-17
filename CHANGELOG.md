@@ -27,6 +27,7 @@ here.
 
 - The Theme picker applies the theme the moment it is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved theme.
 - The Theme picker offers Light, Dark and Follow system instead of the accent presets; an installation that had one of those presets saved now runs the dark theme.
+- The Live View card surface and the Analysis playback surface default to Follow theme now, so the camera tiles and the playback bar go light with the light theme instead of staying black. Black/Dark and White/Light are still available to pin a surface (a stored Black/Dark choice reads as Follow theme), and the UI Preferences previews show the surface that will actually be painted.
 - Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
 - Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
 - Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
