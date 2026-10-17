@@ -15,6 +15,7 @@
 #include "widgets/CameraWidget.h"
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
+#include "../config/UserStore.h"
 
 class QKeyEvent;
 class QScrollArea;
@@ -28,7 +29,7 @@ public:
 
     void setCamera(int cameraId, const CameraInfo& info, CameraWidget* videoSource);
     void clearCamera();
-    void setAdminMode(bool isAdmin);
+    void setAccessRole(AccessRole role);
     // Update temperature display live (from background monitor thread via MainWindow)
     void updateTemperature(double temp);
     // Update spinboxes/sliders from live camera readback (e.g. after PFS load)
@@ -136,7 +137,7 @@ private:
     QPushButton* btnAnalysis_;
     QPushButton* btnSnapshot_; // Added missing member
 
-    bool isAdmin_;
+    AccessRole accessRole_ = AccessRole::Operator;
     bool gainIsRaw_ = false;
     int currentCameraId_ = -1;
 

@@ -86,6 +86,9 @@ void ConfigDialogNetworkRegression::entryAndDetectPathsDoNotBlockOnOpcUaProbe()
 
     qInfo() << "[RegressionTest] Building ConfigDialog (pylon enumeration can take a moment)...";
     ConfigDialog dialog(nullptr);
+    // Detect Server is an Administrator affordance; the dialog is driven here
+    // the way MainWindow drives it once an admin session is signed in.
+    dialog.setAccessRole(AccessRole::Administrator);
 
     QLineEdit* endpointEdit = findEndpointEdit(dialog);
     QVERIFY2(endpointEdit, "OPC UA endpoint field not found in ConfigDialog");

@@ -10,6 +10,7 @@
 #include <QMutex>
 #include <QFutureWatcher>
 #include <QSet>
+#include <QVector>
 #include <atomic>
 
 #include "LiveDashboard.h"
@@ -22,6 +23,7 @@
 #include "../processing/ImageBuffer.h"
 #include "../processing/DefectDetector.h"
 #include "../processing/VideoEncoder.h"
+#include "../config/UserStore.h"
 
 class ConfigDialog;
 class OpcUaClientService;
@@ -64,14 +66,20 @@ private:
     void applyOpcUaSettings();
     void startCameraLifecycleAsync(bool restart, const QString& reason);
     bool validateSavedCameraConfiguration(QStringList* errors) const;
-    bool promptAdminLogin();
+    bool promptLogin();
     void ensureConfigTab();
     void updateConfigTabAccess();
-    void updateAdminStatusIndicator();
-    // Re-tint the admin pill's padlock: ink while the button is held down
+    // Push the session role out to every gated surface: the status pill, the
+    // pause button, the grid-layout menu, the views and the configuration tab.
+    void applyRoleToUi();
+    void updateRoleStatusIndicator();
+    // Re-tint the role pill's padlock: ink while the button is held down
     // (the press fill is the accent itself), otherwise the state tint.
     // Code-drawn pixmaps do not follow the stylesheet's state rules.
-    void updateAdminButtonIcon(bool pressed);
+    void updateRoleButtonIcon(bool pressed);
+    // Pause enabled state = role gate (Engineer and above) combined with what
+    // the camera lifecycle currently allows (pauseAllowedByState_).
+    void updatePauseButtonEnabled();
     void refreshDiskBadge();
     void openRecordingSettings();
 
@@ -86,9 +94,9 @@ private:
     QPushButton* triggerBtn_;
     QPushButton* snapshotBtn_;
     QPushButton* pauseBtn_;
-    // Administrator session control: a clickable status pill in the bottom
-    // right (login/logout). Text, tint and tooltip follow the admin state.
-    QPushButton* adminStatusButton_ = nullptr;
+    // Session role control: a clickable status pill in the bottom right
+    // (login/logout). Text, tint and tooltip follow the current role.
+    QPushButton* roleStatusButton_ = nullptr;
     QLabel* emulationBadge_ = nullptr;
     // Live capture readout (FPS + recording state) in the status bar, so the
     // most basic monitor facts are visible from every view.
@@ -99,6 +107,9 @@ private:
     // updateSystemThemeWatch); stopped unless ThemeMode::System is selected.
     QTimer  themeSchemeTimer_;
     bool systemSchemeLogged_ = false;
+    // Grid-layout picks (View menu): an Engineer capability, so they are
+    // enabled and disabled with the session role.
+    QVector<QAction*> gridLayoutActions_;
     QAction* customLayoutAction_;
     QAction* configAction_;
     QAction* aboutAction_;
@@ -117,7 +128,13 @@ private:
     int frameCount_;
     double currentFps_;
     QTimer fpsTimer_;
-    bool isAdmin_ = false;
+    // Current session: Operator on startup (needs no sign-in); Engineer and
+    // Administrator are stored accounts signed in with a password.
+    AccessRole currentRole_ = AccessRole::Operator;
+    QString currentUser_;
+    // Whether the camera lifecycle currently allows pausing at all; the role
+    // gate is layered on top in updatePauseButtonEnabled().
+    bool pauseAllowedByState_ = true;
     bool cameraLifecycleInProgress_ = false;
     QFutureWatcher<bool>* cameraLifecycleWatcher_ = nullptr;
     // Cameras currently flagged with an excessive PTP offset (alert active), so
@@ -145,7 +162,7 @@ private slots:
     void showDetail(int cameraId);
     void showGrid();
     void openSystemConfiguration();
-    void toggleAdmin();
+    void toggleSession();
     void changeLayout(int rows, int cols);
     void promptCustomLayout();
     void showAbout();

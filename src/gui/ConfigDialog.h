@@ -21,6 +21,7 @@
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
 #include "../config/CameraConfig.h"
+#include "../config/UserStore.h"
 #include "../communication/OpcUaRuntimeStatus.h"
 #include <array>
 #include <functional>
@@ -57,7 +58,10 @@ public:
     // ConfigDialog may be constructed before the CameraManager exists
     // (MainWindow: setupUi runs before setupCore). Re-wire it once created.
     void setCameraManager(CameraManager* manager);
-    void setAdminMode(bool isAdmin);
+    // The session role gating every page: Administrators get full access,
+    // Engineers may open the dialog read-only (Diagnostics keeps working),
+    // Operators cannot reach it at all (its tab stays disabled).
+    void setAccessRole(AccessRole role);
     // Wire the live OPC UA runtime status source (owned by MainWindow).
     void setOpcUaRuntimeSource(OpcUaClientService* service);
     // Switch the left sidebar to the Recording & Triggers page (used when the
@@ -414,7 +418,6 @@ private:
     // Premium Camera Setup UI
     QListWidget* sidebar_ = nullptr;
     NetworkSummaryHeader* networkSummaryHeader_;
-    QPushButton* addCameraBtn_;
 
     QScrollArea* cameraScrollArea_;
     QWidget* cameraScrollWidget_;
@@ -433,9 +436,12 @@ private:
     QTimer* networkRefreshTimer_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;
+    // The Diagnostics page's "Refresh Network" button: the one control an
+    // Engineer session keeps live (the rest of the page stays read-only).
+    QPushButton* diagRefreshBtn_ = nullptr;
 
-    // Admin mode
-    bool isAdminMode_;
+    // Session role (see setAccessRole)
+    AccessRole accessRole_ = AccessRole::Operator;
 
     struct PresetButtonGroup {
         QPushButton* btnS = nullptr;

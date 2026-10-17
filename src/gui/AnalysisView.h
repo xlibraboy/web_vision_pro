@@ -14,6 +14,7 @@ struct EventSignalData;
 #include <QProgressBar>
 #include <QLabel>
 #include <QCheckBox>
+#include "../config/UserStore.h"
 #include "widgets/ToggleSwitch.h"
 #include <QLineEdit>
 #include <QGridLayout>
@@ -86,7 +87,7 @@ public slots:
     void setLiveMode();
     void clearData(); // Explicitly clear memory
     void setDeleteEnabled(bool enabled); // Toggle delete mode
-    void setAdminMode(bool isAdmin); // Expose to MainWindow
+    void setAccessRole(AccessRole role); // Expose to MainWindow
     void updateTheme(); // Dynamically update widget theme colors
     void setCameraManager(CameraManager* manager); // Wire live camera data for Diagnostic tab
     void reloadEventStorage();
@@ -429,7 +430,7 @@ private:
     // Animated-ellipsis timer for the Connecting… button state.
     QTimer* serverConnectingTimer_ = nullptr;
     int serverConnectingDots_ = 0;
-    bool adminMode_ = false; // Tracks admin login state
+    AccessRole accessRole_ = AccessRole::Operator; // Current session role
     bool isRecording_;
     
     // Theme State

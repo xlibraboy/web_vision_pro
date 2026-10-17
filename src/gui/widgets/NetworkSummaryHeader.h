@@ -52,6 +52,11 @@ public:
     // Getters for button connections
     QPushButton* refreshButton() const { return refreshBtn_; }
 
+    // Gates the Add Camera quick action for the session role: adding a camera
+    // writes camera configuration, so only an Administrator session keeps it
+    // live (the Refresh action stays available to everyone).
+    void setAddCameraEnabled(bool enabled);
+
 signals:
     void refreshRequested();
     void clearLogsRequested();

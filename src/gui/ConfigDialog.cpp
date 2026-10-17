@@ -692,7 +692,10 @@ void ConfigDialog::finishOpcUaProbe(bool detected, const QString& endpointUrl,
         opcUaEndpointEdit_->setText(endpointUrl);
     }
     if (opcUaDetectEndpointBtn_) {
-        opcUaDetectEndpointBtn_->setEnabled(true);
+        // A finished probe only re-arms the button for Administrators: the
+        // automatic discovery on page entry runs for everyone, but the manual
+        // scan is a configuration action.
+        opcUaDetectEndpointBtn_->setEnabled(accessRole_ == AccessRole::Administrator);
     }
     opcUaDiscoveryAttempted_ = true;
 }
@@ -977,8 +980,7 @@ void ConfigDialog::resizeEvent(QResizeEvent* event) {
 ConfigDialog::ConfigDialog(CameraManager* cameraManager, QWidget *parent)
     : QWidget(parent)
     , cameraManager_(cameraManager)
-    , networkSummaryHeader_(nullptr)
-    , isAdminMode_(false) {
+    , networkSummaryHeader_(nullptr) {
 
     setWindowTitle("System Configuration");
 
@@ -1614,10 +1616,10 @@ void ConfigDialog::setupUI() {
     connect(opcUaAuthModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         const bool useCredentials = opcUaAuthModeCombo_ && opcUaAuthModeCombo_->currentData().toBool();
         if (opcUaUsernameEdit_) {
-            opcUaUsernameEdit_->setEnabled(isAdminMode_ && useCredentials);
+            opcUaUsernameEdit_->setEnabled(accessRole_ == AccessRole::Administrator && useCredentials);
         }
         if (opcUaPasswordEdit_) {
-            opcUaPasswordEdit_->setEnabled(isAdminMode_ && useCredentials);
+            opcUaPasswordEdit_->setEnabled(accessRole_ == AccessRole::Administrator && useCredentials);
         }
     });
     opcUaConnectionTabLayout->addWidget(opcUaAuthGroup);
@@ -2959,9 +2961,9 @@ void ConfigDialog::setupUI() {
     QHBoxLayout* diagBtnsLayout = new QHBoxLayout();
     diagBtnsLayout->setSpacing(kControlSpacing);
     
-    QPushButton* diagRefreshBtn = new QPushButton("Refresh Network", diagLogsGroup);
-    registerThemedIcon([diagRefreshBtn]() { diagRefreshBtn->setIcon(IconManager::instance().refresh(16)); });
-    registerThemed(diagRefreshBtn, [](const ThemeColors& tc) {
+    diagRefreshBtn_ = new QPushButton("Refresh Network", diagLogsGroup);
+    registerThemedIcon([this]() { diagRefreshBtn_->setIcon(IconManager::instance().refresh(16)); });
+    registerThemed(diagRefreshBtn_, [](const ThemeColors& tc) {
         return QString(
             "QPushButton { "
             "  background-color: %1; "
@@ -2975,7 +2977,7 @@ void ConfigDialog::setupUI() {
             "QPushButton:hover { background-color: %3; }"
         ).arg(tc.primary, tc.bg, tc.primaryHover());
     });
-    connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
+    connect(diagRefreshBtn_, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
     
     QPushButton* diagClearBtn = new QPushButton("Clear Logs", diagLogsGroup);
     registerThemedIcon([diagClearBtn]() { diagClearBtn->setIcon(IconManager::instance().trash(16)); });
@@ -2995,7 +2997,7 @@ void ConfigDialog::setupUI() {
     });
     connect(diagClearBtn, &QPushButton::clicked, this, &ConfigDialog::onClearLogsClicked);
     
-    diagBtnsLayout->addWidget(diagRefreshBtn);
+    diagBtnsLayout->addWidget(diagRefreshBtn_);
     diagBtnsLayout->addWidget(diagClearBtn);
     diagBtnsLayout->addStretch();
     diagLogsLayout->addLayout(diagBtnsLayout);
@@ -3279,10 +3281,10 @@ void ConfigDialog::loadSettings() {
         false
     );
     if (opcUaUsernameEdit_) {
-        opcUaUsernameEdit_->setEnabled(isAdminMode_ && useOpcUaCredentials);
+        opcUaUsernameEdit_->setEnabled(accessRole_ == AccessRole::Administrator && useOpcUaCredentials);
     }
     if (opcUaPasswordEdit_) {
-        opcUaPasswordEdit_->setEnabled(isAdminMode_ && useOpcUaCredentials);
+        opcUaPasswordEdit_->setEnabled(accessRole_ == AccessRole::Administrator && useOpcUaCredentials);
     }
 
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
@@ -3385,13 +3387,14 @@ void ConfigDialog::checkUiSettingsModified() {
         uiUnsavedIndicator_->setText(modified ? "Unsaved changes - apply or save" : "");
     }
     if (uiApplyBtn_) {
-        uiApplyBtn_->setEnabled(isAdminMode_ && modified);
+        uiApplyBtn_->setEnabled(accessRole_ == AccessRole::Administrator && modified);
     }
 }
 
 void ConfigDialog::createCameraWidgetBlock(const CameraInfo& cam) {
     CameraCard* card = new CameraCard(cam, cameraScrollWidget_);
     connectCameraCardSignals(card);
+    card->setAccessRole(accessRole_);
 
     cameraCards_.push_back(card);
     relayoutCameraCards();
@@ -3537,7 +3540,7 @@ CameraCard* ConfigDialog::findCameraCard(QObject* sender) const {
 
 void ConfigDialog::onCameraCardEditToggled(bool checked) {
     if (CameraCard* card = findCameraCard(sender())) {
-        card->setEditable(checked && isAdminMode_);
+        card->setEditable(checked && accessRole_ == AccessRole::Administrator);
     }
 }
 
@@ -3714,7 +3717,8 @@ void ConfigDialog::onCameraCardDeviceSettingsClicked() {
     dialogInfo.subnetMask = cardInfo.subnetMask;
     dialogInfo.defaultGateway = cardInfo.defaultGateway;
 
-    CameraDeviceSettingsDialog dialog(cameraIndex, dialogInfo, cameraManager_, isAdminMode_, this);
+    CameraDeviceSettingsDialog dialog(cameraIndex, dialogInfo, cameraManager_,
+                                      accessRole_ == AccessRole::Administrator, this);
     connect(&dialog, &CameraDeviceSettingsDialog::settingsApplied, this,
             [this, card, cameraIndex](const CameraInfo& info) {
                 card->setCameraInfo(info);
@@ -4183,8 +4187,12 @@ void ConfigDialog::resetAnalysisViewSettings() {
     analysisMetadataSizeSpin_->setValue(defaults.defaultMetadataFontSize);
 }
 
-void ConfigDialog::setAdminMode(bool isAdmin) {
-    isAdminMode_ = isAdmin;
+void ConfigDialog::setAccessRole(AccessRole role) {
+    accessRole_ = role;
+    // Engineers may open the dialog but get the read-only sweep below; only
+    // the Diagnostics "Refresh Network" button stays live for them. Operators
+    // cannot reach the tab at all (MainWindow keeps it disabled).
+    const bool isAdmin = role == AccessRole::Administrator;
     if (!isAdmin) {
         discardUnsavedThemePreview();
     }
@@ -4260,11 +4268,30 @@ void ConfigDialog::setAdminMode(bool isAdmin) {
     if (uiApplyBtn_) uiApplyBtn_->setEnabled(isAdmin && (captureCurrentSettings() != originalValues_));
     if (uiUnsavedIndicator_) uiUnsavedIndicator_->setVisible(isAdmin);
 
-    // Per-camera: only the edit checkbox is admin-gated
-    for (auto* card : cameraCards_) {
-        // Card handles its own edit state
+    // The diagnostics Refresh Network stays available to Engineers: the one
+    // live control of an otherwise read-only session.
+    if (diagRefreshBtn_) {
+        diagRefreshBtn_->setEnabled(hasAtLeast(role, AccessRole::Engineer));
     }
-    if (ipConfiguratorPanel_) ipConfiguratorPanel_->setAdminMode(isAdmin);
+
+    // Camera cards carry their own edit checkbox and remove button; both are
+    // Administrator-only, and a card being edited is locked back down when an
+    // elevated session signs out. The header's Add Camera quick action is
+    // Administrator-only for the same reason.
+    if (networkSummaryHeader_) {
+        networkSummaryHeader_->setAddCameraEnabled(isAdmin);
+    }
+    for (auto* card : cameraCards_) {
+        card->setAccessRole(role);
+    }
+
+    // Detect Server probes the network and can rewrite the endpoint field:
+    // an Administrator action.
+    if (opcUaDetectEndpointBtn_) {
+        opcUaDetectEndpointBtn_->setEnabled(isAdmin);
+    }
+
+    if (ipConfiguratorPanel_) ipConfiguratorPanel_->setAccessRole(role);
 }
 
 void ConfigDialog::onRefreshLogsClicked() {

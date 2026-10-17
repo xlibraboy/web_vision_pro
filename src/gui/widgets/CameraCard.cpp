@@ -498,6 +498,22 @@ void CameraCard::setEditable(bool editable) {
     deviceSettingsBtn_->setEnabled(editable);
 }
 
+void CameraCard::setAccessRole(AccessRole role) {
+    const bool isAdmin = role == AccessRole::Administrator;
+    if (editCheck_) {
+        editCheck_->setEnabled(isAdmin);
+        if (!isAdmin && editCheck_->isChecked()) {
+            editCheck_->setChecked(false);
+        }
+    }
+    if (removeButton_) {
+        removeButton_->setEnabled(isAdmin);
+    }
+    // Admin keeps whatever edit state the checkbox carries; everyone else is
+    // read-only regardless.
+    setEditable(isAdmin && editCheck_ && editCheck_->isChecked());
+}
+
 void CameraCard::setDetectedIp(const QString& ip) {
     detectedIpLabel_->setText(ip.isEmpty() ? "Offline" : ip);
 
