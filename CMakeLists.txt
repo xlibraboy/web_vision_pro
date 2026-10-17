@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PaperVision_System LANGUAGES C CXX)
+project(WebVisionPro_System LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -104,10 +104,10 @@ qt5_wrap_cpp(MOC_SOURCES ${HEADERS})
 qt5_add_resources(RESOURCES resources.qrc)
 
 # Executable
-add_executable(PaperVision_App src/main.cpp ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
+add_executable(WebVisionPro_App src/main.cpp ${SOURCES} ${MOC_SOURCES} ${RESOURCES})
 
 # Link Libraries
-target_link_libraries(PaperVision_App
+target_link_libraries(WebVisionPro_App
     ${OpenCV_LIBS}
     Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg Qt5::Network Qt5::OpcUa
     X11::X11
@@ -121,7 +121,7 @@ target_link_libraries(PaperVision_App
 # ---------------------------------------------------------------------------
 # Regression tests
 #
-# PaperVision_RegressionTest exercises ConfigDialog entry paths (tab showEvent
+# WebVisionPro_RegressionTest exercises ConfigDialog entry paths (tab showEvent
 # auto-discovery and the Detect Server button) against a deliberately silent
 # OPC UA endpoint and asserts they never block on the network probe, plus the
 # event recorder's cross-camera timing (a camera that misses frames must still
@@ -159,7 +159,7 @@ if(BUILD_TESTING)
         tests/ThemeContrast.h
     )
 
-    add_executable(PaperVision_RegressionTest
+    add_executable(WebVisionPro_RegressionTest
         ${SOURCES}
         tests/ConfigDialogNetworkRegression.cpp
         tests/EventCaptureTiming.cpp
@@ -178,7 +178,7 @@ if(BUILD_TESTING)
         ${RESOURCES}
     )
 
-    target_link_libraries(PaperVision_RegressionTest
+    target_link_libraries(WebVisionPro_RegressionTest
         ${OpenCV_LIBS}
         Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Svg Qt5::Network Qt5::OpcUa Qt5::Test
         X11::X11
@@ -189,18 +189,18 @@ if(BUILD_TESTING)
         GCBase_gcc_v3_1_Basler_pylon
     )
 
-    add_test(NAME config_dialog_network_regression COMMAND PaperVision_RegressionTest config)
-    add_test(NAME event_capture_timing COMMAND PaperVision_RegressionTest capture)
-    add_test(NAME trigger_record_scope COMMAND PaperVision_RegressionTest scope)
-    add_test(NAME analysis_review_tiles COMMAND PaperVision_RegressionTest tiles)
-    add_test(NAME changelog_dialog_render COMMAND PaperVision_RegressionTest changelog)
-    add_test(NAME defect_severity_classification COMMAND PaperVision_RegressionTest severity)
-    add_test(NAME accessibility_summaries COMMAND PaperVision_RegressionTest a11y)
-    add_test(NAME ui_type_scale COMMAND PaperVision_RegressionTest type)
-    add_test(NAME opcua_speed_anchor_validation COMMAND PaperVision_RegressionTest anchors)
-    add_test(NAME about_pylon_version COMMAND PaperVision_RegressionTest about)
-    add_test(NAME theme_preset_consistency COMMAND PaperVision_RegressionTest theme)
-    add_test(NAME theme_token_contrast COMMAND PaperVision_RegressionTest contrast)
+    add_test(NAME config_dialog_network_regression COMMAND WebVisionPro_RegressionTest config)
+    add_test(NAME event_capture_timing COMMAND WebVisionPro_RegressionTest capture)
+    add_test(NAME trigger_record_scope COMMAND WebVisionPro_RegressionTest scope)
+    add_test(NAME analysis_review_tiles COMMAND WebVisionPro_RegressionTest tiles)
+    add_test(NAME changelog_dialog_render COMMAND WebVisionPro_RegressionTest changelog)
+    add_test(NAME defect_severity_classification COMMAND WebVisionPro_RegressionTest severity)
+    add_test(NAME accessibility_summaries COMMAND WebVisionPro_RegressionTest a11y)
+    add_test(NAME ui_type_scale COMMAND WebVisionPro_RegressionTest type)
+    add_test(NAME opcua_speed_anchor_validation COMMAND WebVisionPro_RegressionTest anchors)
+    add_test(NAME about_pylon_version COMMAND WebVisionPro_RegressionTest about)
+    add_test(NAME theme_preset_consistency COMMAND WebVisionPro_RegressionTest theme)
+    add_test(NAME theme_token_contrast COMMAND WebVisionPro_RegressionTest contrast)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         defect_severity_classification accessibility_summaries ui_type_scale
@@ -214,7 +214,7 @@ endif()
 #
 # Off by default, so the Docker image keeps building without install rules.
 # packaging/build-deb.sh (also used by the release workflow) enables it and
-# CPack turns the rules below into papervision_<version>_amd64.deb.
+# CPack turns the rules below into web-vision-pro_<version>_amd64.deb.
 #
 # QtOpcUa and open62541 are not in the Ubuntu archive, so the package bundles
 # the copies built on the packaging host (Qt plugins reject build-version
@@ -224,11 +224,11 @@ endif()
 option(PAPERVISION_PACKAGING "Create install rules and CPack .deb configuration" OFF)
 
 if(PAPERVISION_PACKAGING)
-    # The payload mixes absolute roots (/opt/papervision, /usr), so the
+    # The payload mixes absolute roots (/opt/web-vision-pro, /usr), so the
     # install prefix must be the filesystem root.
     if(NOT CMAKE_INSTALL_PREFIX STREQUAL "/")
         message(FATAL_ERROR
-            "PAPERVISION_PACKAGING installs into /opt/papervision and /usr - "
+            "PAPERVISION_PACKAGING installs into /opt/web-vision-pro and /usr - "
             "configure with -DCMAKE_INSTALL_PREFIX=/ (packaging/build-deb.sh does this)")
     endif()
 
@@ -239,11 +239,11 @@ if(PAPERVISION_PACKAGING)
     set(PAPERVISION_OPEN62541_LIB_DIR "/usr/local/lib" CACHE PATH
         "Directory holding the built libopen62541 shared library")
 
-    install(TARGETS PaperVision_App RUNTIME DESTINATION opt/papervision/bin)
-    # Fallback for direct invocations; the /usr/bin/papervision launcher also
+    install(TARGETS WebVisionPro_App RUNTIME DESTINATION opt/web-vision-pro/bin)
+    # Fallback for direct invocations; the /usr/bin/web-vision-pro launcher also
     # exports these paths (needed for the Qt plugin directory).
-    set_target_properties(PaperVision_App PROPERTIES
-        INSTALL_RPATH "/opt/papervision/lib;/opt/pylon/lib")
+    set_target_properties(WebVisionPro_App PROPERTIES
+        INSTALL_RPATH "/opt/web-vision-pro/lib;/opt/pylon/lib")
 
     # The globs pick up the versioned library together with its SONAME links;
     # CPack keeps them as symlinks in the payload. Fail loudly when the bundled
@@ -253,14 +253,14 @@ if(PAPERVISION_PACKAGING)
         message(FATAL_ERROR
             "libQt5OpcUa.so.5* not found in ${PAPERVISION_QTOPUCA_LIB_DIR} - build qtopcua first")
     endif()
-    install(FILES ${QTOPUCA_LIBS} DESTINATION opt/papervision/lib)
+    install(FILES ${QTOPUCA_LIBS} DESTINATION opt/web-vision-pro/lib)
 
     file(GLOB OPEN62541_LIBS "${PAPERVISION_OPEN62541_LIB_DIR}/libopen62541.so.1*")
     if(NOT OPEN62541_LIBS)
         message(FATAL_ERROR
             "libopen62541.so.1* not found in ${PAPERVISION_OPEN62541_LIB_DIR} - build open62541 first")
     endif()
-    install(FILES ${OPEN62541_LIBS} DESTINATION opt/papervision/lib)
+    install(FILES ${OPEN62541_LIBS} DESTINATION opt/web-vision-pro/lib)
 
     # The plugin file name has changed across QtOpcUa releases
     # (libqtopen62541backend.so, libopen62541_backend.so), so take whatever the
@@ -270,30 +270,34 @@ if(PAPERVISION_PACKAGING)
         message(FATAL_ERROR
             "no QtOpcUa backend plugin (*.so) found in ${PAPERVISION_QTOPUCA_PLUGIN_DIR} - build qtopcua first")
     endif()
-    install(FILES ${OPCUA_BACKEND_PLUGINS} DESTINATION opt/papervision/plugins/opcua)
+    install(FILES ${OPCUA_BACKEND_PLUGINS} DESTINATION opt/web-vision-pro/plugins/opcua)
 
-    install(PROGRAMS packaging/deb/papervision-wrapper.sh DESTINATION usr/bin RENAME papervision)
-    install(FILES packaging/deb/papervision.desktop DESTINATION usr/share/applications)
-    install(FILES packaging/deb/papervision.svg DESTINATION usr/share/icons/hicolor/scalable/apps)
-    install(FILES packaging/deb/99-papervision.conf DESTINATION usr/lib/sysctl.d)
-    install(PROGRAMS packaging/deb/setup-network.sh DESTINATION usr/lib/papervision)
-    install(FILES packaging/deb/copyright DESTINATION usr/share/doc/papervision)
-    install(FILES docs/installation.md DESTINATION usr/share/doc/papervision RENAME INSTALL.md)
+    install(PROGRAMS packaging/deb/web-vision-pro-wrapper.sh DESTINATION usr/bin RENAME web-vision-pro)
+    install(FILES packaging/deb/web-vision-pro.desktop DESTINATION usr/share/applications)
+    install(FILES packaging/deb/web-vision-pro.svg DESTINATION usr/share/icons/hicolor/scalable/apps)
+    install(FILES packaging/deb/99-web-vision-pro.conf DESTINATION usr/lib/sysctl.d)
+    install(PROGRAMS packaging/deb/setup-network.sh DESTINATION usr/lib/web-vision-pro)
+    install(FILES packaging/deb/copyright DESTINATION usr/share/doc/web-vision-pro)
+    install(FILES docs/installation.md DESTINATION usr/share/doc/web-vision-pro RENAME INSTALL.md)
 
     # --- CPack ---
     file(STRINGS "${CMAKE_SOURCE_DIR}/src/config/AppVersion.h" _app_version_line
          REGEX "kNumber")
     string(REGEX MATCH "\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ignored "${_app_version_line}")
-    set(PAPERVISION_VERSION "${CMAKE_MATCH_1}")
+    set(WEBVISIONPRO_VERSION "${CMAKE_MATCH_1}")
 
     set(CPACK_GENERATOR "DEB")
-    set(CPACK_PACKAGE_NAME "papervision")
-    set(CPACK_PACKAGE_VENDOR "PaperVision")
-    set(CPACK_PACKAGE_CONTACT "PaperVision maintainers <xlibraboy@users.noreply.github.com>")
+    set(CPACK_PACKAGE_NAME "web-vision-pro")
+    set(CPACK_PACKAGE_VENDOR "Web Vision Pro")
+    set(CPACK_PACKAGE_CONTACT "Web Vision Pro maintainers <xlibraboy@users.noreply.github.com>")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
         "Paper machine surface inspection: live Basler GigE camera monitoring and event review")
-    set(CPACK_PACKAGE_VERSION "${PAPERVISION_VERSION}")
-    set(CPACK_DEBIAN_PACKAGE_VERSION "${PAPERVISION_VERSION}-1")
+    set(CPACK_PACKAGE_VERSION "${WEBVISIONPRO_VERSION}")
+    set(CPACK_DEBIAN_PACKAGE_VERSION "${WEBVISIONPRO_VERSION}-1")
+    # Native successor of the papervision package (title -> Web Vision Pro);
+    # replacing it keeps `apt install ./web-vision-pro_*.deb` as the upgrade path.
+    set(CPACK_DEBIAN_PACKAGE_REPLACES "papervision")
+    set(CPACK_DEBIAN_PACKAGE_CONFLICTS "papervision")
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
     set(CPACK_DEBIAN_PACKAGE_SECTION "science")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")

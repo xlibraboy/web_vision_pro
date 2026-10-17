@@ -1,4 +1,4 @@
-# PaperVision System — Project Context
+# Web Vision Pro System — Project Context
 
 ## Overview
 
@@ -189,7 +189,7 @@ docker compose -f .docker/docker-compose.yml up -d
 ```bash
 mkdir -p build && cd build
 cmake ..
-cmake --build . --target PaperVision_App -- -j$(nproc)
+cmake --build . --target WebVisionPro_App -- -j$(nproc)
 ```
 
 ## Conventions

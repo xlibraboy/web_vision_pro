@@ -44,7 +44,7 @@ QString inlineHtml(const QString& line) {
 
 ChangelogDialog::ChangelogDialog(QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle("PaperVision Changelog");
+    setWindowTitle("Web Vision Pro Changelog");
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     resize(760, 600);
     setMinimumSize(560, 400);
@@ -54,7 +54,7 @@ ChangelogDialog::ChangelogDialog(QWidget* parent)
     layout->setSpacing(8);
 
     headerLabel_ = new QLabel(
-        QString("<b>PaperVision</b> v%1 \u2014 release history").arg(AppVersion::kNumber), this);
+        QString("<b>Web Vision Pro</b> v%1 \u2014 release history").arg(AppVersion::kNumber), this);
     layout->addWidget(headerLabel_);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);

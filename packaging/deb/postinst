@@ -7,9 +7,9 @@ set -e
 
 if [ ! -d /opt/pylon ]; then
     cat >&2 <<'EOF'
-papervision: Basler pylon was not found in /opt/pylon.
-papervision: The application needs the Basler pylon 6.2 runtime; install it
-papervision: before launching 'papervision' (see /usr/share/doc/papervision/INSTALL.md).
+web-vision-pro: Basler pylon was not found in /opt/pylon.
+web-vision-pro: The application needs the Basler pylon 6.2 runtime; install it
+web-vision-pro: before launching 'web-vision-pro' (see /usr/share/doc/web-vision-pro/INSTALL.md).
 EOF
 fi
 

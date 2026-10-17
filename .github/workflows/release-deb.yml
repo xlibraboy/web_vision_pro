@@ -38,7 +38,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: papervision-deb
+          name: web-vision-pro-deb
           path: |
             packaging/out/*.deb
             packaging/out/SHA256SUMS.txt

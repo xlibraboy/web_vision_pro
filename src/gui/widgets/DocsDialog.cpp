@@ -19,7 +19,7 @@ QString sectionHtml(const QString& title, const QString& body) {
 
 DocsDialog::DocsDialog(QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle("PaperVision Documentation");
+    setWindowTitle("Web Vision Pro Documentation");
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     resize(920, 660);
     setMinimumSize(640, 420);
@@ -29,7 +29,7 @@ DocsDialog::DocsDialog(QWidget* parent)
     layout->setSpacing(8);
 
     headerLabel_ = new QLabel(
-        "<b>PaperVision</b> — industrial vision system for paper machine inspection", this);
+        "<b>Web Vision Pro</b> — industrial vision system for paper machine inspection", this);
     layout->addWidget(headerLabel_);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
@@ -57,7 +57,7 @@ DocsDialog::DocsDialog(QWidget* parent)
     addSection(QStringLiteral("How the App Works"), sectionHtml(
         QStringLiteral("Overview"),
         QStringLiteral(
-            "<p>PaperVision inspects the paper web on a machine line with multiple GigE "
+            "<p>Web Vision Pro inspects the paper web on a machine line with multiple GigE "
             "cameras. Each camera continuously grabs frames; the app buffers them in memory, "
             "applies OpenCV processing, and writes events to disk whenever a trigger fires. "
             "Recorded events can then be replayed frame-by-frame in the Analysis view to "
@@ -278,7 +278,7 @@ DocsDialog::DocsDialog(QWidget* parent)
             "GUI and the OpenCV pipeline.</p>"
             "<pre>"
             "┌──────────────────────────────────────────────────────────────────────────┐\n"
-            "│PaperVision App  (C++17)                                                  │\n"
+            "│Web Vision Pro App  (C++17)                                               │\n"
             "│Qt5 GUI  ·  OpenCV 4  ·  event recording + sidecar annotations            │\n"
             "│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │\n"
             "│  │  Live View   │  │   Analysis   │  │   Event +    │  │    OPC UA    │  │\n"
@@ -334,7 +334,7 @@ DocsDialog::DocsDialog(QWidget* parent)
             "<pre>docker compose -f .docker/docker-compose.yml \\\n"
             "  -f .docker/docker-compose.emulated.yml up -d --force-recreate\n"
             "docker logs -f paper_vision_node</pre>"
-            "<p>Wait for <code>[100%] Built target PaperVision_App</code>; the GUI opens on "
+            "<p>Wait for <code>[100%] Built target WebVisionPro_App</code>; the GUI opens on "
             "the container's display.</p>"
             "<h3>2. Choose a camera mode</h3>"
             "<p>Settings &gt; Recording &amp; Triggers &gt; Camera Mode. Pick <b>Emulation</b> "

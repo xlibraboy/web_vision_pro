@@ -1,7 +1,7 @@
 #!/bin/bash
 # GigE tuning helper shipped with the Debian package: sets MTU 9000 (jumbo
 # frames) on the camera network interface. The kernel buffers ship as
-# /usr/lib/sysctl.d/99-papervision.conf and need no action here.
+# /usr/lib/sysctl.d/99-web-vision-pro.conf and need no action here.
 #
 # Usage: sudo setup-network.sh [interface]
 #   Without an argument the interface holding an address in 172.20.0.0/16 is

@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Builds papervision_<version>_amd64.deb for Ubuntu 22.04 (jammy).
+# Builds web-vision-pro_<version>_amd64.deb for Ubuntu 22.04 (jammy).
 #
 # Run on jammy - the CI runner, or a throwaway container:
 #   docker run --rm -v "$PWD:/src" -w /src ubuntu:22.04 bash packaging/build-deb.sh
@@ -157,12 +157,12 @@ cmake -S "$REPO_ROOT" -B "$BUILD_DIR" \
     "$TEST_FLAG" \
     -DCPACK_OUTPUT_FILE_PREFIX="$OUT_DIR"
 
-say "Building PaperVision_App"
-cmake --build "$BUILD_DIR" --target PaperVision_App --parallel "$(nproc)"
+say "Building WebVisionPro_App"
+cmake --build "$BUILD_DIR" --target WebVisionPro_App --parallel "$(nproc)"
 
 if [ "$RUN_TESTS" -eq 1 ]; then
     say "Building and running the regression tests"
-    cmake --build "$BUILD_DIR" --target PaperVision_RegressionTest --parallel "$(nproc)"
+    cmake --build "$BUILD_DIR" --target WebVisionPro_RegressionTest --parallel "$(nproc)"
     ctest --test-dir "$BUILD_DIR" --output-on-failure
 fi
 

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to PaperVision are documented in this file.
+All notable changes to Web Vision Pro are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases
@@ -25,6 +25,7 @@ here.
 
 ### Changed
 
+- The application is called Web Vision Pro now; the window title, About, Documentation, Changelog, desktop entry and package metadata carry the new name. Existing settings, camera parameters and recordings are untouched, and the package replaces the old `papervision` one, so installing `web-vision-pro_<version>_amd64.deb` upgrades an existing 1.2.0 installation in place.
 - The Theme picker applies the theme the moment it is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved theme.
 - The Theme picker offers Light, Dark and Follow system instead of the accent presets; an installation that had one of those presets saved now runs the dark theme.
 - The Live View card surface and the Analysis playback surface default to Follow theme now, so the camera tiles and the playback bar go light with the light theme instead of staying black. Black/Dark and White/Light are still available to pin a surface (a stored Black/Dark choice reads as Follow theme), and the UI Preferences previews show the surface that will actually be painted.

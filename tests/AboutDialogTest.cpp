@@ -29,7 +29,7 @@ void AboutDialogTest::aboutTextReportsTheRunningPylonVersion()
 void AboutDialogTest::aboutDialogRendersTheVersionLine()
 {
     QMessageBox dialog(QMessageBox::Information,
-                       QStringLiteral("About PaperVision"),
+                       QStringLiteral("About Web Vision Pro"),
                        MainWindow::aboutText());
     dialog.show();
     QCoreApplication::processEvents();

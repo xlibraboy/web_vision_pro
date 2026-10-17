@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo "PaperVision System - Environment Setup"
-echo "======================================"
+echo "Web Vision Pro System - Environment Setup"
+echo "========================================="
 
 # Check for Docker
 if ! command -v docker &> /dev/null; then

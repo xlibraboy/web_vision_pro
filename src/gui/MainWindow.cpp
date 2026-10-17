@@ -671,7 +671,7 @@ void MainWindow::setupUi() {
         setGeometry(screenGeometry);
     }
     showMaximized();
-    setWindowTitle("PaperVision System - Industrial Monitor");
+    setWindowTitle("Web Vision Pro System - Industrial Monitor");
     qInfo() << "Setting up UI...";
     
     // Apply theme globally right at startup
@@ -1719,7 +1719,7 @@ void MainWindow::promptCustomLayout() {
 }
 
 QString MainWindow::aboutText() {
-    return QString("PaperVision System v%1\n\n"
+    return QString("Web Vision Pro System v%1\n\n"
                    "Industrial Vision System for Paper Machine Monitoring.\n"
                    "Built with Qt 5, OpenCV 4, and Basler Pylon 6.\n"
                    "Pylon runtime: %2")
@@ -1727,7 +1727,7 @@ QString MainWindow::aboutText() {
 }
 
 void MainWindow::showAbout() {
-    QMessageBox::about(this, "About PaperVision", aboutText());
+    QMessageBox::about(this, "About Web Vision Pro", aboutText());
 }
 
 void MainWindow::showDocs() {

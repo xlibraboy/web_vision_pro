@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=PaperVision
+Name=Web Vision Pro
 Comment=Paper machine surface inspection and event review
-Exec=papervision
-Icon=papervision
+Exec=web-vision-pro
+Icon=web-vision-pro
 Terminal=false
 Categories=Science;Engineering;
 StartupNotify=true

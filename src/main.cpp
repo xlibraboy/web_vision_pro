@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
                 socket.flush();
                 socket.waitForBytesWritten(300);
                 socket.disconnectFromServer();
-                std::cerr << "PaperVision_App is already running." << std::endl;
+                std::cerr << "WebVisionPro_App is already running." << std::endl;
                 return 0;
             }
             // No live instance actually owns the lock (the recorded PID is
@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
             // the orphaned lock file and retry once.
             QFile::remove(lockFilePath);
             if (!instanceLock.tryLock(100)) {
-                std::cerr << "PaperVision_App is already running." << std::endl;
+                std::cerr << "WebVisionPro_App is already running." << std::endl;
                 return 0;
             }
         }
@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
         QLocalServer::removeServer(serverName);
         QLocalServer activationServer;
         if (!activationServer.listen(serverName)) {
-            std::cerr << "Failed to listen for PaperVision activation requests." << std::endl;
+            std::cerr << "Failed to listen for Web Vision Pro activation requests." << std::endl;
         }
     
         // Set style

@@ -1,14 +1,14 @@
-PaperVision Debian package - copyright and component licenses
+Web Vision Pro Debian package - copyright and component licenses
 
 Application
-  PaperVision (PaperVision_App, launcher, packaging assets)
+  Web Vision Pro (WebVisionPro_App, launcher, packaging assets)
   Source: https://github.com/xlibraboy/web_vision_pro
   The licensing terms for the application itself are stated in the project
   repository; they are not restated or altered by this package.
 
 Bundled third-party components
-  QtOpcUa (opt/papervision/lib/libQt5OpcUa.so.*,
-           opt/papervision/plugins/opcua/*.so)
+  QtOpcUa (opt/web-vision-pro/lib/libQt5OpcUa.so.*,
+           opt/web-vision-pro/plugins/opcua/*.so)
     Copyright: The Qt Company Ltd and contributors
     License: LGPL-3.0 / GPL-3.0 / commercial (see https://www.qt.io/licensing)
       Source: https://code.qt.io/cgit/qt/qtopcua.git (tag 5.15.2)
@@ -16,7 +16,7 @@ Bundled third-party components
       is dynamically linked and shipped unmodified, so the application can be
       relinked against a modified QtOpcUa as required by the LGPL.
 
-  open62541 (opt/papervision/lib/libopen62541.so.*)
+  open62541 (opt/web-vision-pro/lib/libopen62541.so.*)
     Copyright: open62541 contributors
     License: MPL-2.0 (see https://www.mozilla.org/en-US/MPL/2.0/)
       Source: https://github.com/open62541/open62541 (tag v1.5.4)

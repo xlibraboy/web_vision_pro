@@ -44,9 +44,10 @@ Deployment guide: [docs/installation.md](docs/installation.md).
 - Release flow: bump `AppVersion::kNumber`, move the CHANGELOG entries under `## [x.y.z] - date`, commit,
   push tag `vX.Y.Z`. `.github/workflows/release-deb.yml` builds the package (with tests) and attaches the
   `.deb` + checksums to the GitHub Release. Tag and `AppVersion::kNumber` must match.
-- The package bundles QtOpcUa + open62541 under `/opt/papervision` (Ubuntu does not package QtOpcUa; the
-  plugin must be built against the target distro's Qt patch version). Basler pylon is a vendor prerequisite
-  and must never be redistributed inside the package.
+- The package (native successor of the old `papervision` one, which it replaces) bundles QtOpcUa +
+  open62541 under `/opt/web-vision-pro` (Ubuntu does not package QtOpcUa; the plugin must be built
+  against the target distro's Qt patch version). Basler pylon is a vendor prerequisite and must never
+  be redistributed inside the package.
 - Filesystem roots go through `src/config/AppPaths` (override env -> Docker `/app/data` -> XDG); keep it
   that way instead of adding new absolute paths.
 
