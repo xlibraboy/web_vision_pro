@@ -1,6 +1,7 @@
 #include "UserEditDialog.h"
 
 #include "../../config/CameraConfig.h"
+#include "../../config/UiTypeScale.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -28,7 +29,9 @@ UserEditDialog::UserEditDialog(const QString& username, AccessRole role, bool is
     QLabel* titleLabel = new QLabel(isNew_ ? "Add User" : "Edit User", this);
     QFont titleFont = titleLabel->font();
     titleFont.setBold(true);
-    titleFont.setPointSize(titleFont.pointSize() + 2);
+    // The app font carries a pixel size, so the title takes its size from the
+    // named type scale rather than pointSize arithmetic (-1 would clamp it).
+    titleFont.setPixelSize(UiTypeScale::kDisplay);
     titleLabel->setFont(titleFont);
     root->addWidget(titleLabel);
 
@@ -71,6 +74,8 @@ UserEditDialog::UserEditDialog(const QString& username, AccessRole role, bool is
     confirmEdit_->setEchoMode(QLineEdit::Password);
     confirmEdit_->setPlaceholderText("Repeat password...");
     form->addRow("Confirm:", confirmEdit_);
+
+    root->addLayout(form);
 
     showPasswordCheck_ = new QCheckBox("Show passwords", this);
     connect(showPasswordCheck_, &QCheckBox::toggled, this, [this](bool checked) {

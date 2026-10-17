@@ -174,7 +174,10 @@ public:
         QLabel* titleLabel = new QLabel("Sign In", this);
         QFont titleFont = titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSize(titleFont.pointSize() + 2);
+        // The app font carries a pixel size (pointSize() is -1), so the title
+        // takes its size from the named type scale like everything else; the
+        // old pointSize()+2 arithmetic rendered it at ~1pt.
+        titleFont.setPixelSize(UiTypeScale::kDisplay);
         titleLabel->setFont(titleFont);
         root->addWidget(titleLabel);
 

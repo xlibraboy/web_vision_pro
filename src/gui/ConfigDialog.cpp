@@ -4392,10 +4392,16 @@ void ConfigDialog::setAccessRole(AccessRole role) {
     }
 
     // Users page: Administrator only. The sidebar row is hidden for everyone
-    // else (a visible-but-empty page would only invite confusion) and the
+    // else (a visible-but-empty page would only invite confusion); a stack
+    // still parked on it from an earlier admin session moves to the first page
+    // so a read-only session never lands on account management, and the
     // actions follow the same gate.
     if (usersSidebarItem_) {
+        const bool onUsersPage = sidebar_ && sidebar_->currentRow() == sidebar_->row(usersSidebarItem_);
         usersSidebarItem_->setHidden(!isAdmin);
+        if (!isAdmin && onUsersPage) {
+            sidebar_->setCurrentRow(0);
+        }
     }
     if (usersTable_) {
         usersTable_->setEnabled(isAdmin);
