@@ -2245,7 +2245,6 @@ void AnalysisView::setupMainArea() {
     toolsEdgeTab_->setCursor(Qt::PointingHandCursor);
     toolsEdgeTab_->setFocusPolicy(Qt::StrongFocus);
     toolsEdgeTab_->setAccessibleName(QStringLiteral("Analysis tools panel"));
-    toolsEdgeTab_->setToolTip(QStringLiteral("Tools — hover to preview, click to pin"));
     connect(toolsEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onToolsEdgeTabClicked);
     toolsEdgeTab_->installEventFilter(this);  // focus repaint
     restyleToolsEdgeTab();
@@ -2263,7 +2262,6 @@ void AnalysisView::setupMainArea() {
     imageEdgeTab_->setCursor(Qt::PointingHandCursor);
     imageEdgeTab_->setFocusPolicy(Qt::StrongFocus);
     imageEdgeTab_->setAccessibleName(QStringLiteral("Image tools panel"));
-    imageEdgeTab_->setToolTip(QStringLiteral("Image tools — hover to preview, click to pin"));
     connect(imageEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onImageEdgeTabClicked);
     imageEdgeTab_->installEventFilter(this);  // focus repaint
     restyleImageEdgeTab();
@@ -2313,7 +2311,6 @@ void AnalysisView::setupMainArea() {
     tracksEdgeTab_->setCursor(Qt::PointingHandCursor);
     tracksEdgeTab_->setFocusPolicy(Qt::StrongFocus);
     tracksEdgeTab_->setAccessibleName(QStringLiteral("Dashboard tracks panel"));
-    tracksEdgeTab_->setToolTip(QStringLiteral("Tracks — choose the dashboard lanes (T)"));
     connect(tracksEdgeTab_, &QToolButton::clicked, this, &AnalysisView::onTracksEdgeTabClicked);
     restyleTracksEdgeTab();
     tracksEdgeTab_->hide();
