@@ -29,6 +29,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     working_dir: /app
-    command: /bin/bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target PaperVision_App -- -j$(nproc) && cp /app/build/PaperVision_App /app/build/PaperVision_App.run && chmod 755 /app/build/PaperVision_App.run && exec /app/build/PaperVision_App.run"
+    command: /bin/bash -lc "mkdir -p /app/build && cd /app/build && cmake .. && cmake --build . --target WebVisionPro_App -- -j$(nproc) && cp /app/build/WebVisionPro_App /app/build/WebVisionPro_App.run && chmod 755 /app/build/WebVisionPro_App.run && exec /app/build/WebVisionPro_App.run"
     stdin_open: true
     tty: true
