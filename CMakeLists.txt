@@ -42,6 +42,7 @@ src/gui/widgets/AnalysisVideoWidget.cpp
 src/gui/widgets/EventDashboard.cpp
 src/gui/ConfigDialog.cpp
 src/config/CameraConfig.cpp
+src/config/UserStore.cpp
 src/config/SystemColorScheme.cpp
 src/config/AppPaths.cpp
 src/config/OpcUaValidation.cpp
@@ -140,6 +141,7 @@ target_link_libraries(WebVisionPro_App
 #           ctest -R changelog_dialog_render
 #           ctest -R theme_preset_consistency
 #           ctest -R theme_token_contrast
+#           ctest -R user_accounts
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     find_package(Qt5 COMPONENTS Test REQUIRED)
@@ -157,6 +159,7 @@ if(BUILD_TESTING)
         tests/AboutDialogTest.h
         tests/ThemePresetConsistency.h
         tests/ThemeContrast.h
+        tests/UserAccounts.h
     )
 
     add_executable(WebVisionPro_RegressionTest
@@ -173,6 +176,7 @@ if(BUILD_TESTING)
         tests/AboutDialogTest.cpp
         tests/ThemePresetConsistency.cpp
         tests/ThemeContrast.cpp
+        tests/UserAccounts.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -201,11 +205,12 @@ if(BUILD_TESTING)
     add_test(NAME about_pylon_version COMMAND WebVisionPro_RegressionTest about)
     add_test(NAME theme_preset_consistency COMMAND WebVisionPro_RegressionTest theme)
     add_test(NAME theme_token_contrast COMMAND WebVisionPro_RegressionTest contrast)
+    add_test(NAME user_accounts COMMAND WebVisionPro_RegressionTest users)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         defect_severity_classification accessibility_summaries ui_type_scale
         opcua_speed_anchor_validation about_pylon_version
-        theme_preset_consistency theme_token_contrast
+        theme_preset_consistency theme_token_contrast user_accounts
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 
