@@ -15,6 +15,8 @@ here.
 
 ### Added
 
+- User accounts and access levels: the app runs in a passwordless read-only Operator session (live Trigger and Snapshot, camera parameters as read-outs, full event review), and the status-bar pill signs in as Engineer or Administrator with a password. A fresh installation starts with the Administrator account `admin` / `admin`, changed on the new Users page.
+- System Configuration > Users (Administrator): add, edit and delete the accounts that can sign in, with their role and password. The last Administrator cannot be removed or demoted, the signed-in account cannot be deleted, and the page applies changes immediately.
 - Detail View: a visible "← Grid" control (and the Esc key) returns to the camera grid; double-clicking the frame still works.
 - Analysis View: the TOOLS, IMAGE and TRACKS handles are clickable, keyboard-focusable buttons that pin their panel open (hover still previews), the TRACKS panel toggles with the T key, and Escape closes a pinned panel.
 - Analysis View: the signal lanes draw the detector's own limit as a dashed line on a fixed scale ("limit 0.05" on SPOTS %, "floor 10.0" on CONTRAST), so different events are directly comparable.
@@ -25,6 +27,7 @@ here.
 
 ### Changed
 
+- Access is by role instead of a single admin login: Engineers can tune the camera parameters and load a saved parameter set, pause grabbing, pick the live grid layout, and use Instant Clear, and they open System Configuration read-only (its Diagnostics "Refresh Network" stays live). Administrators additionally save camera parameters, arm event deletion and Mark Permanent, change the metadata overlay on the Analysis View, and manage users. Operators keep Trigger, Snapshot and full event review minus those controls, and no longer need a password at all.
 - The application is called Web Vision Pro now; the window title, About, Documentation, Changelog, desktop entry and package metadata carry the new name. Existing settings, camera parameters and recordings are untouched, and the package replaces the old `papervision` one, so installing `web-vision-pro_<version>_amd64.deb` upgrades an existing 1.2.0 installation in place.
 - The Theme picker applies the theme the moment it is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved theme.
 - The Theme picker offers Light, Dark and Follow system instead of the accent presets; an installation that had one of those presets saved now runs the dark theme.
@@ -34,7 +37,7 @@ here.
 - Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
 - Typography: the base UI font is Noto Sans at the body step, and the Analysis HUD/timestamp mono text no longer names an unavailable font (Noto Sans Mono, DejaVu Sans Mono fallback).
 - Help > About now reports the pylon runtime version the app is linked against.
-- Administrator login/logout is now a clickable pill in the status-bar badge cluster (Admin: Off / Admin: On, with a padlock icon) next to the emulation and low-disk badges; the old tab-bar Login/Logout button is gone, and the pill follows the selected theme with hover, pressed and keyboard-focus states.
+- Sign-in is now a clickable pill in the status-bar badge cluster (Operator while signed out; Engineer or Administrator with the account name while signed in; a padlock icon in each state) next to the emulation and low-disk badges; the old tab-bar Login/Logout button is gone, and the pill follows the selected theme with hover, pressed and keyboard-focus states.
 
 ### Fixed
 
