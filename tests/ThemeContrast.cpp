@@ -2,12 +2,20 @@
 
 #include "config/CameraConfig.h"
 #include "config/SystemColorScheme.h"
+#include "gui/AnalysisView.h"
+#include "gui/ConfigDialog.h"
 #include "gui/widgets/EventDashboard.h"
 #include "gui/widgets/MachineLayoutPanel.h"
 
 #include <QColor>
+#include <QIcon>
+#include <QImage>
+#include <QMap>
+#include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QToolButton>
 #include <QtTest>
 
 #include <algorithm>
@@ -65,6 +73,60 @@ double oklabDistance(const QColor& first, const QColor& second) {
     const Oklab b = toOklab(second);
     return 100.0 * std::sqrt(std::pow(a.l - b.l, 2) + std::pow(a.a - b.a, 2)
                              + std::pow(a.b - b.b, 2));
+}
+
+// The fill a stylesheet paints a control with before it is interacted with, and
+// the label ink that fill carries. "color:" inside "background-color:" must not
+// count as the ink, hence the leading separator.
+QString sheetBaseFill(const QString& sheet) {
+    const QRegularExpressionMatch match =
+        QRegularExpression(QStringLiteral("background(-color)?:\\s*(#[0-9A-Fa-f]{6})")).match(sheet);
+    return match.hasMatch() ? match.captured(2) : QString();
+}
+
+QString sheetInk(const QString& sheet) {
+    const QRegularExpressionMatch match =
+        QRegularExpression(QStringLiteral("[;{\\s]color:\\s*(#[0-9A-Fa-f]{6})")).match(sheet);
+    return match.hasMatch() ? match.captured(1) : QString();
+}
+
+// The ink a rendered glyph is drawn in: the dominant near-opaque pixel of its
+// pixmap, which is what the eye reads as the label colour. Invalid when the
+// pixmap paints nothing.
+QColor glyphInk(const QIcon& icon, const QSize& size) {
+    if (icon.isNull() || size.isEmpty()) {
+        return QColor();
+    }
+    const QImage image = icon.pixmap(size).toImage().convertToFormat(QImage::Format_ARGB32);
+    QMap<QRgb, int> coverage;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QRgb pixel = image.pixel(x, y);
+            if (qAlpha(pixel) >= 250) {
+                coverage[pixel & 0x00FFFFFF] += 1;
+            }
+        }
+    }
+    QRgb dominant = 0;
+    int best = 0;
+    for (auto it = coverage.constBegin(); it != coverage.constEnd(); ++it) {
+        if (it.value() > best) {
+            best = it.value();
+            dominant = it.key();
+        }
+    }
+    return best > 0 ? QColor(dominant) : QColor();
+}
+
+// The fill the :hover rule swaps in. Absent when the sheet only shifts a border.
+QString sheetHoverFill(const QString& sheet) {
+    const int at = sheet.indexOf(QStringLiteral(":hover"));
+    if (at < 0) {
+        return QString();
+    }
+    const QRegularExpressionMatch match =
+        QRegularExpression(QStringLiteral("background(-color)?:\\s*(#[0-9A-Fa-f]{6})")).match(sheet, at);
+    return match.hasMatch() ? match.captured(2) : QString();
 }
 
 } // namespace
@@ -143,6 +205,154 @@ void ThemeContrast::statusInkIsReadableOnEveryFill()
                          .arg(name, fillName).arg(ratio, 0, 'f', 2)));
         }
     }
+}
+
+void ThemeContrast::accentFilledControlHoversKeepTheirInk()
+{
+    // Accent-filled controls (primary actions, the active playback toggle) are
+    // painted with the accent and carry the canvas colour as ink. Their hover
+    // has to shift the accent shade: swapping in the neutral hover fill left
+    // "Refresh Network" and the Save buttons at ~1.1:1 on the light theme.
+    constexpr double kTextBar = 4.5;
+
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    CameraConfig::clearThemePreview();
+
+    for (const ThemeMode theme : kThemes) {
+        const ThemeColors tc = CameraConfig::getThemeColors(theme);
+        const QString name = CameraConfig::themeModeName(theme);
+
+        const QVector<QPair<QString, QString>> fills = {
+            {QStringLiteral("accent"), tc.primary},
+            {QStringLiteral("accent hover"), tc.primaryHover()},
+            {QStringLiteral("accent active"), tc.primaryActive()},
+            {QStringLiteral("active toggle hover"), QColor(tc.primary).darker(150).name()},
+        };
+        for (const auto& [fillName, fill] : fills) {
+            const double ratio = contrastRatio(QColor(tc.bg), QColor(fill));
+            QVERIFY2(ratio >= kTextBar, qPrintable(QStringLiteral(
+                         "%1 theme: the canvas ink on the %2 fill is only %3:1")
+                         .arg(name, fillName).arg(ratio, 0, 'f', 2)));
+        }
+
+        // The same pair on the widgets that wear it: every accent-filled button
+        // in the System Configuration dialog has to keep its label readable in
+        // the state hover puts it in, not only at rest.
+        CameraConfig::setThemePreview(theme);
+        ConfigDialog dialog(nullptr);
+        dialog.updateTheme();
+
+        int accentButtons = 0;
+        for (QPushButton* button : dialog.findChildren<QPushButton*>()) {
+            const QString sheet = button->styleSheet();
+            if (sheetBaseFill(sheet) != tc.primary) {
+                continue;
+            }
+            ++accentButtons;
+
+            const QString ink = sheetInk(sheet);
+            const QString hoverFill = sheetHoverFill(sheet);
+            QVERIFY2(!ink.isEmpty() && !hoverFill.isEmpty(),
+                     qPrintable(QStringLiteral("\"%1\" must state its ink and its hover fill: %2")
+                                    .arg(button->text(), sheet)));
+
+            const double ratio = contrastRatio(QColor(ink), QColor(hoverFill));
+            QVERIFY2(ratio >= kTextBar, qPrintable(QStringLiteral(
+                         "%1 theme: hovering \"%2\" leaves its label at %3:1")
+                         .arg(name, button->text()).arg(ratio, 0, 'f', 2)));
+        }
+        QVERIFY2(accentButtons >= 3, qPrintable(QStringLiteral(
+                     "%1 theme: only %2 accent-filled actions were found in the dialog")
+                     .arg(name).arg(accentButtons)));
+    }
+
+    CameraConfig::clearThemePreview();
+}
+
+void ThemeContrast::floatingHandlesKeepTheirInkOnEveryTheme()
+{
+    // The Analysis View floats three controls over the frame area: the IMAGE and
+    // TOOLS drawer handles - canvas-filled chips with a theme border - and the
+    // TRACKS wave chip, which is glyph-only on the dashboard's canvas-coloured
+    // top edge. Their label is a rendered glyph, not a stylesheet color, so the
+    // pair is read off the widget: the pixmap ink against the fill the chip
+    // paints. The white idle label on the light theme's near-white chip is what
+    // this guards.
+    constexpr double kLabelBar = 4.5;  // IMAGE / TOOLS carry text
+    constexpr double kGlyphBar = 3.0;  // the TRACKS wave is a thin stroke
+
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QTemporaryDir dataDir;
+    QVERIFY(dataDir.isValid());
+    CameraConfig::clearThemePreview();
+    CameraConfig::setEventStoragePath(dataDir.path());
+
+    for (const ThemeMode theme : kThemes) {
+        CameraConfig::setThemePreview(theme);
+        const ThemeColors tc = CameraConfig::getThemeColors(theme);
+        const QString name = CameraConfig::themeModeName(theme);
+
+        AnalysisView view(2);
+        view.resize(1280, 800);
+        view.show();
+        view.activateWindow();
+        view.updateTheme();
+        QCoreApplication::processEvents();
+
+        const QVector<QPair<QString, double>> handles = {
+            {QStringLiteral("imageEdgeTab"), kLabelBar},
+            {QStringLiteral("toolsEdgeTab"), kLabelBar},
+            {QStringLiteral("tracksEdgeTab"), kGlyphBar},
+        };
+        for (const auto& [objectName, bar] : handles) {
+            QToolButton* tab = view.findChild<QToolButton*>(objectName);
+            QVERIFY2(tab, qPrintable(QStringLiteral("the Analysis View has no %1").arg(objectName)));
+
+            // Idle: the chip's own fill, or the canvas behind a transparent one
+            // (the TRACKS chip stays glyph-only until it is hovered).
+            const QString idleSheet = tab->styleSheet();
+            const QString idleFill = sheetBaseFill(idleSheet);
+            const QColor idleBackground = idleFill.isEmpty() ? QColor(tc.bg) : QColor(idleFill);
+            const QColor idleInk = glyphInk(tab->icon(), tab->iconSize());
+            QVERIFY2(idleInk.isValid() && idleBackground.isValid(),
+                     qPrintable(QStringLiteral("%1 theme: %2 paints no label: \"%3\"")
+                                    .arg(name, objectName, idleSheet)));
+            const double idleRatio = contrastRatio(idleInk, idleBackground);
+            QVERIFY2(idleRatio >= bar, qPrintable(QStringLiteral(
+                         "%1 theme: the idle %2 label is only %3:1 on its chip")
+                         .arg(name, objectName).arg(idleRatio, 0, 'f', 2)));
+
+            // Hover / focus / pinned: the fill the restyler swaps in, read back
+            // from the widget so the active ink is the one that is painted. The
+            // handle is hidden outside the single-camera tab, and a hidden
+            // widget takes no focus, so show it for this check.
+            tab->show();
+            tab->setFocus(Qt::TabFocusReason);
+            QCoreApplication::processEvents();
+            if (!tab->hasFocus()) {
+                continue;  // the offscreen platform gave no focus; idle is all this run can read
+            }
+            const QString activeFill = sheetBaseFill(tab->styleSheet());
+            const QColor activeBackground = activeFill.isEmpty() ? QColor(tc.bg) : QColor(activeFill);
+            const QColor activeInk = glyphInk(tab->icon(), tab->iconSize());
+            QVERIFY2(activeInk.isValid(), qPrintable(QStringLiteral(
+                         "%1 theme: the focused %2 paints no label").arg(name, objectName)));
+            const double activeRatio = contrastRatio(activeInk, activeBackground);
+            QVERIFY2(activeRatio >= bar, qPrintable(QStringLiteral(
+                         "%1 theme: the focused %2 label is only %3:1 on its active chip")
+                         .arg(name, objectName).arg(activeRatio, 0, 'f', 2)));
+        }
+
+        view.hide();
+    }
+
+    CameraConfig::clearThemePreview();
 }
 
 void ThemeContrast::sectionPaletteStaysDistinguishable()

@@ -13,6 +13,8 @@ class ThemeContrast : public QObject {
 private slots:
     void tokensMeetContrastOnEveryTheme();
     void statusInkIsReadableOnEveryFill();
+    void accentFilledControlHoversKeepTheirInk();
+    void floatingHandlesKeepTheirInkOnEveryTheme();
     void sectionPaletteStaysDistinguishable();
     void eventSeriesStayDistinguishable();
     void systemModeFollowsTheDesktopOverride();

@@ -409,7 +409,7 @@ static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
         "QPushButton:hover { background-color: %3; border-color: %3; }"
         "QPushButton:pressed { background-color: %4; color: %5; }"
         "QPushButton:disabled { background-color: %6; color: %7; border-color: %7; }"
-    ).arg(tc.primary, tc.bg, tc.btnHover, tc.border, tc.text, tc.btnBg, tc.border);
+    ).arg(tc.primary, tc.bg, tc.primaryHover(), tc.border, tc.text, tc.btnBg, tc.border);
 }
 
 static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checkedHighlight = false) {
@@ -507,9 +507,13 @@ static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
 }
 
 static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = false) {
-    const QString bg = active ? QColor(tc.primary).darker(125).name() : tc.btnBg;
+    const QString bg = active ? tc.primaryActive() : tc.btnBg;
     const QString border = active ? tc.primary : tc.border;
     const QString text = active ? tc.bg : tc.text;
+    // An active button carries the canvas ink on its accent fill, so its hover
+    // stays in the accent family (a shade deeper than the active fill) instead
+    // of the neutral hover fill, which would swallow the glyph.
+    const QString hover = active ? QColor(tc.primary).darker(150).name() : tc.btnHover;
     return QString(
         "QPushButton {"
         "  background-color: %1;"
@@ -521,7 +525,7 @@ static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = 
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %6; }"
         "QPushButton:disabled { background-color: %7; color: %8; border-color: %8; }"
-    ).arg(bg, text, border, tc.btnHover, tc.primary, tc.bg, tc.bg, tc.disabled);
+    ).arg(bg, text, border, hover, tc.primary, tc.bg, tc.bg, tc.disabled);
 }
 
 static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
@@ -5453,17 +5457,18 @@ void AnalysisView::restyleToolsEdgeTab() {
     // Hover, keyboard focus and the pinned state all read as "this handle is
     // live" — a focusable control must show something when Tab lands on it.
     const bool active = toolsTabHovered_ || toolsEdgeTab_->hasFocus() || toolsLocked_;
-    const QString bg = active ? QColor(tc.primary).darker(175).name() : tc.bg;
+    // The handle floats over the frame, but it paints its own chrome: a
+    // canvas-filled chip with the theme border. Both states therefore take
+    // theme ink - idle the text ink, active the accent pair the app's filled
+    // controls use - instead of the video-overlay ink, which is a white label
+    // on the light theme's near-white chip.
+    const QString bg = active ? tc.primaryActive() : tc.bg;
     const QString border = active ? tc.primary : tc.border;
     toolsEdgeTab_->setStyleSheet(QString(
         "QToolButton#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    // The handle floats over the camera grid, which stays dark in every theme,
-    // so its idle ink is the overlay ink rather than the theme's text (which is
-    // near-black on the light theme).
-    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
-    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
+    const QColor fg = active ? QColor(tc.bg) : QColor(tc.text);
     const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
                                              toolsEdgeTab_->width(),
                                              toolsEdgeTab_->height());
@@ -5477,16 +5482,14 @@ void AnalysisView::restyleImageEdgeTab() {
     }
     const ThemeColors tc = CameraConfig::getThemeColors();
     const bool active = imageTabHovered_ || imageEdgeTab_->hasFocus() || imagePanelPinned_;
-    const QString bg = active ? QColor(tc.primary).darker(175).name() : tc.bg;
+    const QString bg = active ? tc.primaryActive() : tc.bg;
     const QString border = active ? tc.primary : tc.border;
     imageEdgeTab_->setStyleSheet(QString(
         "QToolButton#imageEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    // Same overlay ink as the TOOLS handle: it sits on the video, not on theme
-    // chrome.
-    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
-    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
+    // Same theme inks as the TOOLS handle: the chip paints its own chrome.
+    const QColor fg = active ? QColor(tc.bg) : QColor(tc.text);
     const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("IMAGE"), fg,
                                              imageEdgeTab_->width(),
                                              imageEdgeTab_->height());
@@ -5512,10 +5515,11 @@ void AnalysisView::restyleTracksEdgeTab() {
     } else {
         tracksEdgeTab_->setStyleSheet(QStringLiteral("QToolButton#tracksEdgeTab { background: transparent; }"));
     }
-    // The idle state is glyph-only over the video, so it uses the overlay ink;
-    // the active state sits on an accent tint and takes the overlay accent.
-    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
-    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
+    // The chip is anchored to the dashboard's top edge, which the chart paints
+    // in the theme's canvas colour, so its glyph takes theme ink too: idle the
+    // text ink, active the accent on its own wash. The video-overlay ink would
+    // be a white wave on the light theme's dashboard.
+    const QColor fg = active ? QColor(tc.primary) : QColor(tc.text);
     const QPixmap pm = makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
                                               tracksEdgeTab_->height());
     tracksEdgeTab_->setIcon(QIcon(pm));
@@ -5573,8 +5577,8 @@ void AnalysisView::applyBaseTrackChipStyle() {
         " border: 1px solid %2; border-radius: 5px;"
         " padding: 2px 4px; color: %3; }"
         "QCheckBox#baseTrackCheck:hover { background-color: %4; }")
-        .arg(QColor(tc.primary).darker(150).name(), tc.primary, tc.text,
-             QColor(tc.primary).darker(125).name()));
+        .arg(QColor(tc.primary).darker(150).name(), tc.primary, tc.bg,
+             tc.primaryActive()));
 }
 
 void AnalysisView::applyToolsPanelTheme() {
@@ -7469,7 +7473,7 @@ void AnalysisView::applyDiagnosticTabTheme() {
             "  padding: 0 14px; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; font-weight: 600; }"
             "QPushButton:hover { background: %3; }"
             "QPushButton:pressed { background: %4; }").arg(
-                tc.primary, tc.bg, tc.btnHover, tc.border));
+                tc.primary, tc.bg, tc.primaryHover(), tc.border));
     }
     if (diagTable_) {
         // Re-use project table style.

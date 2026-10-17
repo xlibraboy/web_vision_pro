@@ -40,6 +40,20 @@ struct ThemeColors {
     // True for the dark themes. Directions that are not a token (e.g. a "lift"
     // above a surface, or which way muted ink has to move) depend on this.
     bool isDark() const;
+
+    // The accent as a control wears it while hovered. Controls filled with the
+    // accent carry the canvas colour as ink (primary actions, the active
+    // playback toggle), so their hover shifts the accent shade instead of
+    // dropping to the neutral btnHover, which would leave that ink unreadable.
+    // Darkening reads as a hover cue on both themes; a lighter shade would not
+    // move the dark theme's already max-value accent at all.
+    QString primaryHover() const;
+
+    // The accent a control wears while it is on (a pinned drawer handle, a
+    // playing transport button): a deeper shade that keeps the canvas ink
+    // readable on both themes, where the plain accent would be too bright to
+    // carry a second, lighter ink next to the open panel.
+    QString primaryActive() const;
 };
 
 /**

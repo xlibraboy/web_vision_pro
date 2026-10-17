@@ -340,7 +340,7 @@ namespace {
             "QPushButton:pressed { "
             "  background-color: %1; "
             "}"
-        ).arg(tc.primary, tc.bg, tc.btnHover);
+        ).arg(tc.primary, tc.bg, tc.primaryHover());
     }
 
     QString sectionGroupStyle(const ThemeColors& tc) {
@@ -2973,7 +2973,7 @@ void ConfigDialog::setupUI() {
             "  font-weight: 500; "
             "} "
             "QPushButton:hover { background-color: %3; }"
-        ).arg(tc.primary, tc.bg, tc.btnHover);
+        ).arg(tc.primary, tc.bg, tc.primaryHover());
     });
     connect(diagRefreshBtn, &QPushButton::clicked, this, &ConfigDialog::onRefreshLogsClicked);
     

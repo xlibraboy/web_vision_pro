@@ -54,6 +54,8 @@ here.
 - Re-theming now also reaches chrome that was built once and kept: the Analysis View transport dividers, the TOOLS/IMAGE panel titles, captions, section labels and dividers, the marker-shape icons, the ROI status line, the temperature and frame-rate readings, the network summary status line and the machine-layout event marks; previously they kept the theme they were created under.
 - The toggle switch's focus ring and thumb, the vertical slider grip, the deleted-row selection ink and the "N/A" placeholder cells no longer rely on a fixed brightness (they were unreadable or invisible on the light theme), and the playback HUD bar now matches the polarity of the text it carries (it painted dark text on a black bar with a light playback surface).
 - SVG assets that draw with a stroke instead of a fill (Jump to Trigger, the marker shapes, the TOOLS panel glyph) are re-coloured with the theme like the rest of the glyphs.
+- Hovering an accent-filled button keeps its label readable: System Configuration's Diagnostics "Refresh Network" and Save buttons, the Analysis View Refresh and Mark Defect buttons and the active play/pause toggle now deepen the accent on hover instead of dropping to the neutral hover fill, which swallowed their text on both themes.
+- The Analysis View's floating handles are readable before they are touched: the IMAGE and TOOLS drawer labels and the TRACKS wave chip take the theme ink now instead of the video-overlay white the light theme's chip made invisible (hover, focus and the pinned state keep the accent pair), and the TRACKS panel's base-track chip label is no longer dark-on-dark on the light theme.
 
 ## [1.2.0] - 2026-10-14
 

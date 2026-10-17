@@ -246,6 +246,14 @@ bool ThemeColors::isDark() const {
     return QColor(bg).lightness() < 128;
 }
 
+QString ThemeColors::primaryHover() const {
+    return QColor(primary).darker(115).name();
+}
+
+QString ThemeColors::primaryActive() const {
+    return QColor(primary).darker(125).name();
+}
+
 ThemeColors CameraConfig::getThemeColors(ThemeMode mode) {
     ThemeColors c;
     switch (resolveThemeMode(mode)) {
