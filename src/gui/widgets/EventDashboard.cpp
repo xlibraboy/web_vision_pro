@@ -22,11 +22,27 @@ constexpr int kGap = 5;
 // protanopia / tritanopia: brightness / SPOTS % / CONTRAST stay >= 22 OKLab*100
 // apart in every simulation. Markers (trigger line, playhead) intentionally
 // carry no series hue: trigger is neutral text, playhead is the theme accent,
-// so the three series keep their identity at a glance.
-const QColor kDefectColor = QColor(QStringLiteral("#FEC837"));
-const QColor kLocalColor = QColor(QStringLiteral("#EA4E55"));
-const QColor kContrastColor = QColor(QStringLiteral("#9870EA"));
+// so the three series keep their identity at a glance. Each theme gets the set
+// that reads on its plot area (see the accessors below).
+const QColor kDefectColorDark = QColor(QStringLiteral("#FEC837"));
+const QColor kLocalColorDark = QColor(QStringLiteral("#EA4E55"));
+const QColor kContrastColorDark = QColor(QStringLiteral("#9870EA"));
+const QColor kDefectColorLight = QColor(QStringLiteral("#B08400"));
+const QColor kLocalColorLight = QColor(QStringLiteral("#8F1D18"));
+const QColor kContrastColorLight = QColor(QStringLiteral("#6A3FC0"));
 } // namespace
+
+QColor EventDashboard::defectSeriesColor() const {
+    return theme_.isDark() ? kDefectColorDark : kDefectColorLight;
+}
+
+QColor EventDashboard::localSeriesColor() const {
+    return theme_.isDark() ? kLocalColorDark : kLocalColorLight;
+}
+
+QColor EventDashboard::contrastSeriesColor() const {
+    return theme_.isDark() ? kContrastColorDark : kContrastColorLight;
+}
 
 EventDashboard::EventDashboard(QWidget* parent)
     : QWidget(parent) {
@@ -403,7 +419,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         return;
     }
 
-    QPen pen(kDefectColor, 1); // shared by chart, detail strip, lanes, lines
+    QPen pen(defectSeriesColor(), 1); // shared by chart, detail strip, lanes, lines
 
     // ---------- Chart region ----------
     QRectF plot(kMargin, chartTop(), width() - 2 * kMargin, chartHeight());
@@ -528,9 +544,9 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
                 pen.setWidth(1);
                 for (const QVector<int>* marks : { ticksB, ticksL, ticksC }) {
                     if (!marks) continue;
-                    pen.setColor(marks == ticksB ? kDefectColor
-                                 : marks == ticksL ? kLocalColor
-                                                   : kContrastColor);
+                    pen.setColor(marks == ticksB ? defectSeriesColor()
+                                 : marks == ticksL ? localSeriesColor()
+                                                   : contrastSeriesColor());
                     p.setPen(pen);
                     for (int d : *marks) {
                         if (d < winStart || d > winEnd) continue;
@@ -624,9 +640,9 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             // Defect ticks within the window, color-matched to the lanes.
             pen.setWidth(1);
             for (const QVector<int>* marks : { &defectBrightness_, &defectLocal_, &defectContrast_ }) {
-                pen.setColor(marks == &defectBrightness_ ? kDefectColor
-                             : marks == &defectLocal_     ? kLocalColor
-                                                          : kContrastColor);
+                pen.setColor(marks == &defectBrightness_ ? defectSeriesColor()
+                             : marks == &defectLocal_     ? localSeriesColor()
+                                                          : contrastSeriesColor());
                 p.setPen(pen);
                 for (int d : *marks) {
                     if (d < winStart || d > winEnd) continue;
@@ -730,9 +746,9 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         const char* ruleLabel;  // "limit" (upper bound) / "floor" (lower bound)
     };
     const LaneDef lanes[kLaneCount] = {
-        {"SPOTS %", &spotPct_, &defectLocal_, kLocalColor, 0.5, true,
+        {"SPOTS %", &spotPct_, &defectLocal_, localSeriesColor(), 0.5, true,
          EventSignalScanner::kLocalSpotMinPct, true, "limit"},
-        {"CONTRAST", &stddev_, &defectContrast_, kContrastColor, 64.0, true,
+        {"CONTRAST", &stddev_, &defectContrast_, contrastSeriesColor(), 64.0, true,
          EventSignalScanner::kLowContrastStd, false, "floor"},
     };
     int visLane = 0;
@@ -855,8 +871,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
             const double iy = slot.top() + (slot.height() - scaled.height()) / 2.0;
             p.drawImage(QPointF(ix, iy), scaled);
         } else {
-            // Slot frame position marker even when the thumb is missing.
-            p.setPen(bgColor.lighter(140));
+            // Slot frame position marker even when the thumb is missing. The
+            // border token is the divider ink on either theme (a lightened
+            // background would be white-on-white on the light plot area).
+            p.setPen(QColor(theme_.border));
             p.drawRect(slot.adjusted(0, 0, -1, -1));
         }
     }

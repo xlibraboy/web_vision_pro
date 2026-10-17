@@ -42,6 +42,7 @@ src/gui/widgets/AnalysisVideoWidget.cpp
 src/gui/widgets/EventDashboard.cpp
 src/gui/ConfigDialog.cpp
 src/config/CameraConfig.cpp
+src/config/SystemColorScheme.cpp
 src/config/AppPaths.cpp
 src/config/OpcUaValidation.cpp
 src/communication/OpcUaClientService.cpp
@@ -127,14 +128,18 @@ target_link_libraries(PaperVision_App
 # record the same post-trigger window in seconds, and a camera that stops
 # streaming must be recorded as missing) and its section-scoped recording (a
 # narrowed trigger records only its sections, and a selection with no camera is
-# refused with a reason), and the in-app changelog (the bundled CHANGELOG.md
-# parses into one row per release and renders as themed HTML). All suites drive
-# the real classes with synthetic frame clocks — no cameras are involved.
+# refused with a reason), the in-app changelog (the bundled CHANGELOG.md parses
+# into one row per release and renders as themed HTML), and the theme (every
+# surface follows the picker, and the token tables keep their contrast on both
+# themes). All suites drive the real classes with synthetic frame clocks — no
+# cameras are involved.
 # Run with: ctest -R config_dialog_network_regression
 #           ctest -R event_capture_timing
 #           ctest -R trigger_record_scope
 #           ctest -R analysis_review_tiles
 #           ctest -R changelog_dialog_render
+#           ctest -R theme_preset_consistency
+#           ctest -R theme_token_contrast
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     find_package(Qt5 COMPONENTS Test REQUIRED)
@@ -151,6 +156,7 @@ if(BUILD_TESTING)
         tests/OpcUaSpeedAnchorValidation.h
         tests/AboutDialogTest.h
         tests/ThemePresetConsistency.h
+        tests/ThemeContrast.h
     )
 
     add_executable(PaperVision_RegressionTest
@@ -166,6 +172,7 @@ if(BUILD_TESTING)
         tests/OpcUaSpeedAnchorValidation.cpp
         tests/AboutDialogTest.cpp
         tests/ThemePresetConsistency.cpp
+        tests/ThemeContrast.cpp
         ${TEST_MOC_SOURCES}
         ${MOC_SOURCES}
         ${RESOURCES}
@@ -193,11 +200,12 @@ if(BUILD_TESTING)
     add_test(NAME opcua_speed_anchor_validation COMMAND PaperVision_RegressionTest anchors)
     add_test(NAME about_pylon_version COMMAND PaperVision_RegressionTest about)
     add_test(NAME theme_preset_consistency COMMAND PaperVision_RegressionTest theme)
+    add_test(NAME theme_token_contrast COMMAND PaperVision_RegressionTest contrast)
     set_tests_properties(config_dialog_network_regression event_capture_timing
         trigger_record_scope analysis_review_tiles changelog_dialog_render
         defect_severity_classification accessibility_summaries ui_type_scale
         opcua_speed_anchor_validation about_pylon_version
-        theme_preset_consistency
+        theme_preset_consistency theme_token_contrast
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PYLON_CAMEMU=2")
 endif()
 

@@ -21,10 +21,12 @@ here.
 - Machine Layout: defect marks carry a severity from the event's signal scan (filled = warning, ring = critical, outline = ok); the tooltip shows the verdict and the values behind it, and the summary counts the marks by severity.
 - Status bar: a live FPS readout that turns red while an event recording is running.
 - Live View: unassigned grid slots are labelled "No camera assigned" instead of rendering as bare dark cells.
+- A Light theme alongside the dark one, and a Theme picker that offers Light, Dark, or following the desktop's colour scheme. Follow-system is re-checked while the app runs, so a desktop that switches to dark is followed without a restart.
 
 ### Changed
 
-- The Color Theme picker now applies the theme the moment a preset is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved preset.
+- The Theme picker applies the theme the moment it is selected (the whole app re-colors immediately); Save or Apply keeps it, and leaving the page without saving returns to the saved theme.
+- The Theme picker offers Light, Dark and Follow system instead of the accent presets; an installation that had one of those presets saved now runs the dark theme.
 - Status colors app-wide now carry one meaning per color (healthy green, caution amber, error coral, informational blue) instead of five near-duplicate palettes, so the same state reads the same in every panel.
 - Machine-section colors and the Analysis event-dashboard series are now distinguishable under red-green color blindness.
 - Typography: every font size now comes from one named scale (Display 17 · Title 14 · Body 12 · Meta 11 · Micro 10, plus the 8px on-image overlay register); the previous ad-hoc 9/13/14/15/16/20px sizes and the UI Preferences defaults converged onto it.
@@ -34,18 +36,23 @@ here.
 
 ### Fixed
 
-- Theme switches now also reach the chrome that is built once and kept: the Analysis View Diagnostic tab (title, Auto box, Refresh button, camera-health table), its metadata-header divider, the dashboard loading label, the annotation dots on the playback slider, and the Detail View Region controls (Draw Region / Whole Frame / Clear / Finish) no longer keep the preset they were built with.
-- Theme switches now re-draw the icons that are rendered from the preset when they are asked for: the System Configuration sidebar rows, its Save / Detect Server / Refresh / Clear Logs buttons, the network-summary header glyphs and the camera-card expand, delete and device-settings glyphs kept the previous preset's tint (a cyan or green icon on the mono theme) until the app was restarted. The System Configuration tab label and the "Show Permanent Storage" arrow now follow the theme too.
+- Theme switches now also reach the chrome that is built once and kept: the Analysis View Diagnostic tab (title, Auto box, Refresh button, camera-health table), its metadata-header divider, the dashboard loading label, the annotation dots on the playback slider, and the Detail View Region controls (Draw Region / Whole Frame / Clear / Finish) no longer keep the theme they were built with.
+- Theme switches now re-draw the icons that are rendered from the theme when they are asked for: the System Configuration sidebar rows, its Save / Detect Server / Refresh / Clear Logs buttons, the network-summary header glyphs and the camera-card expand, delete and device-settings glyphs kept the previous theme's tint until the app was restarted. The System Configuration tab label and the "Show Permanent Storage" arrow now follow the theme too.
 - Switching the theme now reaches every panel that is kept open for the session: the System Configuration dialog and its camera cards, the network summary, the machine-layout header, the IP list and machine-group panels, the OPC UA live-status window, the Help dialogs, and the Analysis View spinner, marker ink and track chip previously kept the theme they were built with until restart.
-- The remaining hardcoded colors now follow the theme: camera-card hover washes (they stayed default cyan/red on every preset), disabled-camera rows in the diagnostics table, machine-layout lane fills and its hollow-marker warning, the machine-layout reference guide line, the administrator login eye icon, and the System Configuration tab label.
+- The remaining hardcoded colors now follow the theme: camera-card hover washes (they stayed default cyan/red on every theme), disabled-camera rows in the diagnostics table, machine-layout lane fills and its hollow-marker warning, the machine-layout reference guide line, the administrator login eye icon, and the System Configuration tab label.
 - Spin-box steppers and the Analysis View playback and marker glyphs are re-rendered in the theme's ink instead of the fixed grey they shipped with.
-- Theme presets now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected preset.
+- Theme changes now reach the network summary header, camera cards, status-bar badges and the Analysis event dashboard, which previously stayed hardcoded dark/cyan regardless of the selected theme.
 - Status text and badges meet stronger contrast targets (the previous critical red measured well below the readability bar on the default theme).
 - The low-disk status-bar badge keeps a visible keyboard focus ring instead of erasing it.
 - Detail View: the camera parameter column scrolls on short windows (e.g. 1366×768) instead of squeezing the spin boxes until their values render blank.
 - Analysis View: the Enable Event Deletion switch announces its label to screen readers and draws a visible keyboard-focus ring.
 - Analysis and Machine Layout: the event dashboard and the machine schematic expose a plain-text summary (frames, defect hits, marks by severity, largest spot areas) to screen readers instead of reading as silent painted surfaces.
 - OPC UA speed grid: two enabled anchors at the same position now block the save (the speed interpolated between them would be ambiguous), out-of-order rows get an inline note under the grid, and the Unit column is an editable combo that shows its m/min default instead of a blank field that silently saved one.
+- The Light theme keeps its ink readable: secondary text, dividers, disabled labels and the sidebar's muted states now come from theme tokens instead of being derived by lightening the primary ink (which turned them white on a light background), and the semantic status colours have per-theme variants so alarm, health and information text still reads on light chrome.
+- Ink that is painted onto video (camera-tile overlays and the PTP badge, the playback HUD and sync badge, the region rubber band, the event and camera-key banners, the TOOLS/IMAGE/TRACKS handles, the machine-layout and event-dashboard palettes) no longer follows the theme: it follows the surface it is drawn on, which stays dark or light per the card/playback style.
+- Re-theming now also reaches chrome that was built once and kept: the Analysis View transport dividers, the TOOLS/IMAGE panel titles, captions, section labels and dividers, the marker-shape icons, the ROI status line, the temperature and frame-rate readings, the network summary status line and the machine-layout event marks; previously they kept the theme they were created under.
+- The toggle switch's focus ring and thumb, the vertical slider grip, the deleted-row selection ink and the "N/A" placeholder cells no longer rely on a fixed brightness (they were unreadable or invisible on the light theme), and the playback HUD bar now matches the polarity of the text it carries (it painted dark text on a black bar with a light playback surface).
+- SVG assets that draw with a stroke instead of a fill (Jump to Trigger, the marker shapes, the TOOLS panel glyph) are re-coloured with the theme like the rest of the glyphs.
 
 ## [1.2.0] - 2026-10-14
 

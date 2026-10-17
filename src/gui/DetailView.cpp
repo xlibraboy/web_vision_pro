@@ -402,11 +402,15 @@ protected:
                         endW = firstW;
                     }
                 }
-                p.setPen(QPen(QColor(tc.primary).lighter(nearStart ? 155 : 130),
+                // The rubber-band preview is drawn over the frame, so it takes
+                // the overlay accent (a theme accent would be a dark cyan on the
+                // light theme, over a frame that stays dark).
+                p.setPen(QPen(QColor(CameraConfig::getVideoOverlayColors().accent),
                               1, Qt::DashLine));
                 p.drawLine(toWidget(chain.last()), endW);
                 if (nearStart) {
-                    p.setPen(QPen(QColor(tc.primary).lighter(155), 1.2, Qt::DotLine));
+                    p.setPen(QPen(QColor(CameraConfig::getVideoOverlayColors().accent),
+                                  1.2, Qt::DotLine));
                     p.setBrush(Qt::NoBrush);
                     p.drawEllipse(firstW, 6.5, 6.5);
                 }
@@ -993,11 +997,11 @@ void DetailView::buildRoiControls() {
         updateRoiStatus();
         updateRoiFinishState();
     };
-    roiOverlay_->onScratchChanged = [this, tc](int count) {
+    roiOverlay_->onScratchChanged = [this](int count) {
         updateRoiFinishState();
         if (roiStatusLabel_ && roiOverlay_ && roiOverlay_->isDrawing()) {
-            roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";"
-                                                   " font-weight: 600; }").arg(tc.ok));
+            roiStatusWarns_ = false;
+            applyRoiStatusInk();
             if (count < 3) {
                 roiStatusLabel_->setText(QString("Drawing: click to add points"
                                                   " (%1 so far) — right-click"
@@ -1154,20 +1158,30 @@ void DetailView::refreshRoiOverlay() {
     roiOverlay_->setVisible(show);
 }
 
-void DetailView::updateRoiStatus() {
-    const ThemeColors tc = CameraConfig::getThemeColors();
+void DetailView::applyRoiStatusInk() {
     if (!roiStatusLabel_) {
         return;
     }
-    if (roiNorm_.size() < 3) {
+    // Resolved here rather than where the state changes, so switching themes
+    // re-colours a status line that was set minutes ago.
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }")
+                                       .arg(roiStatusWarns_ ? tc.warn : tc.ok));
+}
+
+void DetailView::updateRoiStatus() {
+    if (!roiStatusLabel_) {
+        return;
+    }
+    roiStatusWarns_ = roiNorm_.size() < 3;
+    if (roiStatusWarns_) {
         roiStatusLabel_->setText("No inspection region — analysis is PAUSED. "
                                  "Draw the area to analyze or use Whole Frame.");
-        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }").arg(tc.warn));
     } else {
         roiStatusLabel_->setText(QString("Region: %1 points — analysis runs inside it.")
                                      .arg(roiNorm_.size()));
-        roiStatusLabel_->setStyleSheet(QString("QLabel { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; font-weight: 600; }").arg(tc.ok));
     }
+    applyRoiStatusInk();
 }
 
 void DetailView::repositionRoiPanel() {
@@ -1585,10 +1599,19 @@ void DetailView::clearCamera() {
 }
 
 void DetailView::updateTemperature(double temp) {
-    const ThemeColors tc = CameraConfig::getThemeColors();
-    if (!lblTemp_) return;
+    lastTemperature_ = temp;
+    hasTemperature_ = true;
+    applyTemperatureStyle();
+}
 
-    TempStatus::Status status = TempStatus::classify(temp);
+void DetailView::applyTemperatureStyle() {
+    if (!lblTemp_ || !hasTemperature_) return;
+
+    // Classified from the last measured value: a theme switch has to re-colour
+    // the reading whether or not the camera reported a new one.
+    const ThemeColors tc = CameraConfig::getThemeColors();
+    const TempStatus::Status status = TempStatus::classify(lastTemperature_);
+    const double temp = lastTemperature_;
 
     QString text;
     QString color;
@@ -1813,6 +1836,14 @@ void DetailView::setDisplayFps(double fps) {
 void DetailView::updateTheme() {
     applyLiveViewTypography();
     applyLeftColumnStyle();
+
+    // Ink that follows a measured value rather than the theme alone: re-derived
+    // here so a switch re-colours a reading that has not changed since.
+    applyRoiStatusInk();
+    applyTemperatureStyle();
+    const QString fpsStyle = fpsMismatchStyle(displayFps_);
+    if (lblDisplayFps_) lblDisplayFps_->setStyleSheet(fpsStyle);
+    if (lblActualFramePeriod_) lblActualFramePeriod_->setStyleSheet(fpsStyle);
 
     if (backChip_) {
         const ThemeColors tc = CameraConfig::getThemeColors();

@@ -272,8 +272,13 @@ QPixmap IconManager::themedAssetPixmap(const QString& assetPath, const QColor& c
     }
 
     QString svg = QString::fromUtf8(asset.readAll());
+    // Both paints are rewritten: several shipped assets draw with a stroke only
+    // (Jump to Trigger, the marker shapes, the TOOLS panel glyph), and a fixed
+    // stroke would stay the shipped light grey on every theme.
     static const QRegularExpression fillPattern(QStringLiteral("fill=\"#[0-9A-Fa-f]{6}\""));
     svg.replace(fillPattern, QStringLiteral("fill=\"%1\"").arg(color.name()));
+    static const QRegularExpression strokePattern(QStringLiteral("stroke=\"#[0-9A-Fa-f]{6}\""));
+    svg.replace(strokePattern, QStringLiteral("stroke=\"%1\"").arg(color.name()));
 
     QSvgRenderer renderer(svg.toUtf8());
     if (!renderer.isValid()) {

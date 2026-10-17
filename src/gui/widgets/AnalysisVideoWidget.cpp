@@ -257,13 +257,16 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     const ThemeColors tc = hasPreviewThemeOverride_ ? previewThemeOverride_ : CameraConfig::getThemeColors();
     const AnalysisViewStyle style = hasPreviewStyleOverride_ ? previewStyleOverride_ : CameraConfig::getAnalysisViewStyle();
     const bool lightSurface = style.playbackSurfaceStyle == "light";
+    // The playback surface - not the theme - decides the HUD ink, and the
+    // backing bars follow the ink so neither polarity paints dark on dark.
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors(lightSurface);
     const QColor surfaceColor = lightSurface ? QColor("#F2F2F2") : QColor(Qt::black);
     const QColor titleTextColor = lightSurface ? QColor("#111111") : QColor(Qt::white);
     const QColor titleBarColor = lightSurface ? QColor(255, 255, 255, 210) : QColor(0, 0, 0, 180);
-    // HUD readout follows the ok token; the light playback surface keeps the
-    // theme accent (ok green on white would drop below the label contrast bar).
-    const QColor timestampTextColor = lightSurface ? QColor(tc.primary) : QColor(tc.ok);
-    const QColor timestampBarColor = lightSurface ? QColor(255, 255, 255, 210) : QColor(0, 0, 0, 180);
+    // HUD readout follows the ok token on a dark surface; a light surface takes
+    // the daylight accent (ok green on white would drop below the label bar).
+    const QColor timestampTextColor = lightSurface ? QColor(overlay.accent) : QColor(overlay.ok);
+    const QColor timestampBarColor = lightSurface ? QColor(255, 255, 255, 210) : QColor(0, 0, 0, 150);
     
     // Draw background
     painter.fillRect(rect(), surfaceColor);
@@ -392,7 +395,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         // (mouse events still go to the widget / marker tools).
         if (syncIndicatorVisible_) {
             const QPoint pos = normalizedToWidgetPoint(syncIndicatorPos_);
-            const QColor syncColor(tc.ok);
+            const QColor syncColor(overlay.ok);
             QPen crossPen(syncColor, 2);
             crossPen.setStyle(Qt::DashLine);
             painter.setPen(crossPen);
@@ -411,7 +414,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
                 const QFontMetrics fm(badgeFont);
                 const QRect badgeRect(8, 28, fm.horizontalAdvance(syncIndicatorLabel_) + 16, 20);
                 painter.setPen(Qt::NoPen);
-                painter.setBrush(QColor(0, 0, 0, 175));
+                painter.setBrush(timestampBarColor);
                 painter.drawRoundedRect(badgeRect, 4, 4);
                 painter.setPen(syncColor);
                 painter.drawText(badgeRect.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, syncIndicatorLabel_);
@@ -469,7 +472,7 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
 
         // Subtle semi-transparent backing so text stays legible over any frame.
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(0, 0, 0, 150));
+        painter.setBrush(timestampBarColor);
         painter.drawRoundedRect(barRect, 6, 6);
 
         painter.setPen(timestampTextColor);

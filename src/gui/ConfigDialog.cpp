@@ -301,9 +301,9 @@ namespace {
         return QString("rgba(%1, %2, %3, %4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
     }
 
-    // Raised-surface wash. Every preset is dark today, so the faint "lift" on
-    // panes, cards and hovered controls is a tint of the text token instead of a
-    // fixed white, which would be invisible on a light preset.
+    // Raised-surface wash. The faint "lift" on panes, cards and hovered controls
+    // is a tint of the text token rather than a fixed white, which would be
+    // invisible on the light theme.
     QString raisedWash(const ThemeColors& tc, double alpha) {
         return tinted(tc.text, alpha);
     }
@@ -449,6 +449,52 @@ namespace {
             "QComboBox::drop-down { border: none; padding-right: 8px; } "
             "QComboBox QAbstractItemView { background-color: %1; border: 1px solid %2; border-radius: 6px; color: %3; selection-background-color: %5; padding: 4px; }"
         ).arg(tc.btnBg, tc.border, tc.text, tc.primary, tc.bg);
+    }
+
+    // Theme dropdown swatch: the theme's canvas, border and accent.
+    QPixmap themeSwatch(const ThemeColors& colors) {
+        QPixmap swatch(20, 20);
+        swatch.fill(Qt::transparent);
+        QPainter painter(&swatch);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setBrush(QColor(colors.bg));
+        painter.setPen(QPen(QColor(colors.border), 1));
+        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
+        painter.setBrush(QColor(colors.primary));
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(4, 8, 12, 4, 2, 2);
+        painter.end();
+        return swatch;
+    }
+
+    // "Follow system" has no colours of its own, so its swatch shows both halves
+    // it can pick from.
+    QPixmap systemThemeSwatch() {
+        const ThemeColors light = CameraConfig::getThemeColors(ThemeMode::Light);
+        const ThemeColors dark = CameraConfig::getThemeColors(ThemeMode::Dark);
+
+        QPixmap swatch(20, 20);
+        swatch.fill(Qt::transparent);
+        QPainter painter(&swatch);
+        painter.setRenderHint(QPainter::Antialiasing);
+        // Each half is the outline of its own theme, clipped to one side.
+        painter.setClipRect(QRect(0, 0, 10, 20));
+        painter.setBrush(QColor(light.bg));
+        painter.setPen(QPen(QColor(light.border), 1));
+        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
+        painter.setClipRect(QRect(10, 0, 10, 20));
+        painter.setBrush(QColor(dark.bg));
+        painter.setPen(QPen(QColor(dark.border), 1));
+        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
+        painter.setPen(Qt::NoPen);
+        painter.setClipRect(QRect(0, 0, 10, 20));
+        painter.setBrush(QColor(light.primary));
+        painter.drawRoundedRect(4, 8, 12, 4, 2, 2);
+        painter.setClipRect(QRect(10, 0, 10, 20));
+        painter.setBrush(QColor(dark.primary));
+        painter.drawRoundedRect(4, 8, 12, 4, 2, 2);
+        painter.end();
+        return swatch;
     }
 }
 
@@ -2176,56 +2222,30 @@ void ConfigDialog::setupUI() {
         return labelWidget;
     };
 
-    // Theme selection dropdown
+    // Theme selection dropdown: the two themes, plus following the desktop.
     QComboBox* themeCombo = new QComboBox(uiGroup);
     themeCombo_ = themeCombo;
     registerThemed(themeCombo, themeComboStyle);
-    QLabel* themeLabel = new QLabel("Color Theme:", uiGroup);
-    themeLabel->setToolTip("Select a color theme for the application.");
+    QLabel* themeLabel = new QLabel("Theme:", uiGroup);
 
-    const struct { const char* name; int index; } themeEntries[] = {
-        {"Industrial Dark - Cyan", 0},
-        {"Classic Dark - Blue", 1},
-        {"High Contrast - Orange", 2},
-        {"Warning State - Yellow", 3},
-        {"Precision - Green", 4},
-        {"Visionary - Purple", 5},
-        {"Alert - Deep Red", 6},
-        {"Contrast Mono - B&W", 7}
-    };
-
-    for (int i = 0; i < 8; ++i) {
-        const auto& entry = themeEntries[i];
-        const ThemeColors entryColors = CameraConfig::getThemeColors(entry.index);
-
-        // Create a color swatch icon
-        QPixmap swatch(20, 20);
-        swatch.fill(Qt::transparent);
-        QPainter painter(&swatch);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setBrush(QColor(entryColors.bg));
-        painter.setPen(QPen(QColor(entryColors.border), 1));
-        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
-        // Draw accent bar
-        painter.setBrush(QColor(entryColors.primary));
-        painter.setPen(Qt::NoPen);
-        painter.drawRoundedRect(4, 8, 12, 4, 2, 2);
-        painter.end();
-
-        themeCombo->addItem(QIcon(swatch), entry.name, entry.index);
+    const ThemeMode themeEntries[] = {ThemeMode::Light, ThemeMode::Dark, ThemeMode::System};
+    for (const ThemeMode entry : themeEntries) {
+        const QPixmap swatch = entry == ThemeMode::System
+            ? systemThemeSwatch() : themeSwatch(CameraConfig::getThemeColors(entry));
+        themeCombo->addItem(QIcon(swatch), CameraConfig::themeModeName(entry), static_cast<int>(entry));
     }
 
-    selectedThemeIndex_ = CameraConfig::getThemePreset();
-    themeCombo->setCurrentIndex(selectedThemeIndex_);
+    selectedThemeMode_ = CameraConfig::getThemeMode();
+    selectThemeModeInCombo(themeCombo, selectedThemeMode_);
 
     connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, themeCombo](int) {
-        this->selectedThemeIndex_ = themeCombo->currentData().toInt();
-        // Show the picked preset app-wide straight away; MainWindow re-applies
+        this->selectedThemeMode_ = static_cast<ThemeMode>(themeCombo->currentData().toInt());
+        // Show the picked theme app-wide straight away; MainWindow re-applies
         // the theme from the preview override. Save/Apply persists it, leaving
-        // the page unsaved reverts to the saved preset.
-        CameraConfig::setThemePreview(this->selectedThemeIndex_);
+        // the page unsaved reverts to the saved mode.
+        CameraConfig::setThemePreview(this->selectedThemeMode_);
         themePreviewPending_ = true;
-        emit this->themePreviewRequested(this->selectedThemeIndex_);
+        emit this->themePreviewRequested(static_cast<int>(this->selectedThemeMode_));
         emit this->themeSelectionChanged();
     });
 
@@ -2524,17 +2544,18 @@ void ConfigDialog::setupUI() {
         }
 
         // The effective theme: the pick in the dropdown while it is being
-        // previewed, otherwise the saved preset.
+        // previewed, otherwise the saved mode.
         const ThemeColors previewThemeColors = CameraConfig::getThemeColors();
         const QString backgroundStyle = normalizeLiveViewBackgroundStyle(liveViewBackgroundStyleCombo_->currentData().toString());
         const QBrush surfaceBrush = liveViewBackgroundBrush(backgroundStyle);
         const QColor themeBorderColor(previewThemeColors.border);
         const QColor themeTextColor(previewThemeColors.text);
+        const QColor themeMutedColor(previewThemeColors.muted);
         const QColor themePrimaryColor(previewThemeColors.primary);
         const QColor themePanelColor(previewThemeColors.btnBg);
         const QColor borderColor = themeBorderColor;
         const QColor titleColor = themeTextColor;
-        const QColor subtitleColor = themeTextColor.lighter(145);
+        const QColor subtitleColor = themeMutedColor;
         const QColor groupTextColor = themeTextColor;
         const QColor groupBorderColor = themeBorderColor;
         const QColor statusTextColor = QColor(previewThemeColors.onStatus);
@@ -3017,6 +3038,15 @@ void ConfigDialog::registerThemed(QWidget* widget, std::function<QString(const T
     themedStyles_.back().first->setStyleSheet(themedStyles_.back().second(CameraConfig::getThemeColors()));
 }
 
+void ConfigDialog::selectThemeModeInCombo(QComboBox* combo, ThemeMode mode) {
+    // The dropdown lists the modes in display order, so a saved value is a mode
+    // and not a row: look it up by data. A mode with no row (nothing this build
+    // writes) shows the first entry instead of leaving the row unselected.
+    const int row = combo->findData(static_cast<int>(mode));
+    const QSignalBlocker blocker(combo);
+    combo->setCurrentIndex(row >= 0 ? row : 0);
+}
+
 void ConfigDialog::discardUnsavedThemePreview() {
     if (!themePreviewPending_) {
         return;
@@ -3024,14 +3054,13 @@ void ConfigDialog::discardUnsavedThemePreview() {
     themePreviewPending_ = false;
 
     CameraConfig::clearThemePreview();
-    selectedThemeIndex_ = CameraConfig::getThemePreset();
+    selectedThemeMode_ = CameraConfig::getThemeMode();
     if (themeCombo_) {
         // The combo shows the theme in force, so the abandoned pick is not left
         // looking applied. Blocked: re-picking must not re-arm the preview.
-        const QSignalBlocker blocker(themeCombo_);
-        themeCombo_->setCurrentIndex(selectedThemeIndex_);
+        selectThemeModeInCombo(themeCombo_, selectedThemeMode_);
     }
-    emit themePreviewRequested(selectedThemeIndex_);
+    emit themePreviewRequested(static_cast<int>(selectedThemeMode_));
 }
 
 void ConfigDialog::registerThemedIcon(std::function<void()> apply) {
@@ -3051,6 +3080,14 @@ void ConfigDialog::applyThemeStyles() {
 
 void ConfigDialog::updateTheme() {
     applyThemeStyles();
+
+    if (themeCombo_) {
+        // "Follow system" picks a concrete theme, so spell out which one the
+        // desktop is currently asking for.
+        themeCombo_->setToolTip(
+            QString("Light, Dark, or the desktop's colour scheme (currently %1).")
+                .arg(CameraConfig::themeModeName(CameraConfig::resolveThemeMode(ThemeMode::System))));
+    }
 
     liveViewGridTitlePresets_.updateStyles(CameraConfig::getThemeColors());
     liveViewDetailTitlePresets_.updateStyles(CameraConfig::getThemeColors());
@@ -3243,12 +3280,11 @@ void ConfigDialog::loadSettings() {
 
     eventStoragePathEdit_->setText(CameraConfig::getEventStoragePath());
     refreshStorageStats();
-    selectedThemeIndex_ = CameraConfig::getThemePreset();
+    selectedThemeMode_ = CameraConfig::getThemeMode();
     if (themeCombo_) {
-        // Restoring the saved preset is not a pick: without this the dropdown
+        // Restoring the saved mode is not a pick: without this the dropdown
         // would arm a preview of it and override a preview already showing.
-        const QSignalBlocker blocker(themeCombo_);
-        themeCombo_->setCurrentIndex(selectedThemeIndex_);
+        selectThemeModeInCombo(themeCombo_, selectedThemeMode_);
     }
     const LiveViewCardStyle liveViewStyle = CameraConfig::getLiveViewCardStyle();
     selectCuratedFont(liveViewGridTitleFontCombo_, liveViewStyle.gridTitleFontFamily);
@@ -3315,7 +3351,7 @@ void ConfigDialog::setupUiModificationTracking() {
 
 ConfigDialog::UiSettingsSnapshot ConfigDialog::captureCurrentSettings() const {
     UiSettingsSnapshot snap;
-    snap.themePreset = selectedThemeIndex_;
+    snap.themeMode = selectedThemeMode_;
     snap.liveViewGridTitleFont = liveViewGridTitleFontCombo_ ? currentCuratedFontFamily(liveViewGridTitleFontCombo_) : QString();
     snap.liveViewGridTitleSize = liveViewGridTitleSizeSpin_ ? liveViewGridTitleSizeSpin_->value() : 0;
     snap.liveViewDetailTitleFont = liveViewDetailTitleFontCombo_ ? currentCuratedFontFamily(liveViewDetailTitleFontCombo_) : QString();
@@ -3925,8 +3961,8 @@ void ConfigDialog::saveOpcUaSettings() {
 void ConfigDialog::saveUiSettings() {
     qInfo() << "[ConfigDialog] UI save requested";
 
-    CameraConfig::setThemePreset(selectedThemeIndex_);
-    // The pick is saved now: it is the preset, not a preview of one.
+    CameraConfig::setThemeMode(selectedThemeMode_);
+    // The pick is saved now: it is the mode, not a preview of one.
     CameraConfig::clearThemePreview();
     themePreviewPending_ = false;
     CameraConfig::setLiveViewCardStyle({
@@ -3960,8 +3996,8 @@ void ConfigDialog::saveUiSettings() {
 void ConfigDialog::applyUiSettings() {
     qInfo() << "[ConfigDialog] UI apply requested";
 
-    CameraConfig::setThemePreset(selectedThemeIndex_);
-    // The pick is saved now: it is the preset, not a preview of one.
+    CameraConfig::setThemeMode(selectedThemeMode_);
+    // The pick is saved now: it is the mode, not a preview of one.
     CameraConfig::clearThemePreview();
     themePreviewPending_ = false;
     CameraConfig::setLiveViewCardStyle({
@@ -4652,10 +4688,10 @@ void ConfigDialog::refreshNetworkStatus() {
 
     // Update summary text
     QStringList summary;
-    QColor summaryColor = QColor(tc.ok);
+    NetworkSummaryHeader::StatusTone summaryTone = NetworkSummaryHeader::StatusTone::Ok;
 
     if (blockingCount > 0) {
-        summaryColor = QColor(tc.critical);
+        summaryTone = NetworkSummaryHeader::StatusTone::Critical;
         if (!duplicateConfiguredIps.isEmpty()) {
             summary << "Duplicate configured IPs detected";
         }
@@ -4668,23 +4704,24 @@ void ConfigDialog::refreshNetworkStatus() {
     }
 
     if (mismatchCount > 0) {
-        if (summaryColor != QColor(tc.critical)) {
-            summaryColor = QColor(tc.warn);
+        if (summaryTone != NetworkSummaryHeader::StatusTone::Critical) {
+            summaryTone = NetworkSummaryHeader::StatusTone::Warn;
         }
         summary << QString("%1 camera%2 have IP mismatch").arg(mismatchCount).arg(mismatchCount == 1 ? "" : "s");
     }
 
     if (missingCount > 0) {
-        if (summaryColor == QColor(tc.ok)) {
-            summaryColor = QColor(tc.warn);
+        if (summaryTone == NetworkSummaryHeader::StatusTone::Ok) {
+            summaryTone = NetworkSummaryHeader::StatusTone::Warn;
         }
         summary << QString("%1 camera%2 not visible").arg(missingCount).arg(missingCount == 1 ? "" : "s");
     }
 
     if (summary.isEmpty()) {
-        networkSummaryHeader_->setNetworkStatus("Network OK: All cameras configured correctly", QColor(tc.ok));
+        networkSummaryHeader_->setNetworkStatus("Network OK: All cameras configured correctly",
+                                               NetworkSummaryHeader::StatusTone::Ok);
     } else {
-        networkSummaryHeader_->setNetworkStatus(summary.join(" | "), summaryColor);
+        networkSummaryHeader_->setNetworkStatus(summary.join(" | "), summaryTone);
     }
 
     // Keep the read-only Fixed IP registry in sync with live detection.

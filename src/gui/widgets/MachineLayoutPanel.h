@@ -49,10 +49,14 @@ public:
     void refresh();
 
     // Re-apply the header chrome (labels, event/reference combos, zoom buttons)
-    // to the active color preset and repaint the canvas, which re-reads the
-    // theme every paint. The constructor calls this too, so the header styles
-    // live in exactly one place.
+    // to the active theme and repaint the canvas, which re-reads the theme every
+    // paint. The constructor calls this too, so the header styles live in
+    // exactly one place.
     void updateTheme();
+
+    // Machine-section identity color for the active theme; public so the theme
+    // suite can check the section palette on both themes.
+    static QColor groupColor(int group);
 
     // Enable/disable the read-only reference overlay (REFERENCE DATA combo).
     void setReferenceOverlayEnabled(bool on);
@@ -82,7 +86,7 @@ private:
 
     struct DefectMark {
         QString eventText;        // human-readable event time
-        QColor color;
+        int series = 0;           // index into the event series palette
         QString camLabel;
         int camId = 0;
         double mm = 0.0;
@@ -98,7 +102,7 @@ private:
 
     struct TriggerMark {
         QString eventText;        // human-readable event time
-        QColor color;
+        int series = 0;           // index into the event series palette
         int mm = 0;               // recorded trigger position (sheetbreak sensor)
         QString source;           // trigger source/reason (e.g. "OPC UA")
         QString detail;           // full tooltip text
@@ -133,7 +137,7 @@ private:
 
     struct EventGroup {
         QString label;            // "2026-02-08 15:30:00"
-        QColor color;
+        int series = 0;           // index into the event series palette
         QVector<DefectMark> defects;
         QVector<TriggerMark> triggers;  // recorded trigger positions of the event
     };
@@ -246,7 +250,6 @@ private:
     void updateZoomUi();     // Reset view button visibility
     double niceStep() const;  // mm tick step shared by lanes and the cursor
     double mmToX(double mm) const;
-    static QColor groupColor(int group);
     static QString formatEventTime(const QString& timestamp);
     static RefSet buildReferenceSet(const QString& name);  // hardcoded reference data
     int floorForRefCamera(const RefCamera& r) const;  // floor lane of the nearest live camera

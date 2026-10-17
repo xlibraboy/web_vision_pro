@@ -124,8 +124,11 @@ private:
     // Drops a theme preview whose pick was never saved (leaving the UI
     // Preferences page, hiding the dialog, or leaving admin mode).
     void discardUnsavedThemePreview();
-    // Rebuild the Live View / Analysis preview panes from the preset currently
-    // picked in the Color Theme dropdown (which may not be saved yet).
+    // Shows a mode in the Theme dropdown by data, not by row, without arming the
+    // unsaved preview (restoring the saved mode is not a pick).
+    void selectThemeModeInCombo(QComboBox* combo, ThemeMode mode);
+    // Rebuild the Live View / Analysis preview panes from the theme currently
+    // picked in the Theme dropdown (which may not be saved yet).
     std::function<void()> refreshTypographyPreviews_;
     std::function<void()> refreshAnalysisPreview_;
     void setupUiModificationTracking();
@@ -175,7 +178,7 @@ private:
 
 
     struct UiSettingsSnapshot {
-        int themePreset;
+        ThemeMode themeMode;
         QString liveViewGridTitleFont;
         int liveViewGridTitleSize;
         QString liveViewDetailTitleFont;
@@ -195,7 +198,7 @@ private:
         int analysisMetadataSize;
 
         bool operator==(const UiSettingsSnapshot& other) const {
-            return themePreset == other.themePreset
+            return themeMode == other.themeMode
                 && liveViewGridTitleFont == other.liveViewGridTitleFont
                 && liveViewGridTitleSize == other.liveViewGridTitleSize
                 && liveViewDetailTitleFont == other.liveViewDetailTitleFont
@@ -266,7 +269,9 @@ private:
     QLabel* recordingInfoLabel_ = nullptr;
     QSpinBox* eventRetentionSpin_;
     QSpinBox* lowDiskThresholdSpin_ = nullptr;
-    int selectedThemeIndex_ = 0;
+    // Theme picked in the dropdown: the saved mode, or the candidate while a
+    // preview is pending.
+    ThemeMode selectedThemeMode_ = ThemeMode::Dark;
     QComboBox* themeCombo_ = nullptr;
     // Sidebar row of the UI Preferences page (its theme pick is preview-only
     // until saved, so leaving the page discards it).
@@ -277,7 +282,7 @@ private:
     // builder that produces it; replayed by applyThemeStyles().
     std::vector<std::pair<QWidget*, std::function<QString(const ThemeColors&)>>> themedStyles_;
     // Re-renders of theme-tinted icons (nav rows, action buttons); replayed
-    // alongside themedStyles_ so a preset change reaches them too.
+    // alongside themedStyles_ so a theme change reaches them too.
     std::vector<std::function<void()>> themedIcons_;
     QComboBox* liveViewGridTitleFontCombo_ = nullptr;
     QSpinBox* liveViewGridTitleSizeSpin_ = nullptr;

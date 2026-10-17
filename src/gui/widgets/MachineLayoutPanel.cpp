@@ -35,6 +35,27 @@
 namespace {
 const int kMaxMarkedEvents = 25;  // most recent marked events offered in the combo
 
+// Event identity colors, resolved when the mark is painted so a theme switch
+// re-colours the marks too. The dark set is OKLCH-derived (bright hues for a
+// dark canvas); the daylight set is the same hues taken darker, which is what
+// reads on a light canvas.
+constexpr int kSeriesCount = 8;  // palette size used by seriesColor()
+QColor seriesColor(int index) {
+    static const QColor kDarkPalette[] = {
+        QColor(0, 229, 255), QColor(255, 153, 0), QColor(0, 204, 68),
+        QColor(178, 51, 255), QColor(255, 90, 90), QColor(255, 215, 0),
+        QColor(10, 132, 255), QColor(255, 128, 200)
+    };
+    static const QColor kLightPalette[] = {
+        QColor(0, 122, 143), QColor(166, 96, 0), QColor(0, 128, 44),
+        QColor(112, 33, 168), QColor(198, 40, 40), QColor(150, 110, 0),
+        QColor(10, 84, 176), QColor(176, 60, 130)
+    };
+    const int count = static_cast<int>(sizeof(kDarkPalette) / sizeof(kDarkPalette[0]));
+    const int slot = index >= 0 ? index % count : 0;
+    return CameraConfig::getThemeColors().isDark() ? kDarkPalette[slot] : kLightPalette[slot];
+}
+
 // Display-row helpers: the machine's floors are shown bottom-up, so the top
 // lane (display row 0) is the 3rd floor and the bottom lane is the 1st floor.
 inline int displayRowForLane(int lane) { return CameraFloor::kCount - 1 - lane; }
@@ -158,10 +179,9 @@ void MachineLayoutPanel::updateTheme() {
     if (eventLabel_) eventLabel_->setStyleSheet(captionStyle);
     if (refLabel_) refLabel_->setStyleSheet(captionStyle);
 
-    // Disabled control ink: the text token lifted toward the background, the
-    // derivation the chrome has always used — kept so a disabled zoom button
-    // still reads the same as it did before the styles moved here.
-    const QString disabledInk = QColor(tc.text).lighter(155).name();
+    // Disabled control ink comes from the disabled token: a "lifted" text token
+    // is the same grey as the background on the light theme.
+    const QString disabledInk = tc.disabled;
 
     // Both header combos share one rule set; only the collapsed width differs.
     const auto comboStyle = [&tc](int minWidthPx) {
@@ -361,13 +381,6 @@ void MachineLayoutPanel::loadDefects() {
     const std::vector<EventDatabase::EventInfo> events =
         EventDatabase::instance().getAllEvents();  // newest first
 
-    static const QColor kPalette[] = {
-        QColor(0, 229, 255), QColor(255, 153, 0), QColor(0, 204, 68),
-        QColor(178, 51, 255), QColor(255, 90, 90), QColor(255, 215, 0),
-        QColor(10, 132, 255), QColor(255, 128, 200)
-    };
-    const int paletteSize = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
-
     int eventIdx = 0;
     for (const auto& ev : events) {
         if (eventIdx >= kMaxMarkedEvents) {
@@ -428,7 +441,7 @@ void MachineLayoutPanel::loadDefects() {
 
         EventGroup group;
         group.label = formatEventTime(ev.timestamp);
-        group.color = kPalette[eventIdx % paletteSize];
+        group.series = eventIdx % kSeriesCount;
 
         for (auto it = marks.begin(); it != marks.end(); ++it) {
             const int camId = it.key().mid(3).toInt();  // 1-based
@@ -492,7 +505,7 @@ void MachineLayoutPanel::loadDefects() {
 
                 DefectMark def;
                 def.eventText = group.label;
-                def.color = group.color;
+                def.series = group.series;
                 def.camLabel = QString("CAM-%1").arg(camId, 2, 10, QChar('0'));
                 def.camId = camId;
                 def.mm = mm;
@@ -540,7 +553,7 @@ void MachineLayoutPanel::loadDefects() {
         if (ev.triggerPositionMm > 0) {
             TriggerMark trig;
             trig.eventText = group.label;
-            trig.color = group.color;
+            trig.series = group.series;
             trig.mm = ev.triggerPositionMm;
             trig.source = ev.triggerSource.trimmed().isEmpty()
                 ? ev.triggerReason : ev.triggerSource;
@@ -914,6 +927,18 @@ QColor MachineLayoutPanel::groupColor(int group) {
     // pair stays >= 10 OKLab*100 apart in every simulation. Position on the
     // ruler plus the legend label remain the primary encoding; color is the
     // fast second channel.
+    // Two sets, one per theme: the daylight hues are the same identities taken
+    // darker, which is what separates on a light canvas.
+    if (!CameraConfig::getThemeColors().isDark()) {
+        switch (group) {
+        case CameraGroup::kWire: return QColor("#96741A");
+        case CameraGroup::kPressPart: return QColor("#8F3A00");
+        case CameraGroup::kPreDryer: return QColor("#1F5FA8");
+        case CameraGroup::kAfterDryer: return QColor("#0B7A63");
+        case CameraGroup::kCalenderReel: return QColor("#8E3F7A");
+        default: return QColor("#40454D");
+        }
+    }
     switch (group) {
     case CameraGroup::kWire: return QColor("#FCD84C");
     case CameraGroup::kPressPart: return QColor("#D55400");
@@ -1375,11 +1400,10 @@ void MachineLayoutPanel::Canvas::drawFloorLanes(QPainter& painter, const ThemeCo
     // Sub-row background fills — must precede the axis-line draw so the line
     // sits cleanly on top of the tints. Both are lifted from theme tokens
     // (drive from the canvas background, operator from the raised panel tone)
-    // so the two sub-rows stay distinguishable on any preset — the fixed
-    // #2A3239 / #1F2429 pair was picked under one dark palette and kept its
-    // blue-gray tint on every other one.
-    const QColor opTint = QColor(tc.btnBg).lighter(120);  // lower sub-row (operator side)
-    const QColor driveTint = QColor(tc.bg).lighter(120);  // upper sub-row (drive side)
+    // so the two sub-rows stay distinguishable on any theme: a lift means
+    // brighter on the dark theme and darker on the light one.
+    const QColor opTint = tc.isDark() ? QColor(tc.btnBg).lighter(120) : QColor(tc.btnBg).darker(106);
+    const QColor driveTint = tc.isDark() ? QColor(tc.bg).lighter(120) : QColor(tc.bg).darker(106);
     for (int f = 0; f < CameraFloor::kCount; ++f) {
         painter.fillRect(leftMargin, rows[f].upperTop,
                          width() - 2 * leftMargin,
@@ -1578,12 +1602,13 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
         // Selection state: dim every defect but the selected one; the selected
         // defect gets an accent border. Hover highlight only applies when no
         // selection is active.
-        QBrush fill(def.color);
+        const QColor markColor = seriesColor(def.series);
+        QBrush fill(markColor);
         QPen diamondPen = QPen((i == hoveredDefect_ || i == cursorHitDefect_)
                                    ? QColor(tc.text) : QColor(tc.border), 1.5);
         if (ok) {
             fill = QBrush(Qt::NoBrush);
-            QColor hairline = def.color;
+            QColor hairline = markColor;
             hairline.setAlpha(160);
             diamondPen = QPen(hairline, 1.0);
         } else if (critical) {
@@ -1599,8 +1624,8 @@ void MachineLayoutPanel::Canvas::drawDefectStrip(QPainter& painter, const ThemeC
             if (i == selectedDefect_) {
                 diamondPen = QPen(QColor(tc.primary), 2);  // accent border
             } else {
-                fill = QBrush(QColor(def.color.red(), def.color.green(),
-                                     def.color.blue(), 89));  // 35% dim
+                fill = QBrush(QColor(markColor.red(), markColor.green(),
+                                     markColor.blue(), 89));  // 35% dim
                 diamondPen = QPen(QColor(tc.border), 1.5);
             }
         }
@@ -1663,14 +1688,15 @@ void MachineLayoutPanel::Canvas::drawTriggerStrip(QPainter& painter, const Theme
         const TriggerMark& trig = triggers[i];
         const int x = static_cast<int>(owner_->mmToX(trig.mm));
         // Selection dims every trigger but the selected one; hover highlights.
-        QColor fill = trig.color;
+        const QColor triggerColor = seriesColor(trig.series);
+        QColor fill = triggerColor;
         QPen pinPen = QPen((i == hoveredTrigger_ || i == cursorHitTrigger_)
                                ? QColor(tc.text) : QColor(tc.border), 1.5);
         if (selectedTrigger_ >= 0) {
             if (i == selectedTrigger_) {
                 pinPen = QPen(QColor(tc.primary), 2);  // accent border
             } else {
-                fill = QColor(trig.color.red(), trig.color.green(), trig.color.blue(), 89);
+                fill = QColor(triggerColor.red(), triggerColor.green(), triggerColor.blue(), 89);
                 pinPen = QPen(QColor(tc.border), 1.5);
             }
         }

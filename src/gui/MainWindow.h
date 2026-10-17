@@ -57,6 +57,9 @@ private:
     void setupUi();
     void setupCore();
     void applyGlobalTheme();
+    // Polls the desktop colour scheme while ThemeMode::System is selected, so a
+    // desktop that flips between light and dark is followed without a restart.
+    void updateSystemThemeWatch();
     void initializeEventController();
     void applyOpcUaSettings();
     void startCameraLifecycleAsync(bool restart, const QString& reason);
@@ -92,6 +95,10 @@ private:
     QLabel* liveStatusLabel_ = nullptr;
     QPushButton* diskBadge_ = nullptr;
     QTimer  diskBadgeTimer_;
+    // Re-probes the desktop colour scheme on a timer (see
+    // updateSystemThemeWatch); stopped unless ThemeMode::System is selected.
+    QTimer  themeSchemeTimer_;
+    bool systemSchemeLogged_ = false;
     QAction* customLayoutAction_;
     QAction* configAction_;
     QAction* aboutAction_;

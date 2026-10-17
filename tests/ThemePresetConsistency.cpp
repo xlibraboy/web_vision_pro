@@ -10,8 +10,10 @@
 #include "gui/widgets/DocsDialog.h"
 #include "gui/widgets/IconManager.h"
 #include "gui/widgets/LiveViewWindow.h"
+#include "gui/widgets/MachineLayoutPanel.h"
 #include "gui/widgets/NetworkSummaryHeader.h"
 #include "gui/widgets/OpcUaLiveStatusWindow.h"
+#include "gui/widgets/EventDashboard.h"
 
 #include <QAbstractButton>
 #include <QDir>
@@ -29,7 +31,14 @@
 
 namespace {
 
-constexpr int kPresetCount = 8;
+// The themes a surface can be switched between. ThemeMode::System resolves to
+// one of them, so it is covered by the same assertions.
+const ThemeMode kThemes[] = {ThemeMode::Light, ThemeMode::Dark};
+constexpr int kThemeCount = int(sizeof(kThemes) / sizeof(kThemes[0]));
+
+// A stale-color failure lists this many offenders, so one run reports a whole
+// surface's worth of missed re-applies instead of only the first one.
+constexpr int kMaxStaleHits = 8;
 
 QStringList tokenValues(const ThemeColors& tc) {
     return {tc.bg, tc.border, tc.btnBg, tc.btnHover, tc.primary, tc.sliderBg,
@@ -37,26 +46,26 @@ QStringList tokenValues(const ThemeColors& tc) {
             tc.ok, tc.warn, tc.critical, tc.info, tc.onStatus};
 }
 
-// Colors that identify one preset: they appear in that preset's tokens and in
-// no other preset's. Anything still painted in them after a switch is stale.
-QStringList exclusiveColors(int preset) {
-    const QStringList mine = tokenValues(CameraConfig::getThemeColors(preset));
+// Colors that identify one theme: they appear in that theme's tokens and in no
+// other theme's. Anything still painted in them after a switch is stale.
+QStringList exclusiveColors(ThemeMode theme) {
+    const QStringList mine = tokenValues(CameraConfig::getThemeColors(theme));
     QStringList exclusive;
     for (const QString& value : mine) {
-        bool sharedWithAnotherPreset = false;
-        for (int other = 0; other < kPresetCount; ++other) {
-            if (other == preset) {
+        bool sharedWithAnotherTheme = false;
+        for (const ThemeMode other : kThemes) {
+            if (other == theme) {
                 continue;
             }
             if (tokenValues(CameraConfig::getThemeColors(other)).contains(value)) {
-                sharedWithAnotherPreset = true;
+                sharedWithAnotherTheme = true;
                 break;
             }
         }
         // Pure black/white are scrims, shadows and ink-on-video surfaces:
-        // intentionally preset-independent, so they identify nothing.
+        // intentionally theme-independent, so they identify nothing.
         const QString lowered = value.toLower();
-        if (!sharedWithAnotherPreset && lowered != "#000000" && lowered != "#ffffff") {
+        if (!sharedWithAnotherTheme && lowered != "#000000" && lowered != "#ffffff") {
             exclusive.append(lowered);
         }
     }
@@ -109,24 +118,44 @@ QString describeWidget(QWidget* widget) {
     return QStringLiteral("%1 [%2]").arg(description, chain);
 }
 
-// First stale color found in any of the sheets, named for the failure message.
-QString staleColorIn(const QVector<QPair<QWidget*, QString>>& stylesheets, int activePreset) {
-    for (int other = 0; other < kPresetCount; ++other) {
-        if (other == activePreset) {
+// The rule a stale color appears in, so a failure points at the style that has
+// to be rebuilt and not just at the widget that carries it.
+QString ruleAround(const QString& sheet, const QString& needle) {
+    const int at = sheet.indexOf(needle, 0, Qt::CaseInsensitive);
+    if (at < 0) {
+        return QString();
+    }
+    return sheet.mid(qMax(0, at - 70), needle.size() + 90).simplified();
+}
+
+// Every stale color found in the sheets, named for the failure message: the
+// whole list at once, so one run shows everything that has to be re-applied.
+QString staleColorIn(const QVector<QPair<QWidget*, QString>>& stylesheets, ThemeMode activeTheme) {
+    QStringList hits;
+    for (const ThemeMode other : kThemes) {
+        if (other == activeTheme) {
             continue;
         }
         for (const QString& color : exclusiveColors(other)) {
             for (const QString& spelling : colorSpellings(color)) {
                 for (const auto& [widget, sheet] : stylesheets) {
-                    if (sheet.contains(spelling, Qt::CaseInsensitive)) {
-                        return QStringLiteral("%1 in %2 (preset %3)")
-                            .arg(color, describeWidget(widget), QString::number(other));
+                    if (!sheet.contains(spelling, Qt::CaseInsensitive)) {
+                        continue;
+                    }
+                    const QString hit = QStringLiteral("%1 in %2 (%3): \"%4\"")
+                        .arg(color, describeWidget(widget),
+                             CameraConfig::themeModeName(other), ruleAround(sheet, spelling));
+                    if (!hits.contains(hit)) {
+                        hits.append(hit);
+                    }
+                    if (hits.size() >= kMaxStaleHits) {
+                        return hits.join(QStringLiteral("; "));
                     }
                 }
             }
         }
     }
-    return QString();
+    return hits.join(QStringLiteral("; "));
 }
 
 // Icons and pixmaps are not stylesheets: a duotone glyph is rendered from the
@@ -201,10 +230,10 @@ QVector<QPair<QString, QSet<QRgb>>> glyphsIn(QWidget& root) {
     return glyphs;
 }
 
-QString staleGlyphColorIn(QWidget& root, int activePreset) {
+QString staleGlyphColorIn(QWidget& root, ThemeMode activeTheme) {
     const QVector<QPair<QString, QSet<QRgb>>> glyphs = glyphsIn(root);
-    for (int other = 0; other < kPresetCount; ++other) {
-        if (other == activePreset) {
+    for (const ThemeMode other : kThemes) {
+        if (other == activeTheme) {
             continue;
         }
         for (const QString& color : exclusiveColors(other)) {
@@ -214,8 +243,8 @@ QString staleGlyphColorIn(QWidget& root, int activePreset) {
                               | static_cast<QRgb>(target.blue());
             for (const auto& [owner, pixels] : glyphs) {
                 if (pixels.contains(wanted)) {
-                    return QStringLiteral("%1 is drawn in %2 (preset %3)")
-                        .arg(owner, color, QString::number(other));
+                    return QStringLiteral("%1 is drawn in %2 (%3)")
+                        .arg(owner, color, CameraConfig::themeModeName(other));
                 }
             }
         }
@@ -237,18 +266,57 @@ void ThemePresetConsistency::previewOverrideDrivesTheEffectiveTheme()
     QSettings::setDefaultFormat(QSettings::IniFormat);
 
     CameraConfig::clearThemePreview();
-    CameraConfig::setThemePreset(0);
+    CameraConfig::setThemeMode(ThemeMode::Dark);
 
-    // Picking a preset in the dropdown must reach every getThemeColors() caller
+    // Picking a theme in the dropdown must reach every getThemeColors() caller
     // before anything is saved - that is what makes the selector feel live.
-    CameraConfig::setThemePreview(5);
-    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(5).primary);
-    QCOMPARE(CameraConfig::getThemeColors().bg, CameraConfig::getThemeColors(5).bg);
+    CameraConfig::setThemePreview(ThemeMode::Light);
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(ThemeMode::Light).primary);
+    QCOMPARE(CameraConfig::getThemeColors().bg, CameraConfig::getThemeColors(ThemeMode::Light).bg);
 
-    // Abandoning the pick restores the saved preset.
+    // Abandoning the pick restores the saved theme.
     CameraConfig::clearThemePreview();
-    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(0).primary);
-    QCOMPARE(CameraConfig::getThemePreset(), 0);
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(ThemeMode::Dark).primary);
+    QCOMPARE(CameraConfig::getThemeMode(), ThemeMode::Dark);
+}
+
+void ThemePresetConsistency::themeModesResolveAndMigrate()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    // An installation from before the theme modes saved a colour preset
+    // instead. Every one of them was dark, so it must land on Dark - not on a
+    // preset index that no longer exists, and not on Light.
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
+        settings.clear();
+        settings.setValue("ThemePreset", 7);
+    }
+    QCOMPARE(CameraConfig::getThemeMode(), ThemeMode::Dark);
+
+    // A fresh installation follows the desktop, which resolves to one of the
+    // two themes and drives the tokens.
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
+        settings.clear();
+    }
+    QCOMPARE(CameraConfig::getThemeMode(), ThemeMode::System);
+    const ThemeMode resolved = CameraConfig::resolveThemeMode(ThemeMode::System);
+    QVERIFY(resolved == ThemeMode::Light || resolved == ThemeMode::Dark);
+    QCOMPARE(CameraConfig::getThemeColors().bg, CameraConfig::getThemeColors(resolved).bg);
+
+    // A stored mode from a future build renders as the theme the app shipped
+    // with rather than as an undefined palette.
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
+        settings.setValue("ThemeMode", 99);
+    }
+    QCOMPARE(CameraConfig::getThemeMode(), ThemeMode::Dark);
+
+    CameraConfig::setThemeMode(ThemeMode::System);
 }
 
 void ThemePresetConsistency::configDialogReThemesWhenThePresetChanges()
@@ -259,38 +327,54 @@ void ThemePresetConsistency::configDialogReThemesWhenThePresetChanges()
     QSettings::setDefaultFormat(QSettings::IniFormat);
 
     CameraConfig::clearThemePreview();
-    CameraConfig::setThemePreset(0);
+    CameraConfig::setThemeMode(ThemeMode::Dark);
 
     ConfigDialog dialog(nullptr);
     dialog.resize(1200, 800);
     dialog.show();
     QCoreApplication::processEvents();
 
-    const QPixmap cyanLook = dialog.grab();
-    QVERIFY2(!cyanLook.isNull() && cyanLook.width() > 0, "the config dialog must render");
-    QVERIFY2(cyanLook.save(artifactPath(QStringLiteral("theme-0-config-dialog.png"))),
-             "the preset-0 preview must be saved for review");
+    // The dropdown lists the two themes plus following the desktop, and the
+    // saved Dark mode selects its row by data, not by its stored value: Dark is
+    // value 2 but row 1 of three, so a row/value mix-up would show System here.
+    QComboBox* themeCombo = nullptr;
+    for (QComboBox* combo : dialog.findChildren<QComboBox*>()) {
+        if (combo->count() == kThemeCount + 1
+            && combo->itemData(0).toInt() == int(ThemeMode::Light)) {
+            themeCombo = combo;
+            break;
+        }
+    }
+    QVERIFY2(themeCombo, "the Theme dropdown must list Light, Dark and Follow system");
+    QCOMPARE(themeCombo->itemData(1).toInt(), int(ThemeMode::Dark));
+    QCOMPARE(themeCombo->itemData(2).toInt(), int(ThemeMode::System));
+    QCOMPARE(themeCombo->currentData().toInt(), int(ThemeMode::Dark));
+
+    const QPixmap darkLook = dialog.grab();
+    QVERIFY2(!darkLook.isNull() && darkLook.width() > 0, "the config dialog must render");
+    QVERIFY2(darkLook.save(artifactPath(QStringLiteral("theme-dark-config-dialog.png"))),
+             "the dark preview must be saved for review");
 
     // This is the dialog that holds the dropdown: it used to keep the theme it
     // was built with for the whole session.
-    CameraConfig::setThemePreview(4);
+    CameraConfig::setThemePreview(ThemeMode::Light);
     dialog.updateTheme();
     QCoreApplication::processEvents();
 
-    const QPixmap greenLook = dialog.grab();
-    QVERIFY2(greenLook.save(artifactPath(QStringLiteral("theme-4-config-dialog.png"))),
-             "the preset-4 preview must be saved for review");
-    QVERIFY2(cyanLook.toImage() != greenLook.toImage(),
-             "switching the preset must visibly re-theme the System Configuration dialog");
+    const QPixmap lightLook = dialog.grab();
+    QVERIFY2(lightLook.save(artifactPath(QStringLiteral("theme-light-config-dialog.png"))),
+             "the light preview must be saved for review");
+    QVERIFY2(darkLook.toImage() != lightLook.toImage(),
+             "switching the theme must visibly re-theme the System Configuration dialog");
 
-    const QString stale = staleColorIn(stylesheetsIn(dialog), 4);
+    const QString stale = staleColorIn(stylesheetsIn(dialog), ThemeMode::Light);
     QVERIFY2(stale.isEmpty(), qPrintable(QStringLiteral(
-                 "the dialog still paints a previous preset's color: %1").arg(stale)));
+                 "the dialog still paints the other theme's color: %1").arg(stale)));
 
-    // A preset picked but never saved is abandoned, not left applied.
+    // A theme picked but never saved is abandoned, not left applied.
     CameraConfig::clearThemePreview();
     dialog.updateTheme();
-    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(0).primary);
+    QCOMPARE(CameraConfig::getThemeColors().primary, CameraConfig::getThemeColors(ThemeMode::Dark).primary);
 
     dialog.hide();
 }
@@ -299,9 +383,9 @@ void ThemePresetConsistency::glyphAssetsAreTintedFromTheTheme()
 {
     // The shipped arrows carry one flat fill (#E3E3E3). A stylesheet cannot
     // recolor them, so they are re-rendered in the theme's ink instead: on a
-    // preset whose text is not grey, the glyph must not stay the shipped grey.
+    // theme whose text is not the shipped grey, the glyph must not stay grey.
     const QString asset = QStringLiteral(":/assets/icons/arrow_up.svg");
-    const QColor ink("#FFD700");
+    const QColor ink(CameraConfig::getThemeColors(ThemeMode::Light).text);
 
     const QString themedFile = IconManager::themedAssetFile(asset, ink);
     QVERIFY2(themedFile != asset,
@@ -332,8 +416,9 @@ void ThemePresetConsistency::glyphAssetsAreTintedFromTheTheme()
     }
     QCOMPARE(QColor(dominant).name(), ink.name());
 
-    // A different ink is a different glyph: presets never share one rendering.
-    QVERIFY(IconManager::themedAssetFile(asset, QColor("#00FF66")) != themedFile);
+    // A different ink is a different glyph: themes never share one rendering.
+    QVERIFY(IconManager::themedAssetFile(
+                asset, QColor(CameraConfig::getThemeColors(ThemeMode::Dark).text)) != themedFile);
 
     // The path goes into an `image: url(...)` rule, so it must drop into a
     // stylesheet cleanly and still load: a broken path would leave every spin
@@ -353,11 +438,11 @@ void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
     QSettings::setDefaultFormat(QSettings::IniFormat);
 
-    CameraConfig::setThemePreset(0);
+    CameraConfig::setThemeMode(ThemeMode::Dark);
 
-    for (int preset = 0; preset < kPresetCount; ++preset) {
-        CameraConfig::setThemePreview(preset);
-        const ThemeColors tc = CameraConfig::getThemeColors(preset);
+    for (const ThemeMode theme : kThemes) {
+        CameraConfig::setThemePreview(theme);
+        const ThemeColors tc = CameraConfig::getThemeColors(theme);
 
         // Panels that own local stylesheets and outlive a theme change.
         ConfigDialog dialog(nullptr);
@@ -385,22 +470,23 @@ void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
             {QStringLiteral("camera-card"), &card},
         };
 
+        const QString themeName = CameraConfig::themeModeName(theme);
         for (const auto& [name, surface] : surfaces) {
-            const QString stale = staleColorIn(stylesheetsIn(*surface), preset);
+            const QString stale = staleColorIn(stylesheetsIn(*surface), theme);
             QVERIFY2(stale.isEmpty(), qPrintable(QStringLiteral(
-                         "%1 paints a previous preset's color on preset %2: %3")
-                         .arg(name).arg(preset).arg(stale)));
+                         "%1 paints the other theme's color on the %2 theme: %3")
+                         .arg(name, themeName, stale)));
         }
 
-        // Visual artifacts per preset for review (chrome, not video surfaces).
+        // Visual artifacts per theme for review (chrome, not video surfaces).
         QVERIFY2(dialog.grab().save(artifactPath(
-                     QStringLiteral("theme-%1-config-dialog.png").arg(preset))),
+                     QStringLiteral("theme-%1-config-dialog.png").arg(themeName))),
                  "the dialog preview must be saved for review");
         QVERIFY2(docs.grab().save(artifactPath(
-                     QStringLiteral("theme-%1-docs.png").arg(preset))),
+                     QStringLiteral("theme-%1-docs.png").arg(themeName))),
                  "the docs preview must be saved for review");
 
-        // Spot-check that the preset actually reached the chrome.
+        // Spot-check that the theme actually reached the chrome.
         const QVector<QPair<QWidget*, QString>> dialogSheets = stylesheetsIn(dialog);
         QString chrome;
         for (const auto& [widget, sheet] : dialogSheets) {
@@ -408,8 +494,8 @@ void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
         }
         QVERIFY2(chrome.contains(tc.bg, Qt::CaseInsensitive)
                      || chrome.contains(tc.primary, Qt::CaseInsensitive),
-                 qPrintable(QStringLiteral("preset %1 token missing from the dialog chrome")
-                                .arg(preset)));
+                 qPrintable(QStringLiteral("%1 theme token missing from the dialog chrome")
+                                .arg(themeName)));
 
         docs.hide();
         changelog.hide();
@@ -420,7 +506,7 @@ void ThemePresetConsistency::noSurfaceKeepsAnotherPresetsColors()
 }
 
 // The shape of one operator session: the surfaces are built once on the saved
-// preset and then live through a pick in the Color Theme dropdown, which the app
+// theme and then live through a pick in the Theme dropdown, which the app
 // forwards to every updateTheme(). Stylesheets and glyphs both have to follow -
 // a duotone icon is rendered from the tokens when it is asked for, so it is not
 // covered by the stylesheet re-apply.
@@ -436,7 +522,7 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
     CameraConfig::setEventStoragePath(dataDir.path());
 
     CameraConfig::clearThemePreview();
-    CameraConfig::setThemePreset(0);
+    CameraConfig::setThemeMode(ThemeMode::Dark);
 
     ConfigDialog dialog(nullptr);
     DocsDialog docs;
@@ -448,6 +534,10 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
     LiveDashboard dashboard(2);
     LiveViewWindow liveWindow;
     OpcUaLiveStatusWindow opcUaStatus;
+    // The two canvases that paint their own colors: a machine layout and an
+    // event chart, kept for the palette review artifacts.
+    MachineLayoutPanel machineLayout;
+    EventDashboard eventChart;
 
     dialog.resize(1200, 800);
     docs.resize(900, 600);
@@ -459,6 +549,8 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
     dashboard.resize(1200, 800);
     liveWindow.resize(1200, 800);
     opcUaStatus.resize(900, 600);
+    machineLayout.resize(1200, 400);
+    eventChart.resize(1200, 240);
     dialog.show();
     docs.show();
     changelog.show();
@@ -469,6 +561,8 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
     dashboard.show();
     liveWindow.show();
     opcUaStatus.show();
+    machineLayout.show();
+    eventChart.show();
     QCoreApplication::processEvents();
 
     const QVector<QPair<QString, QWidget*>> surfaces = {
@@ -482,13 +576,13 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
         {QStringLiteral("live-dashboard"), &dashboard},
         {QStringLiteral("live-view-window"), &liveWindow},
         {QStringLiteral("opcua-live-status"), &opcUaStatus},
+        {QStringLiteral("machine-layout"), &machineLayout},
     };
 
-    // Mono is the preset that leaves the least room for doubt: everything the
-    // switch still paints in a chromatic token names the preset it came from.
-    // Then back to the original, so a one-way refresh cannot pass either.
-    for (const int preset : {7, 0}) {
-        CameraConfig::setThemePreview(preset);
+    // Both directions, so a one-way refresh cannot pass: to Light (the theme
+    // that shares the fewest tokens with the saved Dark) and back again.
+    for (const ThemeMode theme : {ThemeMode::Light, ThemeMode::Dark}) {
+        CameraConfig::setThemePreview(theme);
 
         dialog.updateTheme();
         docs.updateTheme();
@@ -500,32 +594,44 @@ void ThemePresetConsistency::liveSwitchReTintsStylesheetsAndGlyphs()
         dashboard.updateTheme();
         liveWindow.updateTheme();
         opcUaStatus.updateTheme();
+        machineLayout.updateTheme();
+        eventChart.applyTheme(CameraConfig::getThemeColors());
+        eventChart.repaint();
         QCoreApplication::processEvents();
 
+        const QString themeName = CameraConfig::themeModeName(theme);
         for (const auto& [name, surface] : surfaces) {
-            const QString staleSheet = staleColorIn(stylesheetsIn(*surface), preset);
+            const QString staleSheet = staleColorIn(stylesheetsIn(*surface), theme);
             QVERIFY2(staleSheet.isEmpty(), qPrintable(QStringLiteral(
-                         "%1 keeps a previous preset's stylesheet color after the live "
-                         "switch to preset %2: %3").arg(name).arg(preset).arg(staleSheet)));
+                         "%1 keeps the other theme's stylesheet color after the live "
+                         "switch to %2: %3").arg(name, themeName, staleSheet)));
 
-            const QString staleGlyph = staleGlyphColorIn(*surface, preset);
+            const QString staleGlyph = staleGlyphColorIn(*surface, theme);
             QVERIFY2(staleGlyph.isEmpty(), qPrintable(QStringLiteral(
-                         "%1 keeps a previous preset's glyph ink after the live "
-                         "switch to preset %2: %3").arg(name).arg(preset).arg(staleGlyph)));
+                         "%1 keeps the other theme's glyph ink after the live "
+                         "switch to %2: %3").arg(name, themeName, staleGlyph)));
         }
 
         QVERIFY2(dialog.grab().save(artifactPath(
-                     QStringLiteral("live-switch-%1-config-dialog.png").arg(preset))),
+                     QStringLiteral("live-switch-%1-config-dialog.png").arg(themeName))),
                  "the switched dialog must be saved for review");
         QVERIFY2(analysis.grab().save(artifactPath(
-                     QStringLiteral("live-switch-%1-analysis-view.png").arg(preset))),
+                     QStringLiteral("live-switch-%1-analysis-view.png").arg(themeName))),
                  "the switched analysis view must be saved for review");
         QVERIFY2(detail.grab().save(artifactPath(
-                     QStringLiteral("live-switch-%1-detail-view.png").arg(preset))),
+                     QStringLiteral("live-switch-%1-detail-view.png").arg(themeName))),
                  "the switched detail view must be saved for review");
+        QVERIFY2(machineLayout.grab().save(artifactPath(
+                     QStringLiteral("live-switch-%1-machine-layout.png").arg(themeName))),
+                 "the switched machine layout must be saved for review");
+        QVERIFY2(eventChart.grab().save(artifactPath(
+                     QStringLiteral("live-switch-%1-event-dashboard.png").arg(themeName))),
+                 "the switched event dashboard must be saved for review");
     }
 
     CameraConfig::clearThemePreview();
+    eventChart.hide();
+    machineLayout.hide();
     opcUaStatus.hide();
     liveWindow.hide();
     dashboard.hide();

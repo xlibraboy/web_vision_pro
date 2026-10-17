@@ -237,8 +237,11 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         ? previewBackgroundStyleOverride_
         : cardStyle.backgroundStyle;
     const bool lightBackground = usesLightBackground(effectiveBackgroundStyle);
-    const QColor overlayColor = lightBackground ? QColor("#1A1A1A") : QColor(tc.primary);
-    const QColor messageColor = lightBackground ? QColor("#1A1A1A") : QColor(tc.text);
+    // The tile surface - not the theme - decides the overlay ink: a tile stays
+    // dark or light per LiveViewCardStyle whatever the chrome is doing.
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors(lightBackground);
+    const QColor overlayColor = QColor(overlay.accent);
+    const QColor messageColor = QColor(overlay.ink);
     const QBrush backgroundBrush = liveViewBackgroundBrush(effectiveBackgroundStyle);
     const QColor baseBackgroundColor = liveViewBaseBackground(effectiveBackgroundStyle);
 
@@ -359,20 +362,21 @@ void CameraWidget::paintEvent(QPaintEvent *event) {
         QColor ptpColor;
         if (!ptpEnabled_ || ptpState_.isEmpty()) {
             ptpText = "PTP OFF";
-            ptpColor = QColor(tc.muted);
+            ptpColor = QColor(overlay.muted);
         } else if (ptpState_ == QLatin1String("Slave")) {
             ptpText = "PTP SLAVE";
-            ptpColor = QColor(tc.ok);
+            ptpColor = QColor(overlay.ok);
         } else if (ptpState_ == QLatin1String("Master")) {
             ptpText = "PTP MASTER";
-            ptpColor = QColor(tc.info);
+            ptpColor = QColor(overlay.info);
         } else if (ptpState_ == QLatin1String("Faulty")
                    || ptpState_ == QLatin1String("Disabled")) {
             ptpText = (ptpState_ == QLatin1String("Faulty")) ? "PTP FAULT" : "PTP OFF";
-            ptpColor = (ptpState_ == QLatin1String("Faulty")) ? QColor(tc.critical) : QColor(tc.muted);
+            ptpColor = (ptpState_ == QLatin1String("Faulty")) ? QColor(overlay.critical)
+                                                              : QColor(overlay.muted);
         } else {
             ptpText = "PTP SYNC";  // Initializing / Listening / Passive / ...
-            ptpColor = QColor(tc.warn);
+            ptpColor = QColor(overlay.warn);
         }
 
         QFont ptpFont = painter.font();

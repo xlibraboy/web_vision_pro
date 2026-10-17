@@ -192,6 +192,9 @@ private:
     void updateRoiFinishState();
     void refreshRoiOverlay();
     void updateRoiStatus();
+    // Re-applies the status line's ink from the current state, so a theme
+    // switch re-colours it without touching the text.
+    void applyRoiStatusInk();
     void beginRoiDraw();
     void endRoiDraw();
     // Keep Offset X/Y within "SensorMax - current size" so Offset + Size never
@@ -207,6 +210,16 @@ private:
     double acquisitionFps_ = -1.0;
     double displayFps_ = -1.0;
     QString fpsMismatchStyle(double fps);
+
+    // Ink of the ROI status line, re-applied by updateTheme(): warn while the
+    // region is missing, ok while it runs.
+    bool roiStatusWarns_ = true;
+
+    // Last measured temperature, re-styled by updateTheme(); unset until the
+    // camera reports one, so a theme switch cannot invent an "N/A" reading.
+    double lastTemperature_ = 0.0;
+    bool hasTemperature_ = false;
+    void applyTemperatureStyle();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;

@@ -88,13 +88,15 @@ public:
                 if (index.column() == 0) {
                     painter->fillRect(QRect(opt.rect.left(), opt.rect.top() + 1, 3, opt.rect.height() - 2), QColor(tc.primary));
                 }
-                // Match the stylesheet's selected text: light on the dark
-                // selection (normal mode), ink on the bright critical fill
-                // (delete mode).
+                // Match the stylesheet's selected text: the delete-mode
+                // selection is the critical fill and carries the status ink,
+                // every other selection is a neutral wash and carries text.
+                // (Deciding by brightness would pick white ink on the light
+                // theme's pale selection.)
                 const QColor selectionBg = opt.backgroundBrush.style() != Qt::NoBrush
                     ? opt.backgroundBrush.color() : QColor(tc.bg);
-                painter->setPen(selectionBg.lightness() > 128 ? QColor(tc.onStatus)
-                                                              : QColor(tc.text));
+                painter->setPen(selectionBg == QColor(tc.critical) ? QColor(tc.onStatus)
+                                                                   : QColor(tc.text));
             } else {
                 painter->setPen(QColor(tc.text));
             }
@@ -157,11 +159,13 @@ private:
             x0 = textRect.right() - tw;
         }
 
-        // Luminance-contrast shimmer: a bright WHITE band sweeps across a more
-        // muted base, so the motion is unmistakable (two bright tones next to
-        // each other read as static). Bold keeps the row clearly legible.
-        const QColor dim = QColor(tc.text).darker(165);
-        const QColor hot(255, 255, 255);
+        // Luminance-contrast shimmer: a band sweeps across a more muted base, so
+        // the motion is unmistakable (two tones close to each other read as
+        // static). The band is brighter than the base on the dark theme and
+        // darker on the light one, where white would vanish on a pale row.
+        const bool darkTheme = tc.isDark();
+        const QColor dim = darkTheme ? QColor(tc.text).darker(165) : QColor(tc.muted);
+        const QColor hot = darkTheme ? QColor(255, 255, 255) : QColor(tc.text);
         // Not clamped: the band travels slightly past both edges (see
         // applyPendingRowFrame), and the stop positions below are clamped.
         const qreal p = index.data(Qt::UserRole + 5).toDouble();
@@ -309,9 +313,12 @@ static QString tintStyle(const QString& hex, double alpha) {
 }
 
 static QString makeSidebarPanelStyle(const ThemeColors& tc) {
-    const QString divider = QColor(tc.border).lighter(112).name();
-    const QString subtleText = QColor(tc.text).lighter(110).name();
-    const QString mutedText = QColor(tc.text).lighter(135).name();
+    // Ink levels and dividers come from the theme tokens: a derivation such as
+    // text.lighter(135) is a soft grey on the dark theme but would be a
+    // near-white on the light one.
+    const QString divider = tc.border;
+    const QString subtleText = tc.text;
+    const QString mutedText = tc.muted;
     return QString(
         "QWidget#analysisLeftSidebar { background: transparent; }"
         "QGroupBox#analysisSidebarCard {"
@@ -406,7 +413,11 @@ static QString makeSidebarPrimaryButtonStyle(const ThemeColors& tc) {
 }
 
 static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checkedHighlight = false) {
-    const QString checkedBg = checkedHighlight ? QColor(tc.primary).darker(180).name() : tc.btnHover;
+    // Checked: an accent fill carrying the canvas ink (the pair swaps polarity
+    // with the theme) when the button marks a pinned panel, a neutral wash with
+    // accent ink when it is a plain toggle.
+    const QString checkedBg = checkedHighlight ? tc.primary : tc.btnHover;
+    const QString checkedInk = checkedHighlight ? tc.bg : tc.primary;
     return QString(
         "QPushButton {"
         "  background-color: %1;"
@@ -419,13 +430,13 @@ static QString makeSidebarOutlineButtonStyle(const ThemeColors& tc, bool checked
         "}"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %4; }"
-        "QPushButton:checked { background-color: %6; border-color: %5; color: %5; }"
+        "QPushButton:checked { background-color: %6; border-color: %5; color: %8; }"
         "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
-    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover, tc.primary, checkedBg, tc.bg);
+    ).arg(tc.btnBg, tc.text, tc.border, tc.btnHover, tc.primary, checkedBg, tc.bg, checkedInk);
 }
 
 static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
-    const QString quietText = QColor(tc.text).lighter(120).name();
+    const QString quietText = tc.muted;
     return QString(
         "QPushButton {"
         "  background-color: %1;"
@@ -446,10 +457,13 @@ static QString makeSidebarUtilityButtonStyle(const ThemeColors& tc) {
 // container with a 1px vertical divider; each segment keeps its own hover and
 // pressed color so the two actions read as a single compact row.
 static QString makeSidebarSplitActionStyle(const ThemeColors& tc) {
-    const QString divider = QColor(tc.border).lighter(112).name();
-    const QString muted = QColor(tc.text).lighter(135).name();
-    const QString accentText = QColor(tc.primary).lighter(120).name();
-    const QString pressedBg = QColor(tc.primary).darker(150).name();
+    const QString divider = tc.border;
+    const QString muted = tc.muted;
+    const QString accentText = tc.primary;
+    // Pressed feedback is the accent as a wash over the row, which reads as
+    // "pressed" on either polarity (a darker accent would swallow the ink on
+    // the light theme).
+    const QString pressedBg = tintStyle(tc.primary, 0.22);
     return QString(
         "QWidget#splitActionRow {"
         "  background-color: %1;"
@@ -506,12 +520,12 @@ static QString makePlaybackIconButtonStyle(const ThemeColors& tc, bool active = 
         "}"
         "QPushButton:hover { background-color: %4; border-color: %5; }"
         "QPushButton:pressed { background-color: %5; color: %6; }"
-        "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
-    ).arg(bg, text, border, tc.btnHover, tc.primary, tc.bg, tc.bg);
+        "QPushButton:disabled { background-color: %7; color: %8; border-color: %8; }"
+    ).arg(bg, text, border, tc.btnHover, tc.primary, tc.bg, tc.bg, tc.disabled);
 }
 
 static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
-    const QString quietText = QColor(tc.text).lighter(115).name();
+    const QString quietText = tc.muted;
     return QString(
         "QPushButton {"
         "  background-color: %1;"
@@ -526,8 +540,8 @@ static QString makePlaybackSpeedButtonStyle(const ThemeColors& tc) {
         "QPushButton:hover { background-color: %4; border-color: %5; color: %6; }"
         "QPushButton:pressed { background-color: %5; color: %6; }"
         "QPushButton:menu-indicator { subcontrol-origin: padding; subcontrol-position: center right; right: 8px; }"
-        "QPushButton:disabled { background-color: %7; color: %3; border-color: %3; }"
-    ).arg(tc.bg, quietText, tc.border, tc.btnBg, tc.primary, tc.text, tc.bg);
+        "QPushButton:disabled { background-color: %7; color: %8; border-color: %8; }"
+    ).arg(tc.bg, quietText, tc.border, tc.btnBg, tc.primary, tc.text, tc.bg, tc.disabled);
 }
 
 static QString makePlaybackSliderStyle(const ThemeColors& tc) {
@@ -542,7 +556,7 @@ static QString makePlaybackSliderStyle(const ThemeColors& tc) {
         "QSlider::sub-page:horizontal:disabled { background: %6; }"
         "QSlider::add-page:horizontal:disabled { background: %1; }"
         "QSlider::handle:horizontal:disabled { background: %1; border-color: %6; }"
-    ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, QColor(tc.handle).lighter(115).name(), tc.bg);
+    ).arg(tc.border, tc.primary, tc.btnHover, tc.handle, tc.primary, tc.bg);
 }
 
 // Vertical counterpart used by the IMAGE panel's Zoom/Brightness sliders.
@@ -552,8 +566,11 @@ static QString makePlaybackSliderStyle(const ThemeColors& tc) {
 // it rises from the bottom, and the cap sits over it like a hardware fader.
 // The wide 24px cap overhangs the slim 5px rail so it reads as a physical grip.
 static QString makeVerticalSliderStyle(const ThemeColors& tc) {
+    // The grip is ink-derived (near-white on the dark theme, near-black on the
+    // light one) with the accent as its border, which keeps it readable over
+    // the rail in both polarities.
     const QString capBg = QColor(tc.text).lighter(108).name();
-    const QString capBorder = QColor(tc.primary).darker(160).name();
+    const QString capBorder = tc.primary;
     return QString(
         "QSlider::groove:vertical { width: 5px; background: %1; border-radius: 2px; }"
         "QSlider::sub-page:vertical { background: %1; border-radius: 2px; }"
@@ -1867,10 +1884,20 @@ void AnalysisView::setupMainArea() {
     markerShapeCombo_ = new QComboBox(detailToolsWidget_);
     markerShapeCombo_->setToolTip("Marker drawing type");
     markerShapeCombo_->setIconSize(QSize(16, 16));
-    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_pen.svg"), "Pen", "pen");
-    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_square.svg"), "Square", "rectangle");
-    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_round.svg"), "Round", "circle");
-    markerShapeCombo_->addItem(QIcon(":/assets/icons/marker_arrow.svg"), "Arrow", "arrow");
+    // The shape glyphs are stroke-only SVG assets, so they are re-rendered in
+    // the theme ink rather than loaded as-is (see applyMarkerShapeGlyphs).
+    const struct { const char* label; const char* shape; const char* asset; } markerShapes[] = {
+        {"Pen", "pen", "marker_pen"},
+        {"Square", "rectangle", "marker_square"},
+        {"Round", "circle", "marker_round"},
+        {"Arrow", "arrow", "marker_arrow"}
+    };
+    for (const auto& shape : markerShapes) {
+        markerShapeCombo_->addItem(QString::fromLatin1(shape.label), QString::fromLatin1(shape.shape));
+        markerShapeCombo_->setItemData(markerShapeCombo_->count() - 1,
+                                      QStringLiteral(":/assets/icons/%1.svg").arg(QString::fromLatin1(shape.asset)),
+                                      Qt::UserRole + 1);
+    }
     markerShapeCombo_->setFixedWidth(118);
 
     // Zoom + Brightness are vertical (mixer-style) sliders: they live in the
@@ -2037,7 +2064,7 @@ void AnalysisView::setupMainArea() {
     auto panelTitle = new QLabel(
         QString("<img src=':/assets/icons/tools_panel.svg' width='16' height='16' style='vertical-align: middle;'> Tools"),
         rightToolsPanel_);
-    panelTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700;").arg(tc.text));
+    panelTitle->setObjectName("toolsPanelTitle");
     toolsLockButton_ = new QPushButton("Lock", rightToolsPanel_);  // starts unpinned (hover-driven)
     toolsLockButton_->setStyleSheet(makeSidebarUtilityButtonStyle(tc));
     toolsLockButton_->setCursor(Qt::PointingHandCursor);
@@ -2053,16 +2080,14 @@ void AnalysisView::setupMainArea() {
     // Name caption helper (indented, not aligned with the header).
     auto captionLabel = [&](const QString& text) {
         auto* label = new QLabel(text, rightToolsPanel_);
-        label->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
+        label->setObjectName("toolsPanelCaption");
         return label;
     };
     auto indentRow = [](QHBoxLayout* row) { row->setContentsMargins(6, 0, 0, 0); };
     // Muted uppercase section header.
     auto sectionLabel = [&](const QString& text) {
         auto* label = new QLabel(text, rightToolsPanel_);
-        label->setStyleSheet(QString(
-            "color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; letter-spacing: 1px; padding: 0 2px;")
-            .arg(QColor(tc.text).lighter(135).name()));
+        label->setObjectName("toolsPanelSection");
         return label;
     };
     // Thin divider between tool groups.
@@ -2070,8 +2095,7 @@ void AnalysisView::setupMainArea() {
         auto* line = new QFrame(rightToolsPanel_);
         line->setFrameShape(QFrame::HLine);
         line->setFrameShadow(QFrame::Plain);
-        line->setStyleSheet(QString("background-color: %1; border: none; max-height: 1px; min-height: 1px;")
-                            .arg(QColor(tc.border).lighter(118).name()));
+        line->setObjectName("toolsPanelDivider");
         return line;
     };
 
@@ -2094,7 +2118,7 @@ void AnalysisView::setupMainArea() {
     auto imageTitle = new QLabel(
         QString("<img src=':/assets/icons/tools_panel.svg' width='16' height='16' style='vertical-align: middle;'> Image"),
         imageToolsPanel_);
-    imageTitle->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700;").arg(tc.text));
+    imageTitle->setObjectName("toolsPanelTitle");
     imageHeader->addWidget(imageTitle);
     imageHeader->addStretch(1);
     imageLayout->addLayout(imageHeader);
@@ -2113,9 +2137,9 @@ void AnalysisView::setupMainArea() {
     imageLayout->addWidget(panelDivider());
     imageLayout->addWidget(sectionLabel("VIEW"));
     auto zoomCaption = new QLabel("Zoom", imageToolsPanel_);
-    zoomCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
+    zoomCaption->setObjectName("toolsPanelCaption");
     auto brightCaption = new QLabel("Bright", imageToolsPanel_);
-    brightCaption->setStyleSheet(QString("color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + ";").arg(tc.text));
+    brightCaption->setObjectName("toolsPanelCaption");
     // Vertical sliders sit side by side (mixer style) with their live value
     // under each rail: a taller-travel control reads better in the narrow
     // drawer than the old horizontal rails did.
@@ -2511,6 +2535,10 @@ void AnalysisView::applyAnalysisViewStyle() {
 
     playbackPanel_->setStyleSheet(QString(
         "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
+        // The transport dividers are built once with the panel; styling them
+        // here keeps them on the active theme (a per-widget sheet would keep
+        // the theme they were created with).
+        "QFrame#playbackDivider { background-color: %2; border: none; }"
     ).arg(playbackSurface, tc.border));
 
     frameInput_->setStyleSheet(QString(
@@ -2662,7 +2690,7 @@ void AnalysisView::setupPlaybackControls() {
         divider->setFrameShape(QFrame::VLine);
         divider->setFrameShadow(QFrame::Plain);
         divider->setFixedSize(1, 20);
-        divider->setStyleSheet(QString("background-color: %1; border: none;").arg(tc.border));
+        divider->setObjectName("playbackDivider");
         return divider;
     };
 
@@ -4254,13 +4282,15 @@ void AnalysisView::refreshPlaybackPanelStyle() {
     if (empty) {
         playbackPanel_->setStyleSheet(QString(
             "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
+            "QFrame#playbackDivider { background-color: %2; border: none; }"
             // Scoped to descendants of the panel: a bare QWidget rule would
             // also color tooltips shown over the panel's controls.
             "QWidget#playbackPanel QWidget { color: %3; }"
         ).arg(tc.bg, tc.border, tc.border));
     } else {
         playbackPanel_->setStyleSheet(QString(
-            "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }")
+            "QWidget#playbackPanel { background-color: %1; border-top: 1px solid %2; }"
+            "QFrame#playbackDivider { background-color: %2; border: none; }")
             .arg(tc.bg, tc.border));
     }
 }
@@ -5428,7 +5458,11 @@ void AnalysisView::restyleToolsEdgeTab() {
         "QToolButton#toolsEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    const QColor fg = active ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    // The handle floats over the camera grid, which stays dark in every theme,
+    // so its idle ink is the overlay ink rather than the theme's text (which is
+    // near-black on the light theme).
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
+    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
     const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("TOOLS"), fg,
                                              toolsEdgeTab_->width(),
                                              toolsEdgeTab_->height());
@@ -5448,7 +5482,10 @@ void AnalysisView::restyleImageEdgeTab() {
         "QToolButton#imageEdgeTab { background-color: %1; border: 1px solid %2;"
         " border-radius: 4px; }")
         .arg(bg, border));
-    const QColor fg = active ? QColor(tc.primary).lighter(140) : QColor(tc.text).lighter(125);
+    // Same overlay ink as the TOOLS handle: it sits on the video, not on theme
+    // chrome.
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
+    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
     const QPixmap pm = makeVerticalTabPixmap(QStringLiteral("IMAGE"), fg,
                                              imageEdgeTab_->width(),
                                              imageEdgeTab_->height());
@@ -5474,8 +5511,10 @@ void AnalysisView::restyleTracksEdgeTab() {
     } else {
         tracksEdgeTab_->setStyleSheet(QStringLiteral("QToolButton#tracksEdgeTab { background: transparent; }"));
     }
-    const QColor fg = active ? QColor(tc.primary).lighter(150)
-                             : QColor(tc.text);
+    // The idle state is glyph-only over the video, so it uses the overlay ink;
+    // the active state sits on an accent tint and takes the overlay accent.
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
+    const QColor fg = active ? QColor(overlay.accent) : QColor(overlay.ink);
     const QPixmap pm = makeWaveformIconPixmap(fg, tracksEdgeTab_->width(),
                                               tracksEdgeTab_->height());
     tracksEdgeTab_->setIcon(QIcon(pm));
@@ -5493,6 +5532,21 @@ void AnalysisView::applyPlaybackGlyphTheme(QPushButton* button) {
     const QPixmap glyph = IconManager::themedAssetPixmap(
         QStringLiteral(":/assets/icons/") + asset, QColor(CameraConfig::getThemeColors().text), 18);
     button->setIcon(glyph.isNull() ? QIcon(QStringLiteral(":/assets/icons/") + asset) : QIcon(glyph));
+}
+
+void AnalysisView::applyMarkerShapeGlyphs() {
+    if (!markerShapeCombo_) {
+        return;
+    }
+    const QColor ink(CameraConfig::getThemeColors().text);
+    for (int i = 0; i < markerShapeCombo_->count(); ++i) {
+        const QString asset = markerShapeCombo_->itemData(i, Qt::UserRole + 1).toString();
+        if (asset.isEmpty()) {
+            continue;
+        }
+        const QPixmap glyph = IconManager::themedAssetPixmap(asset, ink, 16);
+        markerShapeCombo_->setItemIcon(i, glyph.isNull() ? QIcon(asset) : QIcon(glyph));
+    }
 }
 
 void AnalysisView::applyPermanentTableGlyph() {
@@ -5526,13 +5580,23 @@ void AnalysisView::applyToolsPanelTheme() {
     const ThemeColors tc = CameraConfig::getThemeColors();
     if (rightToolsPanel_) {
         rightToolsPanel_->setStyleSheet(QString(
-            "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
-            .arg(tc.bg, tc.border));
+            "QWidget#rightToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+            // Chrome that is created once with the panel: styling it here keeps
+            // it on the active theme.
+            "QLabel#toolsPanelTitle { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }"
+            "QLabel#toolsPanelCaption { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+            "QLabel#toolsPanelSection { color: %4; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; letter-spacing: 1px; padding: 0 2px; }"
+            "QFrame#toolsPanelDivider { background-color: %2; border: none; max-height: 1px; min-height: 1px; }")
+            .arg(tc.bg, tc.border, tc.text, tc.muted));
     }
     if (imageToolsPanel_) {
         imageToolsPanel_->setStyleSheet(QString(
-            "QWidget#imageToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }")
-            .arg(tc.bg, tc.border));
+            "QWidget#imageToolsPanel { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+            "QLabel#toolsPanelTitle { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: 700; }"
+            "QLabel#toolsPanelCaption { color: %3; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }"
+            "QLabel#toolsPanelSection { color: %4; font-size: " + UiTypeScale::px(UiTypeScale::kMicro) + "; font-weight: 700; letter-spacing: 1px; padding: 0 2px; }"
+            "QFrame#toolsPanelDivider { background-color: %2; border: none; max-height: 1px; min-height: 1px; }")
+            .arg(tc.bg, tc.border, tc.text, tc.muted));
     }
     if (markerToolCheck_) {
         markerToolCheck_->setStyleSheet(QString("QCheckBox { color: %1; font-size: " + UiTypeScale::px(UiTypeScale::kMeta) + "; }").arg(tc.text));
@@ -5568,6 +5632,7 @@ void AnalysisView::applyToolsPanelTheme() {
             "QComboBox::drop-down { border: none; width: 18px; }"
             "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %5; }")
             .arg(tc.btnBg, tc.text, tc.border, tc.primary, tc.btnHover));
+        applyMarkerShapeGlyphs();
     }
     if (zoomSlider_) {
         zoomSlider_->setStyleSheet(makeVerticalSliderStyle(tc));
@@ -6217,8 +6282,10 @@ void AnalysisView::showMarkFeedback(const QString& text, bool success) {
         markFeedbackBanner_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         markFeedbackBanner_->hide();
     }
-    const ThemeColors tc = CameraConfig::getThemeColors();
-    const QColor accent = success ? QColor(tc.primary) : QColor(tc.critical);
+    // The banner is a fixed dark scrim over the video, so its ink comes from the
+    // overlay palette: a theme accent would be a dark cyan on the light theme.
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
+    const QColor accent = success ? QColor(overlay.accent) : QColor(overlay.critical);
     markFeedbackBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -6716,8 +6783,7 @@ void AnalysisView::resolveCameraKeyEntry() {
     }
     // Unknown camera: flash a short warning instead of switching.
     if (cameraKeyBanner_) {
-        const ThemeColors tc = CameraConfig::getThemeColors();
-        const QString accent = QColor(tc.critical).name();
+        const QString accent = CameraConfig::getVideoOverlayColors().critical;
         cameraKeyBanner_->setStyleSheet(QString(
             "QLabel { background-color: rgba(30, 16, 18, 235); color: %1;"
             " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -6733,7 +6799,6 @@ void AnalysisView::resolveCameraKeyEntry() {
                 banner->hide();
             }
         });
-        Q_UNUSED(tc);
     }
 }
 
@@ -6754,11 +6819,11 @@ void AnalysisView::refreshCameraKeyPreview() {
         cameraKeyBanner_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         cameraKeyBanner_->hide();
     }
+    // Overlay ink again: the banner is a fixed dark scrim, not theme chrome.
     const int id = cameraKeyBuffer_.isEmpty() ? 0 : cameraKeyBuffer_.toInt();
     const bool valid = id >= 1 && id <= numCameras_;
-    const ThemeColors tc = CameraConfig::getThemeColors();
-    const QColor accentColor = valid ? QColor(tc.primary)
-                                     : QColor(tc.disabled);
+    const OverlayColors overlay = CameraConfig::getVideoOverlayColors();
+    const QColor accentColor = valid ? QColor(overlay.accent) : QColor(overlay.muted);
     cameraKeyBanner_->setStyleSheet(QString(
         "QLabel { background-color: rgba(16, 16, 22, 225); color: %1;"
         " border: 1px solid %2; border-radius: 8px; padding: 6px 16px;"
@@ -7442,12 +7507,13 @@ void AnalysisView::refreshDiagTable() {
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         return item;
     };
-    // Helper: ASCII placeholder item
+    // Helper: ASCII placeholder item. The quiet ink is the disabled token: the
+    // border token is a near-invisible ink on both themes.
     auto makeNA = [&tc]() {
         auto* item = new QTableWidgetItem("N/A");
         item->setTextAlignment(Qt::AlignCenter);
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-        item->setForeground(QColor(tc.border));
+        item->setForeground(QColor(tc.disabled));
         return item;
     };
     // Helper: clear the Drops/s trend history for a row (used when a camera

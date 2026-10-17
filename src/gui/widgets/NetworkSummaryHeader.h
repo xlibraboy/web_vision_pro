@@ -32,11 +32,22 @@ public:
     // constructor calls it too, so the style strings live in one place.
     void updateTheme();
 
-    // Status update methods. An invalid color resolves to the ok token.
-    void setNetworkStatus(const QString& status, const QColor& color);
+    // Which semantic token a status ink resolves to. The tone is resolved when
+    // the ink is applied rather than when it is passed in, so a theme switch
+    // re-colours the summary like everything else (a cached QColor kept the
+    // previous theme's status hue).
+    enum class StatusTone {
+        Neutral,
+        Ok,
+        Warn,
+        Critical
+    };
+
+    // Status update methods.
+    void setNetworkStatus(const QString& status, StatusTone tone);
     void setCameraCounts(int total, int online, int warning, int error, int offline);
     void setLinkSpeedMbps(int mbps);
-    void updateSummary(const QString& summary, const QColor& color = QColor());
+    void updateSummary(const QString& summary, StatusTone tone = StatusTone::Ok);
 
     // Getters for button connections
     QPushButton* refreshButton() const { return refreshBtn_; }
@@ -96,10 +107,9 @@ private:
     int offlineCount_;
     bool isRefreshing_;
 
-    // Last values updateTheme() needs to re-derive the preset-dependent
-    // styles: the status ink (invalid until setNetworkStatus() is called)
-    // and the link badge speed (<= 0 renders "Link: --").
-    QColor statusColor_;
+    // Last values updateTheme() needs to re-derive the theme-dependent styles:
+    // the status tone and the link badge speed (<= 0 renders "Link: --").
+    StatusTone statusTone_ = StatusTone::Neutral;
     int linkSpeedMbps_;
 
     // Styling

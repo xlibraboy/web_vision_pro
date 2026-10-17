@@ -72,21 +72,24 @@ void ToggleSwitch::paintEvent(QPaintEvent*) {
     }
 
     // Keyboard focus: a ring inside the track, drawn before the thumb so the
-    // knob stays whole. The focus token equals the preset accent on most
-    // presets, which is exactly the checked track fill, so fall back to the
-    // text color and then the status ink until the ring separates from the
-    // fill it sits on.
+    // knob stays whole. The focus token equals the theme accent, which is
+    // exactly the checked track fill, so fall back through the other two inks
+    // until the ring separates from the fill it sits on - starting with the one
+    // that contrasts that fill on this theme (the status ink is dark on the
+    // dark theme's bright fills and light on the light theme's dark ones).
     if (hasFocus()) {
         const auto colorDistance = [](const QColor& a, const QColor& b) {
             return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green())
                  + qAbs(a.blue() - b.blue());
         };
+        const QColor firstFallback(tc.isDark() ? tc.text : tc.onStatus);
+        const QColor secondFallback(tc.isDark() ? tc.onStatus : tc.text);
         QColor ringColor(tc.focus);
         if (colorDistance(ringColor, trackColor) < 180) {
-            ringColor = QColor(tc.text);
+            ringColor = firstFallback;
         }
         if (colorDistance(ringColor, trackColor) < 180) {
-            ringColor = QColor(tc.onStatus);
+            ringColor = secondFallback;
         }
         painter.setPen(QPen(ringColor, 2));
         painter.setBrush(Qt::NoBrush);
@@ -95,12 +98,15 @@ void ToggleSwitch::paintEvent(QPaintEvent*) {
                                 height() / 2.0 - inset, height() / 2.0 - inset);
     }
 
-    // Draw thumb
+    // Draw thumb. White reads on the dark theme's tracks; on the light theme's
+    // near-white unchecked track the thumb needs the grey ink to stay visible.
     painter.setPen(Qt::NoPen);
     if (!isEnabled()) {
         painter.setBrush(QColor(tc.muted));
-    } else {
+    } else if (state || tc.isDark()) {
         painter.setBrush(QColor(tc.handle));
+    } else {
+        painter.setBrush(QColor(tc.disabled));
     }
     
     int thumbSize = height() - 4;

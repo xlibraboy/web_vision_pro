@@ -83,6 +83,13 @@ public:
     // Apply the active theme preset (canvas, surface, text, markers).
     void applyTheme(const ThemeColors& theme);
 
+    // Series identity colors, resolved from the active theme: the bright set is
+    // for the dark plot area, the darker set for the light one. Public so the
+    // theme suite can check their separation on both themes.
+    QColor defectSeriesColor() const;
+    QColor localSeriesColor() const;
+    QColor contrastSeriesColor() const;
+
     // Plain-text summary of the event, its defect hits and the visible
     // regions, read by screen readers (see AccessibleSummaryProvider).
     QString accessibleSummary() const override;

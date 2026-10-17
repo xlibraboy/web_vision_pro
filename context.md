@@ -79,7 +79,8 @@ src/
 │       ├── DeleteConfirmationDialog.h/cpp   # Delete confirmation
 │       └── IpConfiguratorPanel.h/cpp        # GigE IP configurator (Static/DHCP/AutoIP)
 ├── config/
-│   └── CameraConfig.h/cpp            # Centralized config: cameras, themes, OPC UA settings
+│   ├── CameraConfig.h/cpp            # Centralized config: cameras, themes, OPC UA settings
+│   └── SystemColorScheme.h/cpp       # Desktop colour scheme probe (Follow system)
 └── communication/
     └── OpcUaClientService.h/cpp      # OPC UA client: trigger tags + speed tag monitoring
 ```
@@ -139,7 +140,7 @@ src/
 ### Configuration
 - `CameraConfig` is the single source of truth for all settings
 - Camera config: ID, source (Emulated/Real/Disabled), name, location, IP, MAC, FPS, AOI, exposure, pixel format, chunk data
-- Theme system: S/M/L presets for typography, accent color, per-view styling
+- Theme: Light or Dark, or Follow system (the desktop colour scheme, see `SystemColorScheme`), plus S/M/L typography presets and per-view styling. All chrome colours come from `CameraConfig::getThemeColors()`; ink painted onto video comes from `getVideoOverlayColors()`, since video surfaces keep their own dark/light background.
 - OPC UA settings: endpoint URL, auth, publish/reconnect intervals, trigger tags, speed tag
 - Event storage path configurable with validation
 - Config persisted via `CameraConfig` static methods

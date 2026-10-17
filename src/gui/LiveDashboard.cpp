@@ -22,7 +22,7 @@ QString emptyCellStyle(const ThemeColors& tc) {
         "background-color: %1; "
         "border: 1px solid %2; "
         "color: %3;"
-    ).arg(tc.bg, tc.border, QColor(tc.text).darker(160).name());
+    ).arg(tc.bg, tc.border, tc.muted);
 }
 
 int cameraIndexForGridSlot(const std::vector<CameraInfo>& cameras, int gridSlot) {

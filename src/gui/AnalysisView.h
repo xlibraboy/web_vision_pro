@@ -281,6 +281,9 @@ private:
     // The permanent-storage expander arrow: a fixed-fill asset, so it is
     // re-rendered in the theme ink for the current chevron direction.
     void applyPermanentTableGlyph();
+    // The marker shape combo shows stroke-only SVG assets, so its item icons are
+    // re-rendered in the theme ink.
+    void applyMarkerShapeGlyphs();
     // Chrome of the once-built Diagnostic tab, re-applied on a preset change.
     void applyDiagnosticTabTheme();
     // Show/hide transition (fade + slide).

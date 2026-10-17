@@ -82,7 +82,6 @@ NetworkSummaryHeader::NetworkSummaryHeader(QWidget* parent)
     , errorCount_(0)
     , offlineCount_(0)
     , isRefreshing_(false)
-    , statusColor_()
     , linkSpeedMbps_(0) {
 
     setupUI();
@@ -232,24 +231,38 @@ void NetworkSummaryHeader::setupStyleSheet() {
     ).arg(tc.surface, tc.border));
 }
 
-void NetworkSummaryHeader::setNetworkStatus(const QString& status, const QColor& color) {
+void NetworkSummaryHeader::setNetworkStatus(const QString& status, StatusTone tone) {
     statusLabel_->setText(status);
-
-    // An invalid color resolves to the ok token; cache the resolved ink so
-    // updateTheme() can re-apply it after a preset change.
-    statusColor_ = color.isValid() ? color : QColor(theme().ok);
+    statusTone_ = tone;
     applyStatusLabelStyle();
 }
 
 void NetworkSummaryHeader::applyStatusLabelStyle() {
     const ThemeColors tc = theme();
 
-    // A resolved status carries its own ink; the muted "Scanning network..."
-    // holding state (no setNetworkStatus() yet) stays lighter.
-    const bool hasStatus = statusColor_.isValid();
+    // A reported status carries the tone's own ink; the muted "Scanning
+    // network..." holding state (no setNetworkStatus() yet) stays lighter.
+    QString ink = tc.muted;
+    int weight = 500;
+    switch (statusTone_) {
+        case StatusTone::Neutral:
+            break;
+        case StatusTone::Ok:
+            ink = tc.ok;
+            weight = 600;
+            break;
+        case StatusTone::Warn:
+            ink = tc.warn;
+            weight = 600;
+            break;
+        case StatusTone::Critical:
+            ink = tc.critical;
+            weight = 600;
+            break;
+    }
     statusLabel_->setStyleSheet(QString(
         "font-size: " + UiTypeScale::px(UiTypeScale::kTitle) + "; font-weight: %1; color: %2;"
-    ).arg(hasStatus ? 600 : 500).arg(hasStatus ? statusColor_.name() : tc.muted));
+    ).arg(weight).arg(ink));
 }
 
 void NetworkSummaryHeader::setCameraCounts(int total, int online, int warning, int error, int offline) {
@@ -292,8 +305,8 @@ void NetworkSummaryHeader::refreshLinkIndicator() {
     linkIndicator_->setStyleSheet(pillStyle(color));
 }
 
-void NetworkSummaryHeader::updateSummary(const QString& summary, const QColor& color) {
-    setNetworkStatus(summary, color);
+void NetworkSummaryHeader::updateSummary(const QString& summary, StatusTone tone) {
+    setNetworkStatus(summary, tone);
 }
 
 void NetworkSummaryHeader::onRefreshComplete() {

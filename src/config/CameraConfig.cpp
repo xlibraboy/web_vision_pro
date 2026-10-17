@@ -1,5 +1,7 @@
 #include "CameraConfig.h"
 #include "UiTypeScale.h"
+#include "SystemColorScheme.h"
+#include <QColor>
 #include <QString>
 #include <QStringList>
 #include <QDir>
@@ -9,8 +11,8 @@
 #include <cstdlib>
 
 namespace {
-// Preset picked in the Color Theme dropdown that has not been saved yet;
-// -1 means "no preview, use the saved preset".
+// Theme mode picked in the Theme dropdown that has not been saved yet;
+// -1 means "no preview, use the saved mode".
 int& themePreviewPreset() {
     static int preset = -1;
     return preset;
@@ -178,18 +180,49 @@ void CameraConfig::setPreTriggerSeconds(int seconds) {
     settings.setValue("PreTriggerSeconds", seconds);
 }
 
-int CameraConfig::getThemePreset() {
+ThemeMode CameraConfig::getThemeMode() {
     QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
-    return settings.value("ThemePreset", 0).toInt(); // Default 0
+    if (settings.contains("ThemeMode")) {
+        const int stored = settings.value("ThemeMode").toInt();
+        if (stored >= static_cast<int>(ThemeMode::System) && stored <= static_cast<int>(ThemeMode::Dark)) {
+            return static_cast<ThemeMode>(stored);
+        }
+        return ThemeMode::Dark; // unknown value: the theme the app shipped with
+    }
+    // Installations from before the theme modes saved a colour preset
+    // ("ThemePreset", 0..7) instead. Every one of them was dark.
+    if (settings.contains("ThemePreset")) {
+        return ThemeMode::Dark;
+    }
+    return ThemeMode::System;
 }
 
-void CameraConfig::setThemePreset(int themeIndex) {
+void CameraConfig::setThemeMode(ThemeMode mode) {
     QSettings settings(QSettings::IniFormat, QSettings::UserScope, "PaperVision", "SystemConfig");
-    settings.setValue("ThemePreset", themeIndex);
+    settings.setValue("ThemeMode", static_cast<int>(mode));
 }
 
-void CameraConfig::setThemePreview(int themePreset) {
-    themePreviewPreset() = themePreset;
+QString CameraConfig::themeModeName(ThemeMode mode) {
+    switch (mode) {
+        case ThemeMode::Light:
+            return QStringLiteral("Light");
+        case ThemeMode::Dark:
+            return QStringLiteral("Dark");
+        case ThemeMode::System:
+            break;
+    }
+    return QStringLiteral("Follow system");
+}
+
+ThemeMode CameraConfig::resolveThemeMode(ThemeMode mode) {
+    if (mode != ThemeMode::System) {
+        return mode;
+    }
+    return SystemColorScheme::resolved();
+}
+
+void CameraConfig::setThemePreview(ThemeMode mode) {
+    themePreviewPreset() = static_cast<int>(mode);
 }
 
 void CameraConfig::clearThemePreview() {
@@ -201,62 +234,71 @@ int CameraConfig::getThemePreview() {
 }
 
 ThemeColors CameraConfig::getThemeColors() {
-    const int preview = getThemePreview();
-    return getThemeColors(preview >= 0 ? preview : getThemePreset());
+    return getThemeColors(effectiveThemeMode());
 }
 
-ThemeColors CameraConfig::getThemeColors(int themePreset) {
+ThemeMode CameraConfig::effectiveThemeMode() {
+    const int preview = getThemePreview();
+    return preview >= 0 ? static_cast<ThemeMode>(preview) : getThemeMode();
+}
+
+bool ThemeColors::isDark() const {
+    return QColor(bg).lightness() < 128;
+}
+
+ThemeColors CameraConfig::getThemeColors(ThemeMode mode) {
     ThemeColors c;
-    // Semantic status colors are deliberately preset-independent: alarm and
-    // health colors must stay stable for an operator who switches themes.
-    // Values are OKLCH-derived, verified with APCA (>=54 on every preset
-    // background and raised surface) and simulated for deuteranopia /
-    // protanopia / tritanopia (every pair >= 10 OKLab*100 apart).
-    c.ok = "#64ECAC"; c.warn = "#FFC51F"; c.critical = "#FF8470"; c.info = "#70ABFD";
-    c.onStatus = "#10171F";  // ink for text on a solid status fill
-    switch(themePreset) {
-        case 1: // Classic Dark - Blue
-            c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
-            c.primary = "#0078D4"; c.sliderBg = "#0A84FF"; c.handle = "#FFFFFF"; c.text = "#E3E3E3";
-            c.surface = "#232629"; c.muted = "#B6B7B8"; c.disabled = "#838486"; c.focus = "#0078D4";
+    switch (resolveThemeMode(mode)) {
+        case ThemeMode::Light:
+            // Daylight: light chrome and dark ink. The semantic status colors
+            // are the daylight variants - they carry text on the theme
+            // background as well as filling badges, and the bright alarm hues
+            // would not read there.
+            c.bg = "#F2F3F5"; c.border = "#C6CDD5"; c.btnBg = "#FFFFFF"; c.btnHover = "#E6E9ED";
+            c.primary = "#0B6E8F"; c.sliderBg = "#1668C7"; c.handle = "#FFFFFF"; c.text = "#14171A";
+            c.surface = "#FFFFFF"; c.muted = "#5A626B"; c.disabled = "#9AA3AC"; c.focus = "#0B6E8F";
+            c.ok = "#0B6B3F"; c.warn = "#8A5A00"; c.critical = "#B3261E"; c.info = "#1257B0";
+            c.onStatus = "#FFFFFF";  // ink for text on a solid status fill
             break;
-        case 2: // High Contrast - Orange
-            c.bg = "#121212"; c.border = "#333333"; c.btnBg = "#1E1E1E"; c.btnHover = "#2D2D2D";
-            c.primary = "#FF9900"; c.sliderBg = "#FF9900"; c.handle = "#FFFFFF"; c.text = "#FFFFFF";
-            c.surface = "#1B1B1B"; c.muted = "#C9C9C9"; c.disabled = "#8C8C8C"; c.focus = "#FF9900";
-            break;
-        case 3: // Warning State - Yellow
-            c.bg = "#1A1A1A"; c.border = "#403D00"; c.btnBg = "#2B2A20"; c.btnHover = "#3D3A20";
-            c.primary = "#FFD700"; c.sliderBg = "#FFCC00"; c.handle = "#000000"; c.text = "#FFD700";
-            c.surface = "#232323"; c.muted = "#CBAD24"; c.disabled = "#917D2C"; c.focus = "#FFD700";
-            break;
-        case 4: // Precision - Green
-            c.bg = "#101815"; c.border = "#203028"; c.btnBg = "#1A2620"; c.btnHover = "#283C32";
-            c.primary = "#00FF66"; c.sliderBg = "#00CC44"; c.handle = "#FFFFFF"; c.text = "#E8F0EA";
-            c.surface = "#19211E"; c.muted = "#B7BFBA"; c.disabled = "#808883"; c.focus = "#00FF66";
-            break;
-        case 5: // Visionary - Purple
-            c.bg = "#161020"; c.border = "#271E38"; c.btnBg = "#1D152C"; c.btnHover = "#2E2142";
-            c.primary = "#9D00FF"; c.sliderBg = "#B233FF"; c.handle = "#FFFFFF"; c.text = "#E6D9F2";
-            c.surface = "#1F1929"; c.muted = "#B7ACC3"; c.disabled = "#82788E"; c.focus = "#9D00FF";
-            break;
-        case 6: // Alert - Deep Red
-            c.bg = "#1A0F0F"; c.border = "#331818"; c.btnBg = "#241313"; c.btnHover = "#3D1F1F";
-            c.primary = "#FF2A2A"; c.sliderBg = "#FF4040"; c.handle = "#FFFFFF"; c.text = "#F2E6E6";
-            c.surface = "#231717"; c.muted = "#C2B5B5"; c.disabled = "#8B7E7E"; c.focus = "#FF2A2A";
-            break;
-        case 7: // Contrast Mono - Black & White
-            c.bg = "#111111"; c.border = "#555555"; c.btnBg = "#1A1A1A"; c.btnHover = "#333333";
-            c.primary = "#FFFFFF"; c.sliderBg = "#CCCCCC"; c.handle = "#FFFFFF"; c.text = "#FFFFFF";
-            c.surface = "#1A1A1A"; c.muted = "#C9C9C9"; c.disabled = "#8B8B8B"; c.focus = "#FFFFFF";
-            break;
-        case 0: // Industrial Dark - Cyan
+        case ThemeMode::Dark:
+        case ThemeMode::System: // resolved above; dark is the documented fallback
         default:
+            // The industrial dark theme the app shipped with. Values are
+            // OKLCH-derived and simulated for deuteranopia / protanopia /
+            // tritanopia (every status pair >= 10 OKLab*100 apart); the theme
+            // contrast suite checks the ink pairs on both themes.
             c.bg = "#1A1D20"; c.border = "#30363D"; c.btnBg = "#24292E"; c.btnHover = "#30363D";
             c.primary = "#00E5FF"; c.sliderBg = "#0A84FF"; c.handle = "#FFFFFF"; c.text = "#E3E3E3";
             c.surface = "#232629"; c.muted = "#B6B7B8"; c.disabled = "#838486"; c.focus = "#00E5FF";
+            c.ok = "#64ECAC"; c.warn = "#FFC51F"; c.critical = "#FF8470"; c.info = "#70ABFD";
+            c.onStatus = "#10171F";
             break;
     }
+    return c;
+}
+
+OverlayColors CameraConfig::getVideoOverlayColors(bool lightSurface) {
+    OverlayColors c;
+    if (lightSurface) {
+        // A white tile or playback frame takes the daylight inks: the status
+        // colours and the accent are the light theme's own tokens.
+        const ThemeColors light = getThemeColors(ThemeMode::Light);
+        c.ink = "#1A1A1A";
+        c.muted = light.muted;
+        c.accent = light.primary;
+        c.ok = light.ok;
+        c.warn = light.warn;
+        c.critical = light.critical;
+        c.info = light.info;
+        return c;
+    }
+    c.ink = "#FFFFFF";
+    c.muted = "#B6B7B8";
+    c.accent = "#00E5FF";
+    c.ok = "#64ECAC";
+    c.warn = "#FFC51F";
+    c.critical = "#FF8470";
+    c.info = "#70ABFD";
     return c;
 }
 

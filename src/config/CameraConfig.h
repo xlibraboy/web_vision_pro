@@ -5,7 +5,7 @@
 #include <QString>
 
 /**
- * Theme color tokens for the current UI preset.
+ * Theme color tokens for the current UI theme.
  * All widgets should use these instead of hardcoded hex values.
  *
  * Roles:
@@ -13,7 +13,9 @@
  *   text/muted/disabled -> primary, secondary, disabled foregrounds
  *   border/btnBg/btnHover/handle/sliderBg -> chrome and controls
  *   primary/focus -> accent and keyboard focus
- *   ok/warn/critical/info -> semantic status, deliberately preset-independent
+ *   ok/warn/critical/info -> semantic status; they carry text on theme
+ *     backgrounds too, so each theme ships its own variants (the contrast suite
+ *     checks every pair on both themes)
  *   onStatus -> ink for text drawn on a solid status fill
  */
 struct ThemeColors {
@@ -34,6 +36,37 @@ struct ThemeColors {
     QString critical;  // Error / fault / danger / destructive
     QString info;      // Informational / emulated / simulated
     QString onStatus;  // Text drawn on a solid ok/warn/critical/info fill
+
+    // True for the dark themes. Directions that are not a token (e.g. a "lift"
+    // above a surface, or which way muted ink has to move) depend on this.
+    bool isDark() const;
+};
+
+/**
+ * Ink drawn straight onto video - camera tiles and playback frames - which get
+ * their surface from LiveViewCardStyle / AnalysisViewStyle, not from the theme.
+ * These deliberately do not follow ThemeMode: the surface's own polarity
+ * decides which set reads, whatever the chrome is using.
+ */
+struct OverlayColors {
+    QString ink;       // Primary overlay text
+    QString muted;     // Secondary overlay text
+    QString accent;    // Accent strokes and highlights drawn on video
+    QString ok;
+    QString warn;
+    QString critical;
+    QString info;
+};
+
+/**
+ * Which theme the operator picked. ThemeMode::System follows the desktop colour
+ * scheme (see SystemColorScheme). The values are persisted, so they are part of
+ * the settings format.
+ */
+enum class ThemeMode {
+    System = 0,
+    Light = 1,
+    Dark = 2
 };
 
 struct LiveViewCardStyle {
@@ -196,22 +229,35 @@ public:
     static int getPreTriggerSeconds();
     static void setPreTriggerSeconds(int seconds);
 
-    // UI Theme
-    static int getThemePreset();
-    static void setThemePreset(int themeIndex);
+    // UI theme. An installation that saved one of the retired colour presets
+    // ("ThemePreset") resolves to Dark: every one of them was a dark theme.
+    static ThemeMode getThemeMode();
+    static void setThemeMode(ThemeMode mode);
+    // Display name: "Light", "Dark", "Follow system".
+    static QString themeModeName(ThemeMode mode);
+    // ThemeMode::System resolved to the concrete Light/Dark theme in force.
+    static ThemeMode resolveThemeMode(ThemeMode mode);
 
-    // Live preview of a preset the operator has picked but not saved yet (the
-    // Color Theme dropdown). While a preview is set every getThemeColors()
-    // caller - including widgets that resolve colors at paint time - shows the
-    // candidate preset; saving or abandoning clears it (see clearThemePreview).
-    static void setThemePreview(int themePreset);
+    // Live preview of a mode the operator has picked but not saved yet (the
+    // Theme dropdown). While a preview is set every getThemeColors() caller -
+    // including widgets that resolve colors at paint time - shows the candidate
+    // theme; saving or abandoning clears it (see clearThemePreview).
+    static void setThemePreview(ThemeMode mode);
     static void clearThemePreview();
     static int getThemePreview(); // -1 when no preview is active
 
+    // The theme mode in force: the preview when one is active, otherwise the
+    // saved mode. Still possibly ThemeMode::System.
+    static ThemeMode effectiveThemeMode();
+
     // Returns the full set of color tokens for the effective theme: the preview
-    // preset when one is active, otherwise the saved preset.
+    // mode when one is active, otherwise the saved mode.
     static ThemeColors getThemeColors();
-    static ThemeColors getThemeColors(int themePreset);
+    static ThemeColors getThemeColors(ThemeMode mode);
+
+    // Ink painted onto video: the bright set for a dark surface (the default),
+    // the daylight set for a light one.
+    static OverlayColors getVideoOverlayColors(bool lightSurface = false);
 
     // Live View camera tile typography/background settings.
     static LiveViewCardStyle getDefaultLiveViewCardStyle();

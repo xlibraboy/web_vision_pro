@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CameraInfo.h"
 #include "../config/CameraConfig.h"
+#include "../config/SystemColorScheme.h"
 #include "../config/UiTypeScale.h"
 #include "../config/AppVersion.h"
 #include "ConfigDialog.h"
@@ -70,6 +71,11 @@
 Q_DECLARE_METATYPE(cv::Mat)
 
 namespace {
+
+// How often the desktop colour scheme is re-probed while ThemeMode::System is
+// selected: often enough to feel live, and the probes are cached in
+// SystemColorScheme so only the one that answered is re-run.
+constexpr int kSystemSchemePollMs = 10000;
 
 // Queries the real Caps Lock state from the window system (X11). Returns false
 // when the state can't be queried; the login dialog's letter-key heuristic then
@@ -670,6 +676,18 @@ void MainWindow::setupUi() {
     
     // Apply theme globally right at startup
     applyGlobalTheme();
+
+    // The desktop can go dark while the app runs; the resolver caches its
+    // answer (paint paths must not probe), so it is polled here instead.
+    themeSchemeTimer_.setInterval(kSystemSchemePollMs);
+    connect(&themeSchemeTimer_, &QTimer::timeout, this, [this]() {
+        if (SystemColorScheme::refresh()) {
+            qInfo() << "[MainWindow] desktop colour scheme is now"
+                    << CameraConfig::themeModeName(CameraConfig::resolveThemeMode(ThemeMode::System))
+                    << "via" << SystemColorScheme::source();
+            applyGlobalTheme();
+        }
+    });
 
     // --- Central Widget (Create FIRST) ---
     mainTabWidget_ = new QTabWidget(this);
@@ -1855,12 +1873,13 @@ void MainWindow::applyGlobalTheme() {
     const QString& sliderBg   = tc.sliderBg;
     const QString& handleColor = tc.handle;
     const QString& textColor  = tc.text;
-    // Hover fill for an already-checked box: a slightly darker accent. Every
-    // theme primary already sits at full HSV value, so lighter() is a no-op —
-    // darker() is what actually reads as a hover cue without dropping the fill.
+    // Hover fill for an already-checked box: a slightly darker accent, which
+    // reads as a hover cue on every theme (the accent is bright on the dark
+    // theme and dark on the light one, and darker() moves it the same way in
+    // both).
     const QString checkedHoverColor = QColor(primaryColor).darker(115).name();
 
-    // Badges and disabled chrome use the semantic tokens so every preset
+    // Badges and disabled chrome use the semantic tokens so every theme
     // reaches them. The focus ring replaces a former outline:none rule: the
     // badge keeps a visible cue while it holds keyboard focus.
     auto tint = [](const QString& hex, double alpha) {
@@ -2025,4 +2044,23 @@ void MainWindow::applyGlobalTheme() {
     // The System Configuration tab carries a code-set ink (accent for an admin
     // session, disabled otherwise) that the stylesheet does not own.
     updateConfigTabAccess();
+
+    // Follow the desktop while ThemeMode::System is selected (and only then).
+    updateSystemThemeWatch();
+}
+
+void MainWindow::updateSystemThemeWatch() {
+    if (CameraConfig::effectiveThemeMode() != ThemeMode::System) {
+        themeSchemeTimer_.stop();
+        return;
+    }
+    if (!themeSchemeTimer_.isActive()) {
+        themeSchemeTimer_.start();
+    }
+    if (!systemSchemeLogged_) {
+        systemSchemeLogged_ = true;
+        qInfo() << "[MainWindow] following the desktop colour scheme:"
+                << CameraConfig::themeModeName(CameraConfig::resolveThemeMode(ThemeMode::System))
+                << "via" << SystemColorScheme::source();
+    }
 }
