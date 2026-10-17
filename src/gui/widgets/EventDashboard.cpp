@@ -1,8 +1,10 @@
 #include "EventDashboard.h"
+#include "../../config/UiTypeScale.h"
 #include "../../processing/EventSignalScanner.h"
 
 #include <QPainter>
 #include <QPainterPath>
+#include <QFontMetricsF>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QStringList>
@@ -393,6 +395,15 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     const QColor playheadColor(theme_.primary);
     const QColor ruleColor(theme_.warn);  // detector threshold / danger zone
 
+    // Painted chart labels: the dashboard draws its own text, so it names the
+    // type scale's Micro step explicitly (the Machine Layout view does the same
+    // for its ruler and legend labels) and sizes every label rect from the
+    // font's own metrics. The body font needs ~16px of line box, which the old
+    // fixed 11–14px rects did not have, so the glyphs came out clipped.
+    QFont labelFont = font();
+    labelFont.setPixelSize(UiTypeScale::kMicro);
+    const qreal labelH = QFontMetricsF(labelFont).height();
+
     p.fillRect(rect(), bgColor);
 
     if (!notRecordedReason_.isEmpty()) {
@@ -485,13 +496,13 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
     // Range labels (top-right).
     p.setPen(textColor);
-    p.setFont(font());
-    p.drawText(QRectF(plot.right() - 120, plot.top() + 2, 118, 14),
-               Qt::AlignRight, QStringLiteral("brightness %1–%2")
+    p.setFont(labelFont);
+    p.drawText(QRectF(plot.right() - 120, plot.top() + 2, 118, labelH),
+               Qt::AlignRight | Qt::AlignTop, QStringLiteral("brightness %1–%2")
                                    .arg(static_cast<int>(yMin))
                                    .arg(static_cast<int>(yMax)));
     // Lane name (top-left), styled like the SPOTS % / CONTRAST lane labels.
-    p.drawText(QRectF(plot.left() + 4, plot.top() + 1, 110, 12),
+    p.drawText(QRectF(plot.left() + 4, plot.top() + 1, 110, labelH),
                Qt::AlignLeft | Qt::AlignTop, QStringLiteral("BRIGHTNESS"));
     } // end brightnessVisible_
 
@@ -585,16 +596,16 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
                 // Frame-number ruler at both window edges.
                 p.setPen(QColor(textColor).darker(120));
-                p.setFont(font());
-                p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
+                p.setFont(labelFont);
+                p.drawText(QRectF(det.left() + 2, det.bottom() - labelH - 1, 60, labelH),
                            Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
-                p.drawText(QRectF(det.right() - 62, det.bottom() - 11, 60, 11),
+                p.drawText(QRectF(det.right() - 62, det.bottom() - labelH - 1, 60, labelH),
                            Qt::AlignRight | Qt::AlignBottom, QString::number(winEnd));
 
                 // Local Y range: makes the magnification explicit vs the main
                 // chart's whole-event range label.
                 p.setPen(textColor);
-                p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
+                p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, labelH),
                            Qt::AlignRight | Qt::AlignTop,
                            QStringLiteral("y %1–%2")
                                .arg(static_cast<int>(yMin))
@@ -685,16 +696,16 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
             // Frame-number ruler at both window edges.
             p.setPen(QColor(textColor).darker(120));
-            p.setFont(font());
-            p.drawText(QRectF(det.left() + 2, det.bottom() - 11, 60, 11),
+            p.setFont(labelFont);
+            p.drawText(QRectF(det.left() + 2, det.bottom() - labelH - 1, 60, labelH),
                        Qt::AlignLeft | Qt::AlignBottom, QString::number(winStart));
-            p.drawText(QRectF(det.right() - 62, det.bottom() - 11, 60, 11),
+            p.drawText(QRectF(det.right() - 62, det.bottom() - labelH - 1, 60, labelH),
                        Qt::AlignRight | Qt::AlignBottom, QString::number(winEnd));
 
             // Local Y range: makes the magnification explicit vs the main
             // chart's whole-event range label.
             p.setPen(textColor);
-            p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, 12),
+            p.drawText(QRectF(det.right() - 120, det.top() + 1, 116, labelH),
                        Qt::AlignRight | Qt::AlignTop,
                        QStringLiteral("y %1–%2")
                            .arg(static_cast<int>(yMin))
@@ -713,8 +724,8 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
 
         // Label.
         p.setPen(textColor);
-        p.setFont(font());
-        p.drawText(QRectF(det.left() + 4, det.top() + 1, 150, 12),
+        p.setFont(labelFont);
+        p.drawText(QRectF(det.left() + 4, det.top() + 1, 150, labelH),
                    Qt::AlignLeft | Qt::AlignTop,
                    QStringLiteral("DETAIL ±%1f (wheel to zoom)").arg(detailRadius_));
 
@@ -820,10 +831,10 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
         }
 
         p.setPen(textColor);
-        p.setFont(font());
-        p.drawText(QRectF(lane.left() + 4, lane.top() + 1, 90, 12),
+        p.setFont(labelFont);
+        p.drawText(QRectF(lane.left() + 4, lane.top() + 1, 90, labelH),
                    Qt::AlignLeft | Qt::AlignTop, QLatin1String(ld.label));
-        p.drawText(QRectF(lane.right() - 120, lane.top() + 1, 116, 12),
+        p.drawText(QRectF(lane.right() - 120, lane.top() + 1, 116, labelH),
                    Qt::AlignRight | Qt::AlignTop,
                    ld.hasRule
                        ? QStringLiteral("%1 %2").arg(QLatin1String(ld.ruleLabel))
@@ -910,6 +921,7 @@ void EventDashboard::paintEvent(QPaintEvent* /*event*/) {
     const double axisTop = stripTop() + stripHeight();
     constexpr double kAxisRowH = 16.0;
     p.setPen(textColor);
+    p.setFont(labelFont);
     const int tickPx = 90;
     const int tickCount = std::max(2, width() / tickPx);
     for (int k = 0; k <= tickCount; ++k) {

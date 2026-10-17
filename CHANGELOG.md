@@ -57,6 +57,7 @@ here.
 - SVG assets that draw with a stroke instead of a fill (Jump to Trigger, the marker shapes, the TOOLS panel glyph) are re-coloured with the theme like the rest of the glyphs.
 - Hovering an accent-filled button keeps its label readable: System Configuration's Diagnostics "Refresh Network" and Save buttons, the Analysis View Refresh and Mark Defect buttons and the active play/pause toggle now deepen the accent on hover instead of dropping to the neutral hover fill, which swallowed their text on both themes.
 - The Analysis View's floating handles are readable before they are touched: the IMAGE and TOOLS drawer labels and the TRACKS wave chip take the theme ink now instead of the video-overlay white the light theme's chip made invisible (hover, focus and the pinned state keep the accent pair), and the TRACKS panel's base-track chip label is no longer dark-on-dark on the light theme.
+- The event dashboard's lane labels no longer come out clipped: the lane names (BRIGHTNESS, SPOTS %, CONTRAST), their range and rule hints, and the DETAIL strip's frame and range captions are painted at the micro step instead of the larger body font, which the label boxes were too short for, so the glyph tops and descenders were cut off.
 
 ## [1.2.0] - 2026-10-14
 
