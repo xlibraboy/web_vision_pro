@@ -1,12 +1,15 @@
 #include "AnalysisReviewTiles.h"
 
 #include "config/CameraConfig.h"
+#include "config/UiTypeScale.h"
 #include "core/RawFormat.h"
 #include "gui/AnalysisView.h"
 #include "gui/widgets/AnalysisVideoWidget.h"
 
 #include <QDir>
 #include <QFile>
+#include <QFont>
+#include <QFontMetrics>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -182,4 +185,39 @@ void AnalysisReviewTiles::hostClockMapsWhenCameraClocksDisagree()
     AnalysisView v1View(6);
     v1View.startReviewFromFile(QString("%1_cam2.bin").arg(v1Base), 4);
     QCOMPARE(v1View.displayedFrameIndexForCamera(2, 4), 4);
+}
+
+// The metadata HUD is one flat "TS: … | FC: … | Time: …" string. A camera tile
+// in the 4-column All Camera grid is too narrow to hold it beside the playback
+// info, and the unclamped text used to run under the right-aligned playback
+// numbers. It must stack at its separators instead, with the groups intact and
+// in order, while the wide single-camera view keeps the one-line strip.
+void AnalysisReviewTiles::metadataStacksWhenTheTileIsNarrow()
+{
+    QFont font(UiTypeScale::monoFamily());
+    font.setPixelSize(UiTypeScale::kOverlayMono);
+    font.setBold(true);
+    const QFontMetrics fm(font);
+
+    const QString metadata = QStringLiteral(
+        "TS: 123456.789123456 s | FC: 1234567 | Time: 12:34:56.789");
+
+    // Wide enough for the whole strip: the single line is kept.
+    const int oneLineW = fm.horizontalAdvance(metadata);
+    QCOMPARE(AnalysisVideoWidget::metadataLines(metadata, font, oneLineW + 1).size(), 1);
+
+    // A tile narrower than the strip: the groups stack instead of overprinting.
+    const int narrowW = oneLineW * 2 / 3;
+    const QStringList lines = AnalysisVideoWidget::metadataLines(metadata, font, narrowW);
+    QVERIFY2(lines.size() > 1, qPrintable(QString("got %1 line(s)").arg(lines.size())));
+    for (const QString& line : lines) {
+        QVERIFY2(fm.horizontalAdvance(line) <= narrowW, qPrintable(line));
+    }
+
+    // No group is dropped or reordered by the break-up.
+    QStringList stackedGroups;
+    for (const QString& line : lines) {
+        stackedGroups += line.split(QStringLiteral(" | "));
+    }
+    QCOMPARE(stackedGroups, metadata.split(QStringLiteral(" | ")));
 }

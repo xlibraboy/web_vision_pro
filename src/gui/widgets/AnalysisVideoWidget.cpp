@@ -28,6 +28,26 @@ void AnalysisVideoWidget::setTitle(const QString& title) {
     update();
 }
 
+QStringList AnalysisVideoWidget::metadataLines(const QString& text, const QFont& font, int maxWidth) {
+    const QFontMetrics fm(font);
+    QStringList lines;
+    QString line;
+    const QStringList groups = text.split(QStringLiteral(" | "));
+    for (const QString& group : groups) {
+        const QString candidate = line.isEmpty() ? group : line + QStringLiteral(" | ") + group;
+        if (!line.isEmpty() && fm.horizontalAdvance(candidate) > maxWidth) {
+            lines << line;
+            line = group;
+        } else {
+            line = candidate;
+        }
+    }
+    if (!line.isEmpty()) {
+        lines << line;
+    }
+    return lines;
+}
+
 void AnalysisVideoWidget::setFrame(const QImage& frame) {
     // A real frame means this camera IS part of the event: drop the
     // not-recorded marker so it never survives into the next event.
@@ -446,6 +466,9 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
     // Unified bottom overlay: a single rounded bar holding the metadata
     // (left) and the playback info (right), so both read as one polished HUD
     // strip inside the frame instead of a full-width bar plus a floating chip.
+    // In the narrow All Camera tiles the metadata does not fit beside the
+    // playback info: it then stacks at its " | " separators and the playback
+    // info moves to a row of its own, so neither text runs over the other.
     if (!currentFrame_.isNull() && (!timestamp_.isEmpty() || !playbackInfo_.isEmpty())) {
         painter.setClipping(false);
 
@@ -465,11 +488,33 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
 
         const int padX = 10;
         const int gap = 10; // between the left and right text groups
-        const int leftW = timestamp_.isEmpty() ? 0 : metaFm.horizontalAdvance(timestamp_);
+        const int maxBarW = std::max(1, width() - 12);
+        const int innerW = std::max(1, maxBarW - 2 * padX);
         const int rightW = playbackInfo_.isEmpty() ? 0 : playbackFm.horizontalAdvance(playbackInfo_);
-        const int contentW = leftW + rightW + (leftW > 0 && rightW > 0 ? gap : 0);
-        const int barW = std::min(width() - 12, contentW + 2 * padX);
-        const int barH = std::max(metaFm.height(), playbackFm.height()) + 10;
+
+        const QStringList metaLines = timestamp_.isEmpty()
+            ? QStringList()
+            : metadataLines(timestamp_, metaFont, innerW);
+        int metaW = 0;
+        for (const QString& line : metaLines) {
+            metaW = std::max(metaW, metaFm.horizontalAdvance(line));
+        }
+
+        // The playback info shares the metadata's line while it fits there;
+        // once it does not, it reads as a stacked row under the metadata.
+        const int sharedW = metaW + rightW + (metaW > 0 && rightW > 0 ? gap : 0);
+        const bool playbackSharesLine = !playbackInfo_.isEmpty()
+            && metaLines.size() <= 1 && sharedW <= innerW;
+
+        const int lineH = metaFm.lineSpacing();
+        const int metaBlockH = metaLines.size() * lineH;
+        const int playbackH = playbackInfo_.isEmpty() ? 0 : playbackFm.height();
+        const int contentH = playbackSharesLine
+            ? std::max(metaBlockH, playbackH)
+            : metaBlockH + playbackH + (metaBlockH > 0 && playbackH > 0 ? 2 : 0);
+        const int contentW = playbackSharesLine ? sharedW : std::max(metaW, rightW);
+        const int barW = std::min(maxBarW, contentW + 2 * padX);
+        const int barH = contentH + 10;
         // Dock the bar to the bottom-left of the frame with a small margin.
         const QRect barRect(6, height() - barH - 8, barW, barH);
 
@@ -479,15 +524,24 @@ void AnalysisVideoWidget::paintEvent(QPaintEvent* event) {
         painter.drawRoundedRect(barRect, 6, 6);
 
         painter.setPen(timestampTextColor);
-        if (!timestamp_.isEmpty()) {
+        const QRect textRect = barRect.adjusted(padX, 5, -padX, -5);
+        if (!metaLines.isEmpty()) {
             painter.setFont(metaFont);
-            painter.drawText(barRect.adjusted(padX, 0, -padX, 0),
-                             Qt::AlignVCenter | Qt::AlignLeft, timestamp_);
+            int lineTop = playbackSharesLine
+                ? textRect.top() + (textRect.height() - metaBlockH) / 2
+                : textRect.top();
+            for (const QString& line : metaLines) {
+                painter.drawText(QRect(textRect.left(), lineTop, textRect.width(), lineH),
+                                 Qt::AlignVCenter | Qt::AlignLeft, line);
+                lineTop += lineH;
+            }
         }
         if (!playbackInfo_.isEmpty()) {
             painter.setFont(playbackFont);
-            painter.drawText(barRect.adjusted(padX, 0, -padX, 0),
-                             Qt::AlignVCenter | Qt::AlignRight, playbackInfo_);
+            const QRect playbackRect = playbackSharesLine
+                ? textRect
+                : QRect(textRect.left(), textRect.top() + metaBlockH, textRect.width(), playbackH);
+            painter.drawText(playbackRect, Qt::AlignVCenter | Qt::AlignRight, playbackInfo_);
         }
     }
 }

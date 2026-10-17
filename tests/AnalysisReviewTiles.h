@@ -15,4 +15,5 @@ class AnalysisReviewTiles : public QObject {
 private slots:
     void camerasLeftOutOfTheEventAreMarked();
     void hostClockMapsWhenCameraClocksDisagree();
+    void metadataStacksWhenTheTileIsNarrow();
 };

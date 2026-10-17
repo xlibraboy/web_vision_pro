@@ -6,6 +6,7 @@
 #include <QVector>
 #include <QPoint>
 #include <QPointF>
+#include <QStringList>
 #include "../../config/CameraConfig.h"
 
 /**
@@ -57,6 +58,11 @@ public:
     int getCameraId() const { return cameraId_; }
     // True while the tile shows the "not recorded in this event" state.
     bool isNotRecorded() const { return !notRecordedReason_.isEmpty(); }
+    // Breaks the flat metadata HUD text ("TS: … | FC: … | Time: …") at its
+    // " | " separators into the lines that fit maxWidth. The wide single-camera
+    // view keeps one line; the narrow All Camera tiles stack the groups so the
+    // text cannot run under the playback info.
+    static QStringList metadataLines(const QString& text, const QFont& font, int maxWidth);
 
 signals:
     void clicked(int cameraId);
