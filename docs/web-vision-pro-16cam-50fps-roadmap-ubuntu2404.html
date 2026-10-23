@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>web_vision_pro — 16-Camera Roadmap &amp; Hardware · Ubuntu 24.04 edition · PTP &amp; BoM</title>
+<style>
+:root{
+  --bg:#f3f5f7; --card:#ffffff; --ink:#1c2733; --muted:#475569;
+  --accent:#0f766e; --accent2:#ea580c; --line:#dde4ea;
+  --ok-bg:#ecfdf5; --warn-bg:#fffbeb; --bad-bg:#fef2f2; --star-bg:#f0fdf4;
+  --gold:#b45309; --gold-bg:#fffbeb;
+  --blue:#1d4ed8; --blue-bg:#eff6ff;
+  --purple:#6d28d9; --purple-bg:#f5f3ff;
+  --teal:#0f766e;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;font:16px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+a{color:var(--accent);text-decoration:none;border-radius:2px}
+a:hover{text-decoration:underline}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header.hero{background:linear-gradient(135deg,#0f172a 0%,#134e4a 100%);color:#fff;padding:48px 24px 40px}
+header.hero .inner{max-width:none;width:100%}
+header.hero h1{margin:0 0 12px;font-size:clamp(24px,3.6vw,38px);letter-spacing:.3px;line-height:1.2}
+header.hero p{margin:0;color:#cbd5e1;font-size:15px}
+header.hero .tagline{margin-top:8px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin-top:28px}
+.kpi{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:16px 20px;text-align:center}
+.kpi b{display:block;font-size:28px;color:#5eead4;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi span{display:block;margin-top:4px;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:.8px}
+.layout{display:grid;grid-template-columns:250px 1fr;gap:0;max-width:none}
+.sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;background:var(--card);border-inline-end:1px solid var(--line);padding:24px 0;display:flex;flex-direction:column}
+.sidebar .progress-bar{height:3px;background:linear-gradient(90deg,var(--accent),#5eead4);transform-origin:left;transform:scaleX(0);transition:transform .1s ease-out;margin-bottom:16px}
+nav.toc{display:flex;flex-direction:column;gap:2px;padding:0 12px}
+nav.toc a{font-size:13px;color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:8px;transition:background-color .15s ease,color .15s ease,transform .1s ease;touch-action:manipulation;line-height:1.4}
+nav.toc a:hover{background:#f0fdfa;color:var(--accent);text-decoration:none}
+nav.toc a:active{transform:scale(.98)}
+nav.toc a[aria-current="true"]{background:#f0fdfa;color:var(--accent);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.back-top{position:fixed;inset-inline-end:24px;bottom:24px;z-index:30;width:44px;height:44px;border-radius:50%;background:var(--accent);color:#fff;border:none;box-shadow:0 4px 12px rgba(15,118,110,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s ease,transform .2s ease;touch-action:manipulation}
+.back-top.visible{opacity:1;transform:translateY(0);pointer-events:auto}
+.back-top:hover{background:#0d5e58;transform:translateY(-2px)}
+.back-top:active{transform:translateY(0) scale(.95)}
+.back-top:focus-visible{outline:2px solid #5eead4;outline-offset:3px}
+@media (prefers-reduced-motion:no-preference){
+  .section-reveal{transition:opacity .4s cubic-bezier(.2,0,0,1),transform .4s cubic-bezier(.2,0,0,1)}
+  .section-reveal.pending{opacity:0;transform:translateY(20px)}
+  .section-reveal.is-visible{opacity:1;transform:none}
+}
+main{padding:32px 32px 32px 24px;min-width:0}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:relative;height:auto;border-inline-end:none;border-bottom:1px solid var(--line);padding:16px 0}
+  nav.toc{flex-direction:row;overflow-x:auto;padding:0 16px}
+  nav.toc a{white-space:nowrap}
+  main{padding:24px 16px}
+}
+section.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px 32px;margin-bottom:28px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+section.card.overview{border-left:4px solid var(--accent);background:linear-gradient(135deg,#f0fdfa 0%,#fff 100%)}
+section.card.timesync{border-left:4px solid var(--gold);background:linear-gradient(135deg,#fffbeb 0%,#fff 100%)}
+h2{margin:0 0 16px;font-size:22px;color:#134e4a;border-bottom:2px solid #99f6e4;padding-bottom:8px}
+h2 .num{font-size:14px;font-weight:600;color:var(--accent);margin-right:8px}
+h3{margin:24px 0 10px;font-size:17px;color:#0f172a}
+h4{margin:18px 0 6px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:5px 0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;background:#f1f5f9;border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:#0f172a}
+pre.diagram{background:#0f172a;color:#a5f3fc;border-radius:10px;padding:18px 20px;overflow-x:auto;font-size:13px;line-height:1.5}
+pre.diagram code{background:none;border:none;color:inherit}
+.tablewrap{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{background:#134e4a;color:#fff;text-align:start;padding:10px 12px;font-weight:600;white-space:nowrap}
+td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+tbody tr:nth-child(even){background:#f8fafc}
+tr.vstar td:first-child{box-shadow:inset 3px 0 0 #059669}
+tr.vstar{background:var(--star-bg)!important}
+tr.vbad{background:var(--bad-bg)!important}
+tr.vwarn{background:var(--warn-bg)!important}
+p.callout{border-inline-start:4px solid;border-radius:8px;padding:12px 16px;margin:14px 0}
+p.callout.warn{border-color:#d97706;background:var(--warn-bg)}
+p.callout.ok{border-color:#059669;background:var(--ok-bg)}
+strong{color:#0f172a}
+footer{max-width:none;margin:16px 0 48px;padding:0 32px;color:var(--muted);font-size:12.5px;text-align:center}
+@media (min-width:1600px){
+  main{padding:44px 52px}
+  section.card{padding:34px 44px;margin-bottom:32px}
+  .tablewrap{margin:16px 0}
+  table{font-size:14.5px}
+  td{padding:10px 14px}
+  th{padding:11px 14px}
+  .kpis{gap:20px}
+  .kpi b{font-size:32px}
+  header.hero{padding:56px 36px 48px}
+  .bom-shell{padding:24px}
+}
+@media (max-width:640px){
+  header.hero{padding:32px 16px 28px}
+  .kpis{grid-template-columns:repeat(2,1fr);gap:10px}
+  .kpi b{font-size:22px}
+  section.card{padding:20px 16px;margin-bottom:20px}
+  main{padding:20px 16px}
+  table{font-size:13px}
+  th,td{padding:7px 8px}
+  h2{font-size:19px}
+}
+@media print{
+  nav.toc{display:none} body{background:#fff}
+  section.card{box-shadow:none;break-inside:avoid-page}
+}
+/* ============ dashboard tiles (polish) ============ */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:16px;margin:16px 0 6px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.tile .t-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
+.tile .t-val{font-size:22px;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums;line-height:1.25;margin-top:2px}
+.tile .t-val small{font-size:13px;color:var(--muted);font-weight:500}
+.tile .t-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.tile.good{border-top:3px solid #059669}
+.tile.warn{border-top:3px solid #d97706}
+.tile.info{border-top:3px solid #2563eb}
+.tile.purp{border-top:3px solid #7c3aed}
+.tile.gold{border-top:3px solid #d97706;background:linear-gradient(180deg,#fffbeb 0%,#fff 70%)}
+.tile.teal{border-top:3px solid var(--accent);background:linear-gradient(180deg,#f0fdfa 0%,#fff 70%)}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;line-height:1.7;border:1px solid transparent}
+.chip.ok{background:var(--ok-bg);color:#065f46;border-color:#a7f3d0}
+.chip.warn{background:var(--warn-bg);color:#92400e;border-color:#fde68a}
+.chip.bad{background:var(--bad-bg);color:#991b1b;border-color:#fecaca}
+.chip.blue{background:var(--blue-bg);color:#1e40af;border-color:#bfdbfe}
+.chip.gold{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+.chip.off{background:#f1f5f9;color:#64748b;border-color:#e2e8f0}
+.pill{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
+.pill.v{background:#d1fae5;color:#065f46}
+.pill.e{background:#fef3c7;color:#92400e}
+.pill.r{background:#fee2e2;color:#991b1b}
+.legend{font-size:12.5px;color:var(--muted);margin-top:10px}
+/* ============ system diagram ============ */
+.arch{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+.plane{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.plane .plane-h{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#fff}
+.plane.p-time .plane-h{background:linear-gradient(90deg,#92400e,#b45309)}
+.plane.p-cap .plane-h{background:linear-gradient(90deg,#0f172a,#1e40af)}
+.plane.p-data .plane-h{background:linear-gradient(90deg,#134e4a,#0f766e)}
+.plane.p-mill .plane-h{background:linear-gradient(90deg,#4c1d95,#6d28d9)}
+.plane .plane-h .hint{margin-left:auto;font-weight:500;letter-spacing:.3px;text-transform:none;font-size:11px;opacity:.85}
+.plane .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;background:repeating-linear-gradient(90deg,transparent,transparent 4px,#f8fafc 4px,#f8fafc 8px)}
+.bx{display:inline-flex;flex-direction:column;border-radius:10px;padding:7px 12px;border:1.5px solid;font-size:13px;line-height:1.35;max-width:230px}
+.bx b{font-size:13px}
+.bx small{font-size:11px;color:inherit;opacity:.8}
+.bx.gm{border-color:#d97706;background:#fffbeb;color:#78350f}
+.bx.gnss{border-color:#f59e0b;background:#fffbeb;color:#92400e}
+.bx.net{border-color:#2563eb;background:#eff6ff;color:#1e3a8a}
+.bx.sw{border-color:#1d4ed8;background:#eff6ff;color:#1e3a8a}
+.bx.cam{border-color:#0f766e;background:#f0fdfa;color:#134e4a}
+.bx.srv{border-color:#0d9488;background:#f0fdfa;color:#134e4a}
+.bx.sto{border-color:#64748b;background:#f8fafc;color:#334155}
+.bx.led{border-color:#7c3aed;background:#f5f3ff;color:#4c1d95}
+.bx.dcs{border-color:#7c3aed;background:#f5f3ff;color:#4c1d95}
+.arr{color:var(--muted);font-weight:700;padding:0 2px;user-select:none}
+.arr .lbl{display:block;font-size:9.5px;font-weight:600;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.3px;line-height:1}
+.fan{display:inline-flex;flex-wrap:wrap;gap:4px;max-width:560px}
+.mini{font-size:11px;border-radius:7px;padding:3px 8px;border:1px solid #99f6e4;background:#f0fdfa;color:#0f766e;white-space:nowrap}
+.treelegend{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px}
+details.note{border:1px dashed var(--line);border-radius:10px;padding:10px 14px;margin:12px 0;background:#fbfdfe}
+details.note summary{cursor:pointer;font-weight:600;color:#134e4a;font-size:14px}
+/* ============ BoM configurator ============ */
+.bom-shell{border:1px solid var(--line);border-radius:12px;background:#fbfdff;padding:18px;margin:14px 0}
+.selgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.sel label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.sel select{width:100%;font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+.sel select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.sel .sel-note{font-size:11.5px;color:var(--muted);margin-top:3px}
+.derived{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0 4px}
+.derived .tile{padding:10px 12px}
+.derived .t-val{font-size:17px}
+.bom-table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:14px}
+.bom-table th{background:#0f172a;color:#fff;padding:8px 10px;text-align:start;white-space:nowrap;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+.bom-table td{padding:7px 10px;border-top:1px solid var(--line)}
+.bom-table tr.grp td{background:#f0fdfa;color:#134e4a;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;border-top:2px solid #99f6e4}
+.bom-table tr.total td{background:#0f172a;color:#fff;font-weight:700;border-top:2px solid var(--accent)}
+.bom-table tr.total td.grand{font-size:17px}
+.bom-table tr.total.alt td{background:#334155;border-top:1px solid #475569;font-weight:600}
+.bom-table tr.total.alt td.grand{font-size:14.5px}
+.bom-table tr.later td{color:#64748b}
+.bom-table tr.later td.sub{font-weight:500}
+.bom-table tr.never td{color:#94a3b8;font-style:italic}
+.bom-table td.ph{white-space:nowrap}
+.bom-plan{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;font-size:13px;color:var(--muted)}
+.bom-table td.r, .bom-table th.r{text-align:end;font-variant-numeric:tabular-nums}
+.bom-table td.sub{font-weight:600;font-variant-numeric:tabular-nums;text-align:end}
+.bom-warn{display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--warn-bg);border:1px solid #fde68a;color:#92400e;font-size:13px}
+.bom-warn.on{display:block}
+button.ghost{font:inherit;font-size:13px;padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;color:#134e4a}
+button.ghost:hover{border-color:var(--accent);color:var(--accent)}
+b.js-err{color:#b91c1c}
+/* ============ readability pass (2026-09-05) ============ */
+section.card p,section.card li{max-width:78ch}
+p.lead{font-size:16.5px;border-inline-start:4px solid #5eead4;background:#f0fdfa;border-radius:0 8px 8px 0;padding:8px 14px;color:#134e4a}
+thead th{position:sticky;top:0;z-index:1}
+.tocgrp{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:12px 12px 2px}
+.tiles>a.tile{display:block;color:inherit}
+.tiles>a.tile:hover{text-decoration:none;border-color:var(--accent);box-shadow:0 2px 8px rgba(15,118,110,.15)}
+.secfoot{display:flex;justify-content:space-between;gap:8px;margin-top:22px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px}
+details.note summary .sum-tag{font-weight:500;color:var(--muted);font-size:12.5px}
+</style></head>
+<body>
+<header class="hero"><div class="inner">
+<h1>web_vision_pro · 16-Camera / 50 fps Roadmap &amp; Hardware</h1>
+<p>Paper-machine vision system · Basler GigE · IEEE 1588 (PTP) time sync · interactive BoM</p>
+<p class="tagline"><strong>Ubuntu 24.04 LTS edition</strong> · Planning reference · updated 2026-10-23 · software base upgraded to pylon 26.06 on 24.04 (Qt 5.15, OpenCV 4.x); hardware, cameras and BoM unchanged from the 22.04 edition · PTP chain, switch &amp; grandmaster verified against Basler / vendor sources · new: fiber plant re-specced to <strong>armored OM3</strong> + 10G-SR (300 m ≫ this ≈ 100 m plant; OM4 for 300–400 m, OS2 beyond) · does fiber carry PTP? <strong>Yes</strong> — IEEE 1588 rides in ordinary Ethernet frames, so the medium is transparent to it; only a media converter breaks the chain (§2p S4 / §2s) · two-segment network topology — camera → copper → leaf switch → fiber → core → server → client, with the PTP vs non-PTP part lists (§2r–§2s) · BoM split <strong>first buy vs full target</strong> (§6)</p>
+<div class="kpis">
+<div class="kpi"><b>16</b><span>cameras</span></div>
+<div class="kpi"><b>50 fps</b><span>global rate</span></div>
+<div class="kpi"><b>2000</b><span>frames / event</span></div>
+<div class="kpi"><b>&lt; 10 µs</b><span>PTP target offset</span></div>
+<div class="kpi"><b>1</b><span>grandmaster · PTP</span></div>
+<div class="kpi"><b>10 GbE</b><span>backbone class</span></div>
+<div class="kpi"><b>2 × 8</b><span>camera segments</span></div>
+</div>
+</div></header>
+<div class="layout">
+<aside class="sidebar">
+<nav class="toc" aria-label="Table of contents">
+<div class="tocgrp">Overview</div>
+<a href="#goal">Goal</a>
+<a href="#exec-summary">Executive summary</a>
+<a href="#dash">Dashboard — system snapshot</a>
+<a href="#1-the-numbers-per-event-2000-frames">1. The numbers (per event, 2000 frames)</a>
+<div class="tocgrp">Vision fleet</div>
+<a href="#2-hardware-requirements">2. Hardware requirements</a>
+<a href="#2b-resolution-scaling-formulas">2b. Resolution scaling</a>
+<a href="#2c-all-bgr-scenario-16-cams-50-fps-2000-frames">2c. All-BGR scenario</a>
+<a href="#2d-gpu-why-none-today-when-to-reconsider">2d. GPU — when to reconsider</a>
+<a href="#2e-camera-selection-verified-basler-candidates">2e. Camera selection</a>
+<a href="#2f-lens-selection-c-mount-matched-to-imx392">2f. Lens selection</a>
+<a href="#2g-illumination-strobed-led-matched-to-11-m-s-web">2g. Illumination (strobe)</a>
+<a href="#2h-housings-enclosures">2h. Housings &amp; enclosures</a>
+<a href="#2i-mounting-bracket-design">2i. Mounting &amp; brackets</a>
+<a href="#2j-cooling-other-accessories">2j. Cooling &amp; accessories</a>
+<div class="tocgrp">Time sync</div>
+<a href="#2k-time-sync-ptp-cameras">2k. Time sync — PTP cameras</a>
+<a href="#2l-time-sync-ptp-switch">2l. Time sync — PTP switch</a>
+<a href="#2m-time-sync-grandmaster">2m. Time sync — grandmaster</a>
+<a href="#2k-2m-do-we-need-ptp">2k–2m. Do we need PTP? (decision guide)</a>
+<div class="tocgrp">New sensing</div>
+<a href="#2n-moisture-swir-nir">2n. Moisture — SWIR (NIR)</a>
+<a href="#2o-temperature-mapping">2o. Temperature mapping</a>
+<div class="tocgrp">Compute &amp; software</div>
+<a href="#2p-server-client-monitors-fiber">2p. Server · client · monitors · fiber</a>
+<a href="#2q-software-stack-pylon-26">2q. Software stack — 24.04 + pylon 26</a>
+<div class="tocgrp">Network</div>
+<a href="#2r-network-topology-two-segments">2r. Network topology — 2 segments</a>
+<a href="#2s-ptp-vs-non-ptp-build">2s. PTP vs non-PTP build</a>
+<div class="tocgrp">Plan</div>
+<a href="#system-architecture-diagram">3. System diagram &amp; tree</a>
+<a href="#3-software-roadmap-ordered">4. Software roadmap</a>
+<a href="#4-current-state-2026-08-26">5. Current state</a>
+<a href="#bom-configurator">6. BoM configurator</a>
+</nav>
+<div class="progress-bar" role="progressbar" aria-label="Reading progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+</aside>
+<main>
+<section id="goal" class="card overview section-reveal"><h2>Goal</h2>
+<p>Scale the paper-machine vision system to <strong>16 cameras @ 50 fps global</strong>, mixed <strong>Mono8 + BGR</strong> sensors, with <strong>2000-frame (40 s) events</strong> that still get every-frame detail in review — and give the whole fleet <strong>one IEEE 1588 (PTP) time base</strong> so every event frame across all cameras lands on a single µs-accurate timeline.</p>
+<p>Assumes <strong>a2A1920-51gm/gcBAS</strong> (IMX392, 1920×1200) shortlist cameras. The current scA780-class sensors (782×582) stay valid: if sensor resolution grows, scale the numbers below linearly.</p>
+</section>
+
+<section id="exec-summary" class="card overview section-reveal"><h2>Executive summary — read this first</h2>
+<ul>
+<li><strong>16 cameras @ 50 fps, 2000-frame events</strong> need ~28 GB RAM per event and ~6 Gbps — that sizes the server, network and NVMe (§1–§2).</li>
+<li><strong>Buy ace 2 a2A1920-51</strong> (mono + color lanes) with C23 lenses and strobed LED bars; one PTP grandmaster + PTP switch puts every frame on a µs timeline (§2e–§2m).</li>
+<li><strong>New sensing:</strong> 2 SWIR moisture stations (press + dryer, §2n) and 2 pyrometers (§2o) join the same timeline and BoM.</li>
+<li><strong>Compute:</strong> tower server + 1 client + QHD monitors, DAC uplinks until the survey says otherwise; RTX 4000 Ada reserved for the AI step (§2p, §2d).</li>
+<li><strong>Network:</strong> split the fleet into <strong>2 segments of 8 + 8</strong> — Cat6a drop → leaf switch in a machine-floor cabinet → armored fiber → core switch → server → client; ≈ 7.5 Gbps per 10G uplink. The cable plant is PTP-agnostic; only the leaf/core switch class and the grandmaster decide µs vs ms (§2r–§2s).</li>
+<li><strong>Software:</strong> C++ on pylon 6.2.0 today → <strong>26.06 on Ubuntu 24.04</strong> next, Qt 5.15 kept (Qt6 deferred); per-camera FPS recording unblocks honest mixed-fleet numbers (§2q, §4).</li>
+<li><strong>Cost:</strong> configure it all live in §6 and split it by phase — <strong>first buy ≈ $57k</strong> (phase 1: visible fleet + network plant + compute/storage, 24 line items) vs <strong>target ≈ $71k</strong> (phases 1 + 2, adding SWIR moisture, pyrometers and the rest). The PTP premium over identical plain switches is ≈ $5.6k and sits entirely in phase 1 (§2s).</li>
+</ul>
+</section>
+
+<section id="dash" class="card overview section-reveal"><h2>Dashboard — system snapshot</h2>
+<p>One-glance status of the whole line — visible fleet, moisture, temperature, compute, AI and software: what is ready today, what must be added, and the engineering budget that drives §6 BoM.</p>
+<p class="legend"><span class="pill v">✔</span> verified against vendor docs · <span class="pill e">est</span> planning estimate, confirm quote · <span class="chip ok">Ready</span> <span class="chip warn">Add</span> <span class="chip bad">gap</span> = readiness.</p>
+<div class="tiles">
+<a class="tile teal" href="#2e-camera-selection-verified-basler-candidates"><div class="t-label">Cameras · PTP capability</div><div class="t-val">ace 2 <small>IEEE 1588-2008</small></div><div class="t-sub">shortlist PTP-capable · current scout fleet: none (§2k) → §2e</div></a>
+<a class="tile gold" href="#2l-time-sync-ptp-switch"><div class="t-label">PTP chain</div><div class="t-val"><span class="chip ok">GM → switch → cams</span></div><div class="t-sub">transparent/boundary-clock switch → 16 slaves <span class="chip ok">Locked</span> → §2l</div></a>
+<a class="tile warn" href="#2m-time-sync-grandmaster"><div class="t-label">Today's default</div><div class="t-val"><span class="chip warn">ARB mode</span></div><div class="t-sub">no GPS master yet — cross-cam fine, epoch shifts on reboot → §2m</div></a>
+<a class="tile good" href="#2m-time-sync-grandmaster"><div class="t-label">Recommended GM</div><div class="t-val"><span class="chip ok">GNSS grandmaster</span></div><div class="t-sub">UTC-traceable events aligned with DCS / OPC UA → §2m</div></a>
+<a class="tile info" href="#2n-moisture-swir-nir"><div class="t-label">Moisture · SWIR</div><div class="t-val">2 <small>stations @ 25 fps</small></div><div class="t-sub">M1 press + M2 dryer · halogen + 1200/1450 nm → §2n</div></a>
+<a class="tile gold" href="#2o-temperature-mapping"><div class="t-label">Temperature</div><div class="t-val">2 <small>pyrometers @ 1 Hz</small></div><div class="t-sub">OPC UA trend, zero GigE load; LWIR optional → §2o</div></a>
+<a class="tile purp" href="#2p-server-client-monitors-fiber"><div class="t-label">Server + client</div><div class="t-val">tower + 1 <small>client</small></div><div class="t-sub">16C/ECC server · 8C client · 2× 27&quot; QHD + UPS → §2p</div></a>
+<a class="tile info" href="#2r-network-topology-two-segments"><div class="t-label">Network · 2 segments</div><div class="t-val">8 + 8 <small>cameras</small></div><div class="t-sub">Cat6a → leaf switch → armored fiber → core → server → client → §2r</div></a>
+<a class="tile warn" href="#2d-gpu-why-none-today-when-to-reconsider"><div class="t-label">AI GPU</div><div class="t-val"><span class="chip warn">none → RTX 4000 Ada</span></div><div class="t-sub">CPU today; 20 GB ECC 130 W when AI lands → §2d</div></a>
+<a class="tile teal" href="#2q-software-stack-pylon-26"><div class="t-label">Software stack</div><div class="t-val">6.2.0 → <small>26.06</small></div><div class="t-sub">on Ubuntu 24.04 · Qt6 deferred → §2q</div></a>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Readiness</th><th>Item</th><th>Status / requirement</th></tr></thead><tbody>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>PTP-capable switch</td><td>Any managed switch with IEEE 1588 transparent/boundary clock; §2l. Plain switches still work but offsets degrade to ms and trip the 1 ms alert.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Grandmaster</td><td>GPS/GNSS grandmaster (absolute UTC) or linuxptp software master on the vision server (stable relative); §2m.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Chunk timestamps on</td><td>Turn chunk mode + <code>ChunkTimestamp</code> on per camera so frame stamps come from the PTP-slaved sensor clock, not frame-arrival time.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Moisture (SWIR/NIR)</td><td>2–4 Basler ace 2 SWIR stations (press + dryer exits) for water-band moisture proxy; not in the visible fleet — see §2n.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Temperature mapping</td><td>IR spot pyrometers per dryer station (+ optional LWIR camera) for dryer diagnostics and moisture compensation — see §2o.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>Server · client · fiber plant</td><td>Tower vision server, 1 live-view/analyze client, QHD monitors, DAC/OM3/OM4/OS2 uplinks — see §2p.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>2-segment network plant</td><td>8 cameras + 1 SWIR per segment: Cat6a drops → leaf switch (PoE + PTP) → armored fiber → core switch → server → client — see §2r.</td></tr>
+<tr class="vNone"><td><span class="chip blue">Choose</span></td><td>PTP or non-PTP switches</td><td>Identical cable plant either way; the leaf/core switch class + grandmaster decide µs vs ms — the PTP premium is ≈ $5.6k — see §2s.</td></tr>
+<tr class="vwarn"><td><span class="chip warn">Add</span></td><td>pylon 26 on Ubuntu 24.04 (from 6.2.0 on 22.04)</td><td>Date-versioned suite (latest 26.06); all shortlist cameras compatible — see §2q.</td></tr>
+<tr class="vbad"><td><span class="chip bad">Gap</span></td><td>scout scA780 on pylon 26</td><td>Legacy fleet unproven on the new suite — one bench camera must pass grab → PTP → chunk → event before the fleet build moves (§2q).</td></tr>
+<tr class="vbad"><td><span class="chip bad">Gap</span></td><td>Moisture calibration samples</td><td>No oven-dry lab reference per grade yet — without it the SWIR ratio is unitless (§2n).</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="1-the-numbers-per-event-2000-frames" class="card overview section-reveal"><h2><span class="num">1.</span>The numbers (per event, 2000 frames)</h2>
+<p class="lead">Bottom line: a mixed 16-camera event holds ~28 GB in RAM and writes ~0.7 GB/s — that single fact sizes the server, NICs and NVMe below.</p>
+<p class="callout ok">Note: on the a2A1920 (1920×1200) shortlist, every number below scales up by <strong>5.0×</strong> vs the 0.46 MP scA780 column — that is why §2e concludes dual-10G bonding and 128 GB RAM (or capped events) for the 16-camera build. See §2b formulas.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Metric (782×582 basis)</th><th>Mono8 cam</th><th>BGR cam</th></tr></thead><tbody>
+<tr class="vNone"><td>Frame size (782×582)</td><td>0.45 MB</td><td>1.37 MB</td></tr>
+<tr class="vNone"><td>Bandwidth @ 50 fps</td><td>22.8 MB/s (182 Mbps)</td><td>68.3 MB/s (546 Mbps) host-side; <em>wire stays Bayer = mono rate</em></td></tr>
+<tr class="vNone"><td>Ring-buffer RAM (2000 frames)</td><td>0.89 GB</td><td>2.67 GB</td></tr>
+</tbody></table></div>
+<p><strong>16-camera totals (8 Mono8 + 8 BGR mix):</strong></p>
+<div class="tablewrap"><table>
+<thead><tr><th>Resource</th><th>Requirement</th></tr></thead><tbody>
+<tr class="vNone"><td>Incoming network</td><td>≈ 730 MB/s (≈ 5.8 Gbps) aggregate</td></tr>
+<tr class="vNone"><td>Ring-buffer RAM</td><td>≈ 28.5 GB</td></tr>
+<tr class="vNone"><td>Disk written per event</td><td>≈ 28.5 GB in ~40 s (≈ 0.7 GB/s burst)</td></tr>
+<tr class="vNone"><td>Whole-event scan (if done fully)</td><td>≈ 28.5 GB read + 32k frame-processings</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="2-hardware-requirements" class="card section-reveal"><h2><span class="num">2.</span>Hardware requirements</h2>
+<p class="lead">What to buy for the machine room so §1's numbers fit: 64 GB ECC (128 at 2.3 MP), bonded 10G, Gen4 NVMe.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Component</th><th>Minimum</th><th>Recommended</th><th>Why</th></tr></thead><tbody>
+<tr class="vNone"><td><strong>RAM</strong></td><td>32 GB (all-Mono8 only)</td><td><strong>64 GB ECC</strong> (128 GB at 2.3 MP)</td><td>28.5 GB ring buffers + OS + Qt/OpenCV/pylon + live view</td></tr>
+<tr class="vNone"><td><strong>CPU</strong></td><td>8C/16T modern desktop</td><td>12–16C (Ryzen 9 / Xeon)</td><td>800 fps aggregate copy/convert; background scans</td></tr>
+<tr class="vNone"><td><strong>NIC</strong></td><td>2× 10GbE</td><td><strong>2× 10GbE (Intel X710/X520 class)</strong> bonded + jumbo frames (MTU 9000)</td><td>BGR @ 50 fps host-side exceeds GigE; 16 links need 10G uplinks</td></tr>
+<tr class="vNone"><td><strong>Switch</strong></td><td>10G-capable, ≥16 ports</td><td>PTP-capable managed switch + 2× 10G uplinks (§2l)</td><td>Per-camera GigE links OK for Mono8 only; PTP switch keeps clock jitter in µs</td></tr>
+<tr class="vNone"><td><strong>Storage (live)</strong></td><td>2 TB NVMe (PCIe Gen3 x4)</td><td><strong>4 TB NVMe Gen4</strong></td><td>0.7 GB/s write burst at trigger; HDD cannot keep up</td></tr>
+<tr class="vNone"><td><strong>Storage (archive)</strong></td><td>optional 8 TB HDD</td><td>NAS</td><td>1 TB ≈ 35 mixed events (0.46 MP); retention 20–30 events/TB</td></tr>
+<tr class="vNone"><td><strong>GPU</strong></td><td>none</td><td>none</td><td>Qt raster + OpenCV CPU only</td></tr>
+<tr class="vNone"><td><strong>PSU/cooling</strong></td><td>—</td><td>server-grade, sustained 0.7 GB/s writes</td><td>thermal headroom</td></tr>
+</tbody></table></div>
+<p><strong>Practical lever:</strong> keep high-fps (50) cameras <strong>Mono8</strong>; run BGR cameras at lower fps. Halves bandwidth and RAM vs the mixed-at-50 case. Requires per-camera FPS support in the recorder (roadmap item 1).</p>
+</section>
+
+<section id="2b-resolution-scaling-formulas" class="card section-reveal"><h2><span class="num">2b.</span>Resolution scaling (formulas)</h2>
+<p class="lead">One rule of thumb replaces every table when resolution changes: ring RAM ≈ 32 × MP × bytes/px.</p>
+<p>All numbers above assume 782×582 (0.46 MP). Resolution scales linearly:</p>
+<ul><li><strong>RAM (GB) ≈ 32 × MP × bytes-per-pixel</strong> (2000 frames × 16 cams)</li><li><strong>Bandwidth per cam (MB/s) ≈ 50 × MP × bytes-per-pixel</strong> (at 50 fps)</li><li><strong>Disk per event ≈ same as RAM</strong>; analysis CPU time scales with pixels too</li></ul>
+<div class="tablewrap"><table>
+<thead><tr><th>Resolution</th><th>MP</th><th>Mono8 @50fps/cam</th><th>2000×16 RAM (Mono8)</th><th>Verdict</th></tr></thead><tbody>
+<tr class="vNone"><td>782×582 (current)</td><td>0.46</td><td>23 MB/s → GigE OK</td><td>15 GB</td><td>OK on 64 GB</td></tr>
+<tr class="vNone"><td>1280×1024</td><td>1.3</td><td>65 MB/s → needs 10G</td><td>42 GB</td><td>tight</td></tr>
+<tr class="vNone"><td>1920×1200 (shortlist)</td><td>2.3</td><td>115 MB/s → full GigE (MTU 9000)</td><td>74 GB</td><td>needs 128 GB RAM or capped events</td></tr>
+<tr class="vNone"><td>1920×1080</td><td>2.1</td><td>104 MB/s → 10G per cam</td><td>66 GB</td><td>needs 128 GB RAM</td></tr>
+<tr class="vNone"><td>2448×2048 (5 MP)</td><td>5.0</td><td>250 MB/s → 10G per cam</td><td>160 GB</td><td>not feasible at 2000-frame events</td></tr>
+</tbody></table></div>
+<p>BGR multiplies everything ×3. Sensor max fps also drops with resolution on GigE (5 MP ≈ 24 fps Mono8) — 50 fps at high resolution forces 10GigE per camera. Rule of thumb: ≤1.3 MP for 2000-frame events on 64 GB, or shorten events proportionally.</p>
+</section>
+
+<section id="2c-all-bgr-scenario-16-cams-50-fps-2000-frames" class="card section-reveal"><h2><span class="num">2c.</span>All-BGR scenario (16 cams × 50 fps × 2000 frames)</h2>
+<p class="lead">Worst case first: all-color at full rate needs ~44 GB RAM and ~9 Gbps — read this before choosing the mono/color mix.</p>
+<p>Every camera running BGR at full rate — the heaviest realistic case:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Metric</th><th>Value (782×582 BGR)</th></tr></thead><tbody>
+<tr class="vNone"><td>Frame size</td><td>1.37 MB</td></tr>
+<tr class="vNone"><td>Bandwidth per camera (host)</td><td>68.3 MB/s (546 Mbps)</td></tr>
+<tr class="vNone"><td><strong>Aggregate network</strong></td><td><strong>≈ 1.09 GB/s (≈ 8.7 Gbps)</strong></td></tr>
+<tr class="vNone"><td><strong>Ring-buffer RAM</strong></td><td><strong>≈ 43.7 GB</strong></td></tr>
+<tr class="vNone"><td>Disk per event</td><td>≈ 43.7 GB (write burst ≈ 1.1 GB/s)</td></tr>
+<tr class="vNone"><td>Full-event scan</td><td>≈ 43.7 GB read + BGR→gray conversion per frame</td></tr>
+<tr class="vNone"><td>Retention</td><td>1 TB ≈ 23 events</td></tr>
+</tbody></table></div>
+<p><strong>Hardware verdict (all-BGR):</strong></p>
+<ul>
+<li><strong>RAM:</strong> 64 GB is the bare minimum (buffers alone take 43.7 GB) — <strong>128 GB recommended</strong>; nothing else may compete for memory at 64 GB.</li>
+<li><strong>Network:</strong> a single 10G NIC is borderline (8.7 Gbps + protocol overhead); <strong>bond 2× 10G or move to 25G</strong>.</li>
+<li><strong>Disk:</strong> NVMe Gen4 mandatory; ~45 GB/event → plan retention ≈ 20 events/TB.</li>
+<li><strong>CPU:</strong> every scanned frame pays an extra BGR→gray <code>cvtColor</code> pass.</li>
+<li><strong>Practical advice:</strong> prefer Mono8 for the 50 fps lanes; use BGR only where color is genuinely required and run those cameras at lower fps — which requires roadmap item 1 (per-camera FPS-true recording).</li>
+</ul>
+</section>
+
+<section id="2d-gpu-why-none-today-when-to-reconsider" class="card section-reveal"><h2><span class="num">2d.</span>GPU — why none today, when to reconsider</h2>
+<p class="lead">No GPU today (raw frames, CPU-friendly OpenCV) — buy one the day AI defect detection lands, then pick the RTX 4000 Ada below.</p>
+<p>The pipeline stores and processes <strong>raw uncompressed frames</strong> — there is no video codec anywhere, so GPU video acceleration (NVDEC/NVENC/VAAPI) has nothing to decode. All pixel work (meanStdDev, cvtColor, morphology, Qt raster painting) is small, memory-bound, CPU-friendly OpenCV/Qt work; PCIe transfer overhead would eat most GPU gains at small frame sizes.</p>
+<p><strong>Reconsider a GPU when any of these enter the roadmap:</strong></p>
+<ol>
+<li><strong>AI/ML defect detection</strong> (CNN inference, TensorRT/OpenCV-CUDA) — the most likely trigger; rule-based DefectDetector would be replaced/augmented.</li>
+<li><strong>16-stream display bottleneck</strong> — 800 fps of convert+scale for live tiles is real CPU load; if profiling shows it hogging cores, move conversion or presentation to GPU (QOpenGLWidget / CUDA convert). Measure first.</li>
+<li><strong>Compressed recording</strong> — if events were stored as H.264/H.265, NVENC offloads encoding (today's MP4 export is occasional; CPU codec is fine).</li>
+</ol>
+<p>Until then: spend the budget on RAM, 10G NICs, PTP switch + grandmaster, and NVMe — those decide whether the 16-camera line flies.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>GPU</th><th>VRAM</th><th>Power</th><th>Linux</th><th>Use Case</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>NVIDIA RTX 4000 Ada</strong></td><td>20 GB ECC</td><td>130W</td><td>Ubuntu 24.04 + nvidia-driver-550</td><td>⭐ Recommended — single-slot, 4× DP, TensorRT inference (specs verified nvidia.com 2026-09-05)</td></tr>
+<tr class="vNone"><td><strong>NVIDIA RTX A4000</strong></td><td>16 GB</td><td>140W</td><td>Ubuntu 24.04 + nvidia-driver-535</td><td>budget alt — previous gen, same single-slot fit</td></tr>
+<tr class="vNone"><td>NVIDIA RTX A5000</td><td>24 GB</td><td>230W</td><td>Ubuntu 24.04 + nvidia-driver-535</td><td>Multi-stream AI, larger models</td></tr>
+<tr class="vNone"><td>NVIDIA RTX 4090</td><td>24 GB</td><td>450W</td><td>Ubuntu 24.04 + nvidia-driver-535</td><td>High performance, cost-effective</td></tr>
+<tr class="vNone"><td>NVIDIA L4</td><td>24 GB</td><td>72W</td><td>Ubuntu 24.04 + nvidia-driver-535</td><td>Datacenter/edge, low power</td></tr>
+</tbody></table></div>
+<p><em>Note: Jetson modules (Orin Nano/NX/AGX) use MIPI-CSI2 cameras only — incompatible with Basler GigE cameras. x86 + discrete GPU required.</em></p>
+<p><strong>Linux stack (all rows, Ubuntu 24.04):</strong> <code>ubuntu-drivers autoinstall</code> (picks the noble-recommended branch, 550 or newer) or <code>apt install nvidia-driver-550</code> → CUDA 12.x → TensorRT 10.x / cuDNN → OpenCV-CUDA or ONNX Runtime. With Secure Boot on, enrol the MOK key at first reboot or the driver will not load. L4 has <strong>no display outputs</strong> — wrong pick for a tower that also drives the admin monitor; RTX 4000 Ada/A4000 drive 4× DP natively. Any option draws ≤ 140 W, so the §2p 1000 W PSU needs no change.</p>
+</section>
+
+<section id="2e-camera-selection-verified-basler-candidates" class="card section-reveal"><h2><span class="num">2e.</span>Camera selection (verified Basler candidates)</h2>
+<p class="lead">The buy list: mono + color ace 2 a2A1920-51 (IMX392, 51 fps, PTP) — one sensor for both lanes, pylon ≥ 6.0.</p>
+<p>Filter set: <strong>GigE · Area Scan · Visible · Global Shutter · C-mount · IEEE 1588 PTP</strong>. All rows verified against baslerweb.com product pages (2026-08-26); PTP support per model verified on docs.baslerweb.com (2026-09-04). Basler's official scA780 successor path: cameras with <strong>IMX249 / IMX392 / PYTHON 1300/2000</strong> sensors.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Model</th><th>Sensor</th><th>Res</th><th>FPS</th><th>Mono/Color</th><th>PTP</th><th>Fit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>ace 2 a2A1920-51gmBAS / gcBAS</strong></td><td>Sony IMX392 (1/2.3&quot;)</td><td>1920×1200 (2.3 MP)</td><td>51</td><td>mono + color</td><td><span class="chip ok">✔ IEEE 1588</span></td><td>⭐ best fit</td></tr>
+<tr class="vNone"><td>ace 2 a2A1920-51gmPRO / gcPRO</td><td>Sony IMX392</td><td>1920×1200</td><td>51</td><td>mono + color</td><td><span class="chip ok">✔ IEEE 1588</span></td><td>same imager, more GPIO/features</td></tr>
+<tr class="vNone"><td>ace acA1920-50gm / gc</td><td>Sony IMX174 (1/1.2&quot;)</td><td>1920×1200</td><td>50</td><td>mono + color</td><td><span class="chip ok">✔ IEEE 1588</span></td><td>legacy line; big 5.86 µm pixels, best low-light</td></tr>
+<tr class="vNone"><td>ace acA1300-60gm / gc</td><td>e2v EV76C560 (1/1.8&quot;)</td><td>1282×1026 (1.3 MP)</td><td>60</td><td>mono + color</td><td><span class="chip ok">✔ IEEE 1588</span></td><td>closest to scA780 size; inside ≤1.3 MP rule</td></tr>
+<tr class="vNone"><td>ace 2 a2A2448-23gmBAS</td><td>5 MP CMOS</td><td>2448×2048</td><td>23</td><td>mono</td><td><span class="chip ok">✔ IEEE 1588</span></td><td>detail lane only (breaks uniform 50 fps)</td></tr>
+</tbody></table></div>
+<p><strong>Engineering notes:</strong></p>
+<ul>
+<li>The &quot;-51&quot; rating is <strong>bandwidth-limited</strong>: 2.3 MB × 51 fps ≈ 117 MB/s ≈ a full GigE link → jumbo frames (MTU 9000) are mandatory to hit rated fps. PTP traffic is tiny by comparison and unaffected by frame rate.</li>
+<li><strong>Color costs no network bandwidth</strong>: color variants transmit Bayer raw (still 1 byte/px on the wire); debayering happens host-side. The all-BGR ×3 applies to host RAM/disk/CPU only — not the camera links.</li>
+<li><strong>PTP (verified 2026-09-04):</strong> every shortlist model above implements <strong>IEEE 1588-2008 (PTPv2)</strong>. Ace 2 exposes configurable <code>Ptp*/BslPtp*</code> nodes (priority, profile, network mode, one/two-step, management); classic ace (acA*) exposes <code>GevIEEE1588*</code> nodes with fixed priority 128. The <em>current scout fleet</em> has no documented PTP — see the correction in §2k.</li>
+<li>✅ <strong>pylon compatibility VERIFIED</strong>: official Basler docs for a2A1920-51gmBAS / gcBAS state <em>&quot;Basler pylon Software Suite (version 6.0 or higher)&quot;</em> → <strong>pylon 6.2.0 (today) and 26.06 (this edition) are both compatible</strong>, incl. Linux x86/ARM. Old <code>acA…</code> models also run on 6.2 but are a phasing-out line (EOL risk).</li>
+<li><strong>Updated hardware verdict at 1920×1200 @ 50 fps × 16 cams:</strong> aggregate ≈ 1.9 GB/s (~15 Gbps) host-side (mono mix) → dual-10G bond confirmed; ring-buffer RAM ≈ 74 GB mono-only at 2000-frame events → either a 128 GB machine or cap events at ~1000–1500 frames (see §2b).</li>
+</ul>
+<p><strong>Shortlist:</strong> mono lanes <code>a2A1920-51gmBAS</code> + color lanes <code>a2A1920-51gcBAS</code> — fully compatible with pylon 6.2.0 (today) and 26.06 (this edition). <strong>Factory-sealed variants exist</strong> (<code>a2A1920-51gm/gcIP67</code>) for wet/hot stations — same imager/fps/PTP/pylon; see §2h.</p>
+</section>
+
+<section id="2f-lens-selection-c-mount-matched-to-imx392" class="card section-reveal"><h2><span class="num">2f.</span>Lens selection (C-mount, matched to IMX392)</h2>
+<p class="lead">One correct family: Basler C23-5M-P (11 mm circle, 147 lp/mm) — C125 vignettes, C10 under-resolves.</p>
+<p>Sensor requirements for a2A1920-51 (IMX392): <strong>1/2.3&quot; format → image circle ≥ 7.8 mm</strong>; pixel pitch <strong>3.45 µm → lens must resolve ≈ 145 lp/mm</strong> (Nyquist). All rows verified against docs.baslerweb.com spec tables.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Family</th><th>Focal lengths</th><th>Aperture</th><th>Image circle</th><th>Design lp/mm</th><th>Verdict</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Basler C23-…-5M-P</strong></td><td>8 / 12 / 16 / 25 / 35 mm</td><td>F1.8–F2.4</td><td><strong>11 mm (2/3&quot;)</strong></td><td><strong>147 @ 3.4 µm</strong></td><td>⭐ correct match</td></tr>
+<tr class="vbad"><td>Basler C125-…-5M-P</td><td>4 / 6 / 8 / 12 / 16 / 25 mm</td><td>F1.8–F2.2</td><td>⚠️ 7.3 mm (1/2.5&quot;)</td><td>230 @ 2.2 µm</td><td>❌ vignettes corners (7.3 &lt; 7.8 mm)</td></tr>
+<tr class="vbad"><td>Basler C10-0814-2M-S</td><td>8 mm</td><td>F1.4–F16</td><td>16 mm (1&quot;)</td><td>64 @ 7.5 µm</td><td>❌ under-resolved</td></tr>
+</tbody></table></div>
+<p class="callout warn">⚠️ <strong>Trap:</strong> C125 marketing says <em>&quot;fits sensors up to 1/2&quot;&quot;</em> but the spec table states image circle 7.3 mm (1/2.5&quot; format) — smaller than our sensor diagonal. Trust the spec table; skip C125 for this camera.</p>
+<p><strong>Recommendation:</strong> <code>C23-xxxx-5M-P</code> family — 2/3&quot; circle has comfortable margin, and its 147 lp/mm design target is a near-exact match for the IMX392 pitch.</p>
+<p>Focal length from working distance (WD) and desired FOV width: <code>FOV ≈ WD × 6.6 mm / f</code> → at WD = 500 mm:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Lens</th><th>FOV width @ 500 mm WD</th><th>mm/pixel</th></tr></thead><tbody>
+<tr class="vNone"><td>C23-0824 (8 mm)</td><td>~410 mm</td><td>0.214</td></tr>
+<tr class="vNone"><td>C23-1224 (12 mm)</td><td>~275 mm</td><td>0.143</td></tr>
+<tr class="vNone"><td>C23-1620 (16 mm)</td><td>~205 mm</td><td>0.107</td></tr>
+<tr class="vNone"><td>C23-2518 (25 mm)</td><td>~130 mm</td><td>0.068</td></tr>
+</tbody></table></div>
+<p><strong>Reusing current scA780 lenses:</strong> optically fine (both C-mount); horizontal FOV stays ~identical (sensor widths 6.49 vs 6.60 mm) with 2.45× more pixels across. But old lenses built for 8.3 µm pixels resolve only ~60 lp/mm — roughly half of the new sensor's resolving power is wasted. Interim OK; upgrade to C23 later.</p>
+</section>
+
+<section id="2g-illumination-strobed-led-matched-to-11-m-s-web" class="card section-reveal"><h2><span class="num">2g.</span>Illumination (strobed LED, matched to 11 m/s web)</h2>
+<p class="lead">At 11 m/s only microsecond strobes freeze the web — continuous lighting is not an option.</p>
+<p><strong>Governing constraint — motion blur.</strong> Web speed ≈ 665–677 m/min ≈ <strong>11 m/s</strong> (docs/machine-reference.md drive anchors). Sharp imaging on a 1920-px sensor needs exposure ≈ <strong>10–25 µs</strong>:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>FOV width</th><th>mm/pixel</th><th>Max exposure (≤0.5 px blur)</th></tr></thead><tbody>
+<tr class="vNone"><td>400 mm</td><td>0.208</td><td>~9 µs</td></tr>
+<tr class="vNone"><td>600 mm</td><td>0.313</td><td>~14 µs</td></tr>
+<tr class="vNone"><td>1000 mm</td><td>0.52</td><td>~24 µs</td></tr>
+</tbody></table></div>
+<p>→ <strong>Continuous lighting cannot work at these speeds; strobed LED is mandatory.</strong> At 50 fps a 20 µs pulse = 0.1 % duty cycle → LEDs may be overdriven <strong>10–20×</strong> rated current within thermal limits. Paper reflectance (~80 %) is favourable.</p>
+<p><strong>Sync architecture:</strong> camera Flash/ExposureActive output (pylon LineSource / FlashWindow nodes) → LED driver trigger input, per camera. One light per station; no cross-sync needed between stations. Exposure control already exists in CameraDeviceSettingsDialog; flash-output feature is a small later addition. (Strobe timing needs no PTP — it is per-camera hardware I/O; PTP keeps the <em>timestamps</em> aligned.)</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Goal</th><th>Setup</th></tr></thead><tbody>
+<tr class="vNone"><td>General defects (spots, dirt)</td><td>Bright-field: bars aimed so web reflects into lens</td></tr>
+<tr class="vNone"><td>Holes / break precursors</td><td>Transmitted: light behind the web</td></tr>
+<tr class="vNone"><td>Gloss / streaks (calender)</td><td>Dark-field oblique</td></tr>
+</tbody></table></div>
+<p>Wavelength: white or IR 850 nm (IR ignores ambient flicker + dust haze).</p>
+<p><strong>Shopping list (industrial families — vendor specs not yet verified):</strong></p>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Strobed LED bar (CCS TLB/TH, Smart Vision Lights LXE/LF, Metaphase, Advanced Illum.)</td><td>≥10× overdrive @ ≤50 µs pulses, trigger input, IP54+ in wet sections</td></tr>
+<tr class="vNone"><td>Driver</td><td>Built-in PNP/NPN trigger preferred; Gardasoft only for multi-light sequencing</td></tr>
+<tr class="vNone"><td>Diffuser/optics per station</td><td>Matched to FOV at working distance</td></tr>
+<tr class="vNone"><td>PSU</td><td>Sized for peak pulse current × count, not average</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="2h-housings-enclosures" class="card section-reveal"><h2><span class="num">2h.</span>Housings &amp; enclosures</h2>
+<p class="lead">Bodies are IP30: factory-sealed IP67 variants win in wet zones; dryer sections need cooled cabinets regardless.</p>
+<p>Camera bodies in the BAS/PRO lines are <strong>IP30 only</strong> — every station needs protection on a paper machine. Verified.</p>
+<p><strong>Option A ⭐ — factory-sealed ace 2 IP67 variants:</strong></p>
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>BAS body</th><th><code>a2A1920-51gm/gcIP67</code></th></tr></thead><tbody>
+<tr class="vNone"><td>Sensor / fps / mount</td><td>IMX392 · 51 fps · C-mount</td><td>identical</td></tr>
+<tr class="vNone"><td>PTP / pylon</td><td>IEEE 1588 · pylon ≥ 6.0</td><td>identical</td></tr>
+<tr class="vNone"><td>Body protection</td><td>IP30</td><td><strong>IP67 sealed</strong></td></tr>
+<tr class="vNone"><td>Connectors</td><td>RJ45 + HRS open</td><td><strong>M12 X-coded GigE + M8 I/O</strong></td></tr>
+<tr class="vNone"><td>Operating temp</td><td>0–50 °C</td><td><strong>−10 to 60 °C</strong></td></tr>
+</tbody></table></div>
+<p>Same imager, same pylon 6.2 compatibility; vibration-proof locking cables (Basler M8/M12 industrial cables). Preferred for Wire / Press / Calender.</p>
+<p><strong>Option B — BAS body + Basler IP67 Housing system</strong> (camera housing + lens tube + cable): lens tubes 50/60/70/80 mm and Medium 60–100 mm; glass-filled nylon, EPDM seals, BK7 window, max lens Ø47 mm; IP67 but rated <strong>0–50 °C only</strong>.</p>
+<p><strong>Per-section strategy:</strong></p>
+<div class="tablewrap"><table>
+<thead><tr><th>Section</th><th>Environment</th><th>Strategy</th></tr></thead><tbody>
+<tr class="vNone"><td>Wire / Press-Part</td><td>water splash, fiber mist</td><td>IP67 variant or housing; stainless brackets</td></tr>
+<tr class="vNone"><td>Pre-Dryer / After-Dryer</td><td>hot air near hoods (&gt;50–60 °C possible)</td><td>cooled/purged cabinet (vortex/Peltier) or mount outside hottest envelope</td></tr>
+<tr class="vNone"><td>Calender–Reel</td><td>fiber dust</td><td>IP67 sufficient</td></tr>
+</tbody></table></div>
+<p><strong>Thermal limit is decisive:</strong> both options top out at 50–60 °C ambient — dryer-section stations need active cooling regardless of choice.</p>
+<p><em>Bonus:</em> Basler accessories list an <strong>SLP strobe controller</strong> (pylon-integrated lighting trigger) — candidate for §2g sync architecture.</p>
+</section>
+
+<section id="2i-mounting-bracket-design" class="card section-reveal"><h2><span class="num">2i.</span>Mounting &amp; bracket design</h2>
+<p class="lead">One rigid base plate per station carries camera + light; align once, lock hard, record the mm position.</p>
+<p><strong>Requirements from our own system:</strong> <code>CameraInfo.machinePosition</code> (mm ruler) must stay valid → brackets hold position permanently; paper-machine vibration (11 m/s web) causes blur + FOV drift; wet/hot/dusty zones per §2h; each LED bar must stay co-aligned with its camera.</p>
+<p><strong>Two-stage architecture — one base plate per station carries camera AND light:</strong></p>
+<pre class="diagram"><code>[walkway / machine structure]
+   └── BASE PLATE (rigid, bolted, no adjustment)
+         ├── CAMERA HEAD (yaw/pitch ±5°, focus slide → LOCK)
+         └── LED BAR     (slot adjuster → LOCK)</code></pre>
+<p>Adjust once → lock hard (set screws + thread locker). No rubber joints: they creep under vibration. Relative camera↔light alignment survives bumps.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Rule</th><th>Value</th></tr></thead><tbody>
+<tr class="vNone"><td>Cantilever length</td><td>≤ 300 mm, triangulated brace</td></tr>
+<tr class="vNone"><td>Base plate</td><td>≥ 8 mm steel or 40×40 profile, 4+ anchor bolts</td></tr>
+<tr class="vNone"><td>Material (Wire/Press)</td><td>A4/316 stainless; isolate galvanic pairings</td></tr>
+<tr class="vNone"><td>Near Dryers</td><td>mount to cool structure, not hot hood frame (thermal growth shifts mm position)</td></tr>
+<tr class="vNone"><td>Vibration isolation</td><td>none by default — rigid beats damped for imaging</td></tr>
+</tbody></table></div>
+<p><strong>Safety &amp; service:</strong></p>
+<ul>
+<li>Web-break guard shield above Wire/Press stations (broken web lashes)</li>
+<li>Cable strain relief + drip loops before every M12/M8 connector</li>
+<li>Never hang stations on conduit or light brackets — independent structure only</li>
+<li>Lens windows collect fiber lint: orient for walk-up access, plan cleaning interval</li>
+</ul>
+<p><strong>Alignment workflow (ties into the app):</strong></p>
+<ol>
+<li>Bolt base plate, mount head + bar, rough-align optically</li>
+<li>Lock everything; fine-align via live view in the existing GUI</li>
+<li>Measure final camera position vs ruler origin (±5 mm is plenty at 0.2 mm/px)</li>
+<li>Enter value into <code>CameraInfo.machinePosition</code> (Config Dialog) → spatial sync reflects reality</li>
+<li>Re-check after first heat cycle near dryers</li>
+</ol>
+</section>
+
+<section id="2j-cooling-other-accessories" class="card section-reveal"><h2><span class="num">2j.</span>Cooling &amp; other accessories</h2>
+<p class="lead">Passive heat sinks everywhere, compressed-air coolers at dryers, pylon-integrated light control.</p>
+<p><strong>1. Camera cooling (official Basler devices, verified docs):</strong></p>
+<div class="tablewrap"><table>
+<thead><tr><th>Device</th><th>Spec</th><th>Use where</th></tr></thead><tbody>
+<tr class="vNone"><td>Heat Sink (ace 2 std / IP67)</td><td>anodized aluminum, <strong>2.1 / 2.4 K/W</strong>, M3 A2 screws</td><td>passive, every station</td></tr>
+<tr class="vNone"><td><strong>Compressed Air Cooler #2200002384</strong></td><td>mounts on camera, Ø8 mm hose plugs + G1/8&quot;, max 12 bar; water-capable (Festo OL-1/8 seal)</td><td><strong>dryer sections</strong> — active cooling on the IP67 body</td></tr>
+</tbody></table></div>
+<p>Pair the air cooler with filtered CDA (moisture/oil separator) so nothing is blown at the lens.</p>
+<p><strong>2. Lighting ecosystem (vendor-verified):</strong> Basler sells SLP lights (incl. coaxial), SLP Strobe Controller, and Basler Light Controllers (2C-1.25A-50W-24V / 4C-1.25A-84W-24V). Lights with integrated controllers expose a pylon <strong>&quot;Light Control&quot; feature</strong> — strobe intensity/width settable from the same GenICam node map as exposure.</p>
+<p><strong>3. Optical accessories:</strong> IR-pass filter if §2g goes 850 nm; polarizer for calender/reel gloss; diffuser for LED uniformity at short WD.</p>
+<p><strong>4. Power &amp; cabling per station:</strong> full M8/M12 industrial cable line verified. a2A1920 supports PoE (IEEE 802.3af), but strobed lights need 24 V anyway → central 24 VDC PSUs sized on peak pulse current; PoE optional for cameras only.</p>
+<p><strong>5. Commissioning:</strong> calibration targets for focus/FOV verification at install.</p>
+</section>
+
+<section id="2k-time-sync-ptp-cameras" class="card timesync section-reveal"><h2><span class="num">2k.</span>Time sync — which cameras have PTP (verified)</h2>
+<p class="lead">The ace 2 shortlist speaks IEEE 1588 — the current scout fleet does not (correction below). The app turns PTP on wherever the camera exposes the nodes.</p>
+<p>The app already handles PTP: <code>CameraManager</code> attempts to enable it on every real camera at config apply (no-op + log line when the nodes are absent), latches state every 10 s, and shows per-camera SLAVE / MASTER / SYNC / OFF badges plus a &gt;1 ms offset alert wherever the camera implements it. This section answers <em>which hardware actually implements it</em>.</p>
+<p class="callout ok">✅ <strong>Verified 2026-09-04</strong> (docs.baslerweb.com — &quot;Precision Time Protocol&quot; feature page): Basler GigE cameras support <strong>IEEE 1588-2008, PTP Version 2</strong>; the ace 2 shortlist is PTP-capable — no camera change is required for time sync on the new fleet.</p>
+<p class="callout warn">⚠️ <strong>Correction 2026-09-18 — the current fleet:</strong> the locally vendored <em>scout GigE User Manual</em> (AW00011919000, 16 482 lines) has <strong>no PTP / IEEE 1588 section at all</strong> — only chunk timestamps and <code>Gev Timestamp Tick Frequency</code>. Treat the <strong>scout scA780-class cameras as PTP-less</strong> until a bench camera proves otherwise; the earlier &quot;16 / 16&quot; line bundled scout together with classic ace. Classic ace (acA*) and ace 2 are the PTP-capable families (<code>GevIEEE1588*</code> / <code>Ptp*</code>). The app degrades cleanly: no PTP nodes → tile badge hidden, Device Settings shows <code>—</code>, no offset alert; the PTP enable write now covers both node names and logs when neither exists.</p>
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>Current — scA780-class (scout / classic acA GigE)</th><th>Target — ace 2 a2A1920-51 gm/gc BAS · PRO · IP67</th></tr></thead><tbody>
+<tr class="vNone"><td><strong>IEEE 1588-2008 (PTPv2)</strong></td><td><span class="chip bad">✖ scout: not documented</span> (classic ace ✔)</td><td><span class="chip ok">✔ supported</span></td></tr>
+<tr class="vNone"><td><strong>pylon node map</strong></td><td>classic ace (acA*): <code>GevIEEE1588</code> · <code>GevIEEE1588Status</code> · <code>GevIEEE1588OffsetFromMaster</code> · <code>GevIEEE1588ClockId</code> · <code>GevIEEE1588ParentClockId</code> · <code>GevIEEE1588DataSetLatch</code><br><strong>scout: none</strong> (no IEEE 1588 nodes)</td><td><code>PtpEnable</code> · <code>PtpDataSetLatch</code> · <code>PtpServoStatus</code> (<code>Locked</code>) · <code>PtpGrandmasterClockID</code> · <code>PtpClockAccuracy</code> + <code>BslPtp*</code> tuning</td></tr>
+<tr class="vNone"><td><strong>Force master (Priority 1)</strong></td><td>fixed 128 — cannot be nudged</td><td><code>BslPtpPriority1</code> 0–255, settable (0 = highest)</td></tr>
+<tr class="vNone"><td><strong>Delay mechanism</strong></td><td>end-to-end only</td><td>E2E or P2P (<code>BslPtpProfile</code>)</td></tr>
+<tr class="vNone"><td><strong>Clock steps / modes</strong></td><td>always two-step; multicast</td><td>one- or two-step; multicast / hybrid / unicast (<code>BslPtpNetworkMode</code>)</td></tr>
+<tr class="vNone"><td><strong>Clock tick</strong></td><td>125 MHz → 1 GHz when PTP enabled (8 ns → 1 ns ticks)</td><td>always 1 GHz</td></tr>
+<tr class="vNone"><td><strong>Lock check (as used in our code)</strong></td><td><code>GevIEEE1588OffsetFromMaster</code> &lt; threshold (alert at &gt; 1 ms)</td><td><code>PtpServoStatus</code> = <code>Locked</code> (plus offset read)</td></tr>
+<tr class="vNone"><td><strong>App badge</strong></td><td colspan="2">Live tile: <span class="chip ok">PTP SLAVE</span> green · <span class="chip blue">PTP MASTER</span> blue · <span class="chip warn">PTP SYNC</span> amber · <span class="chip off">PTP OFF</span> · <span class="chip bad">PTP FAULT</span></td></tr>
+</tbody></table></div>
+<h3>Configuration guidance (Basler-recommended + ours)</h3>
+<ul>
+<li>Enable per camera: <code>GevIEEE1588</code> / <code>PtpEnable</code> = true. The app writes whichever node the camera exposes — both families covered since 2026-09-18; ace 2 <code>BslPtpPriority1</code> = 255 tuning is still open (§5).</li>
+<li>Basler recommends <strong>ANNOUNCE interval 2 s, SYNC interval 0.5 s</strong>.</li>
+<li>Keep the default <strong>end-to-end delay mechanism</strong>. Peer-to-peer only if <em>every</em> switch in the path is PTP-enabled and configured for P2P.</li>
+<li>Set a dedicated grandmaster with <strong>Priority 1 &lt; 128</strong> (e.g. 100); set ace 2 cameras to <strong>255</strong> so no camera ever arbitrates to master when the GM is present. On scout-class cameras priority is fixed at 128 — the GM still wins on clock class / ID tie-breaks, but you cannot lock cameras out of the arbitration.</li>
+<li>Do not filter PTP multicast on the switch: <code>224.0.1.129</code> (general — sync / announce / delay-req) and <code>224.0.0.107</code> (peer-delay, only with the P2P mechanism).</li>
+<li>Chunk data must be <strong>on</strong> with <code>ChunkTimestamp</code> (+ <code>Framecounter</code>) selected, or the app falls back to software arrival stamps (§ Current state).</li>
+</ul>
+<p class="callout warn">⚠️ <strong>What PTP does and does not give you:</strong> with no GPS master the network runs in <em>arbitrary-timescale (ARB)</em> mode — all cameras agree with each other to µs precision, but the epoch is arbitrary and can shift when the grandmaster reboots or a better clock appears. That is enough for cross-camera frame alignment in one event; absolute UTC requires §2m.</p>
+</section>
+
+<section id="2l-time-sync-ptp-switch" class="card timesync section-reveal"><h2><span class="num">2l.</span>Time sync — the switch</h2>
+<p class="lead">The switch is the PTP middlebox: transparent/boundary clock keeps offsets in µs; plain switches let them drift to ms.</p>
+<p>The network switch is the middle of the PTP chain. PTP-capable managed switches run as an <strong>IEEE 1588 transparent clock (TC)</strong> or <strong>boundary clock (BC)</strong> and compensate for each packet's residence time, so slave offset stays in the µs range across the whole fleet. <em>Plain unmanaged or non-PTP switches still pass PTP</em>, but add asymmetric latency and queueing jitter — offsets degrade toward ms and the app's 1 ms alert will fire on a busy network.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Model</th><th>Ports (16-camera fit)</th><th>PTP mode</th><th>Street price *</th><th>Fit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Planet IGS-6325-24UP4X</strong> (industrial L3, rack)</td><td>24× GbE 802.3bt PoE++ + 4× 10G SFP+ — 16 cams on 1G ports, 2× 10G uplinks to server, 1 port for grandmaster, 1 spare</td><td><span class="chip ok">IEEE 1588v2 transparent clock</span></td><td>≈ $1 670 <span class="pill v">✔</span></td><td>⭐ recommended baseline — PoE feeds cameras over one cable</td></tr>
+<tr class="vNone"><td><strong>Netgear M4300-24X</strong> (XSM4324CS, full-managed)</td><td>24× 10GBASE-T (4 shared SFP+) — every camera port has 10G headroom for future resolution</td><td><span class="chip ok">IEEE 1588v2 PTP</span> (TC; BC on current AV-line firmware)</td><td>≈ $3 700 <span class="pill v">✔</span></td><td>all-10G copper, stackable</td></tr>
+<tr class="vNone"><td><strong>Cisco Catalyst IE9300</strong> (rugged/industrial)</td><td>modular industrial; 10G uplinks</td><td><span class="chip ok">PTP TC / BC</span> (Cisco config guide)</td><td>quote (est. $7–10k)</td><td>mill-floor / hardened deployment</td></tr>
+<tr class="vbad"><td>Unmanaged or non-PTP managed switch</td><td>any</td><td><span class="chip bad">none</span></td><td>any</td><td>works, but offsets drift to ms → alert noise; retrofit later</td></tr>
+</tbody></table></div>
+<p class="legend">* Street prices checked 2026-09-04: PlanetechUSA (Planet), CDW/NetGuard (Netgear); Cisco = distributor quote. <span class="pill v">✔</span> verified street price · <span class="pill e">est</span> estimate.</p>
+<h3>Switch + PTP recipe for this system</h3>
+<ul>
+<li><strong>Topology:</strong> 16 cameras → 1G ports (Cat6a ≤ ~90 m or fiber for long runs to the dry end); vision server bonded <strong>2× 10G SFP+</strong> uplinks (LACP); grandmaster on its own port. This is the single-switch baseline — for the split build (2 leaf switches on the machine floor + a core switch in the control room) see <a href="#2r-network-topology-two-segments">§2r</a>, where the leaf/core PTP roles replace this layout.</li>
+<li><strong>Jumbo frames (MTU 9000)</strong> on camera ports — the a2A1920 at 51 fps is ≈ 940 Mbps and needs MTU 9000 to hit rated fps with headroom.</li>
+<li><strong>PTP domain 0</strong>, E2E delay mechanism, do not IGMP-filter the PTP multicast groups (§2k).</li>
+<li><strong>QoS:</strong> priority-tag PTP event messages if the switch supports it; keep the camera VLAN free of broadcast storms.</li>
+<li>PoE on the Planet model powers each camera (802.3af, ~7 W) — one drop cable per station for data + power; strobe lights still need their own 24 V feed (§2g).</li>
+</ul>
+</section>
+
+<section id="2m-time-sync-grandmaster" class="card timesync section-reveal"><h2><span class="num">2m.</span>Time sync — the grandmaster</h2>
+<p class="lead">Three rungs from free (a camera arbitrates) to production (GNSS grandmaster, UTC events).</p>
+<p>The grandmaster is the root clock of the PTP domain — every camera slave synchronizes to it (via the switch). Basler's own guidance: <em>&quot;for maximum precision, use PTP-enabled network switches and add an external PTP clock device with a GPS receiver&quot;</em>. Three rungs, cheapest to most capable:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Rung</th><th>Grandmaster</th><th>Accuracy / epoch</th><th>Cost</th><th>When to use</th></tr></thead><tbody>
+<tr class="vNone"><td>0</td><td><strong>None — best-master arbitration picks a camera</strong></td><td>cross-cam µs after lock; <strong>ARB epoch</strong> — shifts on reboot / GM change</td><td>$0</td><td>today's default (context: arbitrary-timescale mode). Fine while events only compare cameras to each other.</td></tr>
+<tr class="vNone"><td>1</td><td><strong>Vision server as software master</strong> — linuxptp <code>ptp4l</code> in master mode on the 10G NIC</td><td>stable while the server runs; µs-level to cameras; host epoch from its own clock (NTP/GPS)</td><td>$0</td><td>budget route; GM disappears on server reboot; no absolute traceability.</td></tr>
+<tr class="vstar"><td>2</td><td><strong>GNSS grandmaster — Meinberg microSync XS / HR</strong> (IEEE 1588 PTPv2 + NTP, two PTP ports, GNSS/GPS antenna)</td><td><strong>UTC/TAI absolute</strong>, traceable, GPS holdover; µs end-to-end</td><td>≈ $3–5k <span class="pill e">est</span> (quote)</td><td>⭐ recommended for production: events line up with DCS / OPC UA logs, maintenance records and wall clock.</td></tr>
+</tbody></table></div>
+<p><strong>Why absolute time matters here:</strong> sheet-break events already snapshot OPC UA speed tags and trigger times. With a GNSS grandmaster, the frame timestamps in every <code>.bin</code> become UTC — a break can be correlated hour-for-hour with the DCS historian and the drive logs, not just within one event.</p>
+<h3>Rollout steps</h3>
+<ol>
+<li><strong>Day 1 (no new hardware):</strong> keep PTP enabled (app does this), leave ARB mode, verify all tiles show <span class="chip ok">PTP SLAVE</span> and offsets &lt; 1 ms on the current switch.</li>
+<li><strong>Day 2 (switch swap):</strong> install a PTP-capable switch (§2l), keep ARB, watch offsets drop to single-digit µs on <code>GevIEEE1588OffsetFromMaster</code> / <code>PtpServoStatus=Locked</code>.</li>
+<li><strong>Day 3 (absolute time):</strong> add the GNSS grandmaster, Priority 1 = 100 (cameras 255 on ace 2), domain 0, and switch chunk timestamps on. Optionally run <code>ptp4l</code> as a slave on the vision server so host-clock event times match too.</li>
+</ol>
+<p class="callout warn">⚠️ <strong>Housekeeping:</strong> an ARB grandmaster is whoever wins arbitration — if that camera is swapped or power-cycled, the epoch shifts and pre/post-reboot events no longer share a timeline. Log <code>PtpGrandmasterClockID</code> per event so reviewers can detect a timescale jump (the app already reads it into <code>PtpStatus.parentClockId</code>).</p>
+</section>
+
+<section id="2k-2m-do-we-need-ptp" class="card timesync section-reveal"><h2><span class="num">2k–2m.</span>Do we need PTP? — what it buys, what it doesn't</h2>
+<p class="lead">PTP is a time-<em>quality</em> upgrade, not a prerequisite for recording. Buffering, pre-trigger and event playback work without it; PTP decides how precisely the frames of different cameras line up in time — and only when chunk timestamps are on.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>What we want</th><th>What it actually needs</th><th>PTP?</th></tr></thead><tbody>
+<tr class="vNone"><td><strong>Record all cameras, save/show only after a trigger</strong></td><td>Free-running cameras + per-camera RAM ring buffer; the trigger (OPC UA sheet-break tag or manual) only gates the save and the review UI. Already how <code>EventController</code> works.</td><td><span class="chip off">no</span></td></tr>
+<tr class="vNone"><td><strong>Pre-trigger window (see what caused the break)</strong></td><td>Frames must exist <em>before</em> the trigger — always-on capture into the host ring buffer (1–60 s configurable, sized pre-seconds × fps). Frames cannot be created retroactively.</td><td><span class="chip off">no</span></td></tr>
+<tr class="vNone"><td><strong>Cross-camera alignment in review</strong></td><td>Works without PTP: all frames carry one host <code>system_clock</code> arrival stamp, so the nearest-frame mapping runs — but arrival stamps include network/queue jitter (ms class). At 1000 m/min that is ≈ 17 mm of web per ms. With PTP + chunk the same mapping becomes sensor-accurate.</td><td><span class="chip warn">helps</span></td></tr>
+<tr class="vstar"><td><strong>Sensor-accurate timestamps per frame</strong></td><td>PTP (cameras lock to one epoch) <strong>and</strong> chunk mode on with <code>ChunkTimestamp</code> + <code>Framecounter</code> — the stamp then comes from the sensor at exposure time. Either one alone is not enough.</td><td><span class="chip ok">yes — both</span></td></tr>
+<tr class="vNone"><td><strong>Cameras agree to µs (relative sync)</strong></td><td>PTP alone. Best-master arbitration elects a clock (normally a camera) — no dedicated grandmaster required; the epoch is arbitrary (ARB mode).</td><td><span class="chip ok">yes</span></td></tr>
+<tr class="vNone"><td><strong>Absolute UTC time (correlate with DCS / drive logs)</strong></td><td>PTP + GNSS grandmaster (rung 2, §2m) for a stable, traceable epoch instead of ARB shifts.</td><td><span class="chip ok">yes + GM</span></td></tr>
+<tr class="vNone"><td><strong>Lock cameras out of master arbitration</strong></td><td>Dedicated grandmaster + ace 2 <code>BslPtpPriority1</code> = 255; scout-class priority is fixed at 128 (§2k).</td><td><span class="chip ok">yes + GM</span></td></tr>
+<tr class="vNone"><td><strong>All cameras expose at the same instant</strong></td><td>Not a PTP feature: a GigE Vision action command or a hardware trigger line. PTP records <em>when</em> each frame was exposed — it does not decide when to expose.</td><td><span class="chip bad">no — action cmd</span></td></tr>
+</tbody></table></div>
+<h3>What PTP does not do</h3>
+<ul>
+<li>It does not create pre-trigger frames — if cameras stream only during events, the seconds before the trigger simply do not exist.</li>
+<li>It does not trigger recording — the event trigger stays the sheet-break OPC UA tags + manual button (§4).</li>
+<li>It does not synchronize shutters — that is an action command or hardware trigger; PTP aligns timestamps, not exposures.</li>
+<li>Without chunk timestamps it only feeds the badges/alert — the recorded <code>.bin</code> still carries host arrival stamps (§5).</li>
+</ul>
+<h3>Action commands (scheduled triggers) — where they fit</h3>
+<ul>
+<li>PTP is the foundation of GigE Vision action commands (Basler white paper): one multicast command makes every matching camera act at the same — or a scheduled future — instant (trigger a frame, start/stop acquisition, fire I/O).</li>
+<li>This app does not use them, and does not need to: cameras free-run and timestamps do the alignment — there is no <code>TriggerMode</code>/<code>TriggerSource</code> configured anywhere.</li>
+<li>&quot;Stream only during events&quot; via action commands is a possible use — and the one that destroys the pre-trigger window. Only a degraded hybrid is realistic: stream low-rate / small-ROI when idle, burst full-rate on trigger.</li>
+</ul>
+<h3>How the app aligns cameras today (keep this)</h3>
+<ul>
+<li>Every saved frame carries <code>FrameMetadata</code> in the <code>.bin</code>: the camera stamp, the frame counter and — since format v2 — the host arrival time.</li>
+<li>On event load every camera's sensor stamps <em>and</em> host stamps are cached; scrubbing maps the timeline camera's frame time to each other camera's <em>nearest own frame</em> (<code>displayedFrameIndexForCamera</code>).</li>
+<li>Two-tier guard: the sensor clocks are used when the first timestamps agree within 60 s; otherwise the shared host clock is tried (always comparable — one PC clock); only when both are unusable (legacy v1 video events) does it fall back to shared-index + <code>cameraFrameOffsets_</code>.</li>
+<li>Ground truth for offsets stays <strong>mark-based alignment</strong> (speed-anchor fallback when unmarked) — it corrects residual per-camera error regardless of stamp quality.</li>
+<li>Roll chunk mode out to <em>all</em> cameras (or none) for one consistent sensor timeline; mixed pairs still align through the host clock, just not at sensor accuracy.</li>
+</ul>
+<p class="callout ok">✅ <strong>Recommendation:</strong> keep the current pipeline (free-run + ring buffer + OPC UA/manual trigger + mark-based alignment) and turn <strong>chunk mode on</strong> (<code>ChunkTimestamp</code> + <code>Framecounter</code>, per camera, staged — needs an acquisition stop) with PTP already enabled. That is the single change that upgrades sync from arrival-time to sensor-time, at negligible bandwidth. Implemented 2026-09-18: chunk-mode default + one-time config migration, the ace 2 <code>PtpEnable</code> write, and dual timestamps (.bin v2 records the host arrival clock next to the camera stamp, so a PTP-less fleet keeps cross-camera alignment through the host clock). Still open (§5): per-event grandmaster clock logging, the 1 ms alert threshold vs the &lt; 10 µs target, and the scA780 chunk bench check.</p>
+</section>
+
+<section id="2n-moisture-swir-nir" class="card section-reveal"><h2><span class="num">2n.</span>Moisture — SWIR / NIR water-band (Basler only)</h2>
+<p><strong>Scope per request (2026-09-05):</strong> Basler cameras only · press + dryer exits · docs + BoM. Traversing NIR gauges (Valmet / ABB / Honeywell) are out of scope here.</p>
+<p><strong>Principle.</strong> Liquid water absorbs at <strong>~1450 nm and ~1940 nm</strong>; a nearby non-absorbing reference band (~1050–1300 nm) normalises illumination and basis-weight effects. Per-pixel ratio <code>R = I(1450) / I(1200)</code> is a moisture proxy after calibration against oven-dry lab samples (plus temperature / grade compensation). This is an <em>average-value</em> measurement — not defect imaging — so 10–25 fps and longer exposures are fine.</p>
+<p class="callout ok">✅ <strong>Models verified 2026-09-05</strong> against the docs.baslerweb.com camera index — GigE SWIR line is <code>a2A640-240gmSWIR</code> · <code>a2A1280-80gmSWIR</code> · <code>a2A2048-35gmSWIR</code> · <code>a2A2560-20gmSWIR</code> (USB <code>umSWIR</code> and CXP <code>cmSWIR</code> variants exist — specify <code>gm</code> for this GigE + PTP topology). Prices and the SWIR PTP node map are still <span class="pill e">est</span> — confirm distributor quote and datasheet before purchase.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Basler candidate (GigE)</th><th>Sensor</th><th>Res</th><th>FPS class</th><th>PTP</th><th>Fit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>ace 2 GigE SWIR · IMX990 class (a2A1280-80gmSWIR)</strong></td><td>Sony IMX990 InGaAs (400–1700 nm)</td><td>~1.3 MP class</td><td>80 fps max; run at 10–25</td><td><span class="chip blue">ace 2 PTP expected — confirm</span></td><td>⭐ default moisture imager</td></tr>
+<tr class="vNone"><td><strong>ace 2 GigE SWIR · IMX991 class (a2A640-240gmSWIR)</strong></td><td>Sony IMX991 InGaAs (400–1700 nm)</td><td>656×520 (VGA)</td><td>240 fps max; run at 10–25</td><td><span class="chip blue">ace 2 PTP expected — confirm</span></td><td>cheap / narrow-web alternative</td></tr>
+</tbody></table></div>
+<p><strong>Why these two:</strong> same ace 2 GigE + pylon ≥ 6.0 ecosystem as the visible fleet (§2e), C-mount, global shutter, mono only. USB <code>umSWIR</code> variants exist but do not fit the GigE + PTP topology — specify <code>gmSWIR</code>.</p>
+<h3>Placement — press + dryer exits</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Station</th><th>Section</th><th>Why</th></tr></thead><tbody>
+<tr class="vNone"><td>M1 — press exit</td><td>Press-Part</td><td>wet-end reference (~45–55 % moisture), highest contrast, dryer-feedforward input</td></tr>
+<tr class="vNone"><td>M2 — after-dryer / pre-calender</td><td>After-Dryer</td><td>dry-end result (~5–8 %), pairs with M1 for drying-curve endpoints</td></tr>
+<tr class="vNone"><td>M3/M4 (expand) — pre-dryer + reel</td><td>Pre-Dryer / Calender-Reel</td><td>profile mid-point + final reel QC; add only after M1+M2 calibration holds</td></tr>
+</tbody></table></div>
+<p><strong>Start with 2 stations (M1+M2).</strong> Same mm-ruler + PTP timestamps as visible cameras, so moisture samples line up with break events and speed anchors.</p>
+<h3>Optics &amp; illumination — different from visible</h3>
+<ul>
+<li><strong>Lenses:</strong> visible C23 lenses (§2f) absorb beyond ~1000 nm — specify <strong>SWIR-corrected C-mount</strong> (fused-silica / SWIR coating, Ø covers ≥ 1/2&quot; for IMX990). Budget one lens + one dual-bandpass filter set (reference ~1200 nm + water ~1450 nm) per moisture camera.</li>
+<li><strong>Light:</strong> visible strobed LED bars (§2g) emit nothing at 1450 nm — use a <strong>stabilised broadband halogen illuminator + controller</strong> per station (continuous, not strobed; no flash-sync needed). Size the 24 V / mains feed on continuous watts, not pulse current.</li>
+<li><strong>Exposure:</strong> halogen is dimmer than overdriven strobes — expect ~100 µs–2 ms exposures. At 11 m/s that is ~1–20 mm of motion blur: acceptable for a moisture average, not for defect edges. Narrow the FOV or average across frames if needed.</li>
+<li><strong>Housing/cooling:</strong> same IP30 → IP67 logic as §2h (wet press station, hot dryer station + air cooler §2j). Keep the halogen head thermally isolated from the camera body.</li>
+</ul>
+<h3>Device data sheets (planning <span class="pill e">est</span> — confirm quote)</h3>
+<details class="note"><summary>D1–D4 full specs — SWIR body, lens, filters, halogen <span class="sum-tag">(click to expand)</span></summary>
+<h4>D1 — SWIR camera body</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Default</th><th>Alternative</th></tr></thead><tbody>
+<tr class="vNone"><td>Model</td><td><strong>a2A1280-80gmSWIR</strong></td><td>a2A640-240gmSWIR (narrow web / budget)</td></tr>
+<tr class="vNone"><td>Sensor</td><td>Sony IMX990 InGaAs, 400–1700 nm, global shutter, <strong>mono only</strong></td><td>Sony IMX991, 656×520 VGA</td></tr>
+<tr class="vNone"><td>Interface / software</td><td colspan="2">GigE Vision · C-mount · pylon ≥ 6.0 (6.2.0 today → 26.06 in this edition, §2e) · PoE per datasheet — confirm</td></tr>
+<tr class="vNone"><td>Time sync</td><td colspan="2">ace 2 <code>PtpEnable / BslPtp*</code> expected — confirm node map on arrival; chunk timestamp on</td></tr>
+<tr class="vNone"><td>Body / environment</td><td colspan="2">IP30 → housing or IP67 station build per §2h; InGaAs runs warmer — heat sink always, air cooler at dryer (§2j)</td></tr>
+<tr class="vNone"><td>Rate in this system</td><td colspan="2"><strong>25 fps Mono8</strong> (1000 frames / 40 s event); Mono12 optional at ×2 RAM</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Order-code trap:</strong> <code>a2A1280-125umSWIR</code> is the <em>USB</em> variant — the GigE one is <code>a2A1280-80gmSWIR</code>. Check the <code>gm</code> infix on the delivery note.</li>
+<li><strong>First light:</strong> halogen on, 1200 nm filter, PTFE white tile on the web → flat-field reference; then 1450 nm filter → ratio sanity check (dry tile R ≈ 1, damp sample R &lt; 1).</li>
+<li><strong>InGaAs quirks:</strong> higher dark current than CMOS — enable defect-pixel correction, fix exposure/gain (no auto), let the body thermally settle before calibration.</li>
+</ul>
+<h4>D2 — SWIR-corrected lens</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Mount / format</td><td>C-mount, image circle ≥ 1/2&quot; (covers IMX990)</td></tr>
+<tr class="vNone"><td>Coating</td><td>AR 900–1700 nm (standard VIS coatings absorb at 1450 nm — §2f C23 glass is unusable here)</td></tr>
+<tr class="vNone"><td>Focal length</td><td>12 / 16 / 25 mm per FOV — same <code>FOV ≈ WD × sensor-width / f</code> formula as §2f</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Focus shift:</strong> 1200 nm and 1450 nm focus at different planes — focus at the working wavelength with the filter in place, then lock hard (set screws + thread locker, §2i).</li>
+</ul>
+<h4>D3 — dual-bandpass filter set (per station)</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Filter</th><th>Centre / width</th><th>Role</th></tr></thead><tbody>
+<tr class="vNone"><td>Reference</td><td>~1200 nm ± 25 nm</td><td>normalises illumination + basis weight</td></tr>
+<tr class="vNone"><td>Water</td><td>~1450 nm ± 25 nm (1940 nm alt for soaking-wet press)</td><td>absorption band → moisture signal</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Switching:</strong> single camera + motorised filter slider/wheel, sequential capture at ~1 Hz — fast enough for a moisture average, cheapest correct build. Dual-camera beam-split only if a 1 s lag is unacceptable.</li>
+<li><strong>Handling:</strong> OD4 VIS blocking; recalibrate after any filter touch (fingerprints absorb NIR); keep a sealed spare set — dusty air scratches coatings during cleaning.</li>
+</ul>
+<h4>D4 — halogen illuminator + controller (per station)</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Spectrum</td><td>broadband 900–2000 nm continuous (VIS LED bars emit nothing at 1450 nm)</td></tr>
+<tr class="vNone"><td>Supply</td><td>stabilised DC controller — mains flicker goes straight into the moisture ratio</td></tr>
+<tr class="vNone"><td>Power / life</td><td>~50–150 W continuous per station; bulb life ~2000–4000 h → stock spares, plan relamp interval</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Wiring:</strong> own mains/24 V feed, separate from camera PoE — continuous watts, not pulse current (§2g logic inverted).</li>
+<li><strong>Commissioning:</strong> 10–15 min warm-up before any calibration; burn guard + thermal isolation from the camera body; verify no 100/120 Hz ripple in a 1 s line trace before accepting the station.</li>
+</ul>
+</details>
+<h3>Data &amp; software impact</h3>
+<ul>
+<li><strong>Rate:</strong> run moisture cams at <strong>25 fps</strong> (not 50) — moisture changes slowly. A 40 s event = <strong>1000 frames/station</strong> vs 2000 for visible.</li>
+<li><strong>Budget (per IMX990-class station @25 fps):</strong> ≈ 33 MB/s wire (GigE OK, MTU 9000), ≈ 1.3 GB ring + disk per event. Two stations add ≈ 65 MB/s and ≈ 2.6 GB/event — small vs the visible fleet.</li>
+<li><strong>Recorder:</strong> needs roadmap item 1 (per-camera FPS-true recording) — moisture is the first mixed-fps consumer. Pixel format Mono8 (Mono12 optional, ×2 RAM).</li>
+<li><strong>Calibration:</strong> lab oven samples per grade → LUT <code>moisture % = f(R, temperature, grade)</code>; store the per-event mean/profile as an OPC UA-style tag alongside speed anchors, not as full-res defect frames.</li>
+<li><strong>Time sync:</strong> join the same PTP domain 0 (§2k–2m); enable chunk timestamps so moisture frames share the UTC axis.</li>
+</ul>
+</section>
+
+<section id="2o-temperature-mapping" class="card section-reveal"><h2><span class="num">2o.</span>Temperature mapping (dryer diagnostics + moisture compensation)</h2>
+<p><strong>Scope (2026-09-05):</strong> purposes are dryer-fault detection, SWIR moisture compensation, and energy/over-drying watch — not break imaging. No 50 fps recording; temperature rides the mill plane as slow OPC UA trend data.</p>
+<p class="callout warn">⚠️ <strong>Basler note:</strong> Basler sells no LWIR (8–14 µm) microbolometer camera — the physics needs a different sensor. The default below is therefore vendor-neutral <strong>IR spot pyrometers via OPC UA</strong> (no GigE, no pylon). A full LWIR thermal camera is listed only as an option and is inherently non-Basler (e.g. FLIR A-series / Optris Xi class).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Option</th><th>Device</th><th>Signal</th><th>Fit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>A — spot pyrometer per station</strong></td><td>IR pyrometer head (8–14 µm, 4–20 mA / Modbus → OPC UA)</td><td>1 Hz point temperature per station</td><td>⭐ default — cheap, no network load</td></tr>
+<tr class="vNone"><td><strong>B — LWIR camera (optional)</strong></td><td>640×480 microbolometer, 8–14 µm, standalone GigE</td><td>CD temperature profile image @ ≤30 fps</td><td>dryer-exit diagnostics only; outside PTP/event path</td></tr>
+</tbody></table></div>
+<h3>Placement</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Station</th><th>Section</th><th>Why</th></tr></thead><tbody>
+<tr class="vNone"><td>T1 — dryer exit</td><td>After-Dryer</td><td>cold lanes = flooded/plugged cylinders; pairs with moisture M2 for dry-end QC</td></tr>
+<tr class="vNone"><td>T2 — reel</td><td>Calender-Reel</td><td>final sheet temperature; over-drying / energy watch</td></tr>
+<tr class="vNone"><td>T3/T4 (expand) — press exit / pre-dryer</td><td>Press-Part / Pre-Dryer</td><td>compensation input for moisture M1; hood-balance check</td></tr>
+</tbody></table></div>
+<p><strong>Start with 2 pyrometers (T1+T2).</strong> One pyrometer co-mounted per moisture station doubles as the §2n temperature-compensation input.</p>
+<h3>Device data sheets (planning <span class="pill e">est</span> — confirm quote)</h3>
+<details class="note"><summary>D5–D6 full specs — pyrometer chain, LWIR camera <span class="sum-tag">(click to expand)</span></summary>
+<h4>D5 — IR spot pyrometer + signal chain (per station)</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Head</td><td>8–14 µm spot pyrometer, range 0–250 °C, optics ≥ 22:1 (spot small vs web at working distance)</td></tr>
+<tr class="vNone"><td>Output</td><td>4–20 mA loop or RS-485 Modbus → remote I/O → OPC UA tag @ ~1 Hz</td></tr>
+<tr class="vNone"><td>Emissivity</td><td>set per grade in config (paper ≈ 0.85–0.95); wrong emissivity = drifting °C</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Aim:</strong> at the sheet, never at dryer cans or frames; avoid live steam path (steam reads cold and fakes a wet lane).</li>
+<li><strong>Wiring:</strong> shielded 4–20 mA pair per head back to the I/O cabinet; loop-powered, isolated from the 24 V strobe bus (§2g).</li>
+<li><strong>Config:</strong> one OPC UA node per head with <code>positionMm</code> on the machine ruler (docs/machine-reference.md §3 pattern) so temperature lands in event metadata next to speed anchors.</li>
+<li><strong>Commissioning:</strong> blackbody or contact-thermometer cross-check per grade; re-check emissivity after every grade/coating change.</li>
+</ul>
+<h4>D6 — LWIR thermal camera (optional, non-Basler)</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Detector</td><td>640×480 microbolometer, 8–14 µm, ≤ 30 fps, radiometric (per-pixel °C)</td></tr>
+<tr class="vNone"><td>Optics</td><td>germanium objective matched to dryer-exit FOV + protective Ge window with air purge</td></tr>
+<tr class="vNone"><td>Interface</td><td>standalone GigE + vendor SDK — deliberately outside pylon/PTP/event path</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Placement:</strong> dryer exit only (T1) unless reel profiling proves its value; snapshot-on-trigger via digital input is optional.</li>
+<li><strong>Upkeep:</strong> annual radiometric recalibration; purge air on the window (fiber lint + condensate blind LWIR fast).</li>
+</ul>
+</details>
+<h3>Data &amp; software impact</h3>
+<ul>
+<li><strong>Pyrometers:</strong> ~1 Hz OPC UA tags, stored as event metadata alongside speed anchors — <strong>zero GigE bandwidth, zero ring RAM</strong>. No recorder change needed.</li>
+<li><strong>LWIR camera (if taken):</strong> standalone viewer/trending; snapshots on event trigger optional. Kept out of the 16-camera PTP domain and the 2000-frame ring budget deliberately.</li>
+<li><strong>Emissivity:</strong> paper ~0.9 but grade/coating-dependent — fix the emissivity per grade in config and re-check after grade changes, or the °C readings drift.</li>
+</ul>
+</section>
+
+<section id="2p-server-client-monitors-fiber" class="card section-reveal"><h2><span class="num">2p.</span>Server · client · monitors · fiber</h2>
+<p><strong>Scope per request (2026-09-05):</strong> tower server on site · 1 client (live view + analyze) · distances unknown so uplinks default to DAC with OM3/OM4/OS2 glass options. All prices <span class="pill e">est</span> — confirm quote.</p>
+<h3>S1 — vision server (tower)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Chassis</td><td>Quiet tower workstation, server-grade cooling for sustained 0.7–1.1 GB/s writes (§2)</td></tr>
+<tr class="vNone"><td>CPU / board</td><td>16C modern (Ryzen 9 / Xeon W class) on a workstation board with <strong>ECC support</strong></td></tr>
+<tr class="vNone"><td>RAM / storage / NIC</td><td>128 GB ECC + 4 TB NVMe Gen4 + X710-DA2 — already counted in §6 compute/network groups, not in the server row</td></tr>
+<tr class="vNone"><td>OS disk / PSU</td><td>1 TB NVMe (OS + pylon + app) · 1000 W 80+ Platinum · PCIe slot + 450 W headroom reserved for a future GPU (§2d)</td></tr>
+<tr class="vNone"><td>Power protection</td><td>1500 VA line-interactive UPS covering server + switch — a mid-write blackout otherwise eats the live event</td></tr>
+<tr class="vNone"><td>OS</td><td><strong>Ubuntu 24.04 LTS</strong>, same pinned stack as dev (Qt 5.15, OpenCV 4.x, pylon 26.06) — supported to April 2029</td></tr>
+</tbody></table></div>
+<h3>S2 — client PC (live view + analyze, 1 station)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Spec</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Role</td><td>No recorder, no ring buffers — mounts the server event share <strong>read-only</strong>, live tiles + DETAIL scans served from the server</td></tr>
+<tr class="vNone"><td>Hardware</td><td>Modern 8C CPU · 32 GB · 1 TB NVMe · 1G NIC to a spare switch port · quiet office tower</td></tr>
+<tr class="vNone"><td>OS / app</td><td>Same <strong>Ubuntu 24.04</strong> image + app build; pylon 26.06 runtime for live view (no license cost)</td></tr>
+</tbody></table></div>
+<h3>S3 — monitors</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Where</th><th>Ask for</th></tr></thead><tbody>
+<tr class="vNone"><td>Client desk (×2)</td><td><strong>27&quot; QHD (2560×1440) IPS</strong>, flicker-free, height-adjust + VESA arm — left: 16 live tiles, right: analyze/DETAIL</td></tr>
+<tr class="vNone"><td>Server (×1)</td><td>Basic 24&quot; admin monitor (commissioning + service only)</td></tr>
+</tbody></table></div>
+<p>Why QHD, not 1080p: at 1920×1200 sensors a 16-tile wall needs the pixels; 4K is optional growth, not required.</p>
+<h3>S4 — fiber / copper plant</h3>
+<p class="callout ok">✅ <strong>Clarified 2026-09-22 — does fiber support PTP? Yes, exactly like copper.</strong> IEEE 1588 travels inside <em>ordinary Ethernet frames</em> (L2 or UDP/IP), so it is indifferent to the physical medium: <strong>&quot;GigE&quot; means Gigabit Ethernet, not copper</strong> — 1000BASE-T (RJ45) and 1000BASE-X / 10GBASE-SR/LR (fiber) are the same Ethernet, and the §2r leaf → core hop already carries <em>fiber · PTP E2E</em>. What decides µs vs ms is the <strong>switch class</strong> (transparent / boundary clock) and the grandmaster — never the glass (§2s).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Link</th><th>Default (BoM)</th><th>If longer / site survey says so</th><th>PTP?</th></tr></thead><tbody>
+<tr class="vNone"><td>Cameras → leaf switch</td><td>Cat6a S/FTP drops — already in §6 cabling rows (2 segments of 8 + 1 in §2r)</td><td>Fiber only for extreme dry-end runs (media converter per drop — last resort)</td><td><span class="chip ok">✔ full PTP</span> — the camera is the slave on its copper drop</td></tr>
+<tr class="vNone"><td>Leaf → core (§2r)</td><td><strong>Armored OM3, 4-strand, pre-terminated LC/UPC</strong> (2 used + 2 spare) + 10G-SR SFP+</td><td>OM4 4-strand when the measured run lands in 300–400 m · OS2 4-strand + 10G-LR beyond 400 m or into the site backbone</td><td><span class="chip ok">✔ full PTP</span> — fiber is transparent to it (≈ 5 ns/m, symmetric, compensated); the leaf/core switches are the TC/BC hops</td></tr>
+<tr class="vNone"><td>Core switch → server (2× 10G LACP)</td><td><strong>DAC twinax pair</strong> (≤ 5 m, tower next to the core switch)</td><td>OM3/OM4 multimode LC-LC + 10G-SR SFP+ (≤ 300/400 m) · OS2 single-mode + 10G-LR (km range)</td><td><span class="chip ok">✔ full PTP</span> — DAC carries it too; the X710 timestamps in hardware for <code>ptp4l</code></td></tr>
+<tr class="vbad"><td>Media converter (copper ↔ fiber camera drop)</td><td>avoid — last resort only</td><td>—</td><td><span class="chip bad">✖ breaks the chain</span> — bit-transparent but <em>not</em> a transparent clock: adds asymmetry no servo can see</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Distances unknown/mixed</strong> → the BoM <code>Uplink media</code> selector prices all four (DAC / OM3 / OM4 / OS2); confirm with a tape measure before ordering — OM3 covers everything up to 300 m, so the tape measure only decides between OM3, OM4 and OS2 (DAC is pennies, LR optics are not).</li>
+<li>Leave 2 spare switch ports: 1 client + 1 service laptop. Grandmaster takes its own port (§2l).</li>
+<li>Label every drop with station ID at both ends; OTDR/certify any fiber run at handover.</li>
+</ul>
+<h3>PTP over the plant — what it needs, what it does not</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody>
+<tr class="vNone"><td>Special fiber for PTP?</td><td><span class="chip bad">no</span> — any OM3/OM4/OS2 carries it; the ≈ 5 ns/m delay is symmetric and compensated. Keep both strands of a link the same type and length (§2s).</td></tr>
+<tr class="vNone"><td>Separate PTP cable / VLAN?</td><td><span class="chip bad">no</span> — PTP rides the same vision VLAN and the same fiber as the frame data; its traffic is tiny next to 7.5 Gbps per uplink.</td></tr>
+<tr class="vNone"><td>Fiber to the camera?</td><td><span class="chip bad">no</span> — the ace 2 (visible + SWIR) has an RJ45 copper GigE port; cameras stay on Cat6a drops ≤ 50 m (§2r). Fiber only appears <em>between switches</em> and to the server NIC.</td></tr>
+<tr class="vNone"><td>What must we configure?</td><td>PTP enabled on the <strong>SFP+ uplink ports as well as the copper ones</strong> — the port role is a per-port setting on most managed switches, and a disabled uplink port silently turns the fiber hop into a plain hop.</td></tr>
+<tr class="vbad"><td>What breaks it?</td><td>A media converter or a non-1588 switch anywhere in the path — both pass the packets, neither is a transparent clock, so offsets degrade to ms class and the app's &gt; 1 ms alert fires (§2k–§2l).</td></tr>
+</tbody></table></div>
+<p class="legend">Bottom line: the <strong>cable plant is PTP-agnostic</strong> — copper or fiber, buy it once. The µs decision sits entirely in the leaf/core switch class and the grandmaster, which is what §2s prices.</p>
+</section>
+
+<section id="2q-software-stack-pylon-26" class="card section-reveal"><h2><span class="num">2q.</span>Software stack — Ubuntu 24.04 + pylon 26 (from pinned 6.2.0)</h2>
+<p class="callout ok">✅ <strong>Verified 2026-09-05</strong> against docs.baslerweb.com (doc v133): Basler moved to date versioning — latest is <strong>pylon Software Suite 26.06</strong> for Windows, Linux x86, Linux ARM and macOS (legacy 8.x line also listed). Our pinned 6.2.0 is four major generations behind.</p>
+<p class="callout ok">✅ <strong>Edition scope:</strong> this variant keeps the hardware, cameras and BoM identical and moves the software base from 22.04 to <strong>Ubuntu 24.04 LTS</strong> (standard support to April 2029). Qt stays at <strong>5.15</strong> and OpenCV at 4.x — the Qt6 port remains a separate, later work package. 22.04 standard support ends April 2027, which is why a new server build starts on 24.04. Companion: <a href="web-vision-pro-16cam-50fps-roadmap.html">the original 22.04 edition</a> (unchanged).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Layer</th><th>Today (pinned)</th><th>Target</th></tr></thead><tbody>
+<tr class="vNone"><td>pylon SDK</td><td>6.2.0 on 22.04</td><td><strong>26.06 on 24.04</strong> (Linux x86_64, needs Ubuntu 20.04 <em>or newer</em> — 22.04 ✓ and 24.04 ✓ per Basler; keep server + client on the same LTS)</td></tr>
+<tr class="vNone"><td>Our API</td><td colspan="2">C++ (InstantCamera / GenApi) — same API family in 26.x; expect a recompile + regression pass, not a rewrite</td></tr>
+<tr class="vNone"><td>Other APIs in suite</td><td colspan="2">C, .NET 8, Python/pypylon, C++ Data Processing (vTools), GenTL — useful for lab scripts and the §2d AI path</td></tr>
+<tr class="vNone"><td>GigE driver (Linux)</td><td colspan="2">socket driver only (no filter driver on Linux) — kernel/ring tuning in roadmap item 5 still applies</td></tr>
+<tr class="vNone"><td>AI extras</td><td>—</td><td>pylon AI / vTools (object detection, classification, anomaly detection) + OPC UA Client vTool — needs CUDA 12 GPU (§2d pick fits) + ~50 GB disk for the model repo</td></tr>
+<tr class="vNone"><td>Qt / OpenCV</td><td>Qt 5.15 + OpenCV 4.5 (native on 22.04)</td><td><strong>Qt 5.15 + OpenCV 4.x on 24.04</strong> — both still packaged, but frozen; this edition ships Qt5, and the Qt5→Qt6 move (CMake <code>find_package(Qt6)</code>, minor API deltas, see below) stays a separate work package. OpenCV 4.x is stable across both LTS</td></tr>
+<tr class="vwarn"><td>Packaging (.deb)</td><td>jammy build — <code>packaging/build-deb.sh</code> on the jammy CI runner</td><td><strong>noble build</strong> — run <code>build-deb.sh</code> on 24.04; QtOpcUa 5.15 + open62541 are rebuilt against noble's Qt and bundled under <code>/opt/web-vision-pro</code> (the plugin is tied to the distro Qt patch version). Keep the jammy package as rollback until the first 24.04 event ships</td></tr>
+</tbody></table></div>
+<h3>Which camera with pylon 26?</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Camera</th><th>pylon 26 fit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>ace 2 a2A1920-51gm/gcBAS (§2e shortlist)</strong></td><td><span class="chip ok">✔ native</span> — current portfolio, needs pylon ≥ 6.0 so 26.x is its home turf</td></tr>
+<tr class="vstar"><td><strong>ace 2 SWIR a2A1280-80gmSWIR (§2n)</strong></td><td><span class="chip ok">✔ native</span> — ace 2 X SWIR/UV is in the 26.x camera index</td></tr>
+<tr class="vNone"><td>ace classic acA1920/acA1300</td><td><span class="chip ok">✔ supported</span> — GigE Vision GenICam, in the 26.x index</td></tr>
+<tr class="vwarn"><td>scout scA780-class (current fleet)</td><td><span class="chip warn">confirm</span> — legacy GigE Vision; expected to work, but prove it on one bench camera before upgrading the fleet build</td></tr>
+</tbody></table></div>
+<p><strong>Answer in one line:</strong> adopting pylon 26 changes nothing about the camera choice — stay on the <strong>a2A1920-51 + a2A1280-80gmSWIR</strong> shortlist; it only retires the 6.2.0 pin.</p>
+<h3>Future code impact (Qt6 — deferred after this edition)</h3>
+<p>This edition already moves the fleet to <strong>24.04 with Qt 5.15</strong>; 24.04 does not force Qt6 on day one. But Qt5 is frozen upstream — plan for a Qt6 port as a separate work package, not bundled with the OS/pylon upgrade:</p>
+<ul>
+<li><strong>Expected deltas:</strong> CMake <code>find_package(Qt5 …)</code> → Qt6, <code>QRegExp</code> → <code>QRegularExpression</code> (if used), QString/pointer-API cleanups, high-DPI behaviour re-check on the 16-tile wall. <code>QWidget</code>-based code like ours ports with moderate effort — no architecture change.</li>
+<li><strong>OpenCV:</strong> 4.x on both LTS — no code impact expected.</li>
+<li><strong>Rule:</strong> one migration at a time — this edition does the OS (24.04) + pylon 26 step; the Qt6 port follows as roadmap item 7.</li>
+</ul>
+<h3>Upgrade path</h3>
+<ol>
+<li><strong>Bench first:</strong> on a <strong>24.04</strong> bench image, install 26.06 beside 6.2.0; rebuild the app <em>and</em> the .deb (noble/QtOpcUa); run one a2A1920 + one scA780 through grab → PTP readout → chunk timestamps → 150-frame event.</li>
+<li><strong>Fleet second:</strong> roll <strong>Ubuntu 24.04 + 26.06</strong> to the tower server + client together (mixed 6.2/26.x fleet is fine short-term — same GenICam wire protocol).</li>
+<li><strong>Keep rollback:</strong> the jammy/6.2.0 package archived until the first production event ships on 24.04 / 26.x.</li>
+</ol>
+</section>
+
+<section id="2r-network-topology-two-segments" class="card section-reveal"><h2><span class="num">2r.</span>Network topology — 16 cameras split into 2 segments</h2>
+<p class="lead">One plant, two segments: 8 cameras + 1 SWIR station per segment → Cat6a drop → leaf switch in a machine-floor cabinet → armored fiber → core switch in the control room → vision server → client PC.</p>
+<p>The camera link is the reason the split exists. One <strong>a2A1920-51 at 51 fps is ≈ 940 Mbps</strong> on the wire (1920×1200 Bayer/Mono 8-bit, ≈ 117 MB/s) — essentially a full Gigabit link, so <em>every</em> camera needs its own 1G port and MTU 9000 end-to-end. Sixteen of them is <strong>≈ 15 Gbps</strong> aggregate, which no single access switch can hand off through one uplink. Two segments of 8 + 8 put <strong>≈ 7.5 Gbps on each 10G fiber uplink (≈ 75 %)</strong>, keep the copper drops short, and let each segment terminate in a local cabinet instead of 16 cables crossing the machine hall.</p>
+<h3>Why 2 segments (and not one switch)</h3>
+<ul>
+<li><strong>Uplink math:</strong> 8 × 940 Mbps = 7.5 Gbps → one 10G SFP+ per segment at 75 %. Nine cameras is the ceiling (8.5 Gbps, 85 %); past that, add a 2nd 10G LAG on the leaf or move the segment to 25G SFP28.</li>
+<li><strong>Copper stays short:</strong> 8 drops of ≤ 30–50 m into a local field cabinet, instead of 16 long runs back to the control room on a machine that is ~100 m+ end to end (docs/machine-reference.md mm ruler).</li>
+<li><strong>Fiber = galvanic isolation:</strong> the leaf → core run is fiber, so machine-frame ground and control-room ground are never bonded (drive EMI, earth potential differences). Copper 10GBASE-T across a paper machine is not an option — good 10GBASE-T is for inside the control room only.</li>
+<li><strong>Failure containment:</strong> a segment outage costs 8 cameras, not 16; each segment has its own PoE budget and PSU.</li>
+<li><strong>PTP:</strong> each segment becomes its own clock boundary — a boundary-clock leaf re-serves the GM clock inside its segment, so 2 switch hops still land in the µs range at the cameras (§2s).</li>
+</ul>
+<div class="tablewrap"><table>
+<thead><tr><th>Segment</th><th>Content</th><th>Wire load (8-bit as transmitted)</th><th>Uplink</th><th>Field end</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>A — wet end</strong></td><td>8 × ace 2 + M1 SWIR (§2n)</td><td>≈ 7.5 Gbps + 0.26 Gbps</td><td>1 × 10G SFP+ (≈ 78 %)</td><td>stainless IP54/67 cabinet, splash zone (§2h)</td></tr>
+<tr class="vstar"><td><strong>B — dry end</strong></td><td>8 × ace 2 + M2 SWIR</td><td>≈ 7.5 Gbps + 0.26 Gbps</td><td>1 × 10G SFP+ (≈ 78 %)</td><td>IP54 cabinet, cooled near the dryers (§2j)</td></tr>
+<tr class="vwarn"><td><strong>Split rule</strong></td><td>≤ 9 visible cameras per 10G uplink</td><td>9 × 0.94 ≈ 8.5 Gbps (85 %)</td><td>2nd 10G LAG / 25G SFP28 past that</td><td>follow the wet/dry boundary, keep the drops ≤ 50 m</td></tr>
+</tbody></table></div>
+<p class="legend">Wire load is what the camera transmits (Bayer/Mono). BGR conversion happens host-side and adds no camera-link traffic (§2e). SWIR stations run 25 fps → ≈ 264 Mbps each (§2n).</p>
+<h3>The path — camera sensor → server → client</h3>
+<div class="arch">
+  <div class="plane p-time"><div class="plane-h">TIME / SYNC · PTP domain 0 <span class="hint">GNSS → grandmaster → core (BC) → leaf (BC/TC) → 16 cameras + 2 SWIR</span></div>
+    <div class="row">
+      <div class="bx gnss"><b>GNSS / GPS antenna</b><small>roof</small></div>
+      <span class="arr">→<span class="lbl">1PPS</span></span>
+      <div class="bx gm"><b>Grandmaster</b><small>Meinberg microSync · Priority 1 = 100</small></div>
+      <span class="arr">→<span class="lbl">Cat6a</span></span>
+      <div class="bx net"><b>Core switch</b><small>boundary clock · GM port</small></div>
+      <span class="arr">→<span class="lbl">fiber · PTP E2E</span></span>
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>boundary / transparent clock</small></div>
+      <span class="arr">→<span class="lbl">Cat6a · PTP slave</span></span>
+      <div class="bx cam"><b>16 × ace 2 + 2 × SWIR</b><small><code>PtpEnable</code> · chunk ts @1 GHz</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-cap"><div class="plane-h">CAPTURE SEGMENTS · A (wet end) + B (dry end) <span class="hint">camera + LED bar on one base plate per station (§2i) · one drop = data + PoE</span></div>
+    <div class="row">
+      <div class="bx cam"><b>SEG A · 8 × ace 2 + M1</b><small>51 / 25 fps · MTU 9000</small></div>
+      <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
+      <div class="bx sw"><b>Leaf A switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet A</small></div>
+      <span class="arr">→<span class="lbl">armored OM3</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room</small></div>
+    </div>
+    <div class="row">
+      <div class="bx cam"><b>SEG B · 8 × ace 2 + M2</b><small>51 / 25 fps · MTU 9000</small></div>
+      <span class="arr">→<span class="lbl">Cat6a S/FTP ≤ 50 m</span></span>
+      <div class="bx sw"><b>Leaf B switch</b><small>10×1G PoE+ + 2×10G SFP+ · cabinet B</small></div>
+      <span class="arr">→<span class="lbl">armored OM3</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-data"><div class="plane-h">DATA · leaf → fiber → core → server → client <span class="hint">2×10G LACP on the server · NVMe Gen4 · §2r</span></div>
+    <div class="row">
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>≈ 7.5 Gbps each · PoE · PTP BC/TC</small></div>
+      <span class="arr">→<span class="lbl">10G SFP+ · fiber</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room · 4–8×10G SFP+ · LACP</small></div>
+      <span class="arr">→<span class="lbl">2×10G LACP</span></span>
+      <div class="bx srv"><b>Vision server</b><small>16 ring buffers · EventController · 64–128 GB ECC</small></div>
+      <span class="arr">→<span class="lbl">.bin + .json</span></span>
+      <div class="bx sto"><b>NVMe Gen4 4 TB</b><small>live events (≈ 0.7–1.1 GB/s burst)</small></div>
+      <span class="arr">→<span class="lbl">archive</span></span>
+      <div class="bx sto"><b>NAS</b><small>retention pool</small></div>
+    </div>
+    <div class="row">
+      <div class="bx net"><b>Core switch</b><small>spare 1G port</small></div>
+      <span class="arr">→<span class="lbl">1G</span></span>
+      <div class="bx led"><b>Client PC ×1</b><small>live view + analyze · mounts the event share read-only (§2p)</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-mill"><div class="plane-h">MILL / CONTROL · DCS ⇄ vision <span class="hint">triggers &amp; speed anchors, timestamped on the PTP axis</span></div>
+    <div class="row">
+      <div class="bx dcs"><b>DCS / PLC</b><small>sheet-break sensors · drive speeds</small></div>
+      <span class="arr">⇄<span class="lbl">OPC UA</span></span>
+      <div class="bx srv"><b>Vision server</b><small>OpcUaClientService · trigger tags · speed anchors → event metadata</small></div>
+      <span class="arr">→</span>
+      <div class="bx dcs"><b>Event files</b><small>frame timestamps on the UTC axis (rung 2 GM)</small></div>
+    </div>
+  </div>
+</div>
+<details class="note"><summary>Plain-text tree — 2-segment plant (copy-paste friendly) <span class="sum-tag">(click to expand)</span></summary>
+<pre class="diagram"><code>CAMERA SENSOR → SWITCH → FIBER → SERVER → CLIENT
+
+GNSS / GPS antenna (roof)
+  └─ Grandmaster — Meinberg microSync (PTP domain 0 · Priority1=100 · UTC/TAI)        §2m
+       └─ PTP multicast / E2E ── CORE SWITCH (control room · IEEE 1588 boundary clock)
+            │
+            ├─ SEGMENT A — wet end (field cabinet A, stainless)                       §2r
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
+            │           └─ armored OM3 4-strand LC/UPC (2 used + 2 spare) ──┐
+            ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
+            │           └─ armored OM3 4-strand LC/UPC ────────────────────┘
+            │
+            ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
+            │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 → NAS
+            └─ 1G ── CLIENT PC (read-only event share · live view · analyze)
+
+Per station (§2i): camera + LED bar on one base plate · flash-out → LED driver trigger
+OPC UA / DCS ⇄ vision server (trigger tags · speed anchors · drive positions)</code></pre>
+</details>
+<h3>Parts — copper (camera → leaf switch)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>Spec to order</th><th>Qty</th><th>Why / note</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Camera drop, RJ45 bodies</strong></td><td>Cat6a <strong>S/FTP</strong> (individually shielded pairs + overall shield), AWG23 solid, 500 MHz, LSZH or PUR jacket, shielded RJ45 both ends</td><td>9 per segment (+1 spare)</td><td>940 Mbps + MTU 9000 needs a clean 1G link; Cat5e is not acceptable at 90 m with jumbo frames</td></tr>
+<tr class="vstar"><td><strong>Camera drop, IP67 bodies</strong></td><td>M12 X-coded ↔ RJ45, industrial locking (Basler M12 cable line)</td><td>per IP67 station</td><td>sealed ace 2 has no RJ45 — §2h</td></tr>
+<tr class="vNone"><td>Cabinet patch cords</td><td>Cat6a S/FTP, 0.5–2 m, shielded RJ45</td><td>10 per segment</td><td>leaf port → camera-side termination</td></tr>
+<tr class="vNone"><td>Termination &amp; strain relief</td><td>Shielded keystone or DIN patch panel; cable ties + <strong>drip loops</strong> before every connector</td><td>1 per segment</td><td>no drip loop = water into the RJ45 in the wet zone (§2h)</td></tr>
+<tr class="vNone"><td>Routing rules</td><td>≥ 200 mm from drive/motor cables, cross at 90°, own tray or conduit; shield bonded at the switch end</td><td>—</td><td>VFD EMI is the main packet-loss source on a paper machine</td></tr>
+</tbody></table></div>
+<h3>Parts — fiber (leaf → core, machine floor → control room)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>Spec to order</th><th>Qty</th><th>Why / note</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Trunk per segment</strong></td><td><strong>OM3 50/125 µm</strong> (OM4 for 300–400 m, OS2 9/125 µm beyond), tight-buffered, <strong>interlocked armored</strong>, LSZH, indoor/outdoor, <strong>4 strands</strong>, pre-terminated <strong>LC/UPC duplex</strong>, insertion-loss report</td><td>2 runs</td><td>2 strands used (TX/RX) + 2 spare; armored because it crosses the machine hall</td></tr>
+<tr class="vstar"><td><strong>Leaf ↔ core optics</strong></td><td><strong>10G-SR SFP+</strong> (MMF, ≤ 300 m OM3 / ≤ 400 m OM4) or <strong>10G-LR SFP+</strong> (SMF, ≤ 10 km) — one per end of each run</td><td>4 (2 per run)</td><td>same 10G-SR optic on OM3 and OM4; terminate the fiber straight into the switch SFP+ port — <strong>no media converter</strong> in the PTP path</td></tr>
+<tr class="vNone"><td>Patch panel + enclosure</td><td>LC/UPC adapter panel + fiber enclosure, both ends of each run</td><td>2 per segment</td><td>protects the terminated end; label both ends <code>SEG-A/LINK1</code></td></tr>
+<tr class="vNone"><td>Cleaning &amp; test kit</td><td>LC one-click cleaner + inspection scope; OLTS/OTDR certificate</td><td>1 set</td><td>a dirty LC ferrule is the classic intermittent link — certify before handover</td></tr>
+<tr class="vNone"><td>Bend radius</td><td>≥ 10 × cable Ø (≥ 30 mm working), never stapled, service loop at both ends</td><td>—</td><td>macro-bend loss is invisible at 1G/10G — until it is not</td></tr>
+</tbody></table></div>
+<h4>Which fiber type?</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Fiber</th><th>Core / clad</th><th>Jacket</th><th>10G reach</th><th>Optic</th><th>Verdict for this line</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>OM3 multimode</strong></td><td>50/125 µm</td><td>aqua</td><td><strong>300 m @ 10GBASE-SR</strong><br>70 m @ 25G-SR · 100 m @ 40/100G-SR4</td><td>10G-SR SFP+ (cheap, ≈ $60)</td><td>⭐ <strong>default</strong> — the plant is ≈ 100 m of machine + routing slack, well inside 300 m. The SR optics, LC/UPC connectors, patch panels and PTP behaviour are <em>identical</em> to OM4, so the glass is the only variable: quote OM3 vs OM4 at the same 4-strand armored spec and take the cheaper</td></tr>
+<tr class="vNone"><td>OM4 multimode</td><td>50/125 µm</td><td>aqua / violet</td><td><strong>400 m @ 10GBASE-SR</strong><br>100 m @ 25G-SR · 150 m @ 40/100G-SR4</td><td>10G-SR SFP+ (same optics)</td><td>step up <em>only</em> when the tape measure lands in <strong>300–400 m</strong>, or when a 25G/40G jump is already planned inside ~100–150 m — that headroom is all the extra reach buys</td></tr>
+<tr class="vNone"><td>OM5 wideband</td><td>50/125 µm</td><td>lime</td><td>400 m @ 10G-SR; SWDM to 150 m for 40/100G</td><td>10G-SR / SWDM4</td><td>skip — pays for 40/100G readiness this system does not use</td></tr>
+<tr class="vstar"><td><strong>OS2 single-mode</strong></td><td>9/125 µm</td><td>yellow</td><td><strong>10 km @ 10GBASE-LR</strong> (25G-LR 10 km)</td><td>10G-LR SFP+ (≈ $250)</td><td>⭐ pick when the control room is &gt; 400 m away or the run ties into the site backbone</td></tr>
+<tr class="vbad"><td>Cat6a copper uplink (10GBASE-T)</td><td>—</td><td>—</td><td>≤ 100 m</td><td>10GBASE-T ports</td><td>inside the control room only — never across the machine hall (EMI + ground loop)</td></tr>
+</tbody></table></div>
+<p class="callout ok">✅ <strong>Fiber verdict (2026-09-22):</strong> <strong>armored OM3, 4 strands, LC/UPC + 10G-SR</strong> per segment is the default build — its 300 m 10G-SR reach is far beyond this plant (≈ 100 m of machine plus routing slack). Step up to <strong>OM4</strong> only if the tape measure lands in <strong>300–400 m</strong>, and to <strong>OS2 + 10G-LR</strong> beyond 400 m or when tying into the site backbone. The glass choice does not affect clock accuracy — fiber carries PTP with a symmetric ≈ 5 ns/m delay the protocol compensates — but keep both strands of a link the same type and length so TX/RX stay symmetric.</p>
+<h3>Parts — switches</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Role</th><th>Ports</th><th>Spec to ask for</th><th>PTP build</th><th>Non-PTP build</th><th>Est. unit</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Leaf ×2</strong><br>(segment A + B)</td><td>10–12 × 1GbE <strong>PoE+</strong> + 2 × 10G SFP+</td><td>industrial managed L2+, jumbo 9000, IGMP snooping, QoS/DSCP, fanless, −40…70 °C, DIN or 19", dual PSU</td><td><span class="chip ok">IEEE 1588v2 TC</span> — <strong>boundary clock preferred</strong> (one per segment; required if the segments sit in separate VLANs)</td><td><span class="chip warn">plain managed PoE</span> — no 1588; PTP still passes but offsets drift to ms (§2s)</td><td>PTP ≈ $850<br>plain ≈ $380 <span class="pill e">est</span></td></tr>
+<tr class="vstar"><td><strong>Core ×1</strong><br>(control room)</td><td>4–8 × 10G SFP+ + 4 × 1G (client, GM, service)</td><td>L2/L3-lite, LACP, IGMP snooping, jumbo 9000, QoS; 1588 BC/GC-capable in the PTP build</td><td><span class="chip ok">IEEE 1588v2 BC</span> — grandmaster attaches here; <code>Priority1 = 100</code>, domain 0, E2E</td><td><span class="chip warn">plain 10G switch</span></td><td>PTP ≈ $1 300<br>plain ≈ $600 <span class="pill e">est</span></td></tr>
+<tr class="vNone"><td>Grandmaster (optional)</td><td>1 × 1G + GNSS antenna</td><td>see §2m</td><td><span class="chip ok">GNSS GM</span> — absolute UTC</td><td><span class="chip off">none</span> — cameras arbitrate (ARB) / host clock</td><td>≈ $4 000 <span class="pill e">est</span></td></tr>
+<tr class="vbad"><td>Media converter</td><td>—</td><td>avoid in this design</td><td><span class="chip bad">breaks the PTP chain</span></td><td><span class="chip bad">extra failure point</span></td><td>—</td></tr>
+</tbody></table></div>
+<p class="legend">Candidate families to quote — leaf: <strong>Planet IGS-6325 series</strong> (same family as the §2l baseline, so the PTP config knowledge transfers), Moxa EDS-5000, Siemens SCALANCE XC-200, Cisco Catalyst IE3300. Core: <strong>Netgear M4300</strong> (already in §2l), Planet IGS/SGS, Cisco Catalyst IE9300. Ask for <strong>boundary clock + per-VLAN PTP support in writing</strong> before ordering — transparent clocks do not cross VLAN boundaries.</p>
+<h3>Switch configuration checklist (both segments identical)</h3>
+<ul>
+<li><strong>PTP:</strong> domain 0, E2E delay mechanism, step mode matching the GM; core = BC with the GM on its own port, leaf = BC (preferred) or TC. Never filter <code>224.0.1.129</code> (general) or <code>224.0.0.107</code> (peer-delay, P2P only); give PTP event messages the highest QoS class.</li>
+<li><strong>Jumbo frames:</strong> MTU 9000 on camera ports, the leaf ↔ core uplinks, the core ↔ server link and the server NIC — one 1500-MTU hop drops the a2A1920 below its rated 51 fps.</li>
+<li><strong>VLANs:</strong> cameras + PTP in one "vision" VLAN per segment, management in another, never route PTP. If the two segments are separate VLANs, the leaf switches <em>must</em> be boundary clocks.</li>
+<li><strong>PoE:</strong> 9 ports × 802.3af (15.4 W budgeted) ≈ 139 W per segment → order ≥ 240 W PoE budget. The SWIR station may need 802.3at — confirm the camera datasheet before ordering the leaf.</li>
+<li><strong>LACP:</strong> core ↔ server bond (2 × 10G, LACP active). Leaf uplinks can be a single 10G, or a 2-port LAG if a segment may grow past 9 cameras.</li>
+<li><strong>Storm/loop protection</strong> and IGMP snooping on the data VLAN — but leave the PTP multicast groups alone.</li>
+<li><strong>UPS:</strong> server + core switch on the UPS (§2p). The field cabinets stay on the machine supply: a segment reboot only costs its own 8 cameras, and cameras re-join PTP on their own.</li>
+</ul>
+<h3>Commissioning &amp; acceptance test (per segment)</h3>
+<ol>
+<li>Certify every copper drop (wire map + length) and every fiber strand (OLTS/OTDR, insertion loss &lt; 2.5 dB for SR / &lt; 6 dB for LR class), label both ends.</li>
+<li>Bring the leaf up alone: ping every camera and verify MTU 9000 with <code>ping -M do -s 8972</code>.</li>
+<li>Stream one camera at 51 fps and watch the pylon/stream-channel counters for dropped frames <em>before</em> adding the rest — 8 streams is where a weak leaf buffer shows up.</li>
+<li>Enable PTP and confirm <code>PtpServoStatus = Locked</code> with offsets &lt; 10 µs on all 9 cameras; then pull the GM cable and confirm the app's ARB/FAULT badges behave (§2k).</li>
+<li>Run one 2000-frame event with all 16 cameras and check <code>ResultingFrameRate</code> ≈ 50 fps on every tile (§4 item 3).</li>
+</ol>
+</section>
+
+<section id="2s-ptp-vs-non-ptp-build" class="card timesync section-reveal"><h2><span class="num">2s.</span>PTP build vs non-PTP build — what changes, what does not</h2>
+<p class="lead">The cable plant is identical in both builds — copper, fiber, cabinets, optics, server NIC. Only <strong>two leaf switches + the core switch + the grandmaster</strong> decide whether the fleet lands on a µs UTC timeline (PTP) or on host arrival stamps (non-PTP). Everything else is bought once.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Part</th><th>PTP build</th><th>Non-PTP build</th><th>Note</th></tr></thead><tbody>
+<tr class="vNone"><td>Cat6a drops (camera → leaf)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>PTP-agnostic — the protocol is just packets</td></tr>
+<tr class="vNone"><td>M12 X-coded sets (IP67 cameras)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+<tr class="vNone"><td>Armored fiber leaf ↔ core + LC panels</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>fiber is transparent to PTP (≈ 5 ns/m, symmetric, compensated)</td></tr>
+<tr class="vNone"><td>SFP+ optics (SR / LR)</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+<tr class="vstar"><td><strong>Leaf switch ×2</strong></td><td><span class="chip ok">IEEE 1588 TC/BC required</span></td><td><span class="chip warn">plain managed PoE — works, offsets ms</span></td><td>the PTP-critical part on the access side</td></tr>
+<tr class="vstar"><td><strong>Core switch ×1</strong></td><td><span class="chip ok">IEEE 1588 BC (GM port)</span></td><td><span class="chip warn">plain 10G switch</span></td><td>without a BC the grandmaster cannot be inserted cleanly</td></tr>
+<tr class="vNone"><td>Grandmaster</td><td><span class="chip ok">GNSS GM for UTC (§2m)</span></td><td><span class="chip off">none — cameras arbitrate (ARB)</span></td><td>without a GM the domain still forms; the epoch is arbitrary and shifts on reboot</td></tr>
+<tr class="vNone"><td>Cameras</td><td><span class="chip ok">ace 2 = PTP-capable (<code>PtpEnable</code>)</span></td><td><span class="chip bad">scout scA780 has no PTP nodes</span></td><td>the current fleet stays PTP-less either way (§2k correction)</td></tr>
+<tr class="vNone"><td>Server NIC (X710-DA2)</td><td><span class="chip ok">hardware timestamping → linuxptp <code>ptp4l</code> slave</span></td><td><span class="chip ok">identical NIC · host clock = NTP only</span></td><td>the app already records the host arrival clock in .bin v2</td></tr>
+<tr class="vNone"><td>Client PC + its 1G drop</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>no PTP role</td></tr>
+<tr class="vNone"><td>UPS, field cabinets, 24 VDC</td><td><span class="chip ok">identical</span></td><td><span class="chip ok">identical</span></td><td>same</td></tr>
+</tbody></table></div>
+<h3>What the PTP path buys — and what the plain path loses</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Capability</th><th>PTP build</th><th>Non-PTP build</th></tr></thead><tbody>
+<tr class="vstar"><td><strong>Cross-camera frame alignment</strong></td><td>sensor-accurate: every frame stamped at exposure on one shared epoch, µs class</td><td>host arrival clock, ms-class jitter — at 11 m/s that is ≈ 17 mm of web per ms of error</td></tr>
+<tr class="vNone"><td>Absolute UTC (DCS / drive logs)</td><td><span class="chip ok">yes</span> with the GNSS grandmaster (§2m)</td><td><span class="chip bad">no</span> — ARB epoch shifts on reboot / GM change</td></tr>
+<tr class="vNone"><td>App behaviour (§5)</td><td>tile badges <span class="chip ok">PTP SLAVE</span>, offset alert, GM-ID readout</td><td>badges hidden on scout; ace 2 still reports, with ms drift; scrub falls back to the host clock — <strong>already implemented</strong>, no code change needed</td></tr>
+<tr class="vNone"><td>Recording · pre-trigger · review</td><td colspan="2"><span class="chip ok">identical</span> — PTP is not required to record, buffer or play back (see the “do we need PTP?” guide §2k–2m)</td></tr>
+<tr class="vNone"><td>Network line cost</td><td>≈ $9 760 (leaf ×2 + core + GM + fiber + optics + cabinets + NIC)</td><td>≈ $4 120 — same fiber, plain switches, no GM</td></tr>
+<tr class="vstar"><td><strong>PTP premium</strong></td><td colspan="2"><strong>≈ $5 640</strong> = the two PTP leaf switches (+$940), the PTP core (+$700) and the GNSS grandmaster ($4 000) ≈ <strong>8 % of the ≈ $71k BoM</strong></td></tr>
+</tbody></table></div>
+<h3>Two shopping lists (same cable plant)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Qty</th><th class="r">PTP build</th><th class="r">Non-PTP build</th></tr></thead><tbody>
+<tr class="vNone"><td>Leaf switch — 10×1G PoE+ + 2×10G SFP+, industrial</td><td>2</td><td class="r">$850 ea <span class="chip ok">1588 TC/BC</span></td><td class="r">$380 ea <span class="chip warn">plain</span></td></tr>
+<tr class="vNone"><td>Core switch — 4–8×10G SFP+ + 4×1G</td><td>1</td><td class="r">$1 300 <span class="chip ok">1588 BC</span></td><td class="r">$600 <span class="chip warn">plain</span></td></tr>
+<tr class="vNone"><td>GNSS grandmaster (§2m) + antenna</td><td>1</td><td class="r">$4 000</td><td class="r">$0 <span class="chip off">ARB mode</span></td></tr>
+<tr class="vNone"><td>Armored OM3 trunk, 4-strand LC/UPC, per segment (OM4 if the run lands in 300–400 m)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
+<tr class="vNone"><td>10G-SR SFP+ optic (2 per link — 2 leaf↔core + 2 core↔server)</td><td>8</td><td class="r">$60 ea</td><td class="r">$60 ea</td></tr>
+<tr class="vNone"><td>LC/UPC patch panel + enclosure (both ends)</td><td>2</td><td class="r">$120 ea</td><td class="r">$120 ea</td></tr>
+<tr class="vNone"><td>Field cabinet IP54 (per segment)</td><td>2</td><td class="r">$450 ea</td><td class="r">$450 ea</td></tr>
+<tr class="vNone"><td>24 VDC DIN PSU, redundant (per segment)</td><td>2</td><td class="r">$180 ea</td><td class="r">$180 ea</td></tr>
+<tr class="vNone"><td>Intel X710-DA2 2×10G NIC (server)</td><td>1</td><td class="r">$420</td><td class="r">$420</td></tr>
+<tr class="vstar"><td><strong>Network line total</strong></td><td></td><td class="r"><strong>≈ $9 760</strong></td><td class="r"><strong>≈ $4 120</strong></td></tr>
+</tbody></table></div>
+<p class="legend">All prices <span class="pill e">est</span> — confirm distributor quotes (switch prices are estimates for the required port/PTP feature set; the §2l Planet/Netgear street checks cover the single-switch baseline). Fiber and copper are rounded per the §6 BoM; the table prices the OM3 variant — the DAC default is ≈ $9 610 / ≈ $4 060 respectively. Every item in these lists is <strong>phase 1</strong> in §6: the PTP premium is not deferrable, because deferring the PTP switches means re-cabling nothing but re-buying all three switches.</p>
+<p class="callout ok">✅ <strong>Verdict:</strong> build the plant <strong>once</strong> — copper, fiber, cabinets, optics and the server NIC are PTP-agnostic, so nothing is wasted if the switches start plain. Buy the <strong>PTP-capable leaf + core</strong> when the target is µs cross-camera alignment and UTC event times (§1 KPI “&lt; 10 µs”). If the budget must be staged: buy <strong>plain managed switches on the identical fiber plant</strong> now, add the GNSS grandmaster and swap the three switches later — no recabling, no camera change, no software change (the app reads both worlds, §5).</p>
+<p class="callout warn">⚠️ <strong>Half-measures that do not work:</strong> PTP-capable cameras on plain switches → ms offsets and offset-alert noise; a grandmaster without PTP switches → its accuracy is thrown away at the first queueing hop; a media converter mid-link → extra asymmetry with no config visibility; copper (10GBASE-T) between machine floor and control room → ground loops and EMI where fiber costs the same.</p>
+</section>
+
+<section id="system-architecture-diagram" class="card section-reveal"><h2><span class="num">3.</span>System architecture — diagram &amp; tree</h2>
+<p class="lead">Four planes on one page — time, capture, data, mill: follow a frame from sensor to archive.</p>
+<p>Everything on one page: the <strong>time/sync plane</strong> (PTP, gold), the <strong>capture plane</strong> (16 stations in 2 segments), the <strong>data plane</strong> (camera → leaf switch → fiber → core → server → client → storage) and the <strong>mill plane</strong> (DCS/OPC UA). The physical plant and its parts list are in <a href="#2r-network-topology-two-segments">§2r</a>; the PTP vs non-PTP part comparison is in <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
+
+<div class="arch">
+  <div class="plane p-time"><div class="plane-h">TIME / SYNC · IEEE 1588-2008 PTP · domain 0 <span class="hint">GPS/GNSS → grandmaster → core (BC) → leaf (BC/TC) → 16 PTP slaves</span></div>
+    <div class="row">
+      <div class="bx gnss"><b>GNSS / GPS antenna</b><small>roof of machine hall</small></div>
+      <span class="arr">→<span class="lbl">10 MHz / 1PPS</span></span>
+      <div class="bx gm"><b>Grandmaster</b><small>Meinberg microSync-class · Priority&nbsp;1&nbsp;=&nbsp;100 · UTC/TAI</small></div>
+      <span class="arr">→<span class="lbl">PTP multicast</span></span>
+      <div class="bx sw"><b>Switch</b><small>IEEE 1588 transparent/boundary clock · 16×1G + 2×10G uplink</small></div>
+      <span class="arr">→<span class="lbl">PTP E2E</span></span>
+      <div class="bx cam"><b>16 × ace 2</b><small><code>PtpEnable</code> = true · <code>PtpServoStatus = Locked</code> · chunk timestamps @1 GHz</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-cap"><div class="plane-h">CAPTURE · 16 stations along the machine, split into 2 segments (mm ruler) <span class="hint">camera ↔ light co-mounted on one base plate each (§2i) · §2r</span></div>
+    <div class="row">
+      <div class="bx cam"><b>Camera i</b><small>a2A1920-51gm/gcBAS · 51 fps · MTU 9000</small></div>
+      <span class="arr">⇄<span class="lbl">GigE + PTP + PoE</span></span>
+      <div class="bx sw"><b>Leaf switch</b><small>8 cams per segment · 1G per camera</small></div>
+      <span class="arr">—</span>
+      <div class="bx led"><b>Strobed LED bar</b><small>per station</small></div>
+      <span class="arr">←<span class="lbl">flash / exposure-active</span></span>
+      <div class="bx cam"><b>Camera i</b><small>LineSource → LED driver trigger</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-data"><div class="plane-h">DATA · 2 segments → leaf → fiber → core → server → client <span class="hint">2×10G LACP bond · NVMe Gen4 · §2r</span></div>
+    <div class="row">
+      <div class="bx sw"><b>Leaf A + Leaf B</b><small>8 cams + 1 SWIR each · PoE · PTP BC/TC</small></div>
+      <span class="arr">→<span class="lbl">armored OM3/OM4/OS2 · 10G SFP+</span></span>
+      <div class="bx net"><b>Core switch</b><small>control room · GM port · 4–8×10G SFP+</small></div>
+      <span class="arr">→<span class="lbl">LACP bond</span></span>
+      <div class="bx srv"><b>Vision server</b><small>16 ring buffers · Qt/OpenCV/pylon · EventController · 64–128 GB ECC</small></div>
+      <span class="arr">→<span class="lbl">.bin + .json</span></span>
+      <div class="bx sto"><b>NVMe Gen4 4 TB</b><small>live events (≈ 0.7–1.1 GB/s burst)</small></div>
+      <span class="arr">→<span class="lbl">archive</span></span>
+      <div class="bx sto"><b>NAS</b><small>retention pool</small></div>
+    </div>
+    <div class="row">
+      <div class="bx net"><b>Core switch</b><small>spare 1G port</small></div>
+      <span class="arr">→<span class="lbl">1G</span></span>
+      <div class="bx led"><b>Client PC ×1</b><small>live view + analyze · mounts the event share read-only (§2p)</small></div>
+    </div>
+  </div>
+
+  <div class="plane p-mill"><div class="plane-h">MILL / CONTROL · DCS ⇄ vision <span class="hint">triggers &amp; speed anchors, timestamped on the PTP axis</span></div>
+    <div class="row">
+      <div class="bx dcs"><b>DCS / PLC</b><small>sheet-break sensors · drive speeds</small></div>
+      <span class="arr">⇄<span class="lbl">OPC UA</span></span>
+      <div class="bx srv"><b>Vision server</b><small>OpcUaClientService · trigger tags · speed anchors → event metadata</small></div>
+      <span class="arr">→</span>
+      <div class="bx dcs"><b>Event files</b><small>frame timestamps on UTC axis (rung 2 GM)</small></div>
+    </div>
+  </div>
+</div>
+
+<details class="note"><summary>Plain-text tree (copy-paste friendly)</summary>
+<pre class="diagram"><code>GNSS / GPS antenna (roof)
+  └─ Grandmaster — Meinberg microSync (PTP domain 0 · Priority1=100 · UTC/TAI)        §2m
+       └─ PTP multicast / E2E ── CORE SWITCH (control room · IEEE 1588 boundary clock)
+            │
+            ├─ SEGMENT A — wet end (field cabinet A, stainless)                       §2r
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M1 SWIR (a2A1280-80gmSWIR)
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF A switch
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC · ≥240 W PoE)
+            │           └─ armored OM3 4-strand LC/UPC (2 used + 2 spare) ──┐
+            ├─ SEGMENT B — dry end (field cabinet B, cooled)                │
+            │    8 × ace 2 a2A1920-51gm/gcBAS + M2 SWIR                     │
+            │      └─ Cat6a S/FTP ≤ 90 m ch · MTU 9000 · PoE ─ LEAF B switch│
+            │           (10×1G PoE+ + 2×10G SFP+ · IEEE 1588 BC/TC)         │
+            │           └─ armored OM3 4-strand LC/UPC ────────────────────┘
+            │
+            ├─ 2×10G ── LACP bond ── VISION SERVER (X710-DA2 · jumbo frames 9000)
+            │     16 ring buffers (64–128 GB ECC) → EventController → NVMe Gen4 (live)
+            │     └─ event .bin + .json ── NAS archive (retention pool)
+            └─ 1G ── CLIENT PC (read-only event share · live view · analyze)
+
+Per station (§2i): camera + LED bar on one base plate · flash/exposure-active → LED driver
+                   → strobed LED bar · M12/RJ45 drop · heat sink (§2j)
+OPC UA / DCS ⇄ Vision server (trigger tags · speed anchors · drive positions)</code></pre>
+</details>
+
+<div class="treelegend">
+<span class="chip gold">time / sync (PTP)</span>
+<span class="chip ok">capture &amp; data</span>
+<span class="chip blue">network</span>
+<span class="chip" style="background:#f5f3ff;color:#4c1d95;border-color:#ddd6fe">mill / control</span>
+</div>
+<p class="callout ok">Moisture overlay (§2n): M1 (press exit) + M2 (after-dryer) join as <strong>ace 2 GigE SWIR slaves</strong> on the same PTP domain 0 — M1 on leaf A, M2 on leaf B — each with its own halogen illuminator + SWIR lens/filter, and each costing one 1G PoE port on its segment. No extra switch or grandmaster.</p>
+<p class="callout ok">Temperature overlay (§2o): IR spot pyrometers ride the <strong>mill plane (OPC UA trend, 1 Hz)</strong> — no GigE load. An optional LWIR camera is standalone and does not join the PTP/event path.</p>
+<p class="callout ok">Workspace overlay (§2p): tower server + 1 client PC hang off the core switch (spare 1G port for the client); client mounts the event share read-only — no recorder on the client.</p>
+<p class="callout ok">Network overlay (§2r): the 16-camera fleet is split <strong>8 + 8</strong> — each segment terminates in a leaf switch on the machine floor, then one armored OM3 (or OM4/OS2, per the tape measure) run to the control-room core switch that also feeds the server, the client and the grandmaster. All parts — copper, fiber types, leaf/core switch classes — and the PTP vs non-PTP comparison are in <a href="#2r-network-topology-two-segments">§2r</a> / <a href="#2s-ptp-vs-non-ptp-build">§2s</a>.</p>
+</section>
+
+<section id="3-software-roadmap-ordered" class="card section-reveal"><h2><span class="num">4.</span>Software roadmap (ordered)</h2>
+<p class="lead">Code in this order: per-camera FPS first (it unblocks honest numbers), lazy DETAIL scans second.</p>
+<ol>
+<li>
+<strong>Per-camera FPS-true recording</strong> — the recorder currently sizes all buffers from one global fallback FPS and stores it in every RAW header. It must read each camera's real <code>AcquisitionFrameRate</code> (Pylon node already accessible) so frame counts, event duration, time axis, and slow-motion are honest for mixed-fps / mixed-format lines. <em>Blocks item 2 being trustworthy.</em>
+</li>
+<li>
+<strong>Lazy DETAIL sub-scans (&gt;600-frame events)</strong> — keep the whole-event chart at ≤600 samples; on demand, scan ±30 frames around the playhead at stride 1 (≈ 0.4 GB reads) and cache. Delivers every-frame detail at 2000-frame events without the 28.5 GB full scan. <em>This is what makes 2000-frame detail affordable on the hardware above.</em>
+</li>
+<li>
+<strong>Startup FPS-mismatch warning</strong> — compare each camera's live <code>ResultingFrameRate</code> vs configured fallback; warn on drift. Cheap guardrail.
+</li>
+<li>
+<strong>PTP chain diagnostics in-app</strong> — surface the grandmaster clock ID and per-camera offset (already read) on a time-sync panel; flag ARB-mode (no GPS) and offset creep > 100 µs as advisory — makes §2k–2m observable from LiveDashboard.
+</li>
+<li>
+<strong>10GigE + kernel tuning</strong> — when the 16-camera hardware is built: jumbo frames, ring buffers (<code>net.core.rmem_max</code>), IRQ affinity. See the <code>industrial-vision-networking</code> skill.
+</li>
+<li>
+<strong>Configurable scan cap</strong> (optional) — expose <code>kMaxScannedFrames</code> in Config if overview density ever needs tuning.
+</li>
+<li>
+<strong>Qt6 port</strong> (deferred, after this 24.04 + pylon 26 edition ships) — 24.04 is the production LTS here and Qt 5.15 still builds, but upstream Qt5 is frozen. Port CMake + Qt API deltas per §2q as its own work package, with a noble .deb rebuild and a high-DPI pass on the 16-tile wall.
+</li>
+</ol>
+</section>
+
+<section id="4-current-state-2026-08-26" class="card section-reveal"><h2><span class="num">5.</span>Current state (2026-09-18)</h2>
+<p class="lead">Where main stands today: 150-frame events, PTP badges live, chunk timestamps now the default (one-time migration on first start) — plus the remaining PTP gaps below.</p>
+<ul>
+<li><code>main</code>: DETAIL strip (±30 f default, wheel ±10–120, auto-show &lt; 1×), local Y-range label, Recording-settings frame-count info line.</li>
+<li><strong>PTP runtime exists already:</strong> auto-enable on every real camera, 10 s latched status read, Live-View tile badges (SLAVE/MASTER/SYNC/OFF/FAULT), Device-Settings status card with clock IDs, 1 ms offset alert.</li>
+<li>Recording config: Fallback FPS 10, pre 10 s + post 5 s = 150-frame events.</li>
+<li><strong>Chunk timestamps now default on</strong> (2026-09-18): <code>CameraConfig</code> defaults <code>chunkModeActive</code> true with <code>Timestamp</code> + <code>Framecounter</code>, and a one-time migration flips saved configs on first start. From the next app start the .bin is format <strong>v2</strong> — it records the host arrival clock next to the camera stamp, so existing v1 events keep working. Bench-verify the scA780 grab → chunk → event path before trusting it on the fleet.</li>
+<li><strong>Current fleet is PTP-less</strong> (scout scA780; §2k correction): no <code>GevIEEE1588*</code> / <code>Ptp*</code> nodes → tile badge hidden, Device Settings shows <code>—</code>, the offset alert never fires. With chunk timestamps on, each camera stamps from its own free-running counter (epoch = camera power-on), so cross-camera scrub aligns through the <strong>host arrival clock</strong> recorded alongside; true cross-camera sensor mapping arrives with a PTP-capable fleet.</li>
+<li><strong>Status readout is scout-node-centric:</strong> state / offset / clock IDs come from <code>GevIEEE1588*</code> only (servo from <code>PtpServoStatus</code>); ace 2's <code>PtpGrandmasterClockID</code> / <code>PtpClockAccuracy</code> are not read → GM ID and accuracy stay blank on ace 2.</li>
+<li><strong>Offset alert is 1 ms</strong> (<code>kMaxPtpOffsetFromMasterNs</code>) against the &lt; 10 µs design target — a ms-degraded (plain-switch) chain still reads green; there is no µs-class advisory.</li>
+<li><strong>No per-event grandmaster logging:</strong> <code>PtpStatus.parentClockId</code> is a Device-Settings tooltip only — an ARB epoch shift is not detectable from the saved events.</li>
+<li><strong>Sync today (keep):</strong> review maps the timeline frame to each camera's nearest own frame through the sensor clocks when they agree, else through the shared host clock (.bin v2), else shared-index + mark/speed offsets — see §2k–2m.</li>
+<li>Parked experiment: <code>experiment/filmstrip-view</code> (unmerged).</li>
+</ul>
+</section>
+
+<section id="bom-configurator" class="card section-reveal"><h2><span class="num">6.</span>BoM configurator (interactive)</h2>
+<p class="lead">Every €/$ in one place: pick products, watch RAM/bandwidth/retention recompute, copy the plain-text BoM — and see the <strong>target build</strong> next to what the <strong>first buy</strong> actually costs.</p>
+<p>Pick the products below — quantities, totals and the engineering budget recompute live. Prices are <strong>street checks 2026-09-04</strong> where marked <span class="pill v">✔</span>; <span class="pill e">est</span> = planning estimate (confirm with distributor before purchase).</p>
+<h3>Target use vs actual first buy</h3>
+<p>Every row carries a phase, so the full-roadmap number never hides what has to be ordered <em>now</em>:</p>
+<ul>
+<li><span class="chip ok">1st buy</span> — <strong>phase 1, ordered first</strong>: the 16-camera visible fleet, its complete network plant (leaf ×2 + core + fiber + cabinets + NIC + grandmaster) and the compute/storage to record and review events. This is the smallest set that produces a working 16-cam / 50 fps line.</li>
+<li><span class="chip gold">target only</span> — <strong>phase 2, the roadmap target</strong>: SWIR moisture stations, IR pyrometers, extra client desks, the AI GPU. Deferred until phase 1 proves the fleet — not bought in the first order.</li>
+<li><span class="chip off">not bought</span> — in <strong>neither</strong> phase today (optional devices the doc keeps on record, e.g. the LWIR camera or an AI GPU when none is selected). Listed so “we decided not to buy this” is explicit, not a silent omission.</li>
+</ul>
+<p>RAM and NVMe are sized for the <strong>full target</strong> and bought in phase 1 — so the server is opened once, not again when phase 2 lands. Camera, lens, cabling, lighting and the whole network plant are phase 1: none of them can be deferred without losing cameras.</p>
+<div class="bom-shell">
+<div class="selgrid">
+<div class="sel"><label for="s-plan">Buy plan (§6)</label>
+<select id="s-plan">
+<option value="first" selected>First buy — phase 1 only</option>
+<option value="target">Target — full build (phases 1 + 2)</option>
+</select>
+<div class="sel-note">switches which total is headline; every row shows its own phase</div></div>
+<div class="sel"><label for="s-cams">Cameras</label>
+<select id="s-cams">
+<option value="4">4</option><option value="8">8</option><option value="12">12</option>
+<option value="16" selected>16</option><option value="20">20</option><option value="24">24</option>
+</select>
+<div class="sel-note">stations on the machine (mm ruler)</div></div>
+<div class="sel"><label for="s-tier">Camera product line</label>
+<select id="s-tier">
+<option value="bas" selected>ace 2 …BAS (IP30, RJ45)</option>
+<option value="pro">ace 2 …PRO (IP30, extra GPIO)</option>
+<option value="ip67">ace 2 …IP67 (sealed, M12/M8)</option>
+</select>
+<div class="sel-note">IP67 = factory-sealed body (§2h)</div></div>
+<div class="sel"><label for="s-mix">Mono / color mix</label>
+<select id="s-mix">
+<option value="mono">All Mono8</option>
+<option value="half" selected>50 / 50 (8 mono + 8 color)</option>
+<option value="color">All color (BGR host-side)</option>
+</select>
+<div class="sel-note">wire = Bayer either way; color multiplies host RAM/disk ×3</div></div>
+<div class="sel"><label for="s-lens">Lens (C23-5M-P family)</label>
+<select id="s-lens">
+<option value="C23-0824-5M-P" selected>C23-0824-5M-P · 8 mm · ~410 mm FOV @ 500 mm</option>
+<option value="C23-1224-5M-P">C23-1224-5M-P · 12 mm · ~275 mm FOV</option>
+<option value="C23-1620-5M-P">C23-1620-5M-P · 16 mm · ~205 mm FOV</option>
+<option value="C23-2518-5M-P">C23-2518-5M-P · 25 mm · ~130 mm FOV</option>
+</select>
+<div class="sel-note">one per camera + 1 spare included</div></div>
+<div class="sel"><label for="s-housing">Housing (BAS/PRO only)</label>
+<select id="s-housing">
+<option value="none" selected>None — body on bracket (IP30 zone)</option>
+<option value="kit">Basler IP67 housing kit per camera</option>
+</select>
+<div class="sel-note">ignored when IP67 camera selected</div></div>
+<div class="sel"><label for="s-light">Strobed lighting</label>
+<select id="s-light">
+<option value="strobe" selected>Strobed LED bar + driver, per station</option>
+<option value="none">None (existing / later)</option>
+</select>
+<div class="sel-note">flash-out triggered (§2g); incl. 24 V PSU share</div></div>
+<div class="sel"><label for="s-mois">Moisture SWIR stations (§2n)</label>
+<select id="s-mois">
+<option value="0">0</option><option value="1">1</option>
+<option value="2" selected>2 (M1 press + M2 dryer)</option><option value="4">4 (M1–M4)</option>
+</select>
+<div class="sel-note">ace 2 GigE SWIR · 25 fps · 1000 frames/event</div></div>
+<div class="sel"><label for="s-mois-light">Moisture illumination</label>
+<select id="s-mois-light">
+<option value="halogen" selected>Halogen + filter set, per station</option>
+<option value="none">None (existing / later)</option>
+</select>
+<div class="sel-note">broadband halogen + 1200/1450 nm filters (§2n)</div></div>
+<div class="sel"><label for="s-pyro">IR pyrometers (§2o-A)</label>
+<select id="s-pyro">
+<option value="0">0</option><option value="2" selected>2 (T1 dryer + T2 reel)</option><option value="4">4 (T1–T4)</option>
+</select>
+<div class="sel-note">8–14 µm spot head → OPC UA trend, no GigE load</div></div>
+<div class="sel"><label for="s-lwir">LWIR camera (§2o-B)</label>
+<select id="s-lwir">
+<option value="0" selected>0 (pyrometers only)</option><option value="1">1 (dryer exit)</option><option value="2">2 (+ reel)</option>
+</select>
+<div class="sel-note">non-Basler microbolometer, standalone</div></div>
+<div class="sel"><label for="s-client">Client PCs (§2p-S2)</label>
+<select id="s-client">
+<option value="1" selected>1 (operator desk)</option><option value="2">2</option><option value="3">3</option>
+</select>
+<div class="sel-note">live view + analyze; 2× QHD monitors each</div></div>
+<div class="sel"><label for="s-net">Network topology (§2r)</label>
+<select id="s-net">
+<option value="seg2ptp" selected>2 segments — PTP leaf ×2 + PTP core</option>
+<option value="seg2plain">2 segments — plain switches (non-PTP)</option>
+<option value="single">Single PTP switch (§2l baseline)</option>
+</select>
+<div class="sel-note">8 cams + 1 SWIR per leaf → fiber → core → server; §2s compares the two builds</div></div>
+<div class="sel"><label for="s-uplink">Uplink media (§2p-S4)</label>
+<select id="s-uplink">
+<option value="dac" selected>DAC twinax pair (≤ 5 m, core→server)</option>
+<option value="om3">OM3 multimode + SR optics (≤ 300 m)</option>
+<option value="om4">OM4 multimode + SR optics (≤ 400 m)</option>
+<option value="os2">OS2 single-mode + LR optics</option>
+</select>
+<div class="sel-note">leaf↔core + core→server; the leaf run is always fiber (§2r)</div></div>
+<div class="sel"><label for="s-gpu">AI GPU (§2d)</label>
+<select id="s-gpu">
+<option value="none" selected>None (CPU pipeline today)</option>
+<option value="a4000">RTX A4000 16GB (budget)</option>
+<option value="r4000ada">RTX 4000 Ada 20GB ECC (recommended)</option>
+<option value="l4">NVIDIA L4 24GB (headless/low-power)</option>
+</select>
+<div class="sel-note">TensorRT defect detection; fits 1000W PSU</div></div>
+<div class="sel"><label for="s-power">Camera power</label>
+<select id="s-power">
+<option value="poe-switch" selected>PoE from switch ports (Planet 802.3bt)</option>
+<option value="poe-injector">PoE midspan injector, per camera</option>
+<option value="dc24">24 VDC via camera I/O (own bus)</option>
+</select>
+<div class="sel-note">a2A1920 = IEEE 802.3af PoE · strobes stay on their own 24 V bus (§2g)</div></div>
+<div class="sel"><label for="s-sw">Single switch (§2l baseline)</label>
+<select id="s-sw">
+<option value="planet" selected>Planet IGS-6325-24UP4X · $1 670 ✔</option>
+<option value="m4300">Netgear M4300-24X · $3 700 ✔</option>
+<option value="ie9300">Cisco IE9300 (quote) · est $8 000</option>
+<option value="none">Existing / non-PTP (offsets degrade)</option>
+</select>
+<div class="sel-note">used only in single-switch mode; segmented modes buy leaf ×2 + core (§2l)</div></div>
+<div class="sel"><label for="s-gm">Grandmaster</label>
+<select id="s-gm">
+<option value="meinberg" selected>GNSS GM — Meinberg microSync (est $3–5k)</option>
+<option value="ptp4l">Software — linuxptp on vision server ($0)</option>
+<option value="none">None — camera arbitrates (ARB mode)</option>
+</select>
+<div class="sel-note">rung 2 / 1 / 0 of §2m</div></div>
+<div class="sel"><label for="s-eday">Events per day</label>
+<select id="s-eday">
+<option value="5">5</option><option value="10">10</option><option value="20" selected>20</option><option value="40">40</option>
+</select>
+<div class="sel-note">drives retention sizing</div></div>
+<div class="sel"><label for="s-ret">Retention (days on NVMe)</label>
+<select id="s-ret">
+<option value="7">7</option><option value="14">14</option><option value="30" selected>30</option><option value="90">90</option>
+</select>
+<div class="sel-note">then move to NAS</div></div>
+</div>
+<div class="bom-warn" id="pwr-warn"></div>
+
+<div class="derived" id="derived">
+<div class="tile info"><div class="t-label">Aggregate link load</div><div class="t-val"><span id="d-bw">—</span></div><div class="t-sub">16 streams → dual-10G bond = 20 Gbps</div></div>
+<div class="tile teal"><div class="t-label">Ring RAM (2000-frame event)</div><div class="t-val"><span id="d-ram">—</span></div><div class="t-sub">fits 128 GB machine comfortably</div></div>
+<div class="tile good"><div class="t-label">Disk per event</div><div class="t-val"><span id="d-disk">—</span></div><div class="t-sub">NVMe Gen4 write burst</div></div>
+<div class="tile purp"><div class="t-label">Retention on NVMe</div><div class="t-val"><span id="d-ret">—</span></div><div class="t-sub">4 TB Gen4 drives @ 20 events/day · 30 days</div></div>
+<div class="tile gold"><div class="t-label">PTP chain</div><div class="t-val"><span id="d-ptp">—</span></div><div class="t-sub">all 16 cameras IEEE 1588 slave</div></div>
+<div class="tile blue"><div class="t-label">Network topology</div><div class="t-val"><span id="d-net">—</span></div><div class="t-sub">segment split · uplink load (§2r)</div></div>
+<div class="tile teal"><div class="t-label">Station power</div><div class="t-val"><span id="d-pwr">—</span></div><div class="t-sub">camera feed + strobe bus, per station</div></div>
+<div class="tile good"><div class="t-label">First buy — phase 1</div><div class="t-val"><span id="d-first">—</span></div><div class="t-sub" id="d-first-sub">visible fleet + network plant + compute</div></div>
+<div class="tile warn"><div class="t-label">Target BoM — full build</div><div class="t-val"><span id="d-total">—</span></div><div class="t-sub" id="d-total-sub">phases 1 + 2 — indicative only, confirm quotes</div></div>
+</div>
+
+<p class="bom-plan" id="bom-plan"><span>Phase split:</span>
+<span class="chip ok">1st buy</span> <b id="l-first">—</b>
+<span class="chip gold">target only</span> <b id="l-later">—</b>
+<span class="chip off">not bought</span> <b id="l-never">—</b>
+<span class="chip blue">target total</span> <b id="l-target">—</b>
+</p>
+<div class="tablewrap"><table class="bom-table" id="bom">
+<thead><tr><th>Group / item</th><th>Phase</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Subtotal</th><th>Note</th></tr></thead>
+<tbody></tbody>
+</table></div>
+<p class="legend" id="bom-legend2">Row phases: <span class="chip ok">1st buy</span> phase 1, ordered first · <span class="chip gold">target only</span> phase 2, deferred · <span class="chip off">not bought</span> in neither phase (kept on record). The dark total is the selected plan; the grey total is the other one — deferred money is <em>not</em> counted in the first buy.</p>
+<button type="button" class="ghost" id="bom-copy">Copy plain-text BoM</button>
+<p class="legend" id="bom-legend">Sources: Basler shop / Edmund Optics / Machine Vision Store / Mouser (cameras, lenses, 2026-09-04); PlanetechUSA (Planet), CDW / NetGuard (Netgear) for the switch; Meinberg (grandmaster) list price on request. Leaf/core switch, fiber, optics, cabinet and PSU prices are planning estimates for the required port/PTP feature set (§2r–§2s, 2026-09-19) — confirm quotes. Exchange rates and distributor pricing vary — treat totals as ±15 %.</p>
+</div>
+</section>
+</main>
+</div>
+<button class="back-top" aria-label="Back to top" type="button">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"></path></svg>
+</button>
+<footer>Roadmap “web-vision-pro-16cam-50fps-roadmap-ubuntu2404” · <strong>Ubuntu 24.04 LTS + pylon 26.06 edition</strong> — hardware, cameras and BoM unchanged from the 22.04 roadmap · camera/lens/pylon data verified against baslerweb.com / docs.baslerweb.com · PTP support, switch &amp; street prices verified 2026-09-04 · pylon compatibility: ≥ 6.0 required, 6.2.0 today / 26.06 target ✔ · 2-segment network topology, fiber/switch parts and the PTP vs non-PTP comparison added 2026-09-19 (§2r–§2s — switch/fiber prices est, confirm quotes) · fiber vs PTP clarified 2026-09-22: fiber carries PTP unchanged, media converters do not (§2p S4) · fiber glass re-specced 2026-09-22 to armored OM3 + 10G-SR as the default (300 m reach, same optics/connectors/PTP as OM4), OM4 only for 300–400 m runs and OS2 beyond (§2s)</footer>
+<script>
+(function(){
+  var progress=document.querySelector('.progress-bar');
+  var backTop=document.querySelector('.back-top');
+  var tocLinks=document.querySelectorAll('.toc a');
+  var sections=document.querySelectorAll('section[id]');
+  var reduceMotion=window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  function updateProgress(){
+    var scroll=document.documentElement.scrollTop;
+    var height=document.documentElement.scrollHeight-window.innerHeight;
+    var pct=height>0?Math.min(scroll/height,1):0;
+    progress.style.transform='scaleX('+pct+')';
+    progress.setAttribute('aria-valuenow',Math.round(pct*100));
+    if(scroll>600){backTop.classList.add('visible')}else{backTop.classList.remove('visible')}
+  }
+  function updateActive(){
+    if(!sections.length)return;
+    var scrollY=window.scrollY+100;
+    var current='';
+    for(var i=0;i<sections.length;i++){
+      if(sections[i].offsetTop<=scrollY){current=sections[i].id}
+    }
+    for(var j=0;j<tocLinks.length;j++){
+      if(tocLinks[j].getAttribute('href')==='#'+current){
+        tocLinks[j].setAttribute('aria-current','true')
+      }else{
+        tocLinks[j].removeAttribute('aria-current')
+      }
+    }
+  }
+  window.addEventListener('scroll',function(){updateProgress();updateActive()},{passive:true});
+  backTop.addEventListener('click',function(){
+    window.scrollTo({top:0,behavior:reduceMotion?'auto':'smooth'})
+  });
+  (function(){
+    var nameByHref={};
+    tocLinks.forEach(function(a){nameByHref[a.getAttribute('href')]=a.textContent;});
+    sections.forEach(function(el,i){
+      var nav=document.createElement('p');
+      nav.className='secfoot';
+      var h='';
+      if(i>0){var p=sections[i-1];h+='<a href="#'+p.id+'">\u2190 '+(nameByHref['#'+p.id]||p.id)+'</a>';}
+      else{h+='<span></span>';}
+      h+='<a href="#goal">top</a>';
+      if(i<sections.length-1){var n=sections[i+1];h+='<a href="#'+n.id+'">'+(nameByHref['#'+n.id]||n.id)+' \u2192</a>';}
+      nav.innerHTML=h;
+      el.appendChild(nav);
+    });
+  })();
+  var reveals=document.querySelectorAll('.section-reveal');
+  if(!reduceMotion){
+    reveals.forEach(function(el){el.classList.add('pending');});
+  }
+  function revealVisible(){
+    var vh=window.innerHeight;
+    reveals.forEach(function(el){
+      if(el.classList.contains('is-visible'))return;
+      var rect=el.getBoundingClientRect();
+      if(rect.top<vh&&rect.bottom>0){
+        el.classList.remove('pending');
+        el.classList.add('is-visible');
+      }
+    });
+  }
+  if(!reduceMotion&&'IntersectionObserver' in window){
+    var revealObserver=new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          entry.target.classList.remove('pending');
+          entry.target.classList.add('is-visible');
+          revealObserver.unobserve(entry.target);
+        }
+      });
+    },{threshold:.01});
+    reveals.forEach(function(el){revealObserver.observe(el);});
+  }
+  revealVisible();
+  window.addEventListener('scroll',revealVisible,{passive:true});
+  updateProgress();
+  updateActive();
+})();
+</script>
+<script>
+(function(){
+  'use strict';
+  var MP=2.30;              // 1920x1200 megapixels
+  var FPS=50;               // global rate target
+  var FRAMES=2000;          // frames per event
+  var BYTES_COLOR=3;        // BGR host-side multiplier
+  var BYTES_MONO=1;
+  var OVERHEAD_GB=16;       // OS + Qt/OpenCV/pylon + live view
+  var DRIVE_TB=4;           // NVMe per drive
+  var DRIVE_PRICE=380;      // est $/4TB Gen4
+  var RAM_PRICE_PER_GB=18;  // est $/GB ECC DIMM upgrade
+
+  // unit prices: [mono, color]  .s = 'v' verified street | 'e' estimate
+  var CAM={
+    bas:  {mono:420, color:450, s:'v', name:'ace 2 a2A1920-51gm/gcBAS'},
+    pro:  {mono:490, color:499, s:'e', name:'ace 2 a2A1920-51gm/gcPRO'},
+    ip67: {mono:1090,color:1140,s:'e', name:'ace 2 a2A1920-51gm/gcIP67'}
+  };
+  var LENS=180;             // C23-xxxx-5M-P, verified street (Mouser/MVS)
+  var HOUSING_KIT=390;      // est, Basler IP67 housing + lens tube
+  var HEATSINK=25;          // est
+  var AIR_COOLER=150;       // est (dryer stations only - not in BoM rows below)
+  var LIGHT=950;            // est, strobed LED bar + driver per station
+  var PSU=320;              // est, 24 VDC strobe PSU
+  var MOIS_MP=1.30;         // IMX990 class 1296x1032
+  var MOIS_FPS=25;          // moisture rate (not 50)
+  var MOIS_FRAMES=1000;     // 40 s @ 25 fps
+  var MOIS_CAM=4800;        // est, ace 2 GigE SWIR IMX990 class (confirm quote)
+  var SWIR_LENS=650;        // est, SWIR-corrected C-mount
+  var SWIR_FILTER=250;      // est, dual-bandpass set ~1200/1450 nm
+  var HALOGEN=800;          // est, broadband halogen illuminator + controller per station
+  var PYRO=500;             // est, IR spot pyrometer head + OPC UA input share
+  var LWIR=6500;            // est, 640x480 microbolometer camera class (non-Basler)
+  var SRV_BASE=2600;        // est, tower server: 16C + ECC board + 1000W + 1TB OS SSD (RAM/NVMe/NIC in groups above)
+  var CLIENT=1400;          // est, client PC: 8C + 32GB + 1TB NVMe
+  var MON27=350;            // est, 27in QHD IPS + VESA arm
+  var MON24=150;            // est, 24in admin monitor
+  var UPS=450;              // est, 1500VA line-interactive UPS
+  var MM_PATCH=40;          // est, OM3/OM4 LC-LC duplex patch per uplink
+  var SR=60;                // est, 10G-SR SFP+ optic
+  var OS2_PATCH=50;         // est, OS2 LC-LC duplex patch per uplink
+  var LR=250;               // est, 10G-LR SFP+ optic
+  var GPU={
+    none:   {price:0,    s:'e', name:'None'},
+    a4000:  {price:1000, s:'e', name:'NVIDIA RTX A4000 16GB (single-slot, 140W)'},
+    r4000ada:{price:1600,s:'e', name:'NVIDIA RTX 4000 Ada 20GB ECC (single-slot, 130W)'},
+    l4:     {price:2800, s:'e', name:'NVIDIA L4 24GB (no display out, 72W)'}
+  };
+  var CABLE_RJ45=35;        // est, Cat6a shielded drop
+  var CABLE_M12=145;        // est, M12 X-coded set (IP67 cams)
+  var SYNC_CABLE=55;        // est, GPIO cable camera flash-out -> LED driver trigger
+  var INJECTOR=35;          // est, 802.3af PoE midspan injector
+  var DC_DROP=15;           // est, 24 VDC camera power drop
+  var NIC=420;              // est, Intel X710-DA2 (2x10G SFP+)
+  var DAC=45;               // est, 10G SFP+ DAC cable
+  var LEAF_PTP=850;         // est, industrial 10x1G PoE+ + 2x10G SFP+, IEEE 1588 BC/TC (§2r)
+  var LEAF_PLAIN=380;       // est, same port count/temperature class, no IEEE 1588
+  var CORE_PTP=1300;        // est, 4-8x10G SFP+ aggregation, IEEE 1588 boundary clock
+  var CORE_PLAIN=600;       // est, plain 10G aggregation switch
+  var FIBER_RUN=180;        // est, armored 4-strand OM3/OM4/OS2 pre-terminated trunk, per segment
+  var FIBER_PANEL=120;      // est, LC/UPC patch panel + enclosure, per segment (both ends)
+  var CABINET=450;          // est, IP54 field cabinet, per segment
+  var DIN_PSU=180;          // est, redundant 24 VDC DIN PSU, per segment
+  var SW={
+    planet:{price:1670, s:'v', name:'Planet IGS-6325-24UP4X (24xGbE PoE++ + 4x10G SFP+)'},
+    m4300: {price:3700, s:'v', name:'Netgear M4300-24X / XSM4324CS (24x10GBASE-T + 4xSFP+)'},
+    ie9300:{price:8000, s:'e', name:'Cisco Catalyst IE9300 (industrial, quote)'}
+  };
+  var GM={
+    meinberg:{price:4000, s:'e', name:'GNSS grandmaster — Meinberg microSync XS/HR (PTPv2 + NTP)'},
+    ptp4l:   {price:0,    s:'e', name:'Software grandmaster — linuxptp ptp4l on vision server'},
+    none:    {price:0,    s:'e', name:'None — camera arbitrates as GM (ARB timescale)'}
+  };
+
+  var $=function(id){return document.getElementById(id);};
+  function num(n){ return n.toLocaleString('en-US',{maximumFractionDigits:0}); }
+  function money(n){ return '$' + num(n); }
+  function esc(t){ var d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+  function pill(s){ return s==='v' ? '<span class="pill v">✔</span>' : '<span class="pill e">est</span>'; }
+
+  function state(){
+    return {
+      plan: $('s-plan').value,
+      cams: parseInt($('s-cams').value,10),
+      tier: $('s-tier').value,
+      mix:  $('s-mix').value,
+      lens: $('s-lens').value,
+      housing: $('s-housing').value,
+      light: $('s-light').value,
+      power: $('s-power').value,
+      mois:  parseInt($('s-mois').value,10),
+      moisLight: $('s-mois-light').value,
+      pyro:  parseInt($('s-pyro').value,10),
+      lwir:  parseInt($('s-lwir').value,10),
+      client: parseInt($('s-client').value,10),
+      net:  $('s-net').value,
+      uplink: $('s-uplink').value,
+      gpu:    $('s-gpu').value,
+      sw:   $('s-sw').value,
+      gm:   $('s-gm').value,
+      eday: parseInt($('s-eday').value,10),
+      ret:  parseInt($('s-ret').value,10)
+    };
+  }
+
+  function calc(){
+    var S=state();
+    var n=S.cams;
+    var segmented=(S.net!=='single');
+    var ptpNet=(S.net!=='seg2plain');
+    var nColor=(S.mix==='color')?n:(S.mix==='half')?Math.floor(n/2):0;
+    var nMono=n-nColor;
+    var cam=CAM[S.tier];
+
+    // engineering
+    var gbFrame = MP * BYTES_MONO / 1000; // mono frame in GB (2.3 MP = 2.3 MB)
+    var gbRing = (nMono + nColor*BYTES_COLOR) * FRAMES * gbFrame;            // GB ring
+    var bwMbps = (nMono + nColor) * FPS * MP * 8;                            // Mbps wire (Bayer) ~115 MB/s per cam
+    var moisGbFrame = MOIS_MP * BYTES_MONO / 1000;
+    var moisGbRing = S.mois * MOIS_FRAMES * moisGbFrame;                     // GB ring, moisture @25fps
+    gbRing += moisGbRing;
+    bwMbps += S.mois * MOIS_FPS * MOIS_MP * 8;
+    var gbEvent = gbRing;                                                    // disk per event ~ ring size
+    var perEventTB = gbEvent/1024;
+    var needTB = perEventTB * S.eday * S.ret;
+    var drives = Math.max(1, Math.ceil(needTB / DRIVE_TB * 1.15));
+    var ramNeed = gbRing + OVERHEAD_GB;
+    var ramTier = ramNeed<=64?64:ramNeed<=128?128:256;
+    var ramUpgrade = Math.max(0, (ramTier-32))*RAM_PRICE_PER_GB;             // assume 32 GB base
+
+    // rows
+    var rows=[];
+    var grp, curPhase='now';
+    var push=function(g,name,qty,unit,note,src,phase){rows.push({g:g,name:name,qty:qty,unit:unit,note:note,src:src,phase:phase||curPhase});};
+    var total=0;
+
+    grp='cameras';
+    if(nMono>0) push(grp, cam.name+' · mono · '+S.tier.toUpperCase(), nMono, cam.mono, 'IMX392 1920×1200 · 51 fps · IEEE 1588', cam.s);
+    if(nColor>0) push(grp, cam.name+' · color · '+S.tier.toUpperCase(), nColor, cam.color, 'Bayer on wire; debayer host-side', cam.s);
+    total += nMono*cam.mono + nColor*cam.color;
+
+    grp='lenses & optics';
+    push(grp, S.lens+' (C-mount, 2/3&quot; circle)', n+1, LENS, '147 lp/mm matches IMX392 · 1 spare', 'v');
+    total += (n+1)*LENS;
+    push(grp, 'Basler heat sink (ace 2)', n, HEATSINK, 'passive, every station', 'e');
+    total += n*HEATSINK;
+    if(S.housing==='kit' && S.tier!=='ip67'){
+      push(grp, 'Basler IP67 housing kit (housing + lens tube)', n, HOUSING_KIT, 'Option B, §2h', 'e');
+      total += n*HOUSING_KIT;
+    }
+
+    grp='cabling & station wiring';
+    if(S.tier==='ip67'){
+      var ioNote=(S.light==='strobe') ? 'IP67 locking connectors; M8 I/O carries flash-out to LED driver trigger' : 'IP67 locking connectors';
+      push(grp, 'M12 X-coded GigE + M8 I/O cable set', n, CABLE_M12, ioNote, 'e');
+      total += n*CABLE_M12;
+    } else {
+      var dropNote=(S.power==='poe-switch') ? 'carries GigE + PTP + PoE · MTU 9000' : 'carries GigE + PTP · MTU 9000';
+      push(grp, 'Cat6a shielded RJ45 drop (~10 m)', n, CABLE_RJ45, dropNote, 'e');
+      total += n*CABLE_RJ45;
+      if(S.light==='strobe'){
+        push(grp, 'GPIO sync cable — camera flash-out → LED driver trigger', n, SYNC_CABLE, 'pylon LineSource / FlashWindow out (§2g)', 'e');
+        total += n*SYNC_CABLE;
+      }
+    }
+    var poeFromSwitch=(S.power==='poe-switch' && (segmented || S.sw==='planet'));
+    var useInjector=(S.power==='poe-injector') || (S.power==='poe-switch' && !poeFromSwitch);
+    if(useInjector){
+      push(grp, 'PoE midspan injector (802.3af), per camera', n, INJECTOR, 'adds PoE to any non-PoE switch port', 'e');
+      total += n*INJECTOR;
+    }
+    if(S.power==='dc24'){
+      push(grp, '24 VDC camera power drop (per station)', n, DC_DROP, 'camera I/O connector, 12–24 VDC', 'e');
+      total += n*DC_DROP;
+      push(grp, '24 VDC camera-bus PSU (isolated from strobe bus)', 1, PSU, 'avoids strobe pulse dips on camera supply', 'e');
+      total += PSU;
+    }
+    var poeW=(poeFromSwitch||useInjector) ? n*8 : 0;
+
+    grp='lighting';
+    if(S.light==='strobe'){
+      push(grp, 'Strobed LED bar + driver (per station)', n, LIGHT, '≥10× overdrive @ ≤50 µs pulses (§2g)', 'e');
+      total += n*LIGHT;
+      var psus=Math.ceil(n/4)+1;
+      push(grp, '24 VDC strobe PSU (shared, peak-current sized)', psus, PSU, 'kept separate from any camera bus', 'e');
+      total += psus*PSU;
+    }
+
+    grp='moisture (SWIR, §2n)';
+    curPhase='later';                       // moisture is phase 2 — after phase 1 proves the fleet
+    if(S.mois>0){
+      push(grp, 'ace 2 GigE SWIR · IMX990 class (a2A1280-80gmSWIR)', S.mois, MOIS_CAM, '1.3 MP class · 25 fps · PTP slave (quote to confirm)', 'e');
+      total += S.mois*MOIS_CAM;
+      push(grp, 'SWIR-corrected C-mount lens', S.mois, SWIR_LENS, 'visible C23 glass does not pass 1450 nm', 'e');
+      total += S.mois*SWIR_LENS;
+      if(S.moisLight==='halogen'){
+        push(grp, 'Dual-bandpass filter set (~1200/1450 nm)', S.mois, SWIR_FILTER, 'reference + water absorption', 'e');
+        total += S.mois*SWIR_FILTER;
+        push(grp, 'Broadband halogen illuminator + controller', S.mois, HALOGEN, 'continuous; no flash-sync', 'e');
+        total += S.mois*HALOGEN;
+      }
+      push(grp, 'Basler heat sink (ace 2)', S.mois, HEATSINK, 'passive, every moisture station', 'e');
+      total += S.mois*HEATSINK;
+    } else {
+      push(grp, 'SWIR moisture stations — not bought (§2n)', 0, 0, 'phase-2 option; needs oven-dry calibration samples first', 'e', 'never');
+    }
+
+    grp='temperature (§2o)';
+    curPhase='later';
+    if(S.pyro>0){
+      push(grp, 'IR spot pyrometer head (8–14 µm, → OPC UA)', S.pyro, PYRO, '1 Hz trend; zero GigE/RAM load', 'e');
+      total += S.pyro*PYRO;
+    } else {
+      push(grp, 'IR pyrometers — not bought (§2o)', 0, 0, 'phase-2 option; no GigE load when added later', 'e', 'never');
+    }
+    if(S.lwir>0){
+      push(grp, 'LWIR microbolometer camera 640×480 (non-Basler)', S.lwir, LWIR, 'standalone; outside PTP/event path', 'e');
+      total += S.lwir*LWIR;
+    } else {
+      push(grp, 'LWIR thermal camera — not bought (§2o-B)', 0, 0, 'optional non-Basler device, outside the PTP/event path', 'e', 'never');
+    }
+
+    grp='server, client & workspace';
+    curPhase='now';
+    push(grp, 'Tower server — 16C, ECC board, 1000W, 1TB OS SSD (RAM/NVMe/NIC in groups above)', 1, SRV_BASE, 'Ubuntu 24.04 · slot+power reserved for future GPU', 'e');
+    total += SRV_BASE;
+    push(grp, 'Client PC — live view + analyze (read-only event share)', 1, CLIENT, '8C · 32GB · 1G NIC to spare switch port · desk 1', 'e');
+    total += CLIENT;
+    push(grp, '27in QHD IPS monitor + VESA arm (client desk 1)', 2, MON27, 'tiles left, analyze right', 'e');
+    total += 2*MON27;
+    push(grp, '24in admin monitor (server)', 1, MON24, 'commissioning/service', 'e');
+    total += MON24;
+    push(grp, 'UPS 1500VA line-interactive (server + switch)', 1, UPS, 'protects mid-write events', 'e');
+    total += UPS;
+    if(S.client>1){
+      curPhase='later';
+      push(grp, 'Extra client PC — live view + analyze', S.client-1, CLIENT, 'phase 2 — desk 1 proves the workflow first', 'e');
+      total += (S.client-1)*CLIENT;
+      push(grp, '27in QHD monitor pair (extra desk)', (S.client-1)*2, MON27, 'phase 2', 'e');
+      total += (S.client-1)*2*MON27;
+      curPhase='now';
+    }
+    if(S.gpu!=='none'){
+      curPhase='later';
+      var gpu=GPU[S.gpu];
+      push(grp, gpu.name, 1, gpu.price, 'phase 2 · nvidia-driver-550 + CUDA 12 + TensorRT (§2d)', gpu.s);
+      total += gpu.price;
+      curPhase='now';
+    } else {
+      push(grp, 'AI GPU — not bought (§2d)', 0, 0, 'buy the day AI defect detection lands (RTX 4000 Ada shortlist)', 'e', 'never');
+    }
+
+    grp='network & time sync';
+    curPhase='now';                         // the whole network plant is phase 1
+    if(segmented){
+      var leafP=ptpNet?LEAF_PTP:LEAF_PLAIN;
+      var coreP=ptpNet?CORE_PTP:CORE_PLAIN;
+      push(grp, 'Leaf switch — 10×1G PoE+ + 2×10G SFP+ (segment A + B)'+(ptpNet?' · IEEE 1588 TC/BC':''), 2, leafP,
+        ptpNet?'8 cams + 1 SWIR each · PTP domain 0, E2E · PoE feeds the drops':'no IEEE 1588 → offsets drift to ms (§2s)', 'e');
+      total += 2*leafP;
+      push(grp, 'Core switch — 4–8×10G SFP+'+(ptpNet?' · IEEE 1588 boundary clock':''), 1, coreP,
+        ptpNet?'control room · GM attaches here (§2m)':'plain 10G aggregation', 'e');
+      total += coreP;
+      push(grp, 'Field cabinet IP54 + 24 VDC DIN PSU (per segment)', 2, CABINET+DIN_PSU, 'machine floor · wet end A / dry end B (§2h)', 'e');
+      total += 2*(CABINET+DIN_PSU);
+      if(S.uplink==='om3' || S.uplink==='om4'){
+        var mmGlass=S.uplink==='om4'?'OM4':'OM3';
+        push(grp, 'Armored '+mmGlass+' trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN,
+          '2 strands used + 2 spare · leaf ↔ core (§2r) · '+(S.uplink==='om4'?'≤ 400 m':'≤ 300 m')+' @ 10G-SR', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, '2 per link, both ends · same optic on OM3 and OM4', 'e');
+        total += 4*SR;
+      } else if(S.uplink==='os2'){
+        push(grp, 'Armored OS2 trunk per segment (4-strand LC/UPC, pre-terminated)', 2, FIBER_RUN, '2 strands used + 2 spare · leaf ↔ core (§2r)', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-LR SFP+ optic (leaf ↔ core)', 4, LR, '2 per link, both ends', 'e');
+        total += 4*LR;
+      } else {
+        push(grp, 'Armored OM3 trunk per segment (DAC cannot span the machine floor)', 2, FIBER_RUN, 'OM4 instead if the measured run is 300–400 m · DAC only fits core → server, ≤ 5 m', 'e');
+        total += 2*FIBER_RUN;
+        push(grp, '10G-SR SFP+ optic (leaf ↔ core)', 4, SR, 'the leaf ↔ core run is always fiber', 'e');
+        total += 4*SR;
+      }
+      push(grp, 'LC/UPC patch panel + enclosure (both ends, per segment)', 2, FIBER_PANEL, 'label SEG-A/LINK1 … certify with OLTS (§2r)', 'e');
+      total += 2*FIBER_PANEL;
+    } else if(S.sw!=='none'){
+      var sw=SW[S.sw];
+      push(grp, sw.name, 1, sw.price, 'IEEE 1588 PTP (§2l)', sw.s);
+      total += sw.price;
+    }
+    if(segmented || S.sw!=='none'){
+      if(S.uplink==='om3' || S.uplink==='om4'){
+        push(grp, (S.uplink==='om4'?'OM4':'OM3')+' LC-LC duplex patch (core → server)', 2, MM_PATCH, 'LACP bond', 'e');
+        total += 2*MM_PATCH;
+        push(grp, '10G-SR SFP+ optic (core → server)', 4, SR, '2 per end', 'e');
+        total += 4*SR;
+      } else if(S.uplink==='os2'){
+        push(grp, 'OS2 LC-LC duplex patch (core → server)', 2, OS2_PATCH, 'LACP bond', 'e');
+        total += 2*OS2_PATCH;
+        push(grp, '10G-LR SFP+ optic (core → server)', 4, LR, '2 per end', 'e');
+        total += 4*LR;
+      } else {
+        push(grp, '10G SFP+ DAC pair (core → server)', 2, DAC, 'LACP bond · ≤ 5 m', 'e');
+        total += 2*DAC;
+      }
+      push(grp, 'Intel X710-DA2 2×10G NIC (bond)', 1, NIC, 'kernel tuning + jumbo frames', 'e');
+      total += NIC;
+    }
+    var gm=GM[S.gm];
+    if(gm.price>0 && ptpNet){
+      push(grp, gm.name, 1, gm.price, 'Priority1=100 · domain 0 · GNSS antenna incl.', gm.s);
+      total += gm.price;
+    }
+
+    grp='compute & storage';
+    push(grp, 'RAM upgrade to '+ramTier+' GB ECC', 1, ramUpgrade, 'ring '+num(Math.round(gbRing))+' GB + '+OVERHEAD_GB+' GB overhead (assumes 32 GB base)', 'e');
+    total += ramUpgrade;
+    var drivesExtra=Math.max(0,drives-1);
+    if(drivesExtra>0){
+      push(grp, 'NVMe Gen4 '+DRIVE_TB+' TB (add-on)', drivesExtra, DRIVE_PRICE, num(Math.round(needTB))+' TB retention @ '+S.eday+' events/day × '+S.ret+' days', 'e');
+      total += drivesExtra*DRIVE_PRICE;
+    } else {
+      push(grp, 'NVMe Gen4 '+DRIVE_TB+' TB (existing)', 1, 0, 'fits '+num(Math.round(needTB))+' TB retention need', 'e');
+    }
+
+    // phase totals — derived from the rows themselves, so they can never drift from the table
+    var totalFirst=0, totalLater=0, totalNever=0;
+    rows.forEach(function(r){
+      var s=r.qty*r.unit;
+      if(r.phase==='later') totalLater+=s;
+      else if(r.phase==='never') totalNever+=s;
+      else totalFirst+=s;
+    });
+    var targetTotal=totalFirst+totalLater;
+    var phaseChip=function(p){
+      if(p==='never') return '<span class="chip off">not bought</span>';
+      if(p==='later') return '<span class="chip gold">target only</span>';
+      return '<span class="chip ok">1st buy</span>';
+    };
+
+    // render table
+    var tb=$('bom').querySelector('tbody');
+    var html='';
+    var last='';
+    rows.forEach(function(r){
+      var sub=r.qty*r.unit;
+      if(r.g!==last){ html+='<tr class="grp"><td colspan="6">'+esc(r.g.toUpperCase())+'</td></tr>'; last=r.g; }
+      html+='<tr class="'+(r.phase==='later'?'later':r.phase==='never'?'never':'now')+'"><td>'+esc(r.name)+' '+pill(r.src)+'</td>'
+          + '<td class="ph">'+phaseChip(r.phase)+'</td>'
+          + '<td class="r">'+num(r.qty)+'</td>'
+          + '<td class="r">'+money(r.unit)+'</td>'
+          + '<td class="r sub">'+money(sub)+'</td>'
+          + '<td>'+esc(r.note)+'</td></tr>';
+    });
+    var totRows = (S.plan==='first') ? [
+      ['First buy — phase 1 (what gets ordered first)', totalFirst, 'grand', 'phase-2 money ('+money(totalLater)+') is not counted above'],
+      ['Target — full build (phases 1 + 2)', targetTotal, '', 'the roadmap number · adds the deferred phase-2 items']
+    ] : [
+      ['Target — full build (phases 1 + 2)', targetTotal, 'grand', 'all phases · includes '+money(totalLater)+' deferred to phase 2'],
+      ['First buy — phase 1 only', totalFirst, '', 'what would be ordered first']
+    ];
+    totRows.forEach(function(t,i){
+      html+='<tr class="total'+(i?' alt':'')+'"><td>'+t[0]+'</td><td></td><td></td><td></td>'
+          + '<td class="r '+t[2]+'">'+money(t[1])+'</td><td>'+t[3]+'</td></tr>';
+    });
+    tb.innerHTML=html;
+
+    // derived dashboard
+    var pct=(bwMbps/(2*10000))*100;
+    $('d-bw').innerHTML = num(Math.round(bwMbps/1000))+' Gbps <small>('+pct.toFixed(0)+'% of 2×10G)</small>';
+    $('d-ram').innerHTML = num(Math.round(gbRing))+' GB';
+    $('d-disk').innerHTML = num(Math.round(gbEvent))+' GB';
+    $('d-ret').innerHTML = num(Math.round(needTB))+' TB <small>→ '+drives+'× '+DRIVE_TB+' TB</small>';
+    var gmState = S.gm==='none' ? '<span class="chip warn">ARB — camera is GM</span>'
+                : S.gm==='ptp4l' ? '<span class="chip blue">server = software GM</span>'
+                : '<span class="chip ok">GNSS GM active</span>';
+    var swState = segmented ? '<span class="chip '+ (ptpNet?'ok':'warn') +'">'+(ptpNet?'leaf ×2 + core PTP':'plain switches')+'</span>'
+                : S.sw==='none' ? '<span class="chip warn">switch: no PTP</span>' : '<span class="chip ok">PTP switch</span>';
+    $('d-ptp').innerHTML = gmState+'<br>'+swState+'<br><small>'+n+' vis + '+S.mois+' SWIR IEEE 1588 slave'+(segmented?' · 2 segments':'')+'</small>';
+    var segCam=Math.ceil(n/2);
+    var segLoad=segCam*FPS*MP*8/1000 + (S.mois>0?MOIS_FPS*MOIS_MP*8/1000:0);
+    $('d-net').innerHTML = segmented
+      ? '2 × '+segCam+' cams<br><small>'+segLoad.toFixed(1)+' Gbps per uplink ('+Math.round(segLoad/10*100)+'% of 10G)</small>'
+      : '1 switch<br><small>'+num(Math.round(bwMbps/1000))+' Gbps trunk</small>';
+    var warnEl=$('pwr-warn');
+    var warns=[];
+    if(S.power==='poe-switch' && !poeFromSwitch){
+      warns.push('⚠️ “PoE from switch” needs 802.3af/at ports on the access switches — the selected parts have none, so PoE midspan injectors are added instead.');
+    }
+    if(S.net==='seg2plain'){
+      warns.push('⚠️ Non-PTP build: the leaf/core switches have no IEEE 1588 — the fleet still runs (host arrival stamps, .bin v2) but cross-camera alignment degrades to ms class (§2s).');
+    }
+    if(S.net==='seg2plain' && S.gm!=='none'){
+      warns.push('⚠️ Grandmaster selected with a non-PTP network: its accuracy is lost at the first queueing hop (§2s) — either switch the topology to “2 segments — PTP” or set the grandmaster to “None”.');
+    }
+    if(warns.length){
+      warnEl.innerHTML=warns.join('<br>');
+      warnEl.classList.add('on');
+    } else {
+      warnEl.innerHTML='';
+      warnEl.classList.remove('on');
+    }
+    var pwrVal, pwrSub;
+    if(poeW>0){ pwrVal='≈ '+num(poeW)+' W PoE'; pwrSub=n+' cams × 8 W (802.3af incl. margin)'; }
+    else if(S.power==='dc24'){ pwrVal='24 VDC bus'; pwrSub='camera bus isolated from strobe PSUs'; }
+    else { pwrVal=segmented?'PoE via leaf switch':'PoE via switch'; pwrSub=segmented?'802.3af/at leaf ports power the drops':'802.3bt PoE++ ports power the drops'; }
+    if(S.light==='none'){ pwrSub+=' · no strobes'; }
+    $('d-pwr').innerHTML = pwrVal+'<br><small>'+pwrSub+'</small>';
+    var nLater=rows.filter(function(r){return r.phase==='later';}).length;
+    var nNever=rows.filter(function(r){return r.phase==='never';}).length;
+    $('d-first').innerHTML = money(totalFirst)+' <small>('+Math.round(totalFirst/targetTotal*100)+'% of target)</small>';
+    $('d-first-sub').innerHTML = 'phase 1 · '+(rows.length-nLater-nNever)+' line items · target adds '+money(totalLater)+' later';
+    $('d-total').innerHTML = money(targetTotal);
+    $('d-total-sub').innerHTML = 'phases 1 + 2 · '+nLater+' line items deferred ('+money(totalLater)+')';
+    $('l-first').innerHTML = money(totalFirst);
+    $('l-later').innerHTML = money(totalLater)+' <small>('+nLater+' items)</small>';
+    $('l-never').innerHTML = (nNever>0 ? money(totalNever)+' <small>('+nNever+' items)</small>' : '—');
+    $('l-target').innerHTML = money(targetTotal);
+    return {rows:rows,total:total,target:targetTotal,first:totalFirst,later:totalLater,never:totalNever,S:S};
+  }
+
+  var lastResult=null;
+  function recalc(){ lastResult=calc(); }
+  ['s-plan','s-cams','s-tier','s-mix','s-lens','s-housing','s-light','s-mois','s-mois-light','s-pyro','s-lwir','s-client','s-net','s-uplink','s-gpu','s-power','s-sw','s-gm','s-eday','s-ret'].forEach(function(id){
+    $(id).addEventListener('change',recalc);
+  });
+
+  $('bom-copy').addEventListener('click',function(){
+    if(!lastResult) return;
+    var lines=['web_vision_pro BoM — '+new Date().toISOString().slice(0,10),''];
+    var lastG='';
+    lastResult.rows.forEach(function(r){
+      if(r.g!==lastG){ lines.push(''); lines.push('['+r.g+']'); lastG=r.g; }
+      var tag = r.phase==='later' ? '   [target only — phase 2]' : r.phase==='never' ? '   [not bought]' : '';
+      lines.push(num(r.qty)+' × '+r.name+' @ '+money(r.unit)+'  =  '+money(r.qty*r.unit)+tag);
+    });
+    lines.push('');
+    lines.push('FIRST BUY (phase 1)   $'+num(lastResult.first));
+    lines.push('DEFERRED (phase 2)    $'+num(lastResult.later));
+    lines.push('NOT BOUGHT            $'+num(lastResult.never));
+    lines.push('TARGET (phases 1+2)   $'+num(lastResult.target));
+    var ta=document.createElement('textarea');
+    ta.value=lines.join('\n');
+    document.body.appendChild(ta);
+    ta.select();
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(ta);
+    $('bom-copy').textContent='Copied ✓';
+    setTimeout(function(){$('bom-copy').textContent='Copy plain-text BoM';},1600);
+  });
+
+  recalc();
+})();
+</script>
+</body></html>
