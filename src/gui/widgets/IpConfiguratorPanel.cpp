@@ -380,9 +380,10 @@ void IpConfiguratorPanel::onTableSelectionChanged() {
         clearEditor();
         return;
     }
-    modeCombo_->setEnabled(adminMode_);
-    applyBtn_->setEnabled(adminMode_ && !applyInFlight_);
-    forceIpBtn_->setEnabled(adminMode_ && !applyInFlight_);
+    const bool editable = accessRole_ == AccessRole::Administrator;
+    modeCombo_->setEnabled(editable);
+    applyBtn_->setEnabled(editable && !applyInFlight_);
+    forceIpBtn_->setEnabled(editable && !applyInFlight_);
     loadRowIntoEditor(row);
     onModeChanged(0);
 }
@@ -398,7 +399,7 @@ void IpConfiguratorPanel::loadRowIntoEditor(int row) {
 }
 
 void IpConfiguratorPanel::onModeChanged(int) {
-    const bool editable = adminMode_ && table_->currentRow() >= 0;
+    const bool editable = accessRole_ == AccessRole::Administrator && table_->currentRow() >= 0;
     const bool staticMode = editable && modeCombo_->currentData().toString() == QStringLiteral("Static");
     ipEdit_->setEnabled(staticMode);
     maskEdit_->setEnabled(staticMode);
@@ -446,8 +447,9 @@ void IpConfiguratorPanel::onApplyClicked() {
 
 void IpConfiguratorPanel::setApplyResult(bool ok, const QString& message) {
     applyInFlight_ = false;
-    applyBtn_->setEnabled(table_->currentRow() >= 0 && adminMode_);
-    forceIpBtn_->setEnabled(table_->currentRow() >= 0 && adminMode_);
+    const bool editable = accessRole_ == AccessRole::Administrator && table_->currentRow() >= 0;
+    applyBtn_->setEnabled(editable);
+    forceIpBtn_->setEnabled(editable);
     statusLabel_->setText(message);
     // Refresh on success (camera restarts its network stack) and on failure
     // (the discovery list may have gone stale since the last scan).
@@ -469,8 +471,11 @@ void IpConfiguratorPanel::clearEditor() {
     onModeChanged(0);
 }
 
-void IpConfiguratorPanel::setAdminMode(bool isAdmin) {
-    adminMode_ = isAdmin;
+void IpConfiguratorPanel::setAccessRole(AccessRole role) {
+    accessRole_ = role;
+    // Re-addressable camera networking is an Administrator task; Engineers
+    // open the panel read-only with the rest of System Configuration.
+    const bool isAdmin = role == AccessRole::Administrator;
     refreshBtn_->setEnabled(true);
     table_->setEnabled(isAdmin);
     modeCombo_->setEnabled(isAdmin && table_->currentRow() >= 0);

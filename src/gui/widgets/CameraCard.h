@@ -10,6 +10,7 @@
 #include <QSet>
 #include <vector>
 #include "../../config/CameraConfig.h"
+#include "../../config/UserStore.h"
 #include "../../core/CameraManager.h"
 #include "IconManager.h"
 
@@ -76,6 +77,10 @@ public:
     void setNetworkConfig(const QString& ip, const QString& mask, const QString& gateway);
     void setStatus(const QString& text, const QColor& color);
     void setEditable(bool editable);
+    // Gates the card's own affordances (the Edit checkbox and the remove
+    // button) for the session role: Administrator only, since editing a card
+    // writes camera configuration.
+    void setAccessRole(AccessRole role);
     void updateMacCombo(const std::vector<GigEDeviceInfo>& devices, const QString& current,
                         const QSet<QString>& reservedMacs);
 

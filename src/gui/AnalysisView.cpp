@@ -5096,8 +5096,10 @@ void AnalysisView::setDeleteEnabled(bool enabled) {
         deleteButton_->setEnabled(enabled);
     }
 
-    // Instant Clear follows the same admin + delete-mode gate.
-    const bool canClear = enabled && adminMode_;
+    // Instant Clear is an Engineer capability and deliberately independent of
+    // the (Administrator-only) delete mode: it trims the log, it does not
+    // delete selected records, so an engineer can always use it.
+    const bool canClear = hasAtLeast(accessRole_, AccessRole::Engineer);
     if (instantClearButton_) {
         instantClearButton_->setEnabled(canClear);
     }
@@ -7116,26 +7118,32 @@ void AnalysisView::keyReleaseEvent(QKeyEvent* event) {
     }
 }
 
-void AnalysisView::setAdminMode(bool isAdmin) {
-    adminMode_ = isAdmin;
+void AnalysisView::setAccessRole(AccessRole role) {
+    accessRole_ = role;
+
+    // Event deletion (the delete-mode switch feeding Delete Selected) is
+    // Administrator-only.
     if (enableDeleteCheck_) {
-        enableDeleteCheck_->setEnabled(isAdmin);
-        if (!isAdmin) {
+        const bool canDelete = role == AccessRole::Administrator;
+        enableDeleteCheck_->setEnabled(canDelete);
+        if (!canDelete) {
             enableDeleteCheck_->setChecked(false);
         }
     }
 
-    // Instant Clear is destructive — admin only, and requires delete mode to
-    // be enabled so it can never be pressed accidentally by an operator.
+    // The metadata overlay choice is an Administrator preference; everyone
+    // else sees whatever the preferences set.
+    if (metadataDisplayCombo_) {
+        metadataDisplayCombo_->setEnabled(role == AccessRole::Administrator);
+    }
+
+    // Instant Clear: Engineer and above, independent of delete mode.
+    const bool canClear = hasAtLeast(role, AccessRole::Engineer);
     if (instantClearButton_) {
-        instantClearButton_->setEnabled(isAdmin && enableDeleteCheck_
-            ? enableDeleteCheck_->isChecked()
-            : false);
+        instantClearButton_->setEnabled(canClear);
     }
     if (instantClearKeepSpin_) {
-        instantClearKeepSpin_->setEnabled(isAdmin && enableDeleteCheck_
-            ? enableDeleteCheck_->isChecked()
-            : false);
+        instantClearKeepSpin_->setEnabled(canClear);
     }
 
     updatePermanentButtonLabel();
@@ -7158,7 +7166,7 @@ void AnalysisView::updatePermanentButtonLabel() {
         }
     }
 
-    permanentButton_->setEnabled(hasSelection);
+    permanentButton_->setEnabled(hasSelection && accessRole_ == AccessRole::Administrator);
     permanentButton_->setText(allPermanent ? "Remove Permanent" : "Mark Permanent");
 }
 

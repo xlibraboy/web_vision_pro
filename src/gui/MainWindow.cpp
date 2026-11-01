@@ -158,11 +158,11 @@ QIcon makeCapsLockIcon(const QColor& color) {
     return QIcon(pm);
 }
 
-class AdminLoginDialog : public QDialog {
+class RoleLoginDialog : public QDialog {
 public:
-    explicit AdminLoginDialog(QWidget* parent = nullptr)
+    explicit RoleLoginDialog(QWidget* parent = nullptr)
         : QDialog(parent) {
-        setWindowTitle("Administrator Login");
+        setWindowTitle("Login");
         setModal(true);
         setFixedWidth(340);
 
@@ -171,14 +171,18 @@ public:
         root->setSpacing(10);
 
         // ── Header ──
-        QLabel* titleLabel = new QLabel("Administrator Login", this);
+        QLabel* titleLabel = new QLabel("Sign In", this);
         QFont titleFont = titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSize(titleFont.pointSize() + 2);
+        // The app font carries a pixel size (pointSize() is -1), so the title
+        // takes its size from the named type scale like everything else; the
+        // old pointSize()+2 arithmetic rendered it at ~1pt.
+        titleFont.setPixelSize(UiTypeScale::kDisplay);
         titleLabel->setFont(titleFont);
         root->addWidget(titleLabel);
 
-        QLabel* subtitleLabel = new QLabel("Enter your credentials to access system configuration.", this);
+        QLabel* subtitleLabel = new QLabel(
+            "Sign in as Engineer or Administrator. Cancel stays in Operator mode.", this);
         subtitleLabel->setWordWrap(true);
         root->addWidget(subtitleLabel);
         root->addSpacing(4);
@@ -192,8 +196,9 @@ public:
 
         usernameCombo_ = new QComboBox(this);
         usernameCombo_->setEditable(true);
-        usernameCombo_->addItem("admin");
-        usernameCombo_->setCurrentText("admin");
+        for (const QString& name : UserStore::usernames()) {
+            usernameCombo_->addItem(name);
+        }
         usernameCombo_->setMinimumWidth(220);
         form->addRow("Username:", usernameCombo_);
 
@@ -337,7 +342,7 @@ private:
 }
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), currentFps_(0.0), frameCount_(0), isAdmin_(false) {
+    : QMainWindow(parent), currentFps_(0.0), frameCount_(0) {
     
     // Initialize throttle flags
     for (int i = 0; i < 16; ++i) {
@@ -575,7 +580,8 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
         const QString message = QString("Camera startup blocked due to invalid configuration:\n%1").arg(validationErrors.join("\n"));
         statusBar()->showMessage("Camera startup blocked by invalid network configuration.", 5000);
         QMessageBox::warning(this, "Invalid Camera Configuration", message);
-        pauseBtn_->setEnabled(false);
+        pauseAllowedByState_ = false;
+        updatePauseButtonEnabled();
         if (analysisView_) {
             analysisView_->setServerRunning(false);
         }
@@ -597,7 +603,8 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
             // while the async camera restart was in progress. Always null-check before use.
             if (success) {
                 statusBar()->showMessage("Acquisition running", 3000);
-                pauseBtn_->setEnabled(true);
+                pauseAllowedByState_ = true;
+                updatePauseButtonEnabled();
                 if (configWindow_) {
                     configWindow_->setEnabled(true);
                 }
@@ -609,7 +616,8 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
             }
 
             statusBar()->showMessage("Camera startup failed. Check camera connections and configuration.", 5000);
-            pauseBtn_->setEnabled(false);
+            pauseAllowedByState_ = false;
+            updatePauseButtonEnabled();
             if (analysisView_) {
                 analysisView_->setServerRunning(false);
             }
@@ -625,7 +633,8 @@ void MainWindow::startCameraLifecycleAsync(bool restart, const QString& reason) 
     if (analysisView_) {
         analysisView_->setServerConnecting(true);
     }
-    pauseBtn_->setEnabled(false);
+    pauseAllowedByState_ = false;
+    updatePauseButtonEnabled();
     if (configWindow_) {
         configWindow_->setEnabled(false);
     }
@@ -873,7 +882,8 @@ void MainWindow::setupUi() {
             startCameraLifecycleAsync(false, "Starting camera acquisition...");
         } else {
             cameraManager_->stopAcquisition();
-            pauseBtn_->setEnabled(false);
+            pauseAllowedByState_ = false;
+            updatePauseButtonEnabled();
             statusBar()->showMessage("Vision system offline — camera acquisition stopped.", 3000);
         }
     });
@@ -910,15 +920,18 @@ void MainWindow::setupUi() {
     // View Menu - Grid Layout Options
     QMenu* viewMenu = menu->addMenu("View");
     
-    // Grid layouts (removed "Live View" and "Analysis View" from submenu)
-    viewMenu->addAction("Grid 1x1", [this]() { changeLayout(1, 1); });
-    viewMenu->addAction("Grid 1x2", [this]() { changeLayout(1, 2); });
-    viewMenu->addAction("Grid 2x1", [this]() { changeLayout(2, 1); });
-    viewMenu->addAction("Grid 2x2", [this]() { changeLayout(2, 2); });
-    viewMenu->addAction("Grid 2x3", [this]() { changeLayout(2, 3); });
-    viewMenu->addAction("Grid 3x3", [this]() { changeLayout(3, 3); });
-    viewMenu->addAction("Grid 4x3", [this]() { changeLayout(4, 3); });
-    viewMenu->addAction("Grid 5x4", [this]() { changeLayout(5, 4); });
+    // Grid layouts (removed "Live View" and "Analysis View" from submenu).
+    // The picks are Engineer-gated; applyRoleToUi() enables them per session.
+    gridLayoutActions_ = {
+        viewMenu->addAction("Grid 1x1", [this]() { changeLayout(1, 1); }),
+        viewMenu->addAction("Grid 1x2", [this]() { changeLayout(1, 2); }),
+        viewMenu->addAction("Grid 2x1", [this]() { changeLayout(2, 1); }),
+        viewMenu->addAction("Grid 2x2", [this]() { changeLayout(2, 2); }),
+        viewMenu->addAction("Grid 2x3", [this]() { changeLayout(2, 3); }),
+        viewMenu->addAction("Grid 3x3", [this]() { changeLayout(3, 3); }),
+        viewMenu->addAction("Grid 4x3", [this]() { changeLayout(4, 3); }),
+        viewMenu->addAction("Grid 5x4", [this]() { changeLayout(5, 4); }),
+    };
     viewMenu->addSeparator(); // Divider added
     customLayoutAction_ = viewMenu->addAction("Custom Grid...");
     connect(customLayoutAction_, &QAction::triggered, this, &MainWindow::promptCustomLayout);
@@ -983,23 +996,28 @@ void MainWindow::setupUi() {
     diskBadgeTimer_.start(15000);
     refreshDiskBadge();
 
-    // Administrator login/logout: the single admin affordance, a clickable
-    // pill in the bottom-right status cluster (the former tab-bar corner
-    // button was removed — it duplicated this state and read as stray text
-    // on the tab-bar row). ToggleAdmin drives the state; the pill text,
-    // tooltip and tint follow it in updateAdminStatusIndicator().
-    adminStatusButton_ = new QPushButton(this);
-    adminStatusButton_->setObjectName("adminStatusButton");
-    adminStatusButton_->setFlat(true);
-    adminStatusButton_->setCursor(Qt::PointingHandCursor);
-    connect(adminStatusButton_, &QPushButton::clicked, this, &MainWindow::toggleAdmin);
+    // Session role control: the single login affordance, a clickable pill in
+    // the bottom-right status cluster (the former tab-bar corner button was
+    // removed — it duplicated this state and read as stray text on the
+    // tab-bar row). ToggleSession drives the state; the pill text, tooltip
+    // and tint follow it in updateRoleStatusIndicator().
+    roleStatusButton_ = new QPushButton(this);
+    roleStatusButton_->setObjectName("roleStatusButton");
+    roleStatusButton_->setFlat(true);
+    roleStatusButton_->setCursor(Qt::PointingHandCursor);
+    connect(roleStatusButton_, &QPushButton::clicked, this, &MainWindow::toggleSession);
     // The pill fills with the accent while held down, so the padlock (a
     // code-drawn pixmap — QSS recolors text and fill, never a pixmap) swaps
     // to the pill's ink color for the duration of the press.
-    connect(adminStatusButton_, &QPushButton::pressed, this, [this]() { updateAdminButtonIcon(true); });
-    connect(adminStatusButton_, &QPushButton::released, this, [this]() { updateAdminButtonIcon(false); });
-    statusBar()->addPermanentWidget(adminStatusButton_);
-    updateAdminStatusIndicator();
+    connect(roleStatusButton_, &QPushButton::pressed, this, [this]() { updateRoleButtonIcon(true); });
+    connect(roleStatusButton_, &QPushButton::released, this, [this]() { updateRoleButtonIcon(false); });
+    statusBar()->addPermanentWidget(roleStatusButton_);
+    updateRoleStatusIndicator();
+
+    // The menu's grid-layout picks and the pause button follow the role, and
+    // they are created after the earlier updateConfigTabAccess() call, so the
+    // full role fan-out runs once the last gated control exists.
+    applyRoleToUi();
 
     // Initial Status
     statusBar()->showMessage("System Initialized");
@@ -1355,9 +1373,9 @@ void MainWindow::showGrid() {
         .arg(liveDashboard_->getCurrentCols()));
 }
 
-void MainWindow::toggleAdmin() {
-    if (isAdmin_) {
-        // Logout
+void MainWindow::toggleSession() {
+    if (hasAtLeast(currentRole_, AccessRole::Engineer)) {
+        // Sign out: leave the configuration tab before it locks back down.
         if (mainTabWidget_ && configWindow_) {
             const int configIndex = mainTabWidget_->indexOf(configWindow_);
             if (configIndex >= 0 && mainTabWidget_->currentIndex() == configIndex) {
@@ -1365,106 +1383,182 @@ void MainWindow::toggleAdmin() {
             }
         }
 
-        isAdmin_ = false;
-        statusBar()->showMessage("Administrator Logged Out");
-        
-        if (analysisView_) {
-            analysisView_->setAdminMode(false);
-        }
+        currentRole_ = AccessRole::Operator;
+        currentUser_.clear();
+        statusBar()->showMessage("Signed out — Operator mode");
+        applyRoleToUi();
     } else {
-        promptAdminLogin();
+        promptLogin();
     }
-    
-    if (detailView_) {
-        detailView_->setAdminMode(isAdmin_);
-    }
-
-    updateConfigTabAccess();
-    updateAdminStatusIndicator();
 }
 
-bool MainWindow::promptAdminLogin() {
-    if (isAdmin_) {
+bool MainWindow::promptLogin() {
+    if (hasAtLeast(currentRole_, AccessRole::Engineer)) {
         return true;
     }
 
-    AdminLoginDialog loginDialog(this);
+    RoleLoginDialog loginDialog(this);
+    UserAccount account;
     while (true) {
         loginDialog.clearInvalidPasswordState();
         if (loginDialog.exec() != QDialog::Accepted) {
             return false;
         }
 
-        if (loginDialog.username() == "admin" && loginDialog.password() == "admin") {
+        if (UserStore::verifyCredentials(loginDialog.username(), loginDialog.password(), &account)) {
             break;
         }
 
         loginDialog.showInvalidPasswordState();
     }
 
-    isAdmin_ = true;
-    statusBar()->showMessage("Administrator Logged In");
+    currentUser_ = account.username;
+    currentRole_ = account.role;
+    statusBar()->showMessage(QString("Signed in as %1 (%2)")
+                                 .arg(currentUser_, accessRoleName(currentRole_)));
 
-    if (analysisView_) {
-        analysisView_->setAdminMode(true);
-    }
-    if (detailView_) {
-        detailView_->setAdminMode(true);
-    }
-
-    updateConfigTabAccess();
-    updateAdminStatusIndicator();
+    applyRoleToUi();
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// updateAdminStatusIndicator — keep the status-bar admin pill in step with the
-// session state: label, tooltip, padlock tint, and the [adminActive] property
-// that drives the pill's colors (see the QSS in applyGlobalTheme). Safe to
-// call repeatedly; the icon is a code-drawn pixmap, not a stylesheet image, so
-// it is re-tinted here on every state and theme change.
+// applyRoleToUi — the single fan-out for the role model: every gated surface
+// reads currentRole_, so a sign-in or sign-out only has to call this. Safe to
+// call repeatedly and safe before any gated surface exists (all guarded).
 // ---------------------------------------------------------------------------
-void MainWindow::updateAdminStatusIndicator() {
-    if (!adminStatusButton_) {
+void MainWindow::applyRoleToUi() {
+    if (analysisView_) {
+        analysisView_->setAccessRole(currentRole_);
+    }
+    if (detailView_) {
+        detailView_->setAccessRole(currentRole_);
+    }
+
+    updatePauseButtonEnabled();
+
+    // Changing the live grid layout is an Engineer capability; the picks are
+    // disabled (not hidden) so the menu keeps its shape for everyone.
+    const bool canPickLayout = hasAtLeast(currentRole_, AccessRole::Engineer);
+    for (QAction* action : gridLayoutActions_) {
+        action->setEnabled(canPickLayout);
+    }
+    if (customLayoutAction_) {
+        customLayoutAction_->setEnabled(canPickLayout);
+    }
+
+    updateConfigTabAccess();
+    updateRoleStatusIndicator();
+}
+
+void MainWindow::updatePauseButtonEnabled() {
+    if (!pauseBtn_) {
         return;
     }
 
-    const ThemeColors tc = CameraConfig::getThemeColors();
-    adminStatusButton_->setText(isAdmin_ ? "Admin: On" : "Admin: Off");
-    adminStatusButton_->setToolTip(isAdmin_ ? "Administrator mode enabled — click to log out"
-                                            : "Administrator mode disabled — click to log in");
-    // State-aware accessible name: the terse pill text alone ("Admin: Off")
-    // does not say what activating the button does.
-    adminStatusButton_->setAccessibleName(isAdmin_ ? "Administrator mode enabled, log out"
-                                                   : "Administrator mode disabled, log in");
-
-    // Padlock drawn in code like the app's other programmatic icons; tinted
-    // per state (ink while pressed, accent logged in, muted logged out).
-    updateAdminButtonIcon(adminStatusButton_->isDown());
-
-    adminStatusButton_->setProperty("adminActive", isAdmin_);
-    adminStatusButton_->style()->unpolish(adminStatusButton_);
-    adminStatusButton_->style()->polish(adminStatusButton_);
+    pauseBtn_->setEnabled(pauseAllowedByState_ && hasAtLeast(currentRole_, AccessRole::Engineer));
 }
 
-void MainWindow::updateAdminButtonIcon(bool pressed) {
-    if (!adminStatusButton_) {
+// ---------------------------------------------------------------------------
+// syncSessionWithUserStore — the Users page can change the signed-in account
+// while it is in use (rename is impossible, but a role change or removal by
+// another administrator is not). Re-read it: adopt a changed role live, and
+// fall back to the Operator session when the account is gone.
+// ---------------------------------------------------------------------------
+void MainWindow::syncSessionWithUserStore() {
+    if (currentUser_.isEmpty()) {
+        return;
+    }
+
+    AccessRole updatedRole = AccessRole::Operator;
+    bool found = false;
+    for (const UserAccount& account : UserStore::users()) {
+        if (account.username.compare(currentUser_, Qt::CaseInsensitive) == 0) {
+            found = true;
+            updatedRole = account.role;
+            currentUser_ = account.username;
+            break;
+        }
+    }
+
+    if (!found) {
+        currentUser_.clear();
+        currentRole_ = AccessRole::Operator;
+        statusBar()->showMessage("Your account was removed — signed out to Operator mode.", 5000);
+        applyRoleToUi();
+        return;
+    }
+
+    if (updatedRole != currentRole_) {
+        currentRole_ = updatedRole;
+        statusBar()->showMessage(
+            QString("Your role is now %1.").arg(accessRoleName(currentRole_)), 5000);
+        applyRoleToUi();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// updateRoleStatusIndicator — keep the status-bar session pill in step with
+// the current role: label, tooltip, padlock tint, and the [roleElevated]
+// property that drives the pill's colors (see the QSS in applyGlobalTheme).
+// Safe to call repeatedly; the icon is a code-drawn pixmap, not a stylesheet
+// image, so it is re-tinted here on every state and theme change.
+// ---------------------------------------------------------------------------
+void MainWindow::updateRoleStatusIndicator() {
+    if (!roleStatusButton_) {
+        return;
+    }
+
+    const bool elevated = hasAtLeast(currentRole_, AccessRole::Engineer);
+
+    QString pillText = accessRoleName(currentRole_);
+    if (currentRole_ == AccessRole::Engineer) {
+        pillText = QString("Engineer: %1").arg(currentUser_);
+    } else if (currentRole_ == AccessRole::Administrator) {
+        pillText = QString("Admin: %1").arg(currentUser_);
+    }
+
+    roleStatusButton_->setText(pillText);
+    roleStatusButton_->setToolTip(elevated
+        ? QString("Signed in as %1 (%2) — click to sign out")
+              .arg(currentUser_, accessRoleName(currentRole_))
+        : QStringLiteral("Operator session (read-only) — click to sign in as Engineer or Administrator"));
+    // State-aware accessible name: the terse pill text alone does not say
+    // what activating the button does.
+    roleStatusButton_->setAccessibleName(elevated
+        ? QString("Signed in as %1, %2, sign out").arg(currentUser_, accessRoleName(currentRole_))
+        : QStringLiteral("Operator session, sign in"));
+
+    // Padlock drawn in code like the app's other programmatic icons; tinted
+    // per state (ink while pressed, accent while elevated, muted below).
+    updateRoleButtonIcon(roleStatusButton_->isDown());
+
+    roleStatusButton_->setProperty("roleElevated", elevated);
+    roleStatusButton_->style()->unpolish(roleStatusButton_);
+    roleStatusButton_->style()->polish(roleStatusButton_);
+}
+
+void MainWindow::updateRoleButtonIcon(bool pressed) {
+    if (!roleStatusButton_) {
         return;
     }
 
     const ThemeColors tc = CameraConfig::getThemeColors();
     constexpr int kIconSz = 12;
     const QColor tint = pressed ? QColor(tc.bg)
-                                : (isAdmin_ ? QColor(tc.primary) : QColor(tc.muted));
-    adminStatusButton_->setIconSize(QSize(kIconSz, kIconSz));
-    adminStatusButton_->setIcon(QIcon(makePadlockPixmap(tint, kIconSz)));
+                                : (hasAtLeast(currentRole_, AccessRole::Engineer)
+                                       ? QColor(tc.primary)
+                                       : QColor(tc.muted));
+    roleStatusButton_->setIconSize(QSize(kIconSz, kIconSz));
+    roleStatusButton_->setIcon(QIcon(makePadlockPixmap(tint, kIconSz)));
 }
 
 void MainWindow::openRecordingSettings() {
-    // Reuse the full flow: admin login check, config-tab creation, access update,
-    // and switching to the tab. Then drill into the Recording & Triggers page.
+    // Reuse the full flow: login check, config-tab creation, access update,
+    // and switching to the tab. Then drill into the Recording & Triggers page
+    // — but only when the session was elevated (or already was): a cancelled
+    // login must leave the (disabled) tab alone.
     openSystemConfiguration();
-    if (configWindow_) {
+    if (configWindow_ && hasAtLeast(currentRole_, AccessRole::Engineer)) {
         configWindow_->showRecordingSettingsPage();
     }
 }
@@ -1587,6 +1681,12 @@ void MainWindow::ensureConfigTab() {
             applyGlobalTheme();
         });
 
+        // The Users page changed the account store: the signed-in session may
+        // be affected too (own role changed, or the account was removed).
+        connect(configWindow_, &ConfigDialog::userAccountsChanged, this, [this]() {
+            syncSessionWithUserStore();
+        });
+
         connect(configWindow_, &ConfigDialog::cameraDeviceSettingsChanged, this,
                 [this](int cameraIndex, const CameraInfo& info) {
                     // The acquisition fps may have changed: resize the ring
@@ -1655,13 +1755,23 @@ void MainWindow::updateConfigTabAccess() {
         return;
     }
 
-    mainTabWidget_->setTabEnabled(tabIndex, isAdmin_);
+    // System Configuration opens for Engineers (read-only) and Administrators.
+    const bool canOpenConfig = hasAtLeast(currentRole_, AccessRole::Engineer);
+    mainTabWidget_->setTabEnabled(tabIndex, canOpenConfig);
     const ThemeColors tc = CameraConfig::getThemeColors();
-    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, isAdmin_ ? QColor(tc.text) : QColor(tc.disabled));
-    configWindow_->setAdminMode(isAdmin_);
+    mainTabWidget_->tabBar()->setTabTextColor(tabIndex, canOpenConfig ? QColor(tc.text) : QColor(tc.disabled));
+    configWindow_->setAccessRole(currentRole_);
+    configWindow_->setSessionUser(currentUser_);
 }
 
 void MainWindow::changeLayout(int rows, int cols) {
+    // The menu picks are role-gated; this guard also covers the Custom Grid
+    // path and any future programmatic caller.
+    if (!hasAtLeast(currentRole_, AccessRole::Engineer)) {
+        statusBar()->showMessage("Engineer login required to change the grid layout.", 3000);
+        return;
+    }
+
     // Get number of cameras from config
     int numCameras = CameraConfig::getCameraCount();
     
@@ -1681,6 +1791,11 @@ void MainWindow::changeLayout(int rows, int cols) {
 }
 
 void MainWindow::promptCustomLayout() {
+    if (!hasAtLeast(currentRole_, AccessRole::Engineer)) {
+        statusBar()->showMessage("Engineer login required to change the grid layout.", 3000);
+        return;
+    }
+
     bool ok;
     QString text = QInputDialog::getText(this, "Custom Grid Layout",
                                          "Enter rows and columns (e.g., '2 3' for 2 rows, 3 columns):", 
@@ -1767,8 +1882,8 @@ void MainWindow::showLiveViewWindow() {
 }
 
 void MainWindow::openSystemConfiguration() {
-    if (!promptAdminLogin()) {
-        statusBar()->showMessage("Administrator login required for System Configuration.", 3000);
+    if (!promptLogin()) {
+        statusBar()->showMessage("Engineer login required for System Configuration.", 3000);
         return;
     }
 
@@ -1917,22 +2032,23 @@ void MainWindow::applyGlobalTheme() {
         "QMainWindow, QDialog { background-color: %1; color: %8; }"
         "QMainWindow QWidget, QDialog QWidget { background-color: %1; color: %8; }"
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, QGroupBox:disabled, QGroupBox::title:disabled { color: %10; }"
-        // Administrator session pill (status bar, clickable): quiet neutral
-        // while logged out, accent-tinted while an admin session is active —
-        // the same pill language as the emulation and low-disk badges.
-        "QPushButton#adminStatusButton { background-color: %3; color: %20; "
+        // Session role pill (status bar, clickable): quiet neutral for the
+        // Operator session, accent-tinted while an Engineer or Administrator
+        // is signed in — the same pill language as the emulation and low-disk
+        // badges.
+        "QPushButton#roleStatusButton { background-color: %3; color: %20; "
         "  border: 1px solid %2; border-radius: 10px; padding: 3px 12px; "
         "  font-weight: bold; font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; }"
-        "QPushButton#adminStatusButton:hover { background-color: %4; color: %8; border-color: %5; }"
-        "QPushButton#adminStatusButton:focus { border: 1px solid %18; }"
+        "QPushButton#roleStatusButton:hover { background-color: %4; color: %8; border-color: %5; }"
+        "QPushButton#roleStatusButton:focus { border: 1px solid %18; }"
         // The pressed rules must follow the hover rules: a click is always
         // also a hover, and the accent-ID selectors tie on specificity, so
         // rule order is what lets the press fill win.
-        "QPushButton#adminStatusButton:pressed { background-color: %5; color: %1; border-color: %5; }"
-        "QPushButton#adminStatusButton[adminActive='true'] { background-color: %21; "
+        "QPushButton#roleStatusButton:pressed { background-color: %5; color: %1; border-color: %5; }"
+        "QPushButton#roleStatusButton[roleElevated='true'] { background-color: %21; "
         "  color: %5; border: 1px solid %5; }"
-        "QPushButton#adminStatusButton[adminActive='true']:hover { background-color: %22; }"
-        "QPushButton#adminStatusButton[adminActive='true']:pressed { background-color: %5; color: %1; }"
+        "QPushButton#roleStatusButton[roleElevated='true']:hover { background-color: %22; }"
+        "QPushButton#roleStatusButton[roleElevated='true']:pressed { background-color: %5; color: %1; }"
         // Live capture readout (status bar): FPS for every view, red while an
         // event recording is in progress.
         "QLabel#liveStatusLabel { padding: 0 8px; color: %8; font-weight: bold; }"
@@ -2037,12 +2153,12 @@ void MainWindow::applyGlobalTheme() {
     if (docsDialog_) docsDialog_->updateTheme();
     if (changelogDialog_) changelogDialog_->updateTheme();
 
-    // The admin pill's padlock is a code-drawn pixmap, so re-tint it for the
+    // The role pill's padlock is a code-drawn pixmap, so re-tint it for the
     // new theme (its colors otherwise follow the stylesheet automatically).
-    updateAdminStatusIndicator();
+    updateRoleStatusIndicator();
 
-    // The System Configuration tab carries a code-set ink (accent for an admin
-    // session, disabled otherwise) that the stylesheet does not own.
+    // The System Configuration tab carries a code-set ink (accent for an
+    // elevated session, disabled otherwise) that the stylesheet does not own.
     updateConfigTabAccess();
 
     // Follow the desktop while ThemeMode::System is selected (and only then).

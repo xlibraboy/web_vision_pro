@@ -556,7 +556,7 @@ private:
     bool drawing_ = false;
 };
 
-DetailView::DetailView(QWidget *parent) : QWidget(parent), isAdmin_(false) {
+DetailView::DetailView(QWidget *parent) : QWidget(parent) {
     setupUi();
 }
 
@@ -780,7 +780,7 @@ void DetailView::setupUi() {
     buildRoiControls();
 
     applyLiveViewTypography();
-    setAdminMode(false); // Default state
+    setAccessRole(AccessRole::Operator); // Default state
 }
 
 void DetailView::buildAoiOverlay() {
@@ -1643,40 +1643,45 @@ void DetailView::applyTemperatureStyle() {
     }
 }
 
-void DetailView::setAdminMode(bool isAdmin) {
-    isAdmin_ = isAdmin;
-    
+void DetailView::setAccessRole(AccessRole role) {
+    accessRole_ = role;
+    // Engineers may touch every camera parameter and load a saved parameter
+    // set; only an Administrator may write one to disk. Below Engineer the
+    // whole panel is read-only.
+    const bool canTune = hasAtLeast(role, AccessRole::Engineer);
+    const bool canPersist = role == AccessRole::Administrator;
+
     if (controlGroup_) {
-        controlGroup_->setEnabled(isAdmin);
+        controlGroup_->setEnabled(canTune);
     }
-    
+
     // Enable/disable spinboxes
-    spinGain_->setEnabled(isAdmin);
-    spinExposure_->setEnabled(isAdmin);
-    spinGamma_->setEnabled(isAdmin);
-    spinContrast_->setEnabled(isAdmin);
-    
+    spinGain_->setEnabled(canTune);
+    spinExposure_->setEnabled(canTune);
+    spinGamma_->setEnabled(canTune);
+    spinContrast_->setEnabled(canTune);
+
     // Enable/disable sliders
-    sliderGain_->setEnabled(isAdmin);
-    sliderExposure_->setEnabled(isAdmin);
-    sliderGamma_->setEnabled(isAdmin);
-    sliderContrast_->setEnabled(isAdmin);
-    
-    btnSave_->setEnabled(isAdmin);
-    btnLoad_->setEnabled(isAdmin);
+    sliderGain_->setEnabled(canTune);
+    sliderExposure_->setEnabled(canTune);
+    sliderGamma_->setEnabled(canTune);
+    sliderContrast_->setEnabled(canTune);
+
+    btnSave_->setEnabled(canPersist);
+    btnLoad_->setEnabled(canTune);
 
     if (aoiChip_) {
-        aoiChip_->setEnabled(isAdmin);
-        if (!isAdmin && aoiChip_->isChecked()) {
+        aoiChip_->setEnabled(canTune);
+        if (!canTune && aoiChip_->isChecked()) {
             aoiChip_->setChecked(false);
         }
     }
     if (roiChip_) {
-        roiChip_->setEnabled(isAdmin);
-        if (!isAdmin && roiChip_->isChecked()) {
+        roiChip_->setEnabled(canTune);
+        if (!canTune && roiChip_->isChecked()) {
             roiChip_->setChecked(false);
         }
-        if (!isAdmin && roiOverlay_) {
+        if (!canTune && roiOverlay_) {
             roiOverlay_->setDrawing(false);
         }
     }

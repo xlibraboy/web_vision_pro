@@ -4,6 +4,7 @@
 #include <QString>
 #include <vector>
 #include "../../core/CameraManager.h"
+#include "../../config/UserStore.h"
 
 class QTableWidget;
 class QComboBox;
@@ -19,7 +20,7 @@ public:
     explicit IpConfiguratorPanel(QWidget* parent = nullptr);
 
     void refresh();
-    void setAdminMode(bool isAdmin);
+    void setAccessRole(AccessRole role);
     void setApplyResult(bool ok, const QString& message);
 
 signals:
@@ -59,6 +60,6 @@ private:
     QPushButton* refreshBtn_;
 
     std::vector<GigEDeviceInfo> devices_;
-    bool adminMode_ = true;
+    AccessRole accessRole_ = AccessRole::Operator;
     bool applyInFlight_ = false;
 };

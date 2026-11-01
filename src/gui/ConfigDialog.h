@@ -21,6 +21,7 @@
 #include "CameraInfo.h"
 #include "../core/CameraManager.h"
 #include "../config/CameraConfig.h"
+#include "../config/UserStore.h"
 #include "../communication/OpcUaRuntimeStatus.h"
 #include <array>
 #include <functional>
@@ -57,7 +58,14 @@ public:
     // ConfigDialog may be constructed before the CameraManager exists
     // (MainWindow: setupUi runs before setupCore). Re-wire it once created.
     void setCameraManager(CameraManager* manager);
-    void setAdminMode(bool isAdmin);
+    // The session role gating every page: Administrators get full access,
+    // Engineers may open the dialog read-only (Diagnostics keeps working),
+    // Operators cannot reach it at all (its tab stays disabled).
+    void setAccessRole(AccessRole role);
+    // The account signed in on the status-bar pill. The Users page marks it
+    // and refuses to delete it (the session would strand itself); MainWindow
+    // pushes it whenever the session changes.
+    void setSessionUser(const QString& username);
     // Wire the live OPC UA runtime status source (owned by MainWindow).
     void setOpcUaRuntimeSource(OpcUaClientService* service);
     // Switch the left sidebar to the Recording & Triggers page (used when the
@@ -82,6 +90,10 @@ signals:
     // trigger fires even before the settings are saved.
     void opcUaManualTriggerRequested(int tagIndex, bool held,
                                      const OpcUaTriggerTagSettings& tagSettings);
+
+    // A Users-page change touched the account store (added, edited or removed
+    // an account). MainWindow re-syncs the signed-in session with the store.
+    void userAccountsChanged();
 
 private slots:
     void saveCameraConfiguration();
@@ -110,6 +122,12 @@ private slots:
     void onNetworkRefreshTimerTick();
 
     // Fixed IP List panel
+
+    // Users page (Administrator only): account management applies immediately
+    // - account changes are not staged behind a page-level Save.
+    void onAddUserClicked();
+    void onEditUserClicked();
+    void onDeleteUserClicked();
 
 private:
     void setupUI();
@@ -155,6 +173,7 @@ private:
     void updateOpcUaDiscoveryStatus(const QString& message, bool detected);
     void updateOpcUaRuntimeStatus(const OpcUaRuntimeStatus& status);
     void refreshOpcUaSpeedDisplay();
+    void refreshUsersTable();
     // Reads the speed grid into settings (names and units defaulted) — used by
     // the save path and by the inline anchor note so both see the same rows.
     std::vector<OpcUaSpeedTagSettings> collectOpcUaSpeedTags() const;
@@ -414,7 +433,6 @@ private:
     // Premium Camera Setup UI
     QListWidget* sidebar_ = nullptr;
     NetworkSummaryHeader* networkSummaryHeader_;
-    QPushButton* addCameraBtn_;
 
     QScrollArea* cameraScrollArea_;
     QWidget* cameraScrollWidget_;
@@ -433,9 +451,22 @@ private:
     QTimer* networkRefreshTimer_ = nullptr;
     QTextEdit* connectionLogsBrowser_;
     QGroupBox* logsGroup_;
+    // The Diagnostics page's "Refresh Network" button: the one control an
+    // Engineer session keeps live (the rest of the page stays read-only).
+    QPushButton* diagRefreshBtn_ = nullptr;
 
-    // Admin mode
-    bool isAdminMode_;
+    // Users page: the account table, its actions and the sidebar row (hidden
+    // below Administrator). sessionUser_ is the signed-in account, marked in
+    // the table and protected from deletion.
+    QTableWidget* usersTable_ = nullptr;
+    QPushButton* usersAddBtn_ = nullptr;
+    QPushButton* usersEditBtn_ = nullptr;
+    QPushButton* usersDeleteBtn_ = nullptr;
+    QListWidgetItem* usersSidebarItem_ = nullptr;
+    QString sessionUser_;
+
+    // Session role (see setAccessRole)
+    AccessRole accessRole_ = AccessRole::Operator;
 
     struct PresetButtonGroup {
         QPushButton* btnS = nullptr;

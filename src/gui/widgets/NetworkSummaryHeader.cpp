@@ -197,7 +197,11 @@ void NetworkSummaryHeader::updateTheme() {
     const ThemeColors tc = theme();
 
     refreshBtn_->setStyleSheet(secondaryButtonStyle(tc));
-    addBtn_->setStyleSheet(primaryButtonStyle(tc));
+    // The disabled rule lets a read-only session's Add Camera button render
+    // inert (primaryButtonStyle carries no :disabled state of its own).
+    addBtn_->setStyleSheet(primaryButtonStyle(tc) +
+        QString("QPushButton:disabled { background-color: %1; color: %2; }")
+            .arg(tc.btnBg, tc.disabled));
 
     titleLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kDisplay) + "; font-weight: 700; color: %1;").arg(tc.text));
     summaryLabel_->setStyleSheet(QString("font-size: " + UiTypeScale::px(UiTypeScale::kBody) + "; color: %1;").arg(tc.muted));
@@ -218,6 +222,10 @@ void NetworkSummaryHeader::updateTheme() {
     refreshBtn_->setIcon(IconManager::instance().refresh(16));
     addBtn_->setIcon(IconManager::instance().getIcon(Icons::ADD, 16,
                                                      QColor(tc.onStatus), QColor(tc.onStatus)));
+}
+
+void NetworkSummaryHeader::setAddCameraEnabled(bool enabled) {
+    addBtn_->setEnabled(enabled);
 }
 
 void NetworkSummaryHeader::setupStyleSheet() {

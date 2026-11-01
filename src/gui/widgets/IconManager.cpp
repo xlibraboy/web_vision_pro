@@ -216,6 +216,16 @@ void IconManager::initializeIcons() {
             <path d="M12 18a2.5 2.5 0 0 1 0-5" stroke="{secondary}" stroke-width="2" stroke-linecap="round"/>
         </svg>
     )";
+
+    // User icon (head + shoulders)
+    iconData_[Icons::USER] = R"(
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="8" r="4" fill="{primary}" opacity="0.2"/>
+            <path d="M4 21v-1a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v1" fill="{primary}" opacity="0.2"/>
+            <circle cx="12" cy="8" r="4" stroke="{secondary}" stroke-width="2"/>
+            <path d="M4 21v-1a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v1" stroke="{secondary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    )";
 }
 
 QPixmap IconManager::renderSvg(const QString& svgData, int size,
@@ -404,6 +414,10 @@ QIcon IconManager::location(int size) {
 
 QIcon IconManager::thermometer(int size) {
     return getIcon(Icons::THERMOMETER, size);
+}
+
+QIcon IconManager::user(int size) {
+    return getIcon(Icons::USER, size);
 }
 
 // Status-aware icons
